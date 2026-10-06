@@ -1,0 +1,6 @@
+interface:
+  display_name: "FLASH CAST 视觉设计与视频"
+  short_description: "先判断无字或文案路线，再完成装修视觉、音乐、视频与质检"
+  default_prompt: "Use $flashcast-visual-design-video to choose the right presentation mode before writing copy. For space-showcase work, default to a music-first, copy-free visual sequence with no automatic English or CTA; use copy-led production only when the content genuinely requires explanation."
+policy:
+  allow_implicit_invocation: true

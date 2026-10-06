@@ -1,0 +1,842 @@
+{
+  "schema_version": "1.5",
+  "updated_at": "2026-10-05",
+  "routing_principles": [
+    "只调用完成任务所需的最少部门，不默认唤醒全部部门。",
+    "独立分析可以并行；有依赖的任务必须等待前置部门聊天回传和证据。",
+    "部门聊天是执行载体，logs/ 和 reports/ 是事实载体；任一缺失时任务不得标记完成。",
+    "路由失败、聊天不可见或部门无回传时，必须标记 blocked，不得假装已经分派。",
+    "命中非 operations 专业部门时，总控必须先发送到固定部门任务并等待，禁止在总控窗口调用专业 Skill 或代做交付物。",
+    "用户给予开放式创意授权只传递给目标部门，不改变部门归属。",
+    "所有聊天消息和计划任务在发送或创建前必须核对 source project、target project、固定任务 ID、标题和 cwd；任一不匹配即 blocked_cross_project。",
+    "FLASH CAST 总控不得向 Vendure、CloudBridge、购物网站、ID 系统或其他项目任务发送消息或创建计划任务。",
+    "普通表单体验、隐私、CTA、移动端和可访问状态属于内容/SEO/网站增长部；只有明确出现 GA4/GTM、转化追踪、归因、事件去重或业务送达对账时才加入付费增长与转化数据部。",
+    "老板新增seo-content-research与local-seo-maps；按注册表8角色路由。原content-organic-website保留网站实施和原active任务，研究/本地任务由新部门分担。",
+    "2026-10-05老板新增后台发布部；当前批次原负责人不变。新部先只读启动与准确CMS执行者接管QA，不继承旧许可；代码仍交老板指定装修网站开发，所有新跨项目交接按准确授权和policy。"
+  ],
+  "execution_policy": {
+    "specialist_route_controller_action": "dispatch_and_wait",
+    "controller_may_execute_specialist_work": false,
+    "dispatch_failure": "blocked_no_controller_fallback",
+    "message_success_required_for_sent_status": true,
+    "dependency_mode": "explicit_graph_with_legacy_parallel_follow_up_fallback"
+  },
+  "routes": [
+    {
+      "id": "technical-QA2-initial-independent-readonly",
+      "match_any": [
+        "质检2部初始化独立检查R0"
+      ],
+      "required_departments": [
+        "qa-technical"
+      ],
+      "parallel_departments": [
+        "qa-technical"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "qa": [
+          "qa-technical"
+        ]
+      },
+      "approval_required": false
+    },
+    {
+      "id": "operations-assistant-control-r0",
+      "match_any": [
+        "总部助理闭环控制准入R0"
+      ],
+      "required_departments": [
+        "operations-assistant"
+      ],
+      "parallel_departments": [
+        "operations-assistant"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "qa": [
+          "operations-assistant"
+        ]
+      },
+      "approval_required": false
+    },
+    {
+      "id": "fixed-department-result-reconciliation",
+      "match_any": [
+        "各固定专业部门旧结果与未完范围核对"
+      ],
+      "required_departments": [
+        "content-organic-website",
+        "seo-content-research",
+        "local-seo-maps",
+        "publishing",
+        "paid-growth-data",
+        "visual-design-video",
+        "sales"
+      ],
+      "parallel_departments": [
+        "content-organic-website",
+        "seo-content-research",
+        "local-seo-maps",
+        "publishing",
+        "paid-growth-data",
+        "visual-design-video",
+        "sales"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "content-organic-website": [],
+        "seo-content-research": [],
+        "local-seo-maps": [],
+        "publishing": [],
+        "paid-growth-data": [],
+        "visual-design-video": [],
+        "sales": [],
+        "qa": [
+          "content-organic-website",
+          "seo-content-research",
+          "local-seo-maps",
+          "publishing",
+          "paid-growth-data",
+          "visual-design-video",
+          "sales"
+        ]
+      },
+      "approval_required": false,
+      "external_write_permitted": false,
+      "purpose": "Original result evidence reconciliation and bounded next-work proposals only; no repeated candidate production or external execution."
+    },
+    {
+      "id": "publishing-department-internal-onboarding",
+      "match_any": [
+        "后台发布部启动",
+        "后台发布接管检查"
+      ],
+      "required_departments": [
+        "publishing"
+      ],
+      "parallel_departments": [
+        "publishing"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "publishing": [],
+        "qa": [
+          "publishing"
+        ]
+      },
+      "approval_required": false,
+      "external_write_permitted": false
+    },
+    {
+      "id": "organic-sales-evidence-bounded-support",
+      "match_any": [
+        "自然咨询与案例内部补证包"
+      ],
+      "required_departments": [
+        "sales"
+      ],
+      "parallel_departments": [
+        "sales"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "sales": [],
+        "qa": [
+          "sales"
+        ]
+      },
+      "approval_required": false
+    },
+    {
+      "id": "organic-measurement-bounded-support",
+      "match_any": [
+        "自然测量只读补数包"
+      ],
+      "required_departments": [
+        "paid-growth-data"
+      ],
+      "parallel_departments": [
+        "paid-growth-data"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "paid-growth-data": [],
+        "qa": [
+          "paid-growth-data"
+        ]
+      },
+      "approval_required": false
+    },
+    {
+      "id": "organic-short-video-skill-learning",
+      "match_any": [
+        "短视频自然增长技能学习"
+      ],
+      "required_departments": [
+        "visual-design-video"
+      ],
+      "parallel_departments": [
+        "visual-design-video"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "visual-design-video": [],
+        "qa": [
+          "visual-design-video"
+        ]
+      },
+      "approval_required": false,
+      "approved_method_reference_manifest": "<PROJECT_ROOT>/data/learning/visual-short-video-method-reference-v1.json",
+      "raw_external_subskills_invocation_approved": false
+    },
+    {
+      "id": "organic-execution-governance",
+      "match_any": [
+        "自然增长执行模式与排期治理",
+        "运营协调老板的集中初期建设和持续主动优化"
+      ],
+      "required_departments": [
+        "operations"
+      ],
+      "parallel_departments": [
+        "operations"
+      ],
+      "follow_up_departments": [],
+      "department_dependencies": {
+        "operations": []
+      },
+      "approval_required": false
+    },
+    {
+      "id": "seo-content-research-work",
+      "match_any": [
+        "seo geo推广部门2",
+        "SEO关键词与内容增长部",
+        "全站关键词扩展",
+        "自然搜索关键词研究",
+        "SEO/GEO 专业部门持续推进"
+      ],
+      "required_departments": [
+        "seo-content-research"
+      ],
+      "parallel_departments": [
+        "seo-content-research"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "seo-content-research": [],
+        "qa": [
+          "seo-content-research"
+        ]
+      },
+      "approval_required": false
+    },
+    {
+      "id": "local-seo-maps-work",
+      "match_any": [
+        "seo geo推广部门3",
+        "本地SEO与地图增长部",
+        "地图资料优化",
+        "本地实体资料"
+      ],
+      "required_departments": [
+        "local-seo-maps"
+      ],
+      "parallel_departments": [
+        "local-seo-maps"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "local-seo-maps": [],
+        "qa": [
+          "local-seo-maps"
+        ]
+      },
+      "approval_required": false
+    },
+    {
+      "id": "existing-deliverable-qa-only-review",
+      "match_any": [
+        "固定质检部只读复验",
+        "既有交付 QA-only 复验"
+      ],
+      "required_departments": [
+        "qa"
+      ],
+      "parallel_departments": [
+        "qa"
+      ],
+      "follow_up_departments": [],
+      "department_dependencies": {
+        "qa": []
+      },
+      "approval_required": false
+    },
+    {
+      "id": "chinese-rm100-google-ads-local-maps-audit",
+      "match_any": [
+        "中文优先 RM100 Google Ads 与 Google Maps 推广检查",
+        "中文用户优先的 RM100/日推广检查"
+      ],
+      "required_departments": [
+        "paid-growth-data",
+        "content-organic-website"
+      ],
+      "parallel_departments": [
+        "paid-growth-data",
+        "content-organic-website"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "paid-growth-data": [],
+        "content-organic-website": [],
+        "qa": [
+          "paid-growth-data",
+          "content-organic-website"
+        ]
+      },
+      "approval_required": false
+    },
+    {
+      "id": "google-ads-rm100-budget-plan",
+      "match_any": [
+        "Google Ads 每日预算 RM100 规划",
+        "RM100 广告预算规划"
+      ],
+      "required_departments": [
+        "paid-growth-data"
+      ],
+      "parallel_departments": [
+        "paid-growth-data"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "paid-growth-data": [],
+        "qa": [
+          "paid-growth-data"
+        ]
+      },
+      "approval_required": false
+    },
+    {
+      "id": "google-ads-prelaunch-zero-spend",
+      "match_any": [
+        "零花费预启动准备",
+        "Google Ads 预启动准备"
+      ],
+      "required_departments": [
+        "paid-growth-data",
+        "sales"
+      ],
+      "parallel_departments": [
+        "paid-growth-data",
+        "sales"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "paid-growth-data": [],
+        "sales": [],
+        "qa": [
+          "paid-growth-data",
+          "sales"
+        ]
+      },
+      "approval_required": false
+    },
+    {
+      "id": "google-ads-launch-readiness-draft",
+      "match_any": [
+        "Google Ads 上线准备包",
+        "READY_TO_LAUNCH_DRAFT",
+        "零花费、随时可启动",
+        "付费推广是否已经准备好随时开始"
+      ],
+      "required_departments": [
+        "paid-growth-data"
+      ],
+      "parallel_departments": [
+        "paid-growth-data"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "paid-growth-data": [],
+        "qa": [
+          "paid-growth-data"
+        ]
+      },
+      "approval_required": false
+    },
+    {
+      "id": "organic-measurement-source-refresh-readonly",
+      "match_any": [
+        "转化数据来源补数收口",
+        "自然搜索测量数据源刷新"
+      ],
+      "required_departments": [
+        "paid-growth-data",
+        "content-organic-website"
+      ],
+      "parallel_departments": [
+        "paid-growth-data",
+        "content-organic-website"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "paid-growth-data": [],
+        "content-organic-website": [],
+        "qa": [
+          "paid-growth-data",
+          "content-organic-website"
+        ]
+      },
+      "approval_required": false
+    },
+    {
+      "id": "google-ads-audit",
+      "match_any": [
+        "Google Ads",
+        "Google Ads 投放部",
+        "广告投放",
+        "Google 广告",
+        "广告关键词",
+        "推广关键词",
+        "搜索词",
+        "点击",
+        "CPC",
+        "CTR",
+        "预算"
+      ],
+      "exclude_if_any": [
+        "转化数据来源补数收口",
+        "自然搜索测量数据源刷新",
+        "Google Ads 上线准备包",
+        "READY_TO_LAUNCH_DRAFT",
+        "零花费、随时可启动",
+        "付费推广是否已经准备好随时开始",
+        "零花费预启动准备",
+        "Google Ads 预启动准备",
+        "Google Ads 每日预算 RM100 规划",
+        "RM100 广告预算规划",
+        "中文优先 RM100 Google Ads 与 Google Maps 推广检查",
+        "中文用户优先的 RM100/日推广检查"
+      ],
+      "required_departments": [
+        "paid-growth-data"
+      ],
+      "parallel_departments": [
+        "paid-growth-data"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "paid-growth-data": [],
+        "qa": [
+          "paid-growth-data"
+        ]
+      },
+      "approval_required": true
+    },
+    {
+      "id": "analytics-source-selection-regression",
+      "match_any": [
+        "数据源选择稳定性",
+        "mtime回归",
+        "旧CSV晚于新CSV"
+      ],
+      "required_departments": [
+        "paid-growth-data"
+      ],
+      "parallel_departments": [
+        "paid-growth-data"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "paid-growth-data": [],
+        "qa": [
+          "paid-growth-data"
+        ]
+      },
+      "approval_required": false
+    },
+    {
+      "id": "conversion-diagnosis",
+      "match_any": [
+        "转化数据",
+        "没有转化",
+        "数据与转化分析部",
+        "转化追踪部",
+        "GA4",
+        "GTM",
+        "归因",
+        "事件去重",
+        "表单送达",
+        "电话接通",
+        "WhatsApp Business 入站",
+        "追踪"
+      ],
+      "exclude_if_any": [
+        "数据源选择稳定性",
+        "转化数据来源补数收口",
+        "自然搜索测量数据源刷新",
+        "不调用付费部门",
+        "禁止调用付费部门",
+        "无需付费部门",
+        "Google Ads 上线准备包",
+        "READY_TO_LAUNCH_DRAFT",
+        "零花费、随时可启动",
+        "付费推广是否已经准备好随时开始",
+        "不依赖缺失 GSC",
+        "不依赖 GSC",
+        "不依赖缺失 GA4",
+        "不依赖 GA4",
+        "零花费预启动准备",
+        "Google Ads 预启动准备",
+        "Google Ads 每日预算 RM100 规划",
+        "RM100 广告预算规划",
+        "中文优先 RM100 Google Ads 与 Google Maps 推广检查",
+        "中文用户优先的 RM100/日推广检查"
+      ],
+      "required_departments": [
+        "paid-growth-data",
+        "content-organic-website"
+      ],
+      "parallel_departments": [
+        "paid-growth-data",
+        "content-organic-website"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "paid-growth-data": [],
+        "content-organic-website": [],
+        "qa": [
+          "paid-growth-data",
+          "content-organic-website"
+        ]
+      },
+      "approval_required": true
+    },
+    {
+      "id": "content-campaign",
+      "match_any": [
+        "文案",
+        "广告文案",
+        "内容营销部",
+        "内容策划",
+        "文章",
+        "博客",
+        "旧屋翻新文案",
+        "落地页文案",
+        "内容日历"
+      ],
+      "required_departments": [
+        "content-organic-website"
+      ],
+      "parallel_departments": [
+        "content-organic-website"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "content-organic-website": [],
+        "qa": [
+          "content-organic-website"
+        ]
+      },
+      "approval_required": true,
+      "exclude_if_any": [
+        "SEO关键词与内容增长部",
+        "全站关键词扩展",
+        "自然搜索关键词研究",
+        "本地SEO与地图增长部",
+        "地图资料优化",
+        "本地实体资料",
+        "seo geo推广部门2",
+        "seo geo推广部门3"
+      ]
+    },
+    {
+      "id": "visual-image-production",
+      "match_any": [
+        "设计图片",
+        "广告图片",
+        "广告图",
+        "图片",
+        "海报",
+        "封面",
+        "横幅",
+        "Banner",
+        "概念效果图",
+        "效果图",
+        "缩略图",
+        "视觉素材"
+      ],
+      "required_departments": [
+        "visual-design-video"
+      ],
+      "parallel_departments": [
+        "visual-design-video"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "visual-design-video": [],
+        "qa": [
+          "visual-design-video"
+        ]
+      },
+      "approval_required": true
+    },
+    {
+      "id": "visual-video-production",
+      "match_any": [
+        "设计部",
+        "视频",
+        "短视频",
+        "装修视频",
+        "获客视频",
+        "成片",
+        "广告片",
+        "分镜",
+        "字幕",
+        "动效",
+        "视频包装",
+        "MP4",
+        "Reels",
+        "TikTok",
+        "抖音"
+      ],
+      "required_departments": [
+        "visual-design-video"
+      ],
+      "parallel_departments": [
+        "visual-design-video"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "visual-design-video": [],
+        "qa": [
+          "visual-design-video"
+        ]
+      },
+      "approval_required": true,
+      "exclude_if_any": [
+        "短视频自然增长技能学习"
+      ]
+    },
+    {
+      "id": "website-cro",
+      "match_any": [
+        "表单隐私",
+        "表单体验",
+        "隐私提示",
+        "成功状态",
+        "失败状态",
+        "错误提示",
+        "CTA",
+        "行动号召",
+        "移动端",
+        "可访问性"
+      ],
+      "exclude_if_any": [
+        "Google Ads 上线准备包",
+        "READY_TO_LAUNCH_DRAFT",
+        "零花费、随时可启动",
+        "付费推广是否已经准备好随时开始",
+        "SEO关键词与内容增长部",
+        "全站关键词扩展",
+        "自然搜索关键词研究",
+        "本地SEO与地图增长部",
+        "地图资料优化",
+        "本地实体资料",
+        "seo geo推广部门2",
+        "seo geo推广部门3"
+      ],
+      "required_departments": [
+        "content-organic-website"
+      ],
+      "parallel_departments": [
+        "content-organic-website"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "content-organic-website": [],
+        "qa": [
+          "content-organic-website"
+        ]
+      },
+      "approval_required": false
+    },
+    {
+      "id": "seo-review",
+      "match_any": [
+        "SEO",
+        "SEO与GEO部",
+        "GEO",
+        "自然流量",
+        "收录",
+        "索引",
+        "站点地图",
+        "seo geo推广部门1"
+      ],
+      "exclude_if_any": [
+        "转化数据来源补数收口",
+        "自然搜索测量数据源刷新",
+        "SEO关键词与内容增长部",
+        "全站关键词扩展",
+        "自然搜索关键词研究",
+        "本地SEO与地图增长部",
+        "地图资料优化",
+        "本地实体资料",
+        "seo geo推广部门2",
+        "seo geo推广部门3",
+        "短视频自然增长技能学习",
+        "SEO/GEO 专业部门持续推进"
+      ],
+      "required_departments": [
+        "content-organic-website"
+      ],
+      "parallel_departments": [
+        "content-organic-website"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "content-organic-website": [],
+        "qa": [
+          "content-organic-website"
+        ]
+      },
+      "approval_required": false
+    },
+    {
+      "id": "lead-quality",
+      "match_any": [
+        "线索分级",
+        "销售线索",
+        "客户跟进",
+        "报价跟进",
+        "成交",
+        "跟进话术",
+        "销售漏斗"
+      ],
+      "required_departments": [
+        "sales",
+        "paid-growth-data"
+      ],
+      "parallel_departments": [
+        "sales",
+        "paid-growth-data"
+      ],
+      "follow_up_departments": [
+        "qa"
+      ],
+      "department_dependencies": {
+        "sales": [],
+        "paid-growth-data": [],
+        "qa": [
+          "sales",
+          "paid-growth-data"
+        ]
+      },
+      "approval_required": true
+    },
+    {
+      "id": "full-growth-review",
+      "match_any": [
+        "全面审计",
+        "整体检查",
+        "增长任务",
+        "全流程",
+        "全部部门"
+      ],
+      "required_departments": [
+        "paid-growth-data",
+        "content-organic-website",
+        "visual-design-video",
+        "sales"
+      ],
+      "parallel_departments": [
+        "paid-growth-data",
+        "content-organic-website",
+        "sales"
+      ],
+      "follow_up_departments": [
+        "visual-design-video",
+        "qa"
+      ],
+      "department_dependencies": {
+        "paid-growth-data": [],
+        "content-organic-website": [],
+        "sales": [],
+        "visual-design-video": [
+          "paid-growth-data",
+          "content-organic-website"
+        ],
+        "qa": [
+          "paid-growth-data",
+          "content-organic-website",
+          "sales",
+          "visual-design-video"
+        ]
+      },
+      "approval_required": true
+    }
+  ],
+  "fallback": {
+    "id": "ambiguous-owner-request",
+    "required_departments": [
+      "operations"
+    ],
+    "parallel_departments": [
+      "operations"
+    ],
+    "follow_up_departments": [],
+    "department_dependencies": {
+      "operations": []
+    },
+    "dispatch_allowed": false,
+    "ask_user_if_ambiguous": true
+  },
+  "public_template": true
+}

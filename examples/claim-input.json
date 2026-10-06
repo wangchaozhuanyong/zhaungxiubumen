@@ -1,0 +1,12 @@
+{
+  "identity": {
+    "task_id": "fc-synthetic-coordination-example-v1",
+    "sender_department": "content-organic-website",
+    "candidate_version": "synthetic-v1",
+    "result_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "role": "operations-assistant",
+  "owner": "synthetic-assistant-process",
+  "request_id": "synthetic-wake-1",
+  "ttl_seconds": 900
+}

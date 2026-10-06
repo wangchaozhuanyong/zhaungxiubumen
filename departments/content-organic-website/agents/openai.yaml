@@ -1,0 +1,4 @@
+interface:
+  display_name: "FLASH CAST 内容、SEO与网站增长"
+  short_description: "统一生产内容、做 SEO 并优化装修网站转化"
+  default_prompt: "使用 $flashcast-content-organic-website，先读取公司事实，完成双语内容、SEO/GEO 和落地页转化优化；命中装修网站常驻授权且 QA 与发布门禁通过时，直接发布并公开验收，无需逐次请示。"

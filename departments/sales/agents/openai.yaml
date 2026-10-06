@@ -1,0 +1,4 @@
+interface:
+  display_name: "FLASH CAST 销售与线索"
+  short_description: "分级线索、整理需求并准备跟进方案"
+  default_prompt: "使用 $flashcast-sales-leads，按真实需求分级并列出报价前补问；不自动联系客户。"

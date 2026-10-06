@@ -1,0 +1,81 @@
+{
+  "schema_version": "1.0",
+  "status": "active",
+  "scope": "project_local_codex_subagents",
+  "purpose": "允许固定部门窗口为独立、有界、有收益的内部工作调用 Codex 短生命周期子智能体；固定部门仍是唯一责任人和回传窗口。",
+  "controller": "operations",
+  "fixed_department_owner_required": true,
+  "ephemeral_subagent_is_department_window": false,
+  "ephemeral_completion_satisfies_workflow_receipts": false,
+  "generic_orchestrator_as_company_controller": false,
+  "allowed_benefits": [
+    "parallel_latency",
+    "specialist_capability",
+    "context_isolation"
+  ],
+  "allowed_work_classes": [
+    "read_only",
+    "local_artifact",
+    "specialist_internal"
+  ],
+  "limits": {
+    "max_concurrent_global": 3,
+    "max_concurrent_per_department": 2,
+    "default_timeout_seconds": 900,
+    "max_timeout_seconds": 1800,
+    "max_attempts": 2
+  },
+  "hard_vetoes": {
+    "interdependent_work": true,
+    "overlapping_write_scope": true,
+    "external_side_effect": true,
+    "cross_project": true,
+    "unhealthy_department_window": true,
+    "missing_department_chat_ack": true,
+    "operations_specialist_delivery": true
+  },
+  "terminal_statuses": [
+    "completed",
+    "failed",
+    "timed_out",
+    "cancelled"
+  ],
+  "stop_reasons": [
+    "completed",
+    "task_failed",
+    "timeout",
+    "cancelled",
+    "capacity_rejected",
+    "dependency_blocked",
+    "policy_blocked",
+    "no_progress"
+  ],
+  "ledger_path_template": "logs/delegations/<task_id>.jsonl",
+  "decision_log_path": "logs/delegation-decisions.jsonl",
+  "replacement_recovery": {
+    "trigger_dispatch_eligible_false": true,
+    "trigger_reply_health_prefixes": [
+      "unhealthy",
+      "degraded",
+      "failed",
+      "unavailable"
+    ],
+    "required_sidebar_section_id_source": "data/department-registry.json#departments[].chat_binding.sidebar_section_id",
+    "required_handoff_path_source": "data/department-registry.json#departments[].chat_binding.handoff_path",
+    "new_window_must_inherit_handoff": true,
+    "new_window_requires_nonempty_visible_reply": true,
+    "auto_bind_only_after_exact_live_verification": true,
+    "pause_existing_automation_before_replacement": true,
+    "quarantine_policy_scope_prefix": "automation_quarantine:",
+    "fallback_when_group_placement_cannot_be_verified": "blocked_replacement_requires_app_capability"
+  },
+  "disabled_capabilities": [
+    "deerflow_auth",
+    "deerflow_scheduler",
+    "deerflow_batch",
+    "deerflow_judge",
+    "generic_agent_department_bypass"
+  ],
+  "security_note": "这是项目级委派账本和政策预检，不是 Codex 全局权限拦截器。",
+  "public_template": true
+}

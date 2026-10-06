@@ -1,0 +1,405 @@
+{
+  "schema_version": "2.0",
+  "project": {
+    "project_id": "",
+    "cwd": ""
+  },
+  "total_role_count": 11,
+  "departments": [
+    {
+      "id": "operations",
+      "name": "运营总控部",
+      "professional_skill": "departments/operations/SKILL.md",
+      "role_config": ".codex/agents/flashcast-growth-controller.toml",
+      "department_readme": "departments/operations/README.md",
+      "approved_subskills": [],
+      "input_paths": [
+        "AGENTS.md",
+        "README.md",
+        "data/learning/",
+        "logs/",
+        "reports/"
+      ],
+      "output_paths": [
+        "logs/dispatch/",
+        "logs/handoffs/",
+        "reports/"
+      ],
+      "chat_binding": {
+        "status": "unbound",
+        "task_id": "",
+        "project_id": "",
+        "cwd": "",
+        "title": "",
+        "sidebar_section_id": "",
+        "sidebar_section_name": "",
+        "reply_health": "not_verified",
+        "dispatch_eligible": false,
+        "handoff_path": ""
+      }
+    },
+    {
+      "id": "paid-growth-data",
+      "name": "付费增长与转化数据部",
+      "professional_skill": "departments/paid-growth-data/SKILL.md",
+      "role_config": ".codex/agents/paid-growth-data.toml",
+      "department_readme": "departments/paid-growth-data/README.md",
+      "approved_subskills": [
+        "google-ads-renovation-ppc"
+      ],
+      "input_paths": [
+        "data/google-ads/",
+        "data/analytics/",
+        "data/leads/",
+        "data/learning/",
+        "services-and-pricing.md"
+      ],
+      "output_paths": [
+        "logs/department-outbox/",
+        "reports/",
+        "drafts/",
+        "data/action-queue.*"
+      ],
+      "chat_binding": {
+        "status": "unbound",
+        "task_id": "",
+        "project_id": "",
+        "cwd": "",
+        "title": "",
+        "sidebar_section_id": "",
+        "sidebar_section_name": "",
+        "reply_health": "not_verified",
+        "dispatch_eligible": false,
+        "handoff_path": ""
+      }
+    },
+    {
+      "id": "content-organic-website",
+      "name": "seo geo推广部门1",
+      "professional_skill": "departments/content-organic-website/SKILL.md",
+      "role_config": ".codex/agents/content-organic-website.toml",
+      "department_readme": "departments/content-organic-website/README.md",
+      "approved_subskills": [
+        "renovation-seo-geo"
+      ],
+      "input_paths": [
+        "company-context.md",
+        "service-area.md",
+        "services-and-pricing.md",
+        "brand-guidelines.md",
+        "case-studies.md",
+        "faq.md",
+        "data/content/",
+        "data/seo/",
+        "reports/"
+      ],
+      "output_paths": [
+        "drafts/",
+        "logs/department-outbox/",
+        "reports/"
+      ],
+      "chat_binding": {
+        "status": "unbound",
+        "task_id": "",
+        "project_id": "",
+        "cwd": "",
+        "title": "",
+        "sidebar_section_id": "",
+        "sidebar_section_name": "",
+        "reply_health": "not_verified",
+        "dispatch_eligible": false,
+        "handoff_path": ""
+      }
+    },
+    {
+      "id": "visual-design-video",
+      "name": "视觉设计与视频部",
+      "professional_skill": "departments/visual-design-video/SKILL.md",
+      "role_config": ".codex/agents/visual-design-video.toml",
+      "department_readme": "departments/visual-design-video/README.md",
+      "approved_subskills": [
+        "full-house-custom-ad",
+        "imagegen",
+        "hyperframes",
+        "media-use"
+      ],
+      "input_paths": [
+        "brand-guidelines.md",
+        "company-context.md",
+        "services-and-pricing.md",
+        "case-studies.md",
+        "drafts/",
+        "data/learning/",
+        "logs/department-outbox/",
+        "reports/",
+        "用户授权素材"
+      ],
+      "output_paths": [
+        "drafts/creative/",
+        "delivery/creative/",
+        "logs/department-outbox/",
+        "reports/"
+      ],
+      "chat_binding": {
+        "status": "unbound",
+        "task_id": "",
+        "project_id": "",
+        "cwd": "",
+        "title": "",
+        "sidebar_section_id": "",
+        "sidebar_section_name": "",
+        "reply_health": "not_verified",
+        "dispatch_eligible": false,
+        "handoff_path": ""
+      }
+    },
+    {
+      "id": "sales",
+      "name": "销售与线索部",
+      "professional_skill": "departments/sales/SKILL.md",
+      "role_config": ".codex/agents/sales-outreach.toml",
+      "department_readme": "departments/sales/README.md",
+      "approved_subskills": [
+        "renovation-sales-ops"
+      ],
+      "input_paths": [
+        "data/leads/",
+        "services-and-pricing.md",
+        "faq.md",
+        "reports/"
+      ],
+      "output_paths": [
+        "logs/department-outbox/",
+        "reports/",
+        "drafts/"
+      ],
+      "chat_binding": {
+        "status": "unbound",
+        "task_id": "",
+        "project_id": "",
+        "cwd": "",
+        "title": "",
+        "sidebar_section_id": "",
+        "sidebar_section_name": "",
+        "reply_health": "not_verified",
+        "dispatch_eligible": false,
+        "handoff_path": ""
+      }
+    },
+    {
+      "id": "seo-content-research",
+      "name": "seo geo推广部门2",
+      "professional_skill": "departments/seo-content-research/SKILL.md",
+      "role_config": ".codex/agents/seo-content-research.toml",
+      "department_readme": "departments/seo-content-research/README.md",
+      "approved_subskills": [
+        "renovation-seo-geo"
+      ],
+      "input_paths": [
+        "company-context.md",
+        "service-area.md",
+        "services-and-pricing.md",
+        "customer-personas.md",
+        "brand-guidelines.md",
+        "case-studies.md",
+        "faq.md",
+        "data/content/",
+        "data/seo/",
+        "data/learning/",
+        "logs/handoffs/",
+        "reports/"
+      ],
+      "output_paths": [
+        "drafts/seo/",
+        "reports/",
+        "logs/department-outbox/"
+      ],
+      "chat_binding": {
+        "status": "unbound",
+        "task_id": "",
+        "project_id": "",
+        "cwd": "",
+        "title": "",
+        "sidebar_section_id": "",
+        "sidebar_section_name": "",
+        "reply_health": "not_verified",
+        "dispatch_eligible": false,
+        "handoff_path": ""
+      }
+    },
+    {
+      "id": "local-seo-maps",
+      "name": "seo geo推广部门3",
+      "professional_skill": "departments/local-seo-maps/SKILL.md",
+      "role_config": ".codex/agents/local-seo-maps.toml",
+      "department_readme": "departments/local-seo-maps/README.md",
+      "approved_subskills": [
+        "renovation-seo-geo"
+      ],
+      "input_paths": [
+        "company-context.md",
+        "service-area.md",
+        "services-and-pricing.md",
+        "customer-personas.md",
+        "brand-guidelines.md",
+        "case-studies.md",
+        "faq.md",
+        "data/content/",
+        "data/seo/",
+        "data/learning/",
+        "logs/handoffs/",
+        "reports/"
+      ],
+      "output_paths": [
+        "drafts/seo/",
+        "reports/",
+        "logs/department-outbox/"
+      ],
+      "chat_binding": {
+        "status": "unbound",
+        "task_id": "",
+        "project_id": "",
+        "cwd": "",
+        "title": "",
+        "sidebar_section_id": "",
+        "sidebar_section_name": "",
+        "reply_health": "not_verified",
+        "dispatch_eligible": false,
+        "handoff_path": ""
+      }
+    },
+    {
+      "id": "qa",
+      "name": "质检与Reality Checker部",
+      "professional_skill": "departments/qa/SKILL.md",
+      "role_config": ".codex/agents/reality-checker.toml",
+      "department_readme": "departments/qa/README.md",
+      "approved_subskills": [],
+      "input_paths": [
+        "logs/department-outbox/",
+        "reports/",
+        "data/qa-gate.json",
+        "data/learning/"
+      ],
+      "output_paths": [
+        "logs/department-outbox/",
+        "reports/",
+        "data/qa-gate.json"
+      ],
+      "chat_binding": {
+        "status": "unbound",
+        "task_id": "",
+        "project_id": "",
+        "cwd": "",
+        "title": "",
+        "sidebar_section_id": "",
+        "sidebar_section_name": "",
+        "reply_health": "not_verified",
+        "dispatch_eligible": false,
+        "handoff_path": ""
+      }
+    },
+    {
+      "id": "publishing",
+      "name": "后台发布部",
+      "professional_skill": "departments/publishing/SKILL.md",
+      "role_config": "departments/publishing/agent.toml",
+      "department_readme": "departments/publishing/README.md",
+      "approved_subskills": [
+        "flashcast-cms-publishing"
+      ],
+      "input_paths": [
+        "data/publishing/",
+        "logs/handoffs/",
+        "logs/department-outbox/",
+        "reports/",
+        "data/learning/"
+      ],
+      "output_paths": [
+        "logs/department-outbox/",
+        "reports/",
+        "logs/handoffs/"
+      ],
+      "chat_binding": {
+        "status": "unbound",
+        "task_id": "",
+        "project_id": "",
+        "cwd": "",
+        "title": "",
+        "sidebar_section_id": "",
+        "sidebar_section_name": "",
+        "reply_health": "not_verified",
+        "dispatch_eligible": false,
+        "handoff_path": ""
+      }
+    },
+    {
+      "id": "operations-assistant",
+      "name": "总部助理",
+      "professional_skill": "departments/operations-assistant/SKILL.md",
+      "role_config": ".codex/agents/operations-assistant.toml",
+      "department_readme": "departments/operations-assistant/README.md",
+      "approved_subskills": [],
+      "input_paths": [
+        "AGENTS.md",
+        "data/",
+        "logs/",
+        "reports/",
+        "departments/"
+      ],
+      "output_paths": [
+        "drafts/operations/",
+        "reports/",
+        "logs/department-outbox/"
+      ],
+      "chat_binding": {
+        "status": "unbound",
+        "task_id": "",
+        "project_id": "",
+        "cwd": "",
+        "title": "",
+        "sidebar_section_id": "",
+        "sidebar_section_name": "",
+        "reply_health": "not_verified",
+        "dispatch_eligible": false,
+        "handoff_path": ""
+      }
+    },
+    {
+      "id": "qa-technical",
+      "name": "质检2部｜技术与发布验收",
+      "professional_skill": "departments/qa-technical/SKILL.md",
+      "role_config": ".codex/agents/qa-technical.toml",
+      "department_readme": "departments/qa-technical/README.md",
+      "approved_subskills": [],
+      "input_paths": [
+        "AGENTS.md",
+        "data/",
+        "logs/",
+        "reports/",
+        "departments/"
+      ],
+      "output_paths": [
+        "drafts/qa/",
+        "reports/",
+        "logs/department-outbox/"
+      ],
+      "chat_binding": {
+        "status": "unbound",
+        "task_id": "",
+        "project_id": "",
+        "cwd": "",
+        "title": "",
+        "sidebar_section_id": "",
+        "sidebar_section_name": "",
+        "reply_health": "not_verified",
+        "dispatch_eligible": false,
+        "handoff_path": ""
+      }
+    }
+  ],
+  "health_policy": {
+    "verification_ttl_hours": 26
+  },
+  "public_template": true
+}

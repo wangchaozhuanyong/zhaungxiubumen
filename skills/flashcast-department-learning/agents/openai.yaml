@@ -1,0 +1,6 @@
+interface:
+  display_name: "FLASH CAST 部门学习"
+  short_description: "让装修部门沉淀经验并继承使用"
+  default_prompt: "Use $flashcast-department-learning to record and inherit an evidence-backed department lesson."
+policy:
+  allow_implicit_invocation: true

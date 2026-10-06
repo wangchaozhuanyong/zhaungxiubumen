@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "task_id": "fc-synthetic-qa2-example-v1",
+  "action_id": "review-synthetic-control",
+  "action_class": "internal_control_candidate",
+  "scope": "project:synthetic-control:exact-v1",
+  "candidate_version": "synthetic-v1",
+  "candidate_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "candidate": {
+    "path": "drafts/operations/fc-synthetic-qa2-example-v1/synthetic-v1/candidate.json",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "size": 123
+  },
+  "producer_department": "operations-assistant",
+  "reviewer_department": "qa-technical",
+  "reviewer_thread_id": "synthetic-fixed-qa2",
+  "controller_department": "operations",
+  "controller_thread_id": "synthetic-fixed-operations",
+  "single_final_reviewer": true,
+  "risk_level": "R0",
+  "production_write_allowed": false,
+  "external_permission_issued": false
+}

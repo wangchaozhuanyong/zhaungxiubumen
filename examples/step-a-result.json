@@ -1,0 +1,46 @@
+{
+  "schema_version": "2.0",
+  "task_id": "fc-synthetic-scoped-r0-json-example-v1",
+  "department": "operations-assistant",
+  "fixed_chat_task_id": "synthetic-fixed-assistant",
+  "candidate_version": "synthetic-step-a-v1",
+  "status": "completed",
+  "conclusion": "Synthetic parser example only; no actual fixed chat, decision or publication.",
+  "evidence": [],
+  "risks": [],
+  "next_actions": [],
+  "handoff": {
+    "receiver": "operations"
+  },
+  "approval_required": false,
+  "learning": {
+    "status": "no_new_learning"
+  },
+  "chat_reply": {
+    "nonempty": true,
+    "in_current_fixed_department_chat": true,
+    "synthetic_example_only": true
+  },
+  "step_binding": {
+    "schema_version": 1,
+    "workpack_sha256": "ab03cc92ef6a93e541d3bf7e27140d70cc46630bfd953f276e3be1ac37b95c27",
+    "step_sha256": "1b9afc581f75c2fa220fb7aae3d97e8615ffd12fd5a74942e1352c2819c98607",
+    "step_identity": {
+      "task_id": "fc-synthetic-scoped-r0-json-example-v1",
+      "department": "operations-assistant",
+      "project_id": "synthetic-project",
+      "fixed_chat_task_id": "synthetic-fixed-assistant",
+      "step_id": "a",
+      "candidate_version": "synthetic-step-a-v1",
+      "scope": "project:synthetic-scoped-r0:a",
+      "kind": "local_candidate",
+      "inputs": [],
+      "output_dir": "drafts/operations/fc-synthetic-scoped-r0-json-example-v1/step-a-v1",
+      "depends_on": [],
+      "subskills": [],
+      "requires_controller_gate": false
+    }
+  },
+  "production_write_allowed": false,
+  "synthetic_example_only": true
+}

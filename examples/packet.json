@@ -1,0 +1,39 @@
+{
+  "task_id": "fc-synthetic-scoped-r0-json-example-v1",
+  "department": "operations-assistant",
+  "project_id": "synthetic-project",
+  "fixed_chat_task_id": "synthetic-fixed-assistant",
+  "synthetic_example_only": true,
+  "continuation_plan": {
+    "version": 1,
+    "mode": "same_task_local_r0_only",
+    "external_actions_allowed": false,
+    "expires_at": "2026-10-07T01:30:00+08:00",
+    "steps": [
+      {
+        "step_id": "a",
+        "candidate_version": "synthetic-step-a-v1",
+        "kind": "local_candidate",
+        "scope": "project:synthetic-scoped-r0:a",
+        "inputs": [],
+        "output_dir": "drafts/operations/fc-synthetic-scoped-r0-json-example-v1/step-a-v1",
+        "depends_on": [],
+        "subskills": [],
+        "requires_controller_gate": false
+      },
+      {
+        "step_id": "b",
+        "candidate_version": "synthetic-step-b-v1",
+        "kind": "local_validation",
+        "scope": "project:synthetic-scoped-r0:b",
+        "inputs": [],
+        "output_dir": "drafts/operations/fc-synthetic-scoped-r0-json-example-v1/step-b-v1",
+        "depends_on": [
+          "a"
+        ],
+        "subskills": [],
+        "requires_controller_gate": false
+      }
+    ]
+  }
+}

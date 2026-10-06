@@ -1,0 +1,298 @@
+{
+  "schema_version": "1.4",
+  "status": "setup_required",
+  "scope": "project_local_control_layer",
+  "paid_promotion_enabled": false,
+  "hard_denies": {
+    "ads_write_when_paid_promotion_disabled": true,
+    "operations_specialist_delivery": true,
+    "unregistered_department": true,
+    "skill_outside_department_registry_whitelist": true,
+    "credential_or_pii_storage": true,
+    "generic_agent_as_department_owner": true,
+    "ephemeral_subagent_bypasses_receipts_or_approval": true
+  },
+  "routing_policy": {
+    "source_project_name": "",
+    "source_project_id": "",
+    "source_project_root": "",
+    "allowed_target_source": "data/department-registry.json",
+    "require_live_project_id": true,
+    "require_live_cwd": true,
+    "require_fixed_thread_id": true,
+    "require_fixed_thread_title": true,
+    "require_live_sidebar_section_id": true,
+    "require_bound_and_visible": true,
+    "require_payload_sha256": true,
+    "controller_sender_department": "operations",
+    "self_service_automation_departments": [
+      "content-organic-website"
+    ],
+    "health_verification_ttl_hours": 26,
+    "thread_message_target_modes": [
+      "worker",
+      "gate"
+    ],
+    "operations_thread_message_target_allowed": false,
+    "department_result_notification": {
+      "enabled": false,
+      "replacement": "project_local_durable_result_handoff_inbox",
+      "target_department": "operations",
+      "source_modes": [
+        "worker",
+        "gate"
+      ],
+      "scope_format": "department_result:{task_id}:{sender_department}",
+      "action_id_prefix": "notify-operations-",
+      "requires_original_workflow_assignment": true
+    },
+    "allow_unhealthy_target_only_for_exact_health_probe": true,
+    "deny_cross_project": true,
+    "allow_unhealthy_target_only_for_exact_automation_quarantine": true
+  },
+  "action_classes": {
+    "local_read": {
+      "default": "allow",
+      "approval_required": false
+    },
+    "internal_artifact_write": {
+      "default": "allow",
+      "approval_required": false
+    },
+    "public_web_read": {
+      "default": "allow",
+      "approval_required": false
+    },
+    "thread_message": {
+      "default": "deny",
+      "allow_only_after_exact_routing_precheck": true,
+      "health_probe_scope_prefix": "department_health_probe:",
+      "approval_required": false
+    },
+    "automation_create": {
+      "default": "deny",
+      "allow_only_after_exact_routing_precheck": true,
+      "approval_required": false
+    },
+    "automation_update": {
+      "default": "deny",
+      "allow_only_after_exact_routing_precheck": true,
+      "approval_required": false
+    },
+    "cross_project_access": {
+      "default": "deny",
+      "hard_deny": true,
+      "approval_required": false
+    },
+    "subagent_delegation": {
+      "default": "deny",
+      "allow_only_after_delegation_policy_check": true,
+      "approval_required": false,
+      "external_side_effects_allowed": false
+    },
+    "account_read": {
+      "default": "deny",
+      "exact_owner_approval_required": true,
+      "single_use": true,
+      "read_only": true,
+      "allowed_departments": [
+        "paid-growth-data"
+      ],
+      "allowed_scope_prefixes": [
+        "google-ads:814-251-0200:readonly:",
+        "ga4:540413787:readonly:fc-20260928-organic-50-measurement-readonly-v2:connected-organic-source-read-v5-20261003",
+        "gsc:sc-domain:flashcast.com.my:readonly:fc-20260928-organic-50-measurement-readonly-v2:connected-organic-source-read-v5-20261003"
+      ],
+      "forbidden_side_effects": [
+        "ads_write",
+        "activation",
+        "budget_or_bid_change",
+        "keyword_or_negative_change",
+        "campaign_removal",
+        "billing_or_payment_change"
+      ],
+      "reason": "Live Google Ads inspection is allowed only for the exact account and single-use owner-approved read-only scope; all writes remain separately denied."
+    },
+    "ads_write": {
+      "default": "deny",
+      "hard_deny_while_paid_promotion_disabled": true
+    },
+    "site_publish": {
+      "default": "deny",
+      "exact_owner_approval_required": true,
+      "standing_owner_authorization_allowed": true
+    },
+    "cms_write": {
+      "default": "deny",
+      "exact_owner_approval_required": true,
+      "standing_owner_authorization_allowed": true
+    },
+    "site_cache_invalidation": {
+      "default": "deny",
+      "exact_owner_approval_required": true,
+      "standing_owner_authorization_allowed": false,
+      "exact_requests": []
+    },
+    "crm_write": {
+      "default": "deny",
+      "exact_owner_approval_required": true
+    },
+    "customer_contact": {
+      "default": "deny",
+      "exact_owner_approval_required": true
+    },
+    "payment": {
+      "default": "deny",
+      "exact_owner_approval_required": true
+    },
+    "price_or_contract_commitment": {
+      "default": "deny",
+      "exact_owner_approval_required": true
+    },
+    "google_business_profile_write": {
+      "default": "deny",
+      "exact_owner_approval_required": true,
+      "single_use": true,
+      "standing_owner_authorization_allowed": false,
+      "allowed_departments": [
+        "content-organic-website"
+      ],
+      "exact_requests": [],
+      "forbidden_scope": "category/name/address/map pin/hours/opening date/photos/reviews/customer contact/account permissions",
+      "note": "Recognizes only the existing exact approved-business request; no execution permission until exact independent QA, owner authorization recorded, lawful access and single-use approval."
+    },
+    "google_business_profile_candidate": {
+      "default": "allow",
+      "approval_required": false,
+      "note": "Internal exact Maps candidate only; never permission to save."
+    },
+    "site_ci_prepare": {
+      "default": "deny",
+      "external_side_effects": true,
+      "exact_requests": [],
+      "owner_authorization": {
+        "authorization_id": "owner-authorized-exact-three-ci-preparation-20261001",
+        "status": "active",
+        "granted_by": "owner",
+        "source_message_ref": "owner-routine-publication-instruction-and-allow-all-in-current-operations-history; current unfinished-execution instruction",
+        "department": "content-organic-website",
+        "site": "flashcast.com.my",
+        "source_repository": "<WEBSITE_PROJECT_ROOT>",
+        "action_classes": [
+          "site_ci_prepare"
+        ],
+        "allowed_scopes": [
+          "flashcast.com.my:ci_prepare:contact-service-area-current-main-v2-20261001:dfbf0633823aa627a29c9d035aedc156ccdeadca",
+          "flashcast.com.my:ci_prepare:furniture-whatsapp-current-main-v2-20261001:3379cac8d5dc345e57e006f5708446506791395b",
+          "flashcast.com.my:ci_prepare:material-detail-renderer-repair-v1-20261001:b4d8a51834f9567ba42f345181a8a3b602683d7e",
+          "flashcast.com.my:ci-prepare:quote-float-final-v8-20261003",
+          "flashcast.com.my:ci-prepare:g03-bcba-v6-20261003"
+        ],
+        "allowed_scope_prefixes": [
+          "flashcast.com.my:ci_prepare:contact-service-area-current-main-v2-20261001:dfbf0633823aa627a29c9d035aedc156ccdeadca",
+          "flashcast.com.my:ci_prepare:furniture-whatsapp-current-main-v2-20261001:3379cac8d5dc345e57e006f5708446506791395b",
+          "flashcast.com.my:ci_prepare:material-detail-renderer-repair-v1-20261001:b4d8a51834f9567ba42f345181a8a3b602683d7e"
+        ],
+        "counts_as_owner_approval": true,
+        "counts_as_explicit_execution": true,
+        "no_per_run_owner_confirmation": true,
+        "note": "Inherited routine R2 preparation only; active application awaits independent control QA. No main merge/deploy/hosting settings/account permission change/tracking R3."
+      },
+      "standing_production_permission_inherited": false,
+      "note": "Exact feature creation + one draft PR + read required same-head CI only; separate stage QA and lawful current hosting required; no production gate waiver."
+    },
+    "cms_native_read": {
+      "default": "deny",
+      "read_only": true,
+      "production_write_allowed": false,
+      "activation_requires_exact_independent_control_QA": true,
+      "exact_requests": []
+    }
+  },
+  "approval_rules": {
+    "identity_fields": [
+      "task_id",
+      "action_id",
+      "action_class",
+      "scope"
+    ],
+    "single_use_default": true,
+    "cross_task_reuse": false,
+    "revocable": true,
+    "full_approval_message_stored": false,
+    "standing_authorization_materializes_exact_single_use_approval": true
+  },
+  "autonomous_site_release_policy": {
+    "policy_path": "playbooks/site-release-risk-boundary.md",
+    "decision_owner": "operations",
+    "authorization_id": "owner-standing-flashcast-site-publish-20260906",
+    "decisions": [
+      "AUTO_RELEASE",
+      "REWORK",
+      "OWNER_APPROVAL_REQUIRED"
+    ],
+    "reasonable_assurance_gate": {
+      "blocking": [
+        "p0_finding",
+        "in_scope_p1_finding",
+        "unverified_business_fact",
+        "missing_exact_diff",
+        "missing_required_validation",
+        "missing_backup_or_rollback"
+      ],
+      "non_blocking": [
+        "p2_with_owner_and_due_date",
+        "gsc_missing_for_non_performance_change",
+        "ga4_missing_for_non_performance_change",
+        "sales_data_missing_for_non_performance_change"
+      ],
+      "p2_due_within_daily_cycles": 3
+    },
+    "risk_levels": {
+      "R0": {
+        "owner_approval_required": false,
+        "external_write_allowed": false
+      },
+      "R1": {
+        "owner_approval_required": false,
+        "operations_auto_release_allowed": true,
+        "max_existing_cms_records_per_batch": 20,
+        "max_new_bilingual_blog_pairs_per_day": 1
+      },
+      "R2": {
+        "owner_approval_required": false,
+        "operations_auto_release_allowed": true,
+        "required_checks": [
+          "affected_tests",
+          "typecheck",
+          "build",
+          "qa_pass",
+          "same_sha_postcheck"
+        ]
+      },
+      "R3": {
+        "owner_approval_required": true,
+        "operations_auto_release_allowed": false
+      }
+    },
+    "high_risk_actions": [
+      "ads_or_new_cost",
+      "customer_contact",
+      "price_contract_warranty_or_unverified_fact",
+      "hard_delete_or_unpublish",
+      "core_url_slug_redirect_canonical_noindex_or_sitemap_rule",
+      "bulk_public_records_over_20",
+      "more_than_one_new_bilingual_page_pair",
+      "global_navigation_or_form_delivery",
+      "tracking_tag_or_customer_data",
+      "database_auth_secret_dependency_build_deploy_dns_or_infrastructure",
+      "cross_project_access",
+      "no_safe_rollback"
+    ],
+    "enabled": false
+  },
+  "standing_authorizations": [],
+  "skill_whitelist_source": "data/department-registry.json",
+  "disclaimer": "This policy is a project-level audit and decision layer. It is not DeerFlow middleware, a digital signature service, or a global Codex permission interceptor.",
+  "public_template": true
+}

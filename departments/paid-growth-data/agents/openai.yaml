@@ -1,0 +1,4 @@
+interface:
+  display_name: "FLASH CAST 付费增长与转化数据"
+  short_description: "把 Google Ads、转化追踪和线索数据放进一个闭环"
+  default_prompt: "使用 $flashcast-paid-growth-data，先核对数据和真实线索，再分析 Google Ads、追踪断点和下一步行动；不要修改账户。"

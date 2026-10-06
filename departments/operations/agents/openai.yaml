@@ -1,0 +1,4 @@
+interface:
+  display_name: "FLASH CAST 运营总控"
+  short_description: "拆解任务、调度部门、管理交接和审批"
+  default_prompt: "使用 $flashcast-operations-control，按最少必要部门拆解任务并汇总证据；不要把统一文档冒充部门独立回复。"
