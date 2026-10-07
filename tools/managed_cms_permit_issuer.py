@@ -70,6 +70,16 @@ else:
     from tools.native_publisher_exact_registration import load_publisher_exact_registration, validate_publisher_registration_candidate
 
 
+if __package__:
+    from .publisher_native_sparse_admission import (load_targets as load_sparse_publisher_targets,
+        validate_candidate_binding as validate_sparse_publisher_candidate,
+        qa_outbox_matches as sparse_publisher_release_qa_matches, require_actual_release_qa_pin)
+else:
+    from tools.publisher_native_sparse_admission import (load_targets as load_sparse_publisher_targets,
+        validate_candidate_binding as validate_sparse_publisher_candidate,
+        qa_outbox_matches as sparse_publisher_release_qa_matches, require_actual_release_qa_pin)
+
+
 TARGETS = {
     "builtin-whole-house-custom-v1": {
         "task_id": "fc-20260920-builtin-whole-house-custom-v1",
@@ -1958,6 +1968,12 @@ if set(TARGETS) & set(PUBLISHER_EXACT_TARGETS):
     raise ValueError('Publisher tuple collides with a historical target')
 TARGETS.update(PUBLISHER_EXACT_TARGETS)
 
+# Separate successor identities; the old three registrations remain immutable.
+SPARSE_PUBLISHER_TARGETS = load_sparse_publisher_targets(ROOT)
+if set(TARGETS) & set(SPARSE_PUBLISHER_TARGETS):
+    raise ValueError('Sparse publisher successor collides with a historical target')
+TARGETS.update(SPARSE_PUBLISHER_TARGETS)
+
 BLOG_TARGETS = frozenset({
     "blog-kitchen-cabinet-cost-r1-v1",
     "blog-renovation-quotation-links-r1-v1",
@@ -1967,7 +1983,7 @@ BLOG_MEDIA_TARGETS = frozenset({
     "blog-kitchen-cabinet-media-r1-v1",
     "blog-office-checklist-media-r1-v1",
 })
-PARENT_RUN_TARGETS = BLOG_TARGETS | BLOG_MEDIA_TARGETS | {"kl-location-intent-r1-v2"} | set(NATIVE_TARGETS) | set(WAVE234_BODY_TARGETS)
+PARENT_RUN_TARGETS = BLOG_TARGETS | BLOG_MEDIA_TARGETS | {"kl-location-intent-r1-v2"} | set(NATIVE_TARGETS) | set(WAVE234_BODY_TARGETS) | set(SPARSE_PUBLISHER_TARGETS)
 
 
 class PermitEvidenceError(RuntimeError):
@@ -2055,6 +2071,12 @@ def validate_completed_parent_status(status: dict, target: dict,
 def validate_candidate_binding(candidate: dict, target: dict) -> None:
     """Bind newly added targets to one approved row and its exact field set."""
     shape = target.get("candidate_shape")
+    if shape == 'native_publisher_sparse_admission':
+        try:
+            validate_sparse_publisher_candidate(ROOT, candidate, target)
+        except ValueError as error:
+            raise PermitEvidenceError(str(error)) from error
+        return
     if shape == 'native_publisher_registration':
         try:
             validate_publisher_registration_candidate(ROOT, candidate, target)
@@ -2226,6 +2248,8 @@ def structured_qa_outbox_matches(row: dict, target: dict) -> bool:
     if (target.get("candidate_shape") == "native_bilingual_body"
             and not native_release_qa_matches(row, target)):
         return False
+    if target.get('candidate_shape') == 'native_publisher_sparse_admission' and not sparse_publisher_release_qa_matches(row, target):
+        return False
     owner_review = (
         target.get("candidate_shape") == "cms_media_row"
         and row.get("gate_status") == "PASS_FOR_OWNER_REVIEW"
@@ -2243,7 +2267,7 @@ def structured_qa_outbox_matches(row: dict, target: dict) -> bool:
             and not any(str(item.get("priority", "")).upper() in {"P0", "P1"}
                         for item in row.get("blockers", []) if isinstance(item, dict))):
         return False
-    if target["candidate_shape"] in {"record_key", "cms_media_row", "org020_field_patch", "native_bilingual_body"}:
+    if target["candidate_shape"] in {"record_key", "cms_media_row", "org020_field_patch", "native_bilingual_body", "native_publisher_sparse_admission"}:
         return row.get("scope") == target["scope"]
     return any(
         item.get("slug") == target["slug"]
@@ -2294,14 +2318,27 @@ def validate_qa(root: Path, target: dict, operation: str, *, allow_blocked_retry
         require(now - timedelta(hours=26) <= verified_at <= now,
                 "Fixed QA health proof is stale; refresh before issuing a permit")
     snapshot = json.loads((root / "data/workflows" / f"{task_id}.json").read_text())
+    if operation == "publish" and target.get("candidate_shape") == "native_publisher_sparse_admission":
+        from original_task_publisher_handover import progress
+        exact_native_cycle = progress(root, task_id, target["action_id"], target["scope"])
+        require(bool(exact_native_cycle and exact_native_cycle["qa_passed"]), "Exact publisher native cycle missing")
     # A sibling action can close a shared task. Exact action QA, pinned evidence,
     # policy, CAS and one-use permit checks below still apply to every target.
     normal_states = {"qa_passed", "waiting_owner_approval", "owner_approved", "execution_completed", "verified", "closed"}
     blocked_retry = (allow_blocked_retry and snapshot.get("current_state") == "blocked"
                      and snapshot.get("blockers") == ["execution_result_blocked"]
                      and snapshot.get("resume_from") == "owner_approved")
-    require(snapshot.get("current_state") in normal_states or blocked_retry,
-            "Original workflow has no current QA PASS")
+    handover_qa = False
+    if (operation == "publish" and target.get("candidate_shape") == "native_publisher_sparse_admission"
+            and target.get("execution_owner") == "publishing" and snapshot.get("current_state") == "qa_blocked"):
+        from original_task_publisher_handover import progress
+        try:
+            exact_progress = progress(root, task_id, target["action_id"], target["scope"])
+            handover_qa = bool(exact_progress and exact_progress["qa_passed"])
+        except (ValueError, KeyError, OSError) as error:
+            raise PermitEvidenceError(str(error)) from error
+    require(snapshot.get("current_state") in normal_states or blocked_retry or handover_qa,
+            "Original workflow has no current exact QA PASS")
     receipts, invalid = wc._validate_receipt_chain(root, task_id)
     require(not invalid, f"Workflow receipt chain invalid: {invalid[:2]}")
     qa_rows = [row for row in receipts if row.get("receipt_type") == "qa_verdict" and row.get("department") == "qa"
@@ -2399,6 +2436,15 @@ def validate_policy(row: dict, target: dict, operation: str, payload_sha256: str
 def validate_retry_state(root: Path, target: dict, operation: str, policy: dict) -> None:
     """Bind a blocked execution to its one permitted policy retry before issuing."""
     snapshot = json.loads((root / "data/workflows" / f"{target['task_id']}.json").read_text())
+    if (operation == "publish" and target.get("candidate_shape") == "native_publisher_sparse_admission"
+            and policy.get("approval_basis") == "blocked_execution_retry"):
+        from original_task_publisher_handover import retry_projection
+        projected = retry_projection(root, target["task_id"], target["action_id"], target["scope"],
+                                     policy.get("retry_source_receipt_id"), policy.get("approval_id"))
+        require(projected is not None, "Exact publisher blocked retry projection missing")
+        snapshot = {**snapshot, **{k: projected[k] for k in ("current_state", "blockers", "resume_from")}}
+    else:
+        projected = None
     if snapshot.get("current_state") != "blocked":
         require(policy.get("approval_basis") != "blocked_execution_retry",
                 "Retry policy requires the original blocked workflow")
@@ -2409,7 +2455,7 @@ def validate_retry_state(root: Path, target: dict, operation: str, policy: dict)
             "Blocked workflow requires an exact execution retry policy")
     receipts, invalid = wc._validate_receipt_chain(root, target["task_id"])
     require(not invalid, f"Workflow receipt chain invalid: {invalid[:2]}")
-    executions = [row for row in receipts if row.get("receipt_type") == "execution_result"]
+    executions = projected["executions"] if projected else [row for row in receipts if row.get("receipt_type") == "execution_result"]
     require(bool(executions), "Blocked workflow has no execution receipt")
     latest = executions[-1]
     action_id = target["action_id"] if operation == "publish" else f"rollback-{target['candidate_version']}"
@@ -2482,6 +2528,13 @@ def validate_new_permit_target(target: dict) -> None:
         raise PermitEvidenceError("Remaining186 Blog registration has no deployed native capability or exact protected preview; no new permit")
     if target.get("candidate_shape") == "native_repair_faq_registration":
         raise PermitEvidenceError("Repair FAQ registration has no deployed native capability or exact protected preview; no new permit")
+    if target.get('candidate_shape') == 'native_publisher_sparse_admission':
+        try:
+            require_actual_release_qa_pin(ROOT, target)
+        except ValueError as error:
+            raise PermitEvidenceError(str(error)) from error
+        # main() still executes validate_qa, artifact_for_run, AUTO_RELEASE,
+        # consumed policy, actor/freshness/main-SHA and the protected permit endpoint.
     require(not target.get("retired_for_new_permit", False),
             "Target action identity is retired; use its independently reviewed row-specific successor")
     if target.get("candidate_shape") == "native_bilingual_body":

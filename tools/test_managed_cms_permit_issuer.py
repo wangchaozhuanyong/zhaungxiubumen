@@ -38,7 +38,7 @@ class ManagedCmsPermitIssuerTests(unittest.TestCase):
             (root / "data/workflows").mkdir(parents=True)
             (root / "data/workflows" / f"{self.target['task_id']}.json").write_text(
                 json.dumps({"current_state": "evidence_received"}))
-            with self.assertRaisesRegex(issuer.PermitEvidenceError, "no current QA PASS"):
+            with self.assertRaisesRegex(issuer.PermitEvidenceError, r"no current (?:exact )?QA PASS"):
                 issuer.validate_qa(root, self.target, "publish")
 
     def test_blocked_retry_requires_latest_exact_execution_receipt(self):
@@ -116,7 +116,7 @@ class ManagedCmsPermitIssuerTests(unittest.TestCase):
                 workflow.write_text(json.dumps({"current_state": "blocked",
                                                 "blockers": ["qa_verdict_blocked"],
                                                 "resume_from": "owner_approved"}))
-                with self.assertRaisesRegex(issuer.PermitEvidenceError, "no current QA PASS"):
+                with self.assertRaisesRegex(issuer.PermitEvidenceError, r"no current (?:exact )?QA PASS"):
                     issuer.validate_qa(root, self.target, "publish", allow_blocked_retry=True)
                 workflow.write_text('{"current_state":"qa_passed"}')
                 qa["action_id"] = f"rollback-{self.target['candidate_version']}"

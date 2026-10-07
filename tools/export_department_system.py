@@ -231,6 +231,8 @@ def prepare(root: Path, target: Path):
     routing.pop("owner_directed_code_handoff", None)
     routing.pop("owner_delegated_publishing_preparation", None)
     routing.pop("owner_delegated_publisher_followthrough", None)
+    policy.pop("cms_publisher_native_sparse_admission", None)
+    policy.pop("original_task_publisher_execution_only_handover", None)
     for value in policy["action_classes"].values():
         if isinstance(value, dict) and "exact_requests" in value:
             value["exact_requests"] = []
@@ -245,7 +247,7 @@ def prepare(root: Path, target: Path):
         "accounts/\n*.sqlite*\n*.db\n*.pem\n*.key\n.DS_Store\n" +
         "".join("/" + name + "\n" for name in COMPANY))
     write_json(target / "release-manifest.json", {
-        "version": "2026.10.07.3", "artifact_type": "department_system_source",
+        "version": "2026.10.07.4", "artifact_type": "department_system_source",
         "roles": list(ROLES), "files": tracked,
         "live_bindings_exported": False, "live_ledgers_exported": False,
         "credentials_exported": False, "external_permissions_exported": False,

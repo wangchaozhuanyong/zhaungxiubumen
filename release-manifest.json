@@ -1,5 +1,5 @@
 {
-  "version": "2026.10.07.3",
+  "version": "2026.10.07.4",
   "artifact_type": "department_system_source",
   "roles": [
     "operations",
@@ -22,8 +22,8 @@
     },
     {
       "path": "README.md",
-      "source_sha256": "4d3f6d2045d79bb6a5a3eb7ea4e85d62944c11ef935cad79091ec9e71a0aec2a",
-      "release_sha256": "4d3f6d2045d79bb6a5a3eb7ea4e85d62944c11ef935cad79091ec9e71a0aec2a"
+      "source_sha256": "bae99e017ef05e735068a0229987403dd34aae56a4b87b4f0d6fe6fa930fe7b1",
+      "release_sha256": "bae99e017ef05e735068a0229987403dd34aae56a4b87b4f0d6fe6fa930fe7b1"
     },
     {
       "path": "tools/README.md",
@@ -92,8 +92,8 @@
     },
     {
       "path": "tools/export_department_system.py",
-      "source_sha256": "eb2bc4bb5c5e721d743d492a0a2a1d8b367a8ad077215d6c085fb5d1d6a2f7d5",
-      "release_sha256": "3e0f8378ad794abbc53b2fd3b92949a2afd46d377bb464c215d73f6a00e6d97a"
+      "source_sha256": "f30c07605e92f68f71e4e8294ed2f84bbf0ed98293a8f72fdeef6e71533538e4",
+      "release_sha256": "b93243d4bc9a81ae043e9a8b827eec8c5547140709b47932678fc1774bf32657"
     },
     {
       "path": "tools/flashcast_ops.py",
@@ -102,8 +102,8 @@
     },
     {
       "path": "tools/managed_cms_permit_issuer.py",
-      "source_sha256": "25be533e110d6fe85b10e3f6811c6f2765b7732deda8ff922630128da48ddeaf",
-      "release_sha256": "07431dd57833d3511629447c29eb100f2a045b57d55af96c2f0a138c87fc667a"
+      "source_sha256": "b91e8982fdc57c03fdd30a3e17fcf99af084ad95aec9833520f6b792ac941505",
+      "release_sha256": "08be0cb01fd910e2ce0e74a06a7c71304409890156daefeb9205e06d43857e68"
     },
     {
       "path": "tools/native_cms_admission.py",
@@ -151,14 +151,29 @@
       "release_sha256": "8e968418313abf8fbd151ca08a849b84155de7b9d49fda6c62d260d5e870316a"
     },
     {
+      "path": "tools/original_task_publisher_handover.py",
+      "source_sha256": "486008dc4c291d86c91b1baa4934481a97da36b3db1ee5eb753fd250a4ad3598",
+      "release_sha256": "5c6d03b6cd464c6eb1e50d4e75001fb91438ce8ac98a77aa0885e3b7db53e17d"
+    },
+    {
       "path": "tools/owner_delegated_publisher_followthrough.py",
-      "source_sha256": "e0f05e0f024f7d73aa46d2253711a650d104c1de243c9995347a866aba228e04",
-      "release_sha256": "dd58f6a3332696c9ead2c5605b5f236c312ad1fa6639ce201728ff09c9a03d84"
+      "source_sha256": "74cbdee20be264c122cd94b2f3e869164408de0adabc5090050646086435be15",
+      "release_sha256": "c544b1345a707a372ce6bfe0f6069136e5c2dfb9ad8f5b61a2bf3e69f1cfea06"
     },
     {
       "path": "tools/owner_delegated_publishing_preparation.py",
       "source_sha256": "3bee04865ee54815d2cdc9228de3e9f80f760eef260953eafacf2ccdcadfb42b",
       "release_sha256": "a5a6b778b1b55a9a5ee7c306bd23551e218e830b128ebf38542a236a88b75580"
+    },
+    {
+      "path": "tools/publisher_designated_successor_qa.py",
+      "source_sha256": "0e8932062bbe2366c7ec3fc1f365ca44e5c5d7d6cd6feffc310227c97f001758",
+      "release_sha256": "83a1b8664e4cfd3b40484b92de63604a6909ff79ffa9504627af27d53dfdb742"
+    },
+    {
+      "path": "tools/publisher_native_sparse_admission.py",
+      "source_sha256": "84b797a2bb1cc7196eac8b3478f0ed26546c65ef145c3fd1688052fd88425de3",
+      "release_sha256": "ec3432c98f8682ccd9d10f4fa51411b3e462477f5eb52425b596c5c5f65395ce"
     },
     {
       "path": "tools/qa_dispatch_priority.py",
@@ -262,8 +277,8 @@
     },
     {
       "path": "tools/test_managed_cms_permit_issuer.py",
-      "source_sha256": "dbe0ebd49eec732a86c8aa6e70fd366bb7dcb022eff5ebc4d2c8f70339bc62d3",
-      "release_sha256": "dbe0ebd49eec732a86c8aa6e70fd366bb7dcb022eff5ebc4d2c8f70339bc62d3"
+      "source_sha256": "ab20dc1c7bc93596d9f66d0d7d965ca3fb4d4167c1dfc533b7e7cf270290400c",
+      "release_sha256": "ab20dc1c7bc93596d9f66d0d7d965ca3fb4d4167c1dfc533b7e7cf270290400c"
     },
     {
       "path": "tools/test_native_cms_admission.py",
@@ -322,8 +337,8 @@
     },
     {
       "path": "tools/workflow_control.py",
-      "source_sha256": "45992cb1c9f6742e52180aa73c16ad18ff6941bce0eee5ce5706151b55179781",
-      "release_sha256": "04d4201bdb272cb01c4779e2397457cb097dfcd453287138f9069c2ad5f976d2"
+      "source_sha256": "6bc3d4bc6607fecfa998cdc272313a786fe4b031708e15f92fd77fce2986bbdb",
+      "release_sha256": "cd9b7db1b214bbe7f2715d53498ac01a1ad09976fa7b5dcf4f5077d85d06e0a6"
     },
     {
       "path": "playbooks/CROSS_PROJECT_ROUTING_RECOVERY.md",
@@ -958,5 +973,15 @@
   "public_templates_require_local_setup": true,
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
-  "public_document_references_sanitized": true
+  "reviewed_scope_note": "Only independently reviewed internal controller/publisher source integration plus non-behavioral legacy error-message test matching and stripping local adoption grants from public examples. Concurrent unreviewed visual changes retain previously reviewed release bytes.",
+  "unreviewed_concurrent_files_preserved_at_previous_release": [
+    "departments/visual-design-video/SKILL.md",
+    "departments/visual-design-video/references/adaptive-renovation-workflow.md",
+    "departments/visual-design-video/references/approved-cover-design.md",
+    "departments/visual-design-video/references/douyin-publish-package.md",
+    "departments/visual-design-video/references/premium-typography-system.md",
+    "departments/visual-design-video/scripts/public_copy_guard.py",
+    "departments/visual-design-video/scripts/validate_douyin_publish_package.py",
+    "departments/visual-design-video/tests/test_qingdou_trusted_input.py"
+  ]
 }

@@ -155,33 +155,37 @@ def check_owner_delegated_followthrough(root: Path, *, policy: dict[str, Any], d
             accepted = _read(_path(root, req.get("control_acceptance_path")))
             _require(_sha(_path(root, req["control_acceptance_path"])) == req.get("control_acceptance_sha256")
                      and accepted.get("production_authority_granted") is False, "fixed_QA_acceptance_required")
-            qa_task = "fc-20261007-publisher-three-execution-admission-qa-v1"
-            qa_chain, qa_invalid = validate_receipt_chain(root, qa_task)
-            qa = [x for x in qa_chain if x.get("receipt_id") == accepted.get("qa_receipt_id")
-                  and x.get("receipt_type") == "qa_verdict" and x.get("department") == "qa"
-                  and x.get("chat_task_id") == STAGES[qa_task][1] and x.get("verdict") == "pass"
-                  and x.get("action_class") == "analysis"]
-            outbox_path = _path(root, accepted.get("qa_outbox_path"))
-            _require(not qa_invalid and len(qa) == 1 and _sha(outbox_path) == accepted.get("qa_outbox_sha256")
-                     and any(p.get("path") == str(outbox_path.relative_to(root)) and p.get("sha256") == accepted.get("qa_outbox_sha256") for p in qa[0].get("evidence", [])), "exact_fixed_QA_receipt_required")
-            qa_box = _read(outbox_path)
-            reviewed_path = _path(root, accepted.get("candidate_path"))
-            reviewed = _read(reviewed_path)
-            _require(_sha(reviewed_path) == accepted.get("candidate_sha256")
-                     and qa_box.get("candidate_sha256") == accepted.get("candidate_sha256")
-                     and qa_box.get("task_id") == qa_task and qa_box.get("department") == "qa"
-                     and (qa_box.get("fixed_chat_task_id") or qa_box.get("chat_task_id")) == STAGES[qa_task][1]
-                     and qa_box.get("risk_level") == "R0" and qa_box.get("production_release_eligible") is False
-                     and qa_box.get("status") == "completed" and qa_box.get("qa_verdict") == "pass"
-                     and qa_box.get("qa_result") == "PASS_INTERNAL_APPLICATION_ALLOWED"
-                     and qa_box.get("candidate_version") == "publisher-three-execution-admission-control-v1-20261007"
-                     and reviewed.get("task_id") == qa_task
-                     and reviewed.get("candidate_version") == qa_box.get("candidate_version")
-                     and qa[0].get("action_id") == "qa-publisher-three-execution-admission-v1"
-                     and qa[0].get("scope") == "project:publisher-three:execution-admission-control:v1", "fixed_QA_not_this_candidate")
-            packet = _read(_path(root, req["packet_path"]))
-            _require(all(pin in reviewed.get("input_pins", []) for pin in packet["input_pins"])
-                     and all(pin in reviewed.get("content_candidates", []) for pin in packet["content_candidates"]), "developer_inputs_not_exactly_QA_reviewed")
+            if accepted.get("qa_contract") == "publisher-three-successor-v2-and-handover-v4":
+                from publisher_designated_successor_qa import validate as validate_successor_developer_QA
+                validate_successor_developer_QA(root, req, accepted, validate_receipt_chain)
+            else:
+                qa_task = "fc-20261007-publisher-three-execution-admission-qa-v1"
+                qa_chain, qa_invalid = validate_receipt_chain(root, qa_task)
+                qa = [x for x in qa_chain if x.get("receipt_id") == accepted.get("qa_receipt_id")
+                      and x.get("receipt_type") == "qa_verdict" and x.get("department") == "qa"
+                      and x.get("chat_task_id") == STAGES[qa_task][1] and x.get("verdict") == "pass"
+                      and x.get("action_class") == "analysis"]
+                outbox_path = _path(root, accepted.get("qa_outbox_path"))
+                _require(not qa_invalid and len(qa) == 1 and _sha(outbox_path) == accepted.get("qa_outbox_sha256")
+                         and any(p.get("path") == str(outbox_path.relative_to(root)) and p.get("sha256") == accepted.get("qa_outbox_sha256") for p in qa[0].get("evidence", [])), "exact_fixed_QA_receipt_required")
+                qa_box = _read(outbox_path)
+                reviewed_path = _path(root, accepted.get("candidate_path"))
+                reviewed = _read(reviewed_path)
+                _require(_sha(reviewed_path) == accepted.get("candidate_sha256")
+                         and qa_box.get("candidate_sha256") == accepted.get("candidate_sha256")
+                         and qa_box.get("task_id") == qa_task and qa_box.get("department") == "qa"
+                         and (qa_box.get("fixed_chat_task_id") or qa_box.get("chat_task_id")) == STAGES[qa_task][1]
+                         and qa_box.get("risk_level") == "R0" and qa_box.get("production_release_eligible") is False
+                         and qa_box.get("status") == "completed" and qa_box.get("qa_verdict") == "pass"
+                         and qa_box.get("qa_result") == "PASS_INTERNAL_APPLICATION_ALLOWED"
+                         and qa_box.get("candidate_version") == "publisher-three-execution-admission-control-v1-20261007"
+                         and reviewed.get("task_id") == qa_task
+                         and reviewed.get("candidate_version") == qa_box.get("candidate_version")
+                         and qa[0].get("action_id") == "qa-publisher-three-execution-admission-v1"
+                         and qa[0].get("scope") == "project:publisher-three:execution-admission-control:v1", "fixed_QA_not_this_candidate")
+                packet = _read(_path(root, req["packet_path"]))
+                _require(all(pin in reviewed.get("input_pins", []) for pin in packet["input_pins"])
+                         and all(pin in reviewed.get("content_candidates", []) for pin in packet["content_candidates"]), "developer_inputs_not_exactly_QA_reviewed")
         else:
             _require(req.get("target_sidebar_section_id") == departments[dep]["chat_binding"]["sidebar_section_id"], "target_sidebar_mismatch")
         snapshot = _read(root / "data/workflows" / (task_id + ".json"))

@@ -780,6 +780,11 @@ def validate_workflow_events(root: Path, task_id: str) -> list[str]:
         previous = str(event.get("event_hash", ""))
 
     task_events = [event for event in events if event.get("task_id") == task_id]
+    from original_task_publisher_handover import binding
+    try:
+        binding(root, task_id)
+    except (ValueError, KeyError, OSError) as error:
+        invalid.append(f"publisher_handover_event_invalid:{error}")
     if not task_events:
         return invalid
     if task_events[0].get("state") != "planned":
@@ -1384,7 +1389,7 @@ RECOVERABLE_PLAN_STATES = {
 }
 
 
-def _apply_plan_refresh(snapshot: dict[str, Any], events: list[dict[str, Any]]) -> None:
+def _apply_plan_refresh(snapshot: dict[str, Any], events: list[dict[str, Any]], root: Path | None = None) -> None:
     """Replay committed route and binding changes in event order."""
     for event in events:
         details = event.get("details", {})
@@ -1403,6 +1408,10 @@ def _apply_plan_refresh(snapshot: dict[str, Any], events: list[dict[str, Any]]) 
                 snapshot["current_state"] = event["state"]
         if details.get("binding_refresh") and details.get("departments"):
             snapshot["departments"] = details["departments"]
+
+    if root is not None:
+        from original_task_publisher_handover import replay
+        replay(root, snapshot)
 
 
 def correct_false_positive_route(root: Path, task_id: str, route_id: str) -> tuple[dict[str, Any], list[Path]]:
@@ -1512,7 +1521,7 @@ def _repair_dispatch_plan_locked(root: Path, snapshot: dict[str, Any]) -> dict[s
     if invalid or receipt_invalid:
         raise WorkflowError("事件或回执链无效，禁止恢复分派计划")
     events = read_jsonl(root / WORKFLOW_EVENTS)
-    _apply_plan_refresh(snapshot, events)
+    _apply_plan_refresh(snapshot, events, root=root)
     if snapshot.get("plan_status") not in RECOVERABLE_PLAN_STATES:
         raise WorkflowError("该阻断不是可自动恢复的部门健康或路由问题")
     if receipts or snapshot.get("current_state") not in {"planned", "blocked", "dispatch_ready"}:
@@ -2425,6 +2434,8 @@ def _ordinary_thread_dispatch_precheck(
     check creates no workflow, refreshes no binding and grants no authority.
     """
     reasons: list[str] = []
+    from original_task_publisher_handover import dispatch_precheck
+    reasons.extend(dispatch_precheck(root, snapshot, target_department, target_thread_id, action_id, scope))
     if not snapshot or snapshot.get("task_id") != task_id:
         return ["thread_dispatch_workflow_missing_or_identity_invalid"]
     if snapshot.get("current_state") in TERMINAL_STATES:
@@ -2465,6 +2476,9 @@ def _ordinary_thread_dispatch_precheck(
             and decision.get("scope") == scope
         )
         if same_receipt_action or same_routing_action:
+            from original_task_publisher_handover import recoverable_dispatch
+            if recoverable_dispatch(root, snapshot, receipts, receipt):
+                continue
             reasons.append("thread_dispatch_exact_action_already_sent")
             break
     return reasons
@@ -2513,13 +2527,27 @@ def policy_check(
         allow = False
         reasons.append("skill_not_in_department_registry_whitelist")
     if department == 'publishing' and action_class == 'cms_write':
-        # Exact registration identifies the handover; it does not grant writes.
+        # A new reviewed sparse tuple only removes the registration-only stop.
+        # Existing exact QA, fresh protected preview, approval and permit gates remain.
         try:
-            from tools.native_publisher_exact_registration import publisher_registration_reason
-            reasons.append(publisher_registration_reason(root, task_id, action_id, scope))
-        except (ValueError, OSError, KeyError, TypeError) as error:
-            reasons.append('publisher_registration_evidence_invalid')
-        allow = False
+            from tools.publisher_native_sparse_admission import exact_target_for_action
+            sparse_target = exact_target_for_action(root, task_id, action_id, scope)
+            if sparse_target is None:
+                from tools.native_publisher_exact_registration import publisher_registration_reason
+                reasons.append(publisher_registration_reason(root, task_id, action_id, scope))
+                allow = False
+            else:
+                from original_task_publisher_handover import progress
+                handover = progress(root, task_id, action_id, scope)
+                if not handover or not handover["qa_passed"]:
+                    allow = False
+                    reasons.append("exact_publisher_native_cycle_and_production_QA_required")
+                required_receipts.extend(['qa_verdict:exact_publisher_sparse_candidate',
+                                          'protected_preview:exact_zero_write',
+                                          'owner_approval:new_executor_exact_single_use'])
+        except (ValueError, OSError, KeyError, TypeError):
+            reasons.append('publisher_sparse_admission_evidence_invalid')
+            allow = False
     if action_class == "ads_write" and policy.get("paid_promotion_enabled") is False:
         allow = False
         reasons.append("paid_promotion_disabled_hard_gate")
@@ -2776,6 +2804,14 @@ def policy_check(
             allowed_states = {"qa_passed", "waiting_owner_approval", "owner_approved", "execution_completed", "verified"}
             if exact_cms_qa:
                 allowed_states.add("closed")
+                from original_task_publisher_handover import progress
+                try:
+                    handover_progress = progress(root, task_id, action_id, scope) if department == "publishing" else None
+                    if handover_progress and handover_progress["qa_passed"]:
+                        allowed_states.add("qa_blocked")
+                except (ValueError, KeyError, OSError):
+                    allow = False
+                    reasons.append("exact_publisher_handover_progress_invalid")
             if retry_requested:
                 allowed_states.add("blocked")
             if (snapshot or {}).get("current_state") not in allowed_states:
@@ -2856,8 +2892,12 @@ def policy_check(
             required_receipts += ["qa_verdict:exact_preparation_only", "lawful_hosting:no_feature_production", "owner_authorization:exact_three_R2_feature_refs"]
 
     if retry_requested:
+        from original_task_publisher_handover import retry_projection
+        projected_retry = retry_projection(root, task_id, action_id, scope, retry_receipt_id, approval_id) if department == "publishing" else None
+        if projected_retry:
+            snapshot = {**snapshot, **{k: projected_retry[k] for k in ("current_state", "blockers", "resume_from")}}
         receipts, invalid = _validate_receipt_chain(root, task_id) if snapshot else ([], ["workflow_not_found"])
-        executions = [row for row in receipts if row.get("receipt_type") == "execution_result"]
+        executions = projected_retry["executions"] if projected_retry else [row for row in receipts if row.get("receipt_type") == "execution_result"]
         latest_execution = executions[-1] if executions else {}
         expected_retry = {
             "receipt_id": retry_receipt_id,
@@ -2969,7 +3009,9 @@ def policy_check(
                 and row.get("retry_source_receipt_id") == retry_receipt_id
                 for row in read_jsonl(root / POLICY_DECISIONS)
             )
-            if previous_retry or read_json(snapshot_path(root, task_id)).get("current_state") != "blocked":
+            from original_task_publisher_handover import retry_projection
+            current_exact_retry = retry_projection(root, task_id, action_id, scope, retry_receipt_id, approval_id) if department == "publishing" else None
+            if previous_retry or (read_json(snapshot_path(root, task_id)).get("current_state") != "blocked" and not current_exact_retry):
                 result["status"] = "deny"
                 result["approval_basis"] = "single_use_exact"
                 result["reason"] = ["blocked_execution_retry_already_authorized_or_state_changed"]
@@ -2985,6 +3027,9 @@ def _validate_receipt_prerequisite(
     snapshot: dict[str, Any], receipts: list[dict[str, Any]], receipt_type: str, department: str,
     root: Path | None = None,
 ) -> None:
+    if root is not None:
+        from original_task_publisher_handover import legacy_context
+        snapshot, receipts = legacy_context(root, snapshot, receipts)
     reviewer = _final_qa_department(root, snapshot) if root is not None else "qa"
     latest = _latest_receipts(receipts)
     if receipt_type not in {"dispatch_sent", "dispatch_failed"} and any(
@@ -3232,7 +3277,6 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
     path = receipts_path(root, task_id)
     with workflow_lock(root):
         receipts = read_jsonl(path)
-        _validate_receipt_prerequisite(snapshot, receipts, receipt_type, department, root=root)
         candidates = [row for row in receipts if row.get("idempotency_key") == idempotency_key]
         if candidates:
             existing = candidates[-1]
@@ -3246,6 +3290,18 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
                 raise WorkflowError("幂等键已绑定不同回执内容")
             return {**existing, "result": "duplicate_ignored"}, [path, snapshot_path(root, task_id)]
 
+        from original_task_publisher_handover import validate_new_receipt
+        handover_receipt = validate_new_receipt(root, snapshot, receipts, receipt)
+        if handover_receipt:
+            if snapshot.get("plan_status") != "ready_to_send":
+                raise WorkflowError("分派计划仍被阻断，不能记录后续回执")
+            _, handover_invalid = _validate_receipt_chain(root, task_id)
+            if handover_invalid:
+                raise WorkflowError("精确接管回执链无效，不能追加")
+            if receipt_type == "dispatch_failed" and not re.fullmatch(r"[a-z0-9][a-z0-9_-]{2,80}", replacement_reason):
+                raise WorkflowError("派工失败更正必须提供原因代码")
+        else:
+            _validate_receipt_prerequisite(snapshot, receipts, receipt_type, department, root=root)
         if receipt_type == "evidence_replacement":
             _validate_evidence_replacement(root, receipts, receipt)
         if receipt_type == "evidence_archive":
@@ -3253,7 +3309,7 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
         if receipt_type == "qa_verdict":
             from qa_review_plan import validate_verdict
             validate_verdict(root, snapshot, receipts, receipt)
-        if receipt_type == "dispatch_failed":
+        if receipt_type == "dispatch_failed" and not handover_receipt:
             _, invalid = _validate_receipt_chain(root, task_id)
             if invalid:
                 raise WorkflowError("回执链损坏，不能追加派工失败更正")
@@ -3344,7 +3400,14 @@ def _validate_receipt_chain(root: Path, task_id: str) -> tuple[list[dict[str, An
 
     previous = ""
     review_snapshot = read_json(snapshot_path(root, task_id)) or {"task_id": task_id}
+    from original_task_publisher_handover import binding, validate_new_receipt
+    handover = binding(root, task_id, receipts)
     for index, receipt in enumerate(receipts, start=1):
+        if handover is not None and index > handover["receipt_start"]:
+            try:
+                validate_new_receipt(root, review_snapshot, receipts[:index-1], receipt)
+            except (ValueError, KeyError, OSError) as error:
+                invalid.append(f"receipt_{index}:publisher_handover_invalid:{error}")
         if receipt.get("receipt_type") == "qa_verdict":
             try:
                 from qa_review_plan import validate_verdict
@@ -3464,6 +3527,8 @@ def _workflow_requires_external_execution(
 
 
 def _derive_state(root: Path, snapshot: dict[str, Any], receipts: list[dict[str, Any]]) -> dict[str, Any]:
+    from original_task_publisher_handover import legacy_context
+    snapshot, receipts = legacy_context(root, snapshot, receipts)
     reviewer = _final_qa_department(root, snapshot)
     departments = [str(item.get("department", "")) for item in snapshot.get("departments", [])]
     workers = [item for item in departments if item not in {reviewer, "operations"}]
@@ -3689,7 +3754,7 @@ def reconcile_workflow(root: Path, *, task_id: str, shadow: bool = False) -> tup
         event_invalid = validate_workflow_events(root, task_id)
         invalid = event_invalid + receipt_invalid
         if not invalid:
-            _apply_plan_refresh(snapshot, read_jsonl(root / WORKFLOW_EVENTS))
+            _apply_plan_refresh(snapshot, read_jsonl(root / WORKFLOW_EVENTS), root=root)
             if _latest_verified_qa_risk_level(root, task_id, receipts) == "R3":
                 snapshot["owner_approval_required"] = True
                 snapshot["owner_approval_source"] = "verified_qa_risk:R3"
@@ -4745,6 +4810,10 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
 
 
 def shadow_replay(root: Path, task_id: str) -> tuple[dict[str, Any], list[Path]]:
+    from original_task_publisher_handover import shadow_projection
+    handover_projection = shadow_projection(root, task_id)
+    if handover_projection is not None:
+        return handover_projection, []
     dispatch_path = root / "logs/dispatch" / f"{task_id}.json"
     dispatch = read_json(dispatch_path)
     if not dispatch:
