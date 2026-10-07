@@ -41,7 +41,9 @@
 
 完整渲染前用 `runtime/frame-review.json` 覆盖开场、最亮、最暗、材质和转场中点，并绑定 storyboard SHA-256。每个 scene 有独立 `grade_target`；先校正曝光/白平衡/材质，再匹配相邻镜头，最后克制风格化，禁止全片统一暖黄或暗电影滤镜。
 
-`visual_music` 使用 `music-selection.json` 和 `music-map.json`；`selected/mounted/audible/rights_cleared` 分开记录。公开使用权未证明时只能停在 preview/candidate 或 HOLD。
+有字画面按 [文字设计系统](premium-typography-system.md) 采用已确认的 A 方向，在当前设计说明中记录每镜字体、文字层级、位置和保护区域。先检查实际字体与原尺寸/手机预览，再进入整片渲染；不复制卧室坐标到全部场景。
+
+音乐选中、挂载、可听、版权核验和 `owner_authorized_use` 分开记录。老板已确认现有及以后入库的全库音乐用于本项目成片；按 [音乐流程](music-first-reference-workflow.md) 匹配后随机去重，直接配乐制作，不以既有 unknown 字段阻断带音乐交付。既有版权记录不改，制作不自动执行上传发布。
 
 ## 机器验证
 

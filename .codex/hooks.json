@@ -1,0 +1,17 @@
+{
+  "description": "FLASH CAST 总部本轮结束前检查：只读当前准确回执；不发消息、不授生产权、不启动定时轮询。需要在 Codex /hooks 审阅并信任后才会运行。",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 tools/controller_stop_hook.py",
+            "timeout": 15,
+            "statusMessage": "核验本项目总部当前未完接续"
+          }
+        ]
+      }
+    ]
+  }
+}

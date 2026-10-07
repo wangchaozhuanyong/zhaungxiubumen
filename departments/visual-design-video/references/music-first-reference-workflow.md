@@ -91,7 +91,21 @@ python3 departments/visual-design-video/scripts/reference_media.py fetch \
 
 目录：`departments/visual-design-video/assets/music/`
 
-`music-catalog.json` 记录文件哈希、时长、来源标签和授权边界。当前迁移曲目均为历史抖音装修参考音频，默认 `authorization_status=unknown`，只可用于内部分析/草稿试听或待负责人确认的同平台候选，不能自动进入跨平台 final 或付费广告。
+`music-catalog.json` 记录文件哈希、时长、来源标签和已有版权状态。现有版权字段保持原样；本项目视频制作的全库使用决定见下节。
+
+### 全库使用决定（2026-10-07，当前规则）
+
+决定引用：`owner-all-library-music-use-20261007`。老板在本固定聊天明确“所有音乐库的音乐都可以使用，不存在不可以用的”，要求不逐首确认、不让单首音乐拖住制作，并明确现有版权状态不改、后续发布选曲自行处理。此节覆盖本文件旧的“unknown 即阻断成片或强制换歌”做法。
+
+1. 所有现有及以后下载入库的曲目，均可参与本项目抖音视频的选曲、剪辑、挂载与成片导出。老板已明确将后续新音乐一并纳入可用范围，不限于当前目录或某个截止日；新音频完成既有可解码、文件完整性和去重入库检查后自动进入选曲池，不再逐首确认。先按时长、类型、风格、情绪匹配，再按下文随机去重；不按现有 unknown 字段排除制作候选。
+2. 曲风、节奏、时长或文件质量不适合当前内容时，自主换下一首适配曲目并继续制作。不为每首歌再向老板确认；不因单首音乐未核版权而暂停整个视频、强制改无音乐版或反复换歌。
+3. 新任务在 music-four-state.json 单列 `owner_authorized_use={"status":"OWNER_AUTHORIZED_LIBRARY_USE","decision_ref":"owner-all-library-music-use-20261007","scope":"本项目抖音视频制作与成片交付"}`。现有 `authorization_status`、`rights_cleared`、来源、权利凭据及历史记录不变；不得把老板的使用决定改写成独立核验事实。
+4. 选曲命令沿用 `--scope internal_reference`，它是本地剪辑规划的接口范围，并不撤销上述成片使用决定。`internal_reference` 与每日采集的 `editing_reference` 均进入该规划池。`eligible_for_external_render=false` 只表示未通过独立权利证据筛查，不取消当前老板授权制作；新成片同时记录 owner_authorized_use。
+5. 发布环节的曲目选择与适用性由老板自行处理。当前任务如只要求成片就交付带音乐MP4；不额外加入逐首音乐审批，也不自动上传、发布、购买或操作账号。
+
+仅记录当前使用决定；不批量改库内版权字段、不回改旧四态和历史、不新增费用。本轮规则调整本身不是一次选曲、挂载或发布事件。
+
+规则依据（2026-10-07核对）：[抖音用户服务协议](https://www.douyin.com/draft/douyin_agreement/douyin_agreement_user.html?id=6773906068725565448)第10.2条要求发布内容包括音乐为原创或合法授权；平台特殊服务还可能适用单独条款。后续执行前如平台或音乐许可变化，应重新核对。
 
 ### 列出和推荐
 
@@ -136,7 +150,7 @@ python3 departments/visual-design-video/scripts/music_library.py recommend \
   --channel instagram
 ```
 
-外部用途必须同时满足 `authorization_status=cleared`、明确 `allowed_scopes` 和匹配的 `allowed_channels`；只改成 `cleared` 仍不能放行。如果没有合格曲目，命令应返回阻塞。正确处理是补授权、使用有证据的音乐，或导出无音乐版并在目标平台内选歌。
+`external_final` 等接口用于查询已有独立权利证据覆盖的曲目，仍要求 `authorization_status=cleared`、明确 `allowed_scopes` 和匹配的 `allowed_channels`。查询没有结果时只代表证据筛查未通过；本项目老板已授权的带音乐制作仍按上文执行，不拿这个查询结果重新阻断制作或逐首请示。
 
 ## 运行时无文案门
 
@@ -189,3 +203,5 @@ QA 必须分别记录：
 - `rights_cleared`：目标渠道和用途有授权证据。
 
 四项不能互相推导。最终 MP4 的 ffprobe 没有音频流，或人工听检不可听，均不得通过视频 QA。
+
+另列 `owner_authorized_use` 记录上述全库使用决定。版权核验状态保持真实，但其 unknown 值不撤销老板已明确的成片制作授权。

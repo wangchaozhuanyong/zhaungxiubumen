@@ -10,6 +10,48 @@ import export_department_system as exporter
 
 
 class DistributionTests(unittest.TestCase):
+    def preparation_example(self):
+        return ('from pathlib import Path\nfrom typing import Any\n'
+                'AUTH_TURN_ID = "private-turn-fixture"\n'
+                'AUTH_MESSAGE_ID = "private-message-fixture"\n'
+                'AUTH_TEXT = "private-owner-fixture"\n'
+                'AUTH_TEXT_SHA256 = "private-digest-fixture"\n'
+                'def _require(condition, reason):\n'
+                '    if not condition: raise ValueError(reason)\n'
+                'def _frozen_request(root: Path, policy: dict[str, Any]) -> dict[str, Any]:\n'
+                '    return policy\n')
+
+    def test_owner_evidence_is_synthetic_and_example_cannot_authorize(self):
+        result = exporter.public_source_text("tools/owner_delegated_publishing_preparation.py", self.preparation_example())
+        self.assertNotIn("private-", result)
+        namespace = {}
+        exec(result, namespace)
+        self.assertEqual(namespace["AUTH_TEXT_SHA256"], hashlib.sha256(namespace["AUTH_TEXT"].encode()).hexdigest())
+        with self.assertRaisesRegex(ValueError, "public_template_has_no_native_authorization"):
+            namespace["_frozen_request"](Path("."), {"routing_policy": {"status": "approved_single_use"}})
+        self.assertEqual(exporter.public_source_text("tools/owner_delegated_publishing_preparation.py", result), result)
+
+    def test_unknown_owner_evidence_or_changed_entrypoint_blocks_export(self):
+        for source in (self.preparation_example() + 'AUTH_NEW_FIELD = "private-new-fixture"\n',
+                       self.preparation_example().replace("def _frozen_request", "def renamed_request")):
+            with self.assertRaises(ValueError):
+                exporter.public_source_text("tools/owner_delegated_publishing_preparation.py", source)
+
+    def test_owner_transform_does_not_change_live_or_unrelated_module(self):
+        source = self.preparation_example()
+        self.assertEqual(exporter.public_source_text("tools/unrelated.py", source), source)
+        exporter.public_source_text("tools/owner_delegated_publishing_preparation.py", source)
+        self.assertIn("private-owner-fixture", source)
+
+    def test_followthrough_examples_remove_real_record_ids_and_source_pins(self):
+        source = 'TARGET_IDS = ["private-record-fixture"]\nSOURCE_PINS = {"v17": ("private-pin-fixture", "private-other-pin")}\n'
+        result = exporter.public_source_text("tools/owner_delegated_publisher_followthrough.py", source)
+        self.assertNotIn("private-", result)
+        namespace = {}
+        exec(result, namespace)
+        self.assertEqual(len(namespace["TARGET_IDS"]), 3)
+        self.assertEqual(set(namespace["SOURCE_PINS"]), {"v17", "v18", "v20"})
+
     def fixture(self, root):
         examples = root / "examples"
         examples.mkdir()
@@ -107,10 +149,22 @@ class DistributionTests(unittest.TestCase):
                 self.assertEqual(binding[name], "")
         policy = json.loads((release / "examples/action-policy.example.json").read_text())
         self.assertEqual(policy["standing_authorizations"], [])
+        self.assertNotIn("owner_delegated_publishing_preparation", policy["routing_policy"])
+        self.assertNotIn("owner_delegated_publisher_followthrough", policy["routing_policy"])
         self.assertFalse(policy["autonomous_site_release_policy"]["enabled"])
         for rule in policy["action_classes"].values():
             if isinstance(rule, dict) and "exact_requests" in rule:
                 self.assertEqual(rule["exact_requests"], [])
+        helper = release / "tools/owner_delegated_publishing_preparation.py"
+        if helper.is_file():
+            spec = importlib.util.spec_from_file_location("public_owner_preparation", helper)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            self.assertTrue(module.PUBLIC_TEMPLATE_ONLY)
+            self.assertEqual(module.AUTH_TURN_ID, "example-turn-not-native")
+            self.assertEqual(module.AUTH_MESSAGE_ID, "example-message-not-native")
+            with self.assertRaisesRegex(ValueError, "public_template_has_no_native_authorization"):
+                module._frozen_request(release, {})
 
 
 if __name__ == "__main__":

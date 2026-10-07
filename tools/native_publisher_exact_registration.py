@@ -11,9 +11,9 @@ BUSINESS_TASK = 'fc-20260928-keyword-page-answer-implementation-v1'
 MANIFEST = 'drafts/operations/fc-20261005-publishing-exact-executor-handover-control-v1/publisher-postdeploy-three-row-staged-control-v2-20261006/candidate.json'
 MANIFEST_SHA = '091dbf92cd0a2953f15b772fae73e201d8cb12ab53588a3d7fd5472e07f7a870'
 EXACT_ROWS = {
-    'v17': ('services', '49276c4c-6f3d-42e3-8c4b-84b1b2c17a3a', 'old-house', ('faqs_en', 'faqs_zh')),
-    'v18': ('blog_posts', 'cf594080-7230-4d77-83ac-0be55dfb3b9d', 'renovation-quotation-checklist-malaysia', ('content_en', 'content_zh')),
-    'v20': ('services', '0af89b93-8938-4a98-ba65-6525fbbe92c1', 'design', ('faqs_en', 'faqs_zh')),
+    'v17': ('services', 'example-cms-record-1', 'old-house', ('faqs_en', 'faqs_zh')),
+    'v18': ('blog_posts', 'example-cms-record-2', 'renovation-quotation-checklist-malaysia', ('content_en', 'content_zh')),
+    'v20': ('services', 'example-cms-record-3', 'design', ('faqs_en', 'faqs_zh')),
 }
 
 

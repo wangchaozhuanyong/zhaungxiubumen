@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 from pathlib import Path
@@ -53,6 +54,80 @@ def public_text(text):
     text = text.replace("<WEBSITE_DEVELOPER_THREAD>", "<WEBSITE_DEVELOPER_THREAD>")
     text = text.replace("<WEBSITE_PROJECT_ID>", "<WEBSITE_PROJECT_ID>")
     text = text.replace(str(Path.home()), "<USER_HOME>")
+    # The same exact CMS record/source pin may occur in several method modules.
+    # Replace those local identities consistently, without changing live files.
+    followthrough = ROOT / "tools/owner_delegated_publisher_followthrough.py"
+    if followthrough.is_file():
+        values = {}
+        for node in ast.parse(followthrough.read_text()).body:
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id in {"TARGET_IDS", "SOURCE_PINS"}:
+                        values[target.id] = ast.literal_eval(node.value)
+        for index, value in enumerate(values.get("TARGET_IDS", [])):
+            text = text.replace(value, "example-cms-record-" + str(index + 1))
+        for name, pins in values.get("SOURCE_PINS", {}).items():
+            for index, value in enumerate(pins):
+                example = hashlib.sha256(("example-only-" + name + "-" + str(index)).encode()).hexdigest()
+                text = text.replace(value, example)
+    return text
+
+
+def public_source_text(rel, text):
+    """Remove native owner evidence from the public preparation-only example."""
+    if rel == "tools/owner_delegated_publisher_followthrough.py":
+        tree = ast.parse(text)
+        replacements = {
+            "TARGET_IDS": ["example-old-house", "example-quotation-checklist", "example-design"],
+            "SOURCE_PINS": {name: tuple(hashlib.sha256(("example-only-" + name + "-" + str(i)).encode()).hexdigest()
+                                        for i in range(2)) for name in ("v17", "v18", "v20")},
+        }
+        nodes = {target.id: node for node in tree.body if isinstance(node, ast.Assign)
+                 for target in node.targets if isinstance(target, ast.Name) and target.id in replacements}
+        if set(nodes) != set(replacements):
+            raise ValueError("Followthrough private-data fields changed; export blocked")
+        lines = text.splitlines(keepends=True)
+        for name, node in sorted(nodes.items(), key=lambda item: item[1].lineno, reverse=True):
+            lines[node.lineno - 1:node.end_lineno] = [name + " = " + repr(replacements[name]) + "\n"]
+        result = "".join(lines)
+        ast.parse(result)
+        return result
+    if rel != "tools/owner_delegated_publishing_preparation.py":
+        return text
+    tree = ast.parse(text)
+    expected = {"AUTH_TURN_ID", "AUTH_MESSAGE_ID", "AUTH_TEXT", "AUTH_TEXT_SHA256"}
+    assignments = {}
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id.startswith("AUTH_"):
+                if target.id in assignments:
+                    raise ValueError("Duplicate owner-evidence field; export blocked")
+                assignments[target.id] = node
+    if set(assignments) != expected:
+        raise ValueError("Unexpected owner-evidence fields; export blocked")
+    example_text = "Synthetic example only; not a native authorization.\n"
+    examples = {
+        "AUTH_TURN_ID": "example-turn-not-native",
+        "AUTH_MESSAGE_ID": "example-message-not-native",
+        "AUTH_TEXT": example_text,
+        "AUTH_TEXT_SHA256": hashlib.sha256(example_text.encode()).hexdigest(),
+    }
+    lines = text.splitlines(keepends=True)
+    for name, node in sorted(assignments.items(), key=lambda item: item[1].lineno, reverse=True):
+        lines[node.lineno - 1:node.end_lineno] = [name + " = " + repr(examples[name]) + "\n"]
+    text = "".join(lines)
+    signature = "def _frozen_request(root: Path, policy: dict[str, Any]) -> dict[str, Any]:\n"
+    guard = '    _require(not PUBLIC_TEMPLATE_ONLY, "public_template_has_no_native_authorization")\n'
+    if text.count(signature) != 1:
+        raise ValueError("Preparation entrypoint changed; export blocked")
+    if "PUBLIC_TEMPLATE_ONLY" not in text:
+        text = text.replace("AUTH_TURN_ID = ", "PUBLIC_TEMPLATE_ONLY = True\nAUTH_TURN_ID = ", 1)
+        text = text.replace(signature, signature + guard, 1)
+    elif text.count("PUBLIC_TEMPLATE_ONLY = True") != 1 or text.count(signature + guard) != 1:
+        raise ValueError("Public preparation guard missing; export blocked")
+    ast.parse(text)
     return text
 
 
@@ -70,7 +145,7 @@ def prepare(root: Path, target: Path):
         if not source.is_file() or source.is_symlink():
             raise ValueError("Missing or symlink source: " + rel)
         raw = source.read_bytes()
-        text = public_text(raw.decode("utf-8"))
+        text = public_source_text(rel, public_text(raw.decode("utf-8")))
         hits = [match for pattern in SECRET_PATTERNS for match in pattern.finditer(text)]
         # Existing scanner tests intentionally contain a header with this exact
         # non-key fixture. A PEM body or any different credential still blocks.
@@ -96,6 +171,8 @@ def prepare(root: Path, target: Path):
     registry = json.loads((root / "data/department-registry.json").read_text())
     role_rows = {row["id"]: row for row in registry["departments"]}
     copy(".codex/config.toml")
+    if (root / ".codex/hooks.json").is_file():
+        copy(".codex/hooks.json")
     for role in ROLES:
         for source in sorted((root / "departments" / role).rglob("*")):
             relative = source.relative_to(root / "departments" / role)
@@ -152,6 +229,8 @@ def prepare(root: Path, target: Path):
     routing = policy["routing_policy"]
     routing.update(source_project_id="", source_project_root="", source_project_name="")
     routing.pop("owner_directed_code_handoff", None)
+    routing.pop("owner_delegated_publishing_preparation", None)
+    routing.pop("owner_delegated_publisher_followthrough", None)
     for value in policy["action_classes"].values():
         if isinstance(value, dict) and "exact_requests" in value:
             value["exact_requests"] = []
@@ -166,11 +245,13 @@ def prepare(root: Path, target: Path):
         "accounts/\n*.sqlite*\n*.db\n*.pem\n*.key\n.DS_Store\n" +
         "".join("/" + name + "\n" for name in COMPANY))
     write_json(target / "release-manifest.json", {
-        "version": "2026.10.07", "artifact_type": "department_system_source",
+        "version": "2026.10.07.2", "artifact_type": "department_system_source",
         "roles": list(ROLES), "files": tracked,
         "live_bindings_exported": False, "live_ledgers_exported": False,
         "credentials_exported": False, "external_permissions_exported": False,
         "public_templates_require_local_setup": True,
+        "native_owner_evidence_exported": False,
+        "owner_preparation_helper_is_non_executable_example": True,
     })
     # Withdraw only unchanged files from the previous generated release. Keep
     # edited or unknown files for explicit review instead of deleting user WIP.

@@ -315,7 +315,16 @@
       "on_interrupt": "保存原task/turn/cursor和待收阶段，恢复先核新结果。",
       "does_not_wake_finished_controller": true,
       "no_high_frequency_automation_added": true,
-      "no_direct_result_message_to_active_or_idle_controller": true
+      "no_direct_result_message_to_active_or_idle_controller": true,
+      "current_state_reader": "tools/controller_event_state.py",
+      "authoritative_source": "latest_policy_checkpoint_and_validated_current_dispatch_ack_result_chain",
+      "manual_event_cache_is_authoritative": false,
+      "settled_exact_watch_requires": "controller_received + controller_decision + valid followthrough or exact QA close_scope",
+      "wait_targets_deduplicate_by_fixed_chat": true,
+      "stop_hook_config": ".codex/hooks.json",
+      "stop_hook_runtime_status": "CONFIGURED_REQUIRES_NATIVE_TRUST_REVIEW",
+      "stop_hook_wakes_finished_controller": false,
+      "stop_hook_restarts_interrupt": false
     },
     "operations_rework_completion_rule": "Only rework with next_owner=operations may record internal_control_completed for already applied internal control. Require exact original-task independent QA PASS/internal_control_candidate receipt binding QA outbox bytes and version, applied proof with same task/version/QA bytes, successful actual postapply checks, zero external writes/permission, and unchanged runtime hashes limited to workflow_control.py/site_ci_prepare_policy.py/task-contract.json/action-policy.json. No selfdispatch, history rewriting, professional completion, publication permission or business-goal closure. Every present no_external_permission_issued/production_permission_issued flag must have its exact safe boolean value; require at least one explicit safe flag and reject conflicting or malformed flags.",
     "idempotency_key_generation": {

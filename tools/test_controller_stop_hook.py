@@ -10,6 +10,10 @@ import controller_stop_hook as hook
 
 class StopHookTests(unittest.TestCase):
     def setUp(self):
+        controller = mock.patch.object(hook, 'CONTROLLER', 'fixed-operations')
+        project = mock.patch.object(hook, 'PROJECT', 'test-project')
+        controller.start(); project.start()
+        self.addCleanup(controller.stop); self.addCleanup(project.stop)
         self.now = dt.datetime(2026, 10, 6, 5, 0, tzinfo=dt.timezone.utc)
         self.event = {'hook_event_name': 'Stop', 'session_id': hook.CONTROLLER,
                       'cwd': str(hook.ROOT), 'stop_hook_active': False}
@@ -39,6 +43,14 @@ class StopHookTests(unittest.TestCase):
     def test_delivery_needs_actual_intake(self):
         self.pending['pending_count'] = 1
         self.assertEqual(self.check()['decision'], 'block')
+
+    def test_invalid_current_receipts_require_recovery_not_silent_stop(self):
+        self.state['validation_errors'] = [{'reason': 'missing-current-ACK'}]
+        self.assertEqual(self.check()['decision'], 'block')
+
+    def test_unbound_installation_never_matches_an_empty_session(self):
+        with mock.patch.object(hook, 'CONTROLLER', ''):
+            self.assertEqual(hook.evaluate(dict(self.event, session_id='')), {})
 
     def test_decision_needs_real_next_action(self):
         self.pending['followthrough_pending_count'] = 1

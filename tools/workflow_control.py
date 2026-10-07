@@ -2093,6 +2093,34 @@ def _routing_precheck(
     if not isinstance(routing, dict):
         return ["routing_policy_missing"], ["routing_precheck:exact_live_identity"]
 
+    # Exact owner-delegated followthrough preserves the actual assistant sender.
+    if scope.startswith("owner_delegated_followthrough:") or scope == "owner_project_handoff:fc-20261007-publisher-three-designated-binding-v1":
+        from owner_delegated_publisher_followthrough import check_owner_delegated_followthrough
+        requested = {"task_id": task_id, "action_id": action_id, "scope": scope,
+                     "action_class": action_class, "sender_department": sender_department,
+                     "source_project_id": source_project_id, "target_project_id": target_project_id,
+                     "target_department": target_department, "target_thread_id": target_thread_id,
+                     "target_thread_title": target_thread_title, "target_cwd": target_cwd,
+                     "target_sidebar_section_id": target_sidebar_section_id, "payload_sha256": payload_sha256}
+        return check_owner_delegated_followthrough(root, policy=policy, departments=departments,
+                                                   requested=requested, validate_receipt_chain=_validate_receipt_chain)
+
+    # One native owner authorization delegates only a frozen R0 publishing
+    # preparation message to the actual assistant; no general sender exemption.
+    if scope == "owner_delegated_dispatch:fc-20261007-owner-publisher-execution-takeover-v1":
+        from owner_delegated_publishing_preparation import check_owner_delegated_preparation
+        requested = {"task_id": task_id, "action_id": action_id, "scope": scope,
+                     "action_class": action_class, "sender_department": sender_department,
+                     "source_project_id": source_project_id, "target_project_id": target_project_id,
+                     "target_department": target_department, "target_thread_id": target_thread_id,
+                     "target_thread_title": target_thread_title, "target_cwd": target_cwd,
+                     "target_sidebar_section_id": target_sidebar_section_id,
+                     "payload_sha256": payload_sha256}
+        return check_owner_delegated_preparation(
+            root, policy=policy, departments=departments, requested=requested,
+            validate_receipt_chain=_validate_receipt_chain,
+        )
+
     # An owner-directed project handoff is one exact message, not a new
     # department, publication authority or a general cross-project exemption.
     if action_class == "thread_message" and scope.startswith("owner_project_handoff:"):
@@ -2387,6 +2415,61 @@ def _routing_precheck(
     return reasons, required_receipts
 
 
+def _ordinary_thread_dispatch_precheck(
+    root: Path, *, snapshot: dict[str, Any], task_id: str,
+    target_department: str, target_thread_id: str, action_id: str, scope: str,
+) -> list[str]:
+    """Reject unreceiptable or already-sent ordinary messages before sending.
+
+    Read the same snapshot and receipt chain used by record_receipt. This
+    check creates no workflow, refreshes no binding and grants no authority.
+    """
+    reasons: list[str] = []
+    if not snapshot or snapshot.get("task_id") != task_id:
+        return ["thread_dispatch_workflow_missing_or_identity_invalid"]
+    if snapshot.get("current_state") in TERMINAL_STATES:
+        reasons.append("thread_dispatch_workflow_terminal")
+    if snapshot.get("plan_status") != "ready_to_send":
+        reasons.append("thread_dispatch_plan_not_ready")
+    planned = [item for item in snapshot.get("departments", [])
+               if isinstance(item, dict) and item.get("department") == target_department]
+    if len(planned) != 1:
+        reasons.append("thread_dispatch_target_not_uniquely_planned")
+    elif not target_thread_id or planned[0].get("chat_task_id") != target_thread_id:
+        reasons.append("thread_dispatch_planned_fixed_chat_mismatch")
+    if not action_id or not scope:
+        reasons.append("thread_dispatch_exact_action_and_scope_required")
+    receipts, invalid = _validate_receipt_chain(root, task_id)
+    if invalid:
+        reasons.append("thread_dispatch_receipt_chain_invalid")
+    decisions = {row.get("decision_id"): row
+                 for row in read_jsonl(root / POLICY_DECISIONS)}
+    for receipt in receipts:
+        if (receipt.get("receipt_type") != "dispatch_sent"
+                or receipt.get("department") != target_department
+                or receipt.get("chat_task_id") != target_thread_id):
+            continue
+        # Receipts can describe the delivered work rather than thread_message.
+        # Also inspect their referenced routing action; changing a packet hash
+        # must not reuse an action already sent successfully.
+        decision = decisions.get(receipt.get("policy_decision_id"), {})
+        same_receipt_action = (receipt.get("action_id") == action_id
+                               and receipt.get("scope") == scope)
+        same_routing_action = (
+            decision.get("status") == "allow"
+            and decision.get("task_id") == task_id
+            and decision.get("action_class") == "thread_message"
+            and decision.get("target_department") == target_department
+            and decision.get("target_thread_id") == target_thread_id
+            and decision.get("action_id") == action_id
+            and decision.get("scope") == scope
+        )
+        if same_receipt_action or same_routing_action:
+            reasons.append("thread_dispatch_exact_action_already_sent")
+            break
+    return reasons
+
+
 def policy_check(
     root: Path,
     *,
@@ -2477,6 +2560,9 @@ def policy_check(
         if (task_id == "fc-20260928-keyword-page-answer-implementation-v1"
                 and action_id == "read-bathroom-v6-exact-native-projection-20261006"):
             from cms_bathroom_native_read_contract_v1 import policy_reasons as cms_read_reasons
+        elif (task_id == "fc-20260928-keyword-page-answer-implementation-v1"
+                and action_id == "read-artistic-v7p2-full-array-source-projection-20261007"):
+            from cms_artistic_full_array_native_read_contract_v1 import policy_reasons as cms_read_reasons
         elif (task_id == "fc-20260928-keyword-page-answer-implementation-v1"
                 and action_id == "read-artistic-v7p2-raw-CAS-five-fields-20261006"):
             from cms_artistic_cas_native_read_contract_v1 import policy_reasons as cms_read_reasons
@@ -2585,6 +2671,19 @@ def policy_check(
     if not snapshot:
         allow = False
         reasons.append("workflow_not_found")
+    # Existing exact health probes and the owner-directed single-message route
+    # retain their own gates. A prefix does not waive those routing checks.
+    if (action_class == "thread_message" and not health_probe_mode
+            and not scope.startswith("owner_project_handoff:")):
+        required_receipts.append("dispatch_precheck:planned_fixed_target_and_unsent_action")
+        dispatch_reasons = _ordinary_thread_dispatch_precheck(
+            root, snapshot=snapshot, task_id=task_id,
+            target_department=target_department, target_thread_id=target_thread_id,
+            action_id=action_id, scope=scope,
+        )
+        if dispatch_reasons:
+            allow = False
+            reasons.extend(dispatch_reasons)
     approval: dict[str, Any] = {}
     standing_authorization: dict[str, Any] = {}
     effective_approval_id = approval_id
@@ -3061,6 +3160,22 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
             "target_thread_id": chat_task_id,
             "routing_status": "routing_allowed",
         }
+        # Preserve the real assistant identity on this one frozen preparation
+        # decision. Every ordinary dispatch still requires operations as sender.
+        if routing_decision.get("department") == "operations-assistant":
+            from owner_delegated_publishing_preparation import is_exact_delegated_dispatch_decision
+            if is_exact_delegated_dispatch_decision(
+                root, policy=load_policy(root), decision=routing_decision, task_id=task_id,
+                target_department=department, target_thread_id=chat_task_id,
+                action_id=action_id, action_class=action_class, scope=scope,
+            ):
+                expected_routing_decision["department"] = "operations-assistant"
+        if routing_decision.get("department") == "operations-assistant" and scope.startswith("owner_delegated_followthrough:"):
+            from owner_delegated_publisher_followthrough import is_exact_followthrough_dispatch_decision
+            if is_exact_followthrough_dispatch_decision(root, policy=load_policy(root), decision=routing_decision,
+                    task_id=task_id, target_department=department, target_thread_id=chat_task_id,
+                    action_id=action_id, action_class=action_class, scope=scope):
+                expected_routing_decision["department"] = "operations-assistant"
         if not routing_decision or any(
             routing_decision.get(key) != value
             for key, value in expected_routing_decision.items()

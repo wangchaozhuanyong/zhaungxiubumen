@@ -460,7 +460,8 @@ def normalized_usage_scopes(track: dict[str, Any]) -> set[str]:
 def scope_eligible(track: dict[str, Any], scope: str, channel: str | None) -> bool:
     scopes = normalized_usage_scopes(track)
     if scope == "internal_reference":
-        return "internal_reference" in scopes
+        # Daily scouting writes editing_reference; both labels cover local editing.
+        return bool(scopes & {"internal_reference", "editing_reference"})
     if scope == "same_platform_candidate":
         return "same_platform_candidate" in scopes
     if scope not in EXTERNAL_SCOPES:

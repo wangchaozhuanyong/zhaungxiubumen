@@ -4,7 +4,7 @@
 
 ## 先做路由
 
-只向注册表中本项目现场验证的 7 个固定执行部门派工；`operations` 是总控，不是专业执行目标。`analytics`、`tracking`、`ads`、`content`、`seo`、`website` 是历史迁移来源，不再作为新的派工目标。
+只向当前注册表中本项目现场验证的固定部门派工；`operations` 是总控，不是专业执行目标。`analytics`、`tracking`、`ads`、`content`、`seo`、`website` 是历史迁移来源，不再作为新的派工目标。
 
 1. 读取 `data/department-registry.json`、`data/department-routing-rules.json`、`data/task-contract.json`、`data/learning/department-learning-registry.json` 和 `data/learning/department-inheritance.json`。
 2. 根据 `department-routing-rules.json` 选择最少必要部门；没有明确匹配时留在总控并向老板补问，不默认派付费部或 QA。
@@ -28,6 +28,12 @@
 每个任务包必须包含：原 `task_id`、候选版本、目标和可验收范围、部门职责、该部门专业 Skill 路径、`approved_subskills` 白名单及对应固定路径、需要读取的路径、该部门记忆路径、共享事实、禁止假设、输出格式、审批边界、`depends_on`、当前 `execution_wave` 和交接对象。部门只能调用白名单中的子 Skill。
 
 任务包必须要求部门在本轮结束前，无论完成、部分完成、需输入、返工、失败，先在自己的固定聊天非空回复并保存/校验 V2 outbox，再按原 `task_id`、候选版本和 outbox SHA 用 `result-handoff-record` 登记一次 `notification_queued` 到项目内持久队列。不得向总控聊天直接发送结果消息，以免打断当前工作；旧 `notification_sent` 只作历史记录。总控自然接续或每日18:00兜底运行 `result-handoff-pending`，核验后收取并决策。普通跨任务消息、跨项目和外部写入仍不获授权。
+
+## 工具动作和回执分类须分开
+
+任务包分别列出 `candidate_type`／回执 `action_class` 和实际工具 `tool_action_class`。`read_only_candidate`、`internal_control_candidate`、`analysis` 是候选或回执分类，不能直接传给工具政策检查。每个真实工具动作只使用 `data/action-policy.json.action_classes` 中已有的准确类别：例如本地文件读取 `local_read`、公开网页/批准浏览器初始化 `public_web_read`、本地交付写入 `internal_artifact_write`；后台原生读取必须另走准确 `cms_native_read`。候选内部PASS不新增工具权限。
+
+结果绑定取原生 `read_thread` 中准确结果 `agentMessage.text` 的原始 UTF-8；保留 Markdown、换行和尾部字符，不取 `wait_threads` 的格式化摘要、不 trim、不改写。先核对该 `message_id` 真的是结果而不是接单回复；`chat_reply.thread_id` 必填，原消息时间未返回时如实标注观察时间依据，不伪造原始时间。发送前完整校验这组字段和正文SHA后再冻结 V2。
 
 ## 真实聊天规则
 

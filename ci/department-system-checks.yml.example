@@ -20,4 +20,4 @@ jobs:
           PYTHONDONTWRITEBYTECODE: '1'
         run: |
           cd tools
-          python -m unittest test_workflow_control test_flashcast_ops test_department_reply test_result_handoff_key test_result_handoff_readback test_qa_dispatch_priority test_controller_progress test_department_next_work test_department_next_work_rework test_result_coordination test_runtime_continuation test_runtime_qa_admission test_department_system_distribution
+          python -m unittest test_workflow_control test_flashcast_ops test_department_reply test_result_handoff_key test_result_handoff_readback test_qa_dispatch_priority test_controller_progress test_controller_event_state test_controller_stop_hook test_department_next_work test_department_next_work_rework test_result_coordination test_runtime_continuation test_runtime_qa_admission test_department_system_distribution

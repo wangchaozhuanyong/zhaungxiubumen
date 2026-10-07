@@ -11,16 +11,21 @@ import json
 import sys
 from pathlib import Path
 
-ROOT = Path('<PROJECT_ROOT>')
-CONTROLLER = '<LOCAL_TASK_ID>'
-PROJECT = '<LOCAL_PROJECT_ID>'
+ROOT = Path(__file__).resolve().parents[1]
+try:
+    _registry = json.loads((ROOT / 'data/department-registry.json').read_text())
+    _binding = next(row['chat_binding'] for row in _registry['departments'] if row['id'] == 'operations')
+except (OSError, ValueError, KeyError, TypeError, StopIteration):
+    _binding = {}
+CONTROLLER = _binding.get('task_id', '')
+PROJECT = _binding.get('project_id', '')
 STATE = 'data/controller-event-continuation.json'
 
 
 def _matching_event(event: dict) -> bool:
     if not isinstance(event, dict):
         raise ValueError('event must be an object')
-    return (event.get('hook_event_name') == 'Stop'
+    return (bool(CONTROLLER and PROJECT) and event.get('hook_event_name') == 'Stop'
             and event.get('session_id') == CONTROLLER
             and event.get('cwd') == str(ROOT))
 
@@ -41,6 +46,8 @@ def decide(event: dict, state: dict, pending: dict, now: dt.datetime) -> dict:
             or state.get('cwd') != str(ROOT)):
         return {'systemMessage': '总控接续状态身份不完整；未启动自动接续。请恢复本项目状态证明。'}
     reasons = []
+    if state.get('validation_errors'):
+        reasons.append('当前派工回执或结果证据需恢复；不沿旧缓存派工')
     if pending.get('pending_count', 0):
         reasons.append('存在尚未收取或决策的真实部门结果')
     if pending.get('followthrough_pending_count', 0):
@@ -79,14 +86,13 @@ def decide(event: dict, state: dict, pending: dict, now: dt.datetime) -> dict:
 
 
 def _load_context() -> tuple[dict, dict]:
-    import workflow_control as workflow
-    binding = workflow.department_registry(ROOT)['operations']['chat_binding']
-    if not isinstance(binding, dict) or any(binding.get(k) != v for k, v in {
-        'task_id': CONTROLLER, 'project_id': PROJECT, 'cwd': str(ROOT)
+    from controller_event_state import derive
+    state, pending = derive(ROOT)
+    if any(state.get(k) != v for k, v in {
+        'controller_thread_id': CONTROLLER, 'project_id': PROJECT, 'cwd': str(ROOT)
     }.items()):
         raise ValueError('controller registry identity mismatch')
-    state = json.loads((ROOT / STATE).read_text())
-    return state, workflow.result_handoff_pending(ROOT)
+    return state, pending
 
 
 def evaluate(event, load_context=_load_context, now=None) -> dict:

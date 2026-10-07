@@ -20,6 +20,7 @@ class ExactRuntimeQA(unittest.TestCase):
     routing_decision = legacy.WorkflowControlTests.routing_decision
 
     def setUp(self):
+        TMP.mkdir(parents=True, exist_ok=True)
         original = tempfile.TemporaryDirectory
         with mock.patch.object(tempfile, "TemporaryDirectory", side_effect=lambda *a, **k: original(*a, dir=TMP, **k)):
             legacy.WorkflowControlTests.setUp(self)

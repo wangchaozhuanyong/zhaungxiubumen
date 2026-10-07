@@ -17,7 +17,7 @@ FIELDS = ["content_en", "content_zh"]
 EXPECTED = {
     "builtin": "b401a610-a4dc-4a0b-a7e0-efcac6c81d71",
     "kitchen": "ce4156db-9034-42c8-ba29-b35724ea7d6d",
-    "design": "0af89b93-8938-4a98-ba65-6525fbbe92c1",
+    "design": "example-cms-record-3",
 }
 TASK = "fc-20260927-keyword-answer-wave2-source-merge-v2"
 

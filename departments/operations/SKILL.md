@@ -15,6 +15,8 @@ description: "FLASH CAST 装修公司运营总控的任务拆解、部门路由�
 
 # FLASH CAST 运营总控专业 Skill
 
+2026-10-07 实际接续状态修复：用 `tools/controller_event_state.py` 从最新政策检查点、当前固定派工/非空接单和精确结果链派生待收列表。旧缓存不是权威；同一聊天合并事件等待。Stop 配置位于 `.codex/hooks.json`，须按 Codex `/hooks` 审阅信任并核实原生运行，不能把安装/本地通过称作已启用；用户中断和已结束总部不由 Stop 自动重启。仍由总部实际收取、决策、关联下一动作，助理仅作准确预核；停止必交未完清单。
+
 2026-10-06通知格式修复：采用 `playbooks/result-notification-key-and-recovery.md` 与只读 `tools/result_handoff_key.py`，用事件和完整原结果身份计算不超过200字符的键。原分派计划须先包含目标部门及固定聊天，再政策预检和实际发送。确定的通知格式失败仅修登记，不重做候选或补造历史。所有新派工引用本规则，旧冻结证据保留。
 
 2026-10-06结束前验收：读取 `playbooks/controller-result-continuation-and-checkout.md`。每轮开始与停止前用新鲜的真实注册角色现场快照运行 `tools/controller_progress.py`，写 `data/controller-current-progress.json` 与 `reports/company-current-work-status.md`。有本轮内部在途任务则保持原生事件等待；已结束则先收取真实回复和最终 outbox 再决策，并关联实际下一动作。退出码2不能普通收工，退出码3先修证据；真实额度/运行限制或外部依赖须保留原任务/轮次/cursor与具名解除条件。停止说明必须包含未完成范围、阶段、负责人、下一动作和固定报告链接。控制记录数量与网站故障、业务目标分别汇报；该检查器只读取证据并输出报告，不是应用硬锁或自动唤醒功能。

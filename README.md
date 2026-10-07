@@ -19,9 +19,12 @@ python3 tools/flashcast_ops.py result-handoff-pending
 python3 tools/flashcast_ops.py department-learning-status
 python3 tools/flashcast_ops.py workflow-status --task-id <原任务ID>
 python3 tools/qa_dispatch_priority.py
+python3 tools/controller_event_state.py
 ```
 
 `pending_count=0`不等于收工，还要核followthrough、真实在途任务和业务主账。每日15:00汇总、18:00兜底补漏；不新增五分钟轮询。队列本身不会自动唤醒已经结束的聊天，本轮原生完成事件等待和后续自然接续负责衔接。
+
+2026.10.07 接续补丁从政策最新检查点和真实回执生成准确等待列表，替代手工旧缓存；已收取、决策并落实的范围不再被旧watch反复追踪。项目停止检查配置在 `.codex/hooks.json`：需在 Codex `/hooks` 审阅并信任后才运行，公开源码不会导出本机信任或自动启用。它只防本轮普通结束漏收，不能唤醒已结束聊天或恢复人工中断。详见[结束前核验](playbooks/controller-result-continuation-and-checkout.md)。
 
 ## 规则与岗位入口
 
