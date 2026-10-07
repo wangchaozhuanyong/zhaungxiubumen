@@ -99,11 +99,11 @@ python3 departments/visual-design-video/scripts/public_copy_guard.py check \
 - `cover-3x4.png`：1080×1440，作为抖音封面选择和主页裁切的主设计；
 - `first-frame-cover-9x16.png`：1080×1920，作为视频第 0 帧；中间 `y=240..1680` 必须与 3:4 主封面同构，并为上下区域补足可裁切背景。
 
-关键标题、主体和品牌识别集中在 3:4 主画布中。先读 `$full-house-custom-ad/references/cover-director-prompts.md`，规划主题、成年人物表达/动作、家具关系和文字区，保存brief/prompt后生成；示例现代攻略不能替换实际意式主题。
+关键标题、主体和品牌识别集中在 3:4 主画布中。先读 `$full-house-custom-ad/references/cover-director-prompts.md` 与 [已确认封面设计](approved-cover-design.md)，规划主题、成年人物表达/动作、家具关系和文字区，保存brief/prompt后生成；示例现代攻略不能替换实际意式主题。设计展示默认采用浅色宋体＋开口细框，无衬底阴影，正文苹方规则不覆盖封面。
 
 9:16 旧版 `legacy_four_sides` 基线为顶部240px、底部420px、右侧180px、左侧96px。老板本批明确只考虑上下、不考虑左右时可选 `vertical_priority_owner`：顶部420px、底部600px，关键文字位于 y=420..1320、左右UI不占位；报告绑定本批task_id和真实老板指令，不能为过门任意切换。两套均为项目设计基线，不是抖音官方固定像素规范。公开发布前仍核对真实平台UI。另生成 `cover-safe-preview-9x16.png` 叠加裁切/遮挡线，只作QA，不得作为正式封面或视频首帧；图片满屏，不把上下预留区做成空白带。
 
-封面文字同样进入 Qingdou。封面标题优先 8–14 个中文字符、最多两行，一眼说明主题，不使用夸张承诺；这是项目设计基线，不冒充抖音统一字数规则。
+封面文字同样进入 Qingdou。先以内容标签＋主信息＋具体说明让人认出需求；短风格名可竖排并配服务列，长问题/避坑题目可横排两级。旧8–14字、最多两行只作为横排起点，不限制已确认竖排款，也不靠删掉必要说明过门。长度由信息量和手机可读性决定，不使用夸张承诺；这些不是抖音官方字数规定。
 
 最终 MP4 第 0 帧使用 `first-frame-cover-9x16.png`，随后立即进入正片。发布包保存：
 

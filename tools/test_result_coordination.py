@@ -309,6 +309,44 @@ class ResultCoordinationIntegrationTests(unittest.TestCase):
         request["source_reply_sha256"] = "b"*64
         self.assertEqual(w.record_result_handoff(self.root, request)[0]["result"], "recorded")
 
+    def test_operations_control_pin_conversion_commits_and_replays_once(self):
+        w.record_result_handoff(self.root, self.receive())
+        proof = self.root / 'reports/applied-control.json'
+        proof.parent.mkdir(exist_ok=True)
+        proof.write_text('{"synthetic": true}')
+        pin = w.file_digest(self.root, 'reports/applied-control.json')
+        decision = {**self.base, 'event': 'controller_decision', 'idempotency_key': 'ops-rework',
+                    'decision': 'rework', 'next_owner': 'operations', 'next_action': 'apply exact internal control',
+                    'evidence_paths': ['reports/applied-control.json']}
+        w.record_result_handoff(self.root, decision)
+        request = {**self.base, 'event': 'controller_followthrough', 'idempotency_key': 'ops-applied',
+                   'followthrough_status': 'internal_control_completed', 'action_reference': 'synthetic-control',
+                   'control_applied_proof': 'reports/applied-control.json',
+                   'evidence_paths': ['reports/applied-control.json']}
+        # Only the independent-control verifier is stubbed; native append,
+        # path-to-pin normalization, reservation commit and replay are real.
+        with mock.patch.object(w, '_verify_operations_rework_completion',
+                               return_value={'control_applied_proof': pin}):
+            first, _ = w.record_result_handoff(self.root, request)
+        again, _ = w.record_result_handoff(self.root, request)
+        self.assertEqual(first['control_applied_proof'], pin)
+        self.assertEqual(again['record_id'], first['record_id'])
+        self.assertEqual(again['result'], 'duplicate_ignored')
+        committed = self.a.conn.execute("SELECT status FROM reservations WHERE effect_key=?",
+                                       (coordination._sha(['controller_followthrough', 'ops-applied']),)).fetchone()
+        self.assertEqual(committed['status'], 'committed')
+        proof.write_text('{"synthetic": "changed"}')
+        with self.assertRaisesRegex(w.WorkflowError, 'different semantic payload|payload/evidence differs'):
+            w.record_result_handoff(self.root, request)
+
+    def test_pending_malformed_outbox_type_is_controlled_recovery(self):
+        rows = w._result_handoff_rows(self.root, self.base['task_id'])
+        for malformed in [None, [], 'not-an-object', True]:
+            bad = [dict(row, outbox=malformed) for row in rows]
+            with self.subTest(malformed=malformed), mock.patch.object(w, '_result_handoff_rows', return_value=bad):
+                with self.assertRaisesRegex(w.WorkflowError, 'outbox'):
+                    w.result_handoff_pending(self.root)
+
 
 if __name__ == "__main__":
     unittest.main()

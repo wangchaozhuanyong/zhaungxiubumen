@@ -4073,10 +4073,13 @@ def result_handoff_pending(root: Path) -> dict[str, Any]:
             by_identity: dict[tuple[str, str, str], dict[str, Any]] = {}
             for row in rows:
                 identity = _result_identity(row)
+                outbox_pin = row.get("outbox")
+                if not isinstance(outbox_pin, dict):
+                    raise WorkflowError(f"结果交接 outbox 固定值不是对象，须恢复原证据：{task_id}")
                 entry = by_identity.setdefault(identity, {
                     "task_id": task_id, "sender_department": identity[0],
                     "candidate_version": identity[1], "result_sha256": identity[2],
-                    "outbox_path": row.get("outbox", {}).get("path"),
+                    "outbox_path": outbox_pin.get("path"),
                     "queued": False, "sent": False, "notification_blocked": False,
                     "received": False, "decided": False,
                     "controller_followthrough": "pending",

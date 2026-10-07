@@ -1,5 +1,5 @@
 {
-  "version": "2026.10.07.2",
+  "version": "2026.10.07.3",
   "artifact_type": "department_system_source",
   "roles": [
     "operations",
@@ -67,8 +67,8 @@
     },
     {
       "path": "tools/controller_event_state.py",
-      "source_sha256": "392b0fc05cb2fcd7335acd07998944f90024883ab3775884f30721d224f6ca60",
-      "release_sha256": "392b0fc05cb2fcd7335acd07998944f90024883ab3775884f30721d224f6ca60"
+      "source_sha256": "a7b326d245f622c5c05d7582173ce3f6277d9c3c2d60d5be5e17288f31e4dce9",
+      "release_sha256": "a7b326d245f622c5c05d7582173ce3f6277d9c3c2d60d5be5e17288f31e4dce9"
     },
     {
       "path": "tools/controller_progress.py",
@@ -92,8 +92,8 @@
     },
     {
       "path": "tools/export_department_system.py",
-      "source_sha256": "a1f1f5cc1c7c619a46092e5faad4bcb906c15a38a2bedbdc6e88defe6a252c3d",
-      "release_sha256": "706bccc8e60eb0b4bd9dfc9bef211faf76ca521a0ea5f08f1f5098e6db89bdea"
+      "source_sha256": "eb2bc4bb5c5e721d743d492a0a2a1d8b367a8ad077215d6c085fb5d1d6a2f7d5",
+      "release_sha256": "3e0f8378ad794abbc53b2fd3b92949a2afd46d377bb464c215d73f6a00e6d97a"
     },
     {
       "path": "tools/flashcast_ops.py",
@@ -172,8 +172,8 @@
     },
     {
       "path": "tools/result_coordination.py",
-      "source_sha256": "6d632ad89c2db39ad9af88f2925da22c5a9ee5e179995c24426c9721c2af658b",
-      "release_sha256": "6d632ad89c2db39ad9af88f2925da22c5a9ee5e179995c24426c9721c2af658b"
+      "source_sha256": "a8ca257985a3eebb82a419456426899fb0bea48bb4c4e011a54717e5f8668038",
+      "release_sha256": "a8ca257985a3eebb82a419456426899fb0bea48bb4c4e011a54717e5f8668038"
     },
     {
       "path": "tools/result_handoff_key.py",
@@ -222,8 +222,8 @@
     },
     {
       "path": "tools/test_controller_event_state.py",
-      "source_sha256": "4d6ea2d9f1899d95961d6f1847afb24726cd3148befb2c75ec946366c278149e",
-      "release_sha256": "4d6ea2d9f1899d95961d6f1847afb24726cd3148befb2c75ec946366c278149e"
+      "source_sha256": "f09ab8cc610f42be82f5d3b9d9fcfe2cba94f156bb36e5c516ee8fff8bfd4ee9",
+      "release_sha256": "f09ab8cc610f42be82f5d3b9d9fcfe2cba94f156bb36e5c516ee8fff8bfd4ee9"
     },
     {
       "path": "tools/test_controller_progress.py",
@@ -287,8 +287,8 @@
     },
     {
       "path": "tools/test_result_coordination.py",
-      "source_sha256": "47aca62a97e73820a764afb70592d678074e8df46f85182730b9abf47b583697",
-      "release_sha256": "47aca62a97e73820a764afb70592d678074e8df46f85182730b9abf47b583697"
+      "source_sha256": "dfb359fee99750e52104254f8f698ec55fb6f69d2719257c9f7f78270b020819",
+      "release_sha256": "dfb359fee99750e52104254f8f698ec55fb6f69d2719257c9f7f78270b020819"
     },
     {
       "path": "tools/test_result_handoff_key.py",
@@ -322,8 +322,8 @@
     },
     {
       "path": "tools/workflow_control.py",
-      "source_sha256": "37546d1020b9385ef4307fd51bf56657457103e38c6279c6d94062aa77ef0280",
-      "release_sha256": "fc96d74aab4d18f19f7a3483151cc217867dce1c5b10a4dc6277cc4dc287b6aa"
+      "source_sha256": "45992cb1c9f6742e52180aa73c16ad18ff6941bce0eee5ce5706151b55179781",
+      "release_sha256": "04d4201bdb272cb01c4779e2397457cb097dfcd453287138f9069c2ad5f976d2"
     },
     {
       "path": "playbooks/CROSS_PROJECT_ROUTING_RECOVERY.md",
@@ -642,13 +642,13 @@
     },
     {
       "path": "departments/visual-design-video/README.md",
-      "source_sha256": "526680021ff1a00a9ea4a07acc597e7f943a2f167f4b755f120884b5e6e315cb",
-      "release_sha256": "526680021ff1a00a9ea4a07acc597e7f943a2f167f4b755f120884b5e6e315cb"
+      "source_sha256": "1f6a722d28f1ed5653ccfc59fdca820d19fc9915b2198d2c2a992e01728f62e8",
+      "release_sha256": "1f6a722d28f1ed5653ccfc59fdca820d19fc9915b2198d2c2a992e01728f62e8"
     },
     {
       "path": "departments/visual-design-video/SKILL.md",
-      "source_sha256": "dacdc6d363d2a9f11fef7b423898527bda9313faff43c3699a17fb7fbba321cf",
-      "release_sha256": "dacdc6d363d2a9f11fef7b423898527bda9313faff43c3699a17fb7fbba321cf"
+      "source_sha256": "23a6a0cbd84e0b9be5d224c20a75aedd30b4ea2b903f44b6127e3a64e760b271",
+      "release_sha256": "23a6a0cbd84e0b9be5d224c20a75aedd30b4ea2b903f44b6127e3a64e760b271"
     },
     {
       "path": "departments/visual-design-video/agents/openai.yaml",
@@ -661,14 +661,19 @@
       "release_sha256": "75b11e34dff4edd954f78903a0afa4e19c4aa85a8f83cbb0fe62fc8403e4e077"
     },
     {
+      "path": "departments/visual-design-video/references/approved-cover-design.md",
+      "source_sha256": "c3c795531c11a118f814f4adb7c1ec89d3c0e008eff138f44a4aff7a46568b26",
+      "release_sha256": "8c574e980ea2f89e635b97a88df3608f89cedc103fa9e600083a5638a9b5e03d"
+    },
+    {
       "path": "departments/visual-design-video/references/autonomous-renovation-workflow.md",
       "source_sha256": "912bbcb89205523fc0713f6082acc0815ccc6827169f74ea5c19c90e2c8d40cd",
       "release_sha256": "912bbcb89205523fc0713f6082acc0815ccc6827169f74ea5c19c90e2c8d40cd"
     },
     {
       "path": "departments/visual-design-video/references/douyin-publish-package.md",
-      "source_sha256": "5f312443ca8d53db24ff6dc49578d27fb889f6a455d8c1b7560119f74ec30204",
-      "release_sha256": "5f312443ca8d53db24ff6dc49578d27fb889f6a455d8c1b7560119f74ec30204"
+      "source_sha256": "6fba17d6cc1b138217f993fa80e282cd803887ca0141c479810bca9e0df6a81b",
+      "release_sha256": "6fba17d6cc1b138217f993fa80e282cd803887ca0141c479810bca9e0df6a81b"
     },
     {
       "path": "departments/visual-design-video/references/music-first-reference-workflow.md",
@@ -677,18 +682,18 @@
     },
     {
       "path": "departments/visual-design-video/references/premium-typography-system.md",
-      "source_sha256": "7e4d29fe4c93527307c3b02aa57b85413efa63ee4abfe5105da3d172cfbff27a",
-      "release_sha256": "7e4d29fe4c93527307c3b02aa57b85413efa63ee4abfe5105da3d172cfbff27a"
+      "source_sha256": "a18ee439f457b155969e416b2f3b3bf7f07bc7b13e1347e92959ca765d95db02",
+      "release_sha256": "a18ee439f457b155969e416b2f3b3bf7f07bc7b13e1347e92959ca765d95db02"
     },
     {
       "path": "departments/visual-design-video/references/production-contract.md",
-      "source_sha256": "8ed7530cc7782b878ac0800a5c62e54e50f8ee7e201295bcc62b10657e4b12a1",
-      "release_sha256": "8ed7530cc7782b878ac0800a5c62e54e50f8ee7e201295bcc62b10657e4b12a1"
+      "source_sha256": "5d90e018bc5dbde4043178690ee3eb948f4c6b9bed57e0ab37558548ddc3098c",
+      "release_sha256": "5d90e018bc5dbde4043178690ee3eb948f4c6b9bed57e0ab37558548ddc3098c"
     },
     {
       "path": "departments/visual-design-video/references/qa-gates.md",
-      "source_sha256": "49be04db2e35622a32a639c59cd8ddd18846bb912c28991c2e6f62ceead9f69e",
-      "release_sha256": "49be04db2e35622a32a639c59cd8ddd18846bb912c28991c2e6f62ceead9f69e"
+      "source_sha256": "d20d1693fe6ecfea6a9fd11a1dbd4187a6fe114032ce792193e063bc5edde346",
+      "release_sha256": "d20d1693fe6ecfea6a9fd11a1dbd4187a6fe114032ce792193e063bc5edde346"
     },
     {
       "path": "departments/visual-design-video/references/skill-routing.md",
@@ -952,5 +957,6 @@
   "external_permissions_exported": false,
   "public_templates_require_local_setup": true,
   "native_owner_evidence_exported": false,
-  "owner_preparation_helper_is_non_executable_example": true
+  "owner_preparation_helper_is_non_executable_example": true,
+  "public_document_references_sanitized": true
 }

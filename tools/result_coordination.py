@@ -325,6 +325,11 @@ def _native_readback(root, payload):
     expected.update(pins)
     # All native preserved request fields are compared; path inputs map to pins.
     skipped = {"evidence_paths", "outbox_path", "linked_outbox_path", *IDENTITY_FIELDS, "event", "idempotency_key"}
+    # The native operations verifier converts this path input into a digest.
+    # Compare the same frozen bytes, rather than a path string with a pin dict.
+    if "control_applied_proof" in request and "control_applied_proof" in row:
+        expected["control_applied_proof"] = w.file_digest(root, request["control_applied_proof"])
+        skipped.add("control_applied_proof")
     for key, value in request.items():
         if key not in skipped and key in row:
             expected[key] = value

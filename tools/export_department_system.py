@@ -245,7 +245,7 @@ def prepare(root: Path, target: Path):
         "accounts/\n*.sqlite*\n*.db\n*.pem\n*.key\n.DS_Store\n" +
         "".join("/" + name + "\n" for name in COMPANY))
     write_json(target / "release-manifest.json", {
-        "version": "2026.10.07.2", "artifact_type": "department_system_source",
+        "version": "2026.10.07.3", "artifact_type": "department_system_source",
         "roles": list(ROLES), "files": tracked,
         "live_bindings_exported": False, "live_ledgers_exported": False,
         "credentials_exported": False, "external_permissions_exported": False,

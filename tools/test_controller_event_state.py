@@ -133,6 +133,32 @@ class CurrentEventStateTests(unittest.TestCase):
         rows[0]['outbox_path'] = rows[0].pop('outbox')['path']
         self.assertEqual(len(self.inspect(rows)['resolved_watches']), 1)
 
+    def test_malformed_outbox_type_keeps_watch_and_reports_recovery(self):
+        for malformed in ['not-an-object', [], True, 1]:
+            with self.subTest(malformed=malformed):
+                rows = self.result()
+                rows[0]['outbox'] = malformed
+                answer = self.inspect(rows)
+                self.assertEqual(len(answer['watched_tasks']), 1)
+                self.assertEqual(answer['resolved_watches'], [])
+                self.assertEqual(answer['validation_errors'][0]['reason'], 'settled_result_outbox_not_object')
+
+    def test_null_or_absent_outbox_without_legacy_path_keeps_watch(self):
+        for missing in [True, False]:
+            rows = self.result()
+            if missing:
+                rows[0].pop('outbox')
+            else:
+                rows[0]['outbox'] = None
+            self.assertEqual(len(self.inspect(rows)['watched_tasks']), 1)
+
+    def test_invalid_checkpoint_cannot_silently_erase_active_work(self):
+        path = self.root / 'logs/current-checkpoint.json'
+        for raw in ['{"active_tasks": []}\\n', 'null', '{}', '{"active_tasks": [null]}']:
+            path.write_text(raw)
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                self.inspect()
+
     def test_unknown_dispatch_id_does_not_create_native_wait_target(self):
         watch = dict(self.watch, dispatch_receipt_id='not-sent')
         self.fixture.write('logs/current-checkpoint.json', {'active_tasks': [watch]})

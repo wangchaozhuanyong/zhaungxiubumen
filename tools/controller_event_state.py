@@ -26,7 +26,10 @@ def derive(root: Path, now: dt.datetime | None = None) -> tuple[dict, dict]:
         raise ValueError("current controller identity is incomplete")
     execution = workflow.read_json(root / "data/content/organic-execution-policy.json")
     checkpoint_path = execution["keyword_content_coverage_acceptance"]["controller_checkpoint"]
-    checkpoint = workflow.read_json(workflow.safe_path(root, checkpoint_path))
+    checkpoint = json.loads(workflow.safe_path(root, checkpoint_path).read_text(encoding="utf-8"))
+    if (not isinstance(checkpoint, dict) or not isinstance(checkpoint.get("active_tasks"), list)
+            or any(not isinstance(item, dict) for item in checkpoint["active_tasks"])):
+        raise ValueError("current checkpoint requires an explicit active task list")
     queue = workflow.result_handoff_pending(root)
     watched, resolved, errors = [], [], []
     seen = set()
@@ -81,7 +84,12 @@ def derive(root: Path, now: dt.datetime | None = None) -> tuple[dict, dict]:
             # Persisted records store the pinned outbox under `outbox`; the
             # input request uses outbox_path. Never mistake request shape for
             # the actual ledger, or crash before reporting a recovery error.
-            pin = intake.get("outbox") or {}
+            pin = intake.get("outbox", {})
+            if pin is None:
+                pin = {}
+            if not isinstance(pin, dict):
+                errors.append({"task_id": task, "reason": "settled_result_outbox_not_object"})
+                continue
             path = pin.get("path") or intake.get("outbox_path")
             try:
                 if not path or (pin.get("sha256") and pin["sha256"] != result_hash):
