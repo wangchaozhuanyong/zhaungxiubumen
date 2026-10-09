@@ -287,9 +287,9 @@
     ],
     "source_result": "部门先在原固定聊天非空回复，保存并校验V2 outbox；完成、部分完成、需输入、QA阻断和失败均需交接。result_sha256须匹配原任务和固定部门outbox当前字节。",
     "notification": "2026-09-30起，部门完成原任务后在自己的固定聊天非空回复并保存/校验V2 outbox；以原task_id、部门、候选版本和outbox SHA登记notification_queued到项目内持久队列。不向总控固定聊天发送结果消息，避免打断active任务；旧notification_sent仅保留历史真实记录。",
-    "scheduled_daily_intake": "仅content-organic-website的fc-YYYYMMDD-website-growth-daily可用source_mode=scheduled_run入队：必须现场核实固定聊天当天已完成的flash-cast-4轮次，提供source_turn_id、source_thread_id、source_reply_sha256、reply_observed_at及同MYT日的V2 outbox。此路径不补造dispatch_sent/chat_ack或原工作流快照；其他任务仍需原派工和非空接单回执。总控随后用原结果哈希登记queue收取与决策。",
+    "scheduled_daily_intake": "现有准确每日自动任务合同维持；另以owner_direct_intake纳管真实老板直接任务。原始派工、每日原生完成轮次或准确老板入口分别校验，不补造dispatch_sent/chat_ack。",
     "blocked_notification": "policy拒绝、健康/绑定过期或发送工具失败时记录notification_blocked及原因，不冒充已发送、不绕过门禁、不重复业务派工；每日兜底收取可用fallback方式登记controller_received。",
-    "controller_intake": "总控在当前工作自然接续点或下一轮及每日18:00兜底运行result-handoff-pending。命令除列出现有队列外，还扫描当前范围内有效原派工、非空chat_ack及其后完成的V2 outbox；优先验证outbox_received回执哈希，缺该回执时仅接受固定聊天绑定一致、chat_reply明确非空且outbox字节修改晚于派工和chat_ack的候选。发现未登记的历史交付时以recovery_required列入pending_count，并返回exact outbox/result hash、原任务及负责人；扫描范围限于当前controller_checkpoint的active/pending_qa任务及唯一backlog未关闭项目引用，避免重开已解决历史。发现只代表待恢复，不代表总控已收取。总控须现场核验固定聊天非空回复与outbox哈希、QA/发布实际层级，再用intake_mode=fallback登记controller_received并写controller_decision，原因写legacy_queue_omission；不补造notification_queued或notification_sent。已收取但无controller_decision的结果仍保持待办。",
+    "controller_intake": "总部自然接续及每日兜底核对持久队列；准确正式grant内结果由对口助理收取/决策/接续，总部处理方向、授权变化和重大例外。普通在途不持有总部轮次。",
     "controller_decisions": [
       "send_qa",
       "rework",
@@ -299,7 +299,7 @@
       "close_scope"
     ],
     "controller_decision_rule": "每个新结果必须指定唯一下一负责人、最小动作、证据与阻断解除条件；release_gate只是门禁路线，不是发布许可。close_scope只关闭明确验收的单项范围，不能关闭唯一主账的SEO/GEO业务目标。",
-    "controller_followthrough_rule": "2026-09-30起总控写入controller_decision后，除已QA验收的close_scope外仍列为followthrough_pending；后续派工须记录决策后真实dispatch_sent回执，发布须记录真实execution_result与PASS postcheck。决策前已真实完成的后续工作可用prior_action_verified关联原outbox_received字节；send_qa仅允许同原任务、同候选版本、固定QA既有回执，不补造派工。inflight_result_verified仅用于send_qa或continue的准确在途对账：须引用下一固定负责人的决策前最后一次真实dispatch_sent、其后非空chat_ack及决策后到达的准确outbox_received字节；同原任务仅固定QA、同候选版本且有绑定该outbox的独立qa_verdict，跨任务仅continue且新outbox明确parent_task_id等于原任务。对账只完成控制动作关联，不改历史时间、不授予发布权限、不关闭业务目标。外部等待/阻断须记录具名解除条件及下次检查时间，内部控制须有项目内证据。阻断或等待未解除时显示waiting_followthrough_review；到期重新进入待办。凭新的项目内证据可追加复查：再次等待须推迟复查时间，恢复派工须引用真实派工回执；已落实动作不可重复记录。不得把决策文字当作实施。 dependency_resolved仅用于wait_external：新专业outbox须同原task/原sender、新candidate明确original_wait_ref引用旧候选、原等待后26小时内真实证据且不声称发布或业务完成；同原task固定QA准确native PASS、冻结专业源与QA字节、总控实际收取和有限close_scope验收齐全才追加解除旧等待。只完成依赖关联，不授予发布、消除其他阻断、改历史或关闭业务目标；重复登记仍拒绝。",
+    "controller_followthrough_rule": "决策后须登记真实派工、执行与公开复核，或具名等待/解除条件。派工接单释放短租约；已独立验收close_scope仅关闭准确范围，不关闭全站或增长目标。角色记录实际总部或助理。",
     "idempotency": "同一原任务、发送部门、候选版本、结果哈希和通知/收取/决策阶段只允许一次记录；已送达或已收取的旧结果不得补入队，已入队结果不得重复入队。controller_followthrough是追加式状态链，仅未解除的阻断/等待允许凭新证据复查或转成真实动作；相同证据与幂等键不得重复。历史漏入队发现由有效原始回执链按原任务/部门/候选版本/outbox SHA确定性去重；完成现场核验后只补总控fallback收取与决策，不回写虚假部门通知。结果变更必须产生新的outbox哈希或候选版本，不因定时任务唤醒复制旧通知。",
     "workflow_closed_is_business_goal_closed": false,
     "read_only_qa_pass_is_publication": false,
@@ -309,7 +309,7 @@
       "tool": "wait_threads",
       "max_wait_ms_per_call": 60000,
       "cursor_deduplication": true,
-      "keep_turn_open_for_current_dispatched_tasks": true,
+      "keep_turn_open_for_current_dispatched_tasks": false,
       "active_is_not_completion_or_turn_stop": true,
       "on_complete_or_attention": "核固定聊天/准确V2/hash、收取、决策、落实下一动作；依赖齐全继续。",
       "on_interrupt": "保存原task/turn/cursor和待收阶段，恢复先核新结果。",
@@ -363,7 +363,8 @@
       "uncertain_effect_rule": "Reserve exact semantics/evidence before native append; exact readback before retry; absent effect requires explicit recovery unless deterministic native validation refusal proves append absent.",
       "legacy_operations_without_active_claim_preserved": true,
       "production_permission_issued": false
-    }
+    },
+    "owner_direct_intake": "tools/owner_direct_intake.py：真实人类来源和准确执行者纳管，不补造总部派工。"
   },
   "routing_contract": {
     "controlled_actions": [
@@ -461,12 +462,15 @@
     "cms_publisher_after_handover": "publishing",
     "current_batch_executor_unchanged": true,
     "code_publication_owner": {
-      "project_id": "<WEBSITE_PROJECT_ID>",
+      "project_id": "<LOCAL_PROJECT_ID>",
       "project_name": "装修网站开发",
-      "thread_id": "<WEBSITE_DEVELOPER_THREAD>",
-      "title": "同步管理后台与客户端功能",
+      "thread_id": "<LOCAL_TASK_ID>",
+      "title": "FLASH CAST｜专用开发部｜网站与部门系统",
       "cwd": "<WEBSITE_PROJECT_ROOT>",
-      "existing_authorization_required": true
+      "existing_authorization_required": true,
+      "department": "designated-website-developer",
+      "relationship": "associated_code_department",
+      "permissions_inherited": false
     },
     "publisher_admission_status_source": "data/publishing/department-onboarding.json"
   },
@@ -580,6 +584,49 @@
       }
     },
     "new_results_before_maintenance": true
+  },
+  "department_system_upgrade": {
+    "assistant_roles": [
+      "operations-assistant",
+      "operations-assistant-2",
+      "operations-assistant-3"
+    ],
+    "coordination": "exact_original_task_candidate_result_claim_lease_fence",
+    "routine_decisions": [
+      "send_qa",
+      "continue",
+      "rework",
+      "wait_external",
+      "close_scope",
+      "release_gate"
+    ],
+    "forbidden_assistant_decisions": [
+      "major_direction_change",
+      "authority_change",
+      "R3"
+    ],
+    "grant_required": true,
+    "actor_identity_is_audit_metadata_only": true,
+    "human_pause_priority": "before_queue_and_action_admission",
+    "historical_queue": "preserve_append_only",
+    "qa2": "exact_single_reviewer_R0_only",
+    "publishing_admission": "unchanged_fail_closed",
+    "candidate_version": "developer-delivery-v2-rework4-v13",
+    "admission_required": true,
+    "ordinary_inflight_is_stop_blocker": false,
+    "role_source": "data/department-registry.json",
+    "role_config_is_permission": false,
+    "routine_grant_requires_exact_headquarters_adoption": true,
+    "active_consumer": "tools/department_continuity.py",
+    "routine_admission_requires_independent_QA": true
+  },
+  "registered_daily_intake": {
+    "version": 1,
+    "identity_source": "data/department-registry.json",
+    "all_registered_executors_supported": true,
+    "requires_exact_native_run_pin": true,
+    "source_mode": "scheduled_run",
+    "does_not_synthesize_headquarters_dispatch": true
   },
   "public_template": true
 }

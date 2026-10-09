@@ -92,8 +92,16 @@ def validate_plan(root: Path, snapshot: dict, plan: dict) -> None:
             or plan.get("controller_department") != "operations"
             or plan.get("controller_thread_id") != ops_bind.get("task_id")):
         raise w.WorkflowError("exact fixed reviewer/producer/controller required")
+    ordinary = (review_bind, ops_bind)
+    if registry[producer].get("relationship") == "associated_code_department":
+        expected = {k: producer_bind.get(k) for k in ("task_id", "project_id", "cwd", "title")}
+        if (not all(expected.values()) or plan.get("producer_binding") != expected
+                or plan.get("code_source_root") not in registry[producer].get("code_source_roots", [])):
+            raise w.WorkflowError("exact registered associated producer and authorized code root required")
+    else:
+        ordinary += (producer_bind,)
     if any(not b.get("project_id") or b.get("project_id") != ops_bind.get("project_id")
-           or b.get("cwd") != str(root.resolve()) for b in (producer_bind, review_bind, ops_bind)):
+           or b.get("cwd") != str(root.resolve()) for b in ordinary):
         raise w.WorkflowError("same project and cwd required")
     pin = plan.get("candidate")
     if not isinstance(pin, dict) or w.file_digest(root, pin.get("path", "")) != pin:
@@ -106,18 +114,32 @@ def validate_plan(root: Path, snapshot: dict, plan: dict) -> None:
         raise w.WorkflowError("candidate task/version/producer/hash mismatch")
 
 
-def bind_plan(root: Path, *, task_id: str, plan_path: str, coordinator_role: str = "operations") -> dict:
+def bind_plan(root: Path, *, task_id: str, plan_path: str, coordinator_role: str = "operations",
+              routine_grant: dict | None = None, coordinator_owner: str = "",
+              coordination_claim: dict | None = None) -> dict:
     w = _workflow()
-    if coordinator_role != "operations":
-        raise w.WorkflowError("only operations records final reviewer plan")
+    import human_control, result_coordination as c, routine_grants as grants
+    if coordinator_role not in {"operations", *grants.ASSISTANTS}:
+        raise w.WorkflowError("registered coordinator required")
     task_id = w.validate_task_id(task_id)
     pin = w.file_digest(root, plan_path)
-    with w.workflow_lock(root):
+    with human_control.action_gate(root, task_id), c.coordination_lock(root), w.workflow_lock(root):
         snapshot = w.read_json(w.snapshot_path(root, task_id))
         if not snapshot:
             raise w.WorkflowError("original workflow required")
         plan = w.read_json(w.safe_path(root, plan_path))
         validate_plan(root, snapshot, plan)
+        if coordinator_role != "operations":
+            grant = grants.validate(root, routine_grant, coordinator_role)
+            producer = c._validate_queued(root, c.exact_identity(grant))
+            if ("send_qa" not in grant["allowed_decisions"] or grant["risk_level"] != "R0"
+                    or grant["task_id"] != task_id or grant["sender_department"] != plan["producer_department"]
+                    or grant["candidate_version"] != plan["candidate_version"] or grant["scope"] != plan["scope"]
+                    or plan["candidate"] not in producer.get("evidence", [])):
+                raise w.WorkflowError("exact admitted R0 QA grant and producer candidate required")
+            store = c.CoordinationStore(root)
+            try: store._lease(c.exact_identity(grant), coordinator_role, coordinator_owner, coordination_claim)
+            finally: store.close()
         old = _binding(root, snapshot)
         binding = {"pin": pin, "reviewer_department": plan["reviewer_department"]}
         if old is not None:
@@ -135,7 +157,10 @@ def bind_plan(root: Path, *, task_id: str, plan_path: str, coordinator_role: str
                for d in ("operations", plan["producer_department"], plan["reviewer_department"])):
             raise w.WorkflowError("fresh fixed-role health required")
         snapshot["qa_review_plan"] = binding
-        w.append_workflow_event(root, task_id, snapshot["current_state"], {"qa_review_plan_bound": binding})
+        w.append_workflow_event(root, task_id, snapshot["current_state"], {"qa_review_plan_bound": binding,
+            "actor_role": coordinator_role,
+            "actor_thread_id": w.department_registry(root)[coordinator_role]["chat_binding"]["task_id"],
+            "routine_grant": routine_grant if coordinator_role != "operations" else None})
         snapshot["updated_at"] = w.utc_timestamp()
         snapshot["event_count"] = sum(row.get("task_id") == task_id for row in w.read_jsonl(root / w.WORKFLOW_EVENTS))
         w.atomic_write_json(w.snapshot_path(root, task_id), snapshot)
@@ -208,9 +233,14 @@ def main() -> int:
     parser.add_argument("--project-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--task-id", required=True)
     parser.add_argument("--plan", required=True)
+    parser.add_argument("--coordination-request", help="Optional project-local frozen assistant grant/claim request")
     args = parser.parse_args()
     try:
-        result = bind_plan(args.project_root.resolve(), task_id=args.task_id, plan_path=args.plan)
+        root = args.project_root.resolve()
+        request = _workflow().read_json(_workflow().safe_path(root,args.coordination_request)) if args.coordination_request else {}
+        if set(request) - {"coordinator_role","routine_grant","coordinator_owner","coordination_claim"}:
+            raise _workflow().WorkflowError("unknown assistant QA admission field")
+        result = bind_plan(root, task_id=args.task_id, plan_path=args.plan, **request)
     except (ValueError, OSError, _workflow().WorkflowError) as exc:
         print(json.dumps({"status": "BLOCKED", "reason": str(exc), "production_write_allowed": False})); return 2
     print(json.dumps(result)); return 0

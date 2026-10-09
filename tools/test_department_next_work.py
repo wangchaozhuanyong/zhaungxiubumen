@@ -1,4 +1,5 @@
 from __future__ import annotations
+import test_runtime_paths
 import copy
 import datetime as dt
 import json
@@ -14,7 +15,7 @@ import workflow_control as w
 
 class WorkpackTests(unittest.TestCase):
     def setUp(self):
-        test_base = Path(__file__).resolve().parents[1]/".test-tmp"
+        test_base = test_runtime_paths.root()
         test_base.mkdir(exist_ok=True)
         self.tmp = tempfile.TemporaryDirectory(dir=test_base)
         self.addCleanup(self.tmp.cleanup)

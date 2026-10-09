@@ -1,17 +1,10 @@
-"""Exact header locks for the read-only staged index; no production activation."""
-from pathlib import Path
+"""Private native consumer unavailable in a public source template."""
+PUBLIC_TEMPLATE_ONLY = True
 
-from .native_cms_admission import require, validate_manifest
+def validate_staged_native_manifest(*args, **kwargs):
+    from workflow_control import WorkflowError
+    raise WorkflowError("public_template_has_no_native_authorization")
 
-TASK_ID = "fc-20260927-cms-native-admission-contract-v1"
-CANDIDATE_VERSION = "native-control-staged-admission-v2"
-CAPABILITY_HEAD = "868837d3c1caad502127c5d35019bcdc4c504eb6"
-
-
-def validate_staged_native_manifest(root: Path, manifest: dict) -> list[dict]:
-    require(manifest.get("task_id") == TASK_ID, "Exact staged task differs")
-    require(manifest.get("candidate_version") == CANDIDATE_VERSION,
-            "Exact staged candidate version differs")
-    require(manifest.get("native_capability_head") == CAPABILITY_HEAD,
-            "Exact native capability Head differs")
-    return validate_manifest(root, manifest)
+def __getattr__(name):
+    from workflow_control import WorkflowError
+    raise WorkflowError("public_template_has_no_native_authorization")

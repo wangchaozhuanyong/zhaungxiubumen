@@ -18,14 +18,17 @@ import re
 import sqlite3
 from typing import Any
 import uuid
+import threading
+import human_control
+import routine_grants
 
 COORDINATION_LOCK = Path("logs/.result-coordination.lock")
 DATABASE = Path("logs/result-coordination.sqlite3")
-ROLES = {"operations", "operations-assistant"}
+ROLES = {"operations", *routine_grants.ASSISTANTS}
 FINAL_EVENTS = {"controller_received", "controller_decision", "controller_followthrough"}
 REPORT_STATES = {"completed", "partial", "qa_rework", "external_blocked", "queue_failed", "failed"}
 IDENTITY_FIELDS = ("task_id", "sender_department", "candidate_version", "result_sha256")
-COORDINATOR_FIELDS = {"coordinator_role", "coordinator_owner", "coordination_claim"}
+COORDINATOR_FIELDS = {"coordinator_role", "coordinator_owner", "coordination_claim", "recoverer_role", "recoverer_owner", "recoverer_claim"}
 
 
 def _w():
@@ -59,16 +62,26 @@ def _key(identity):
     return _sha([identity[name] for name in IDENTITY_FIELDS])
 
 
+_locks = threading.local()
+
+
 @contextmanager
 def coordination_lock(root):
     root = Path(root).resolve()
+    key = str(root)
+    active = getattr(_locks, "active", set())
+    if key in active:
+        yield
+        return
     path = _w().safe_path(root, str(COORDINATION_LOCK))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+", encoding="utf-8") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        _locks.active = active | {key}
         try:
             yield
         finally:
+            _locks.active = active
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
@@ -77,6 +90,10 @@ def _validate_queued(root, identity):
     w = _w()
     registry = w.department_registry(root)
     sender = identity["sender_department"]
+    import owner_direct_intake
+    owner = owner_direct_intake.existing(root, identity["task_id"])
+    if owner and sender == owner_direct_intake.DEVELOPER:
+        registry = {**registry, sender: {"chat_binding": owner["executor_binding"]}}
     if sender == "operations" or sender not in registry:
         _fail("registered result sender required")
     rows = w._result_handoff_rows(root, identity["task_id"])
@@ -204,7 +221,7 @@ class CoordinationStore:
         _role(self.root, role, owner)
         if type(ttl_seconds) is not int or not 1 <= ttl_seconds <= 900 or not str(request_id).strip():
             _fail("claim request id and TTL 1..900 seconds required")
-        with coordination_lock(self.root):
+        with human_control.action_gate(self.root, identity["task_id"]), coordination_lock(self.root):
             _validate_queued(self.root, identity)
             self._begin()
             try:
@@ -239,7 +256,9 @@ class CoordinationStore:
 
     def _change(self, identity, role, owner, claim, event, mutate):
         identity = exact_identity(identity)
-        with coordination_lock(self.root):
+        with human_control.control_lock(self.root), coordination_lock(self.root):
+            if event != "release":
+                human_control.guard(self.root, identity["task_id"])
             box = _validate_queued(self.root, identity)
             self._begin()
             try:
@@ -297,10 +316,28 @@ class CoordinationStore:
         return self._change(identity, role, owner, claim, "precheck_draft", mutate)
 
 
+    def escalate(self, identity, role, owner, claim, reason):
+        """Preserve the precheck, invalidate the lease and leave native queue for HQ."""
+        if not isinstance(reason, str) or not reason.strip():
+            _fail("escalation reason required")
+        def mutate(row, box):
+            draft = json.loads(row["precheck_json"] or "{}")
+            if not draft or draft.get("next_owner") != "operations":
+                _fail("HQ escalation requires exact precheck with operations next owner")
+            self.conn.execute("UPDATE claims SET role='',owner='',token='',expires=0,fence=fence+1 WHERE result_key=?", (row["result_key"],))
+            return {"previous_owner": owner, "reason": reason, "next_owner": "operations", "precheck_preserved": True,
+                    "message_sent": False, "native_queue_preserved": True}
+        return self._change(identity, role, owner, claim, "release", mutate)
+
+
 def _payload(root, request):
     """Freeze all request semantics plus exact bytes used by native append."""
     w = _w()
     raw = {key: value for key, value in request.items() if key not in COORDINATOR_FIELDS}
+    if request.get("coordinator_role", "operations") != "operations":
+        role = request["coordinator_role"]
+        raw["actor_role"] = role
+        raw["actor_thread_id"] = w.department_registry(root)[role]["chat_binding"]["task_id"]
     paths = raw.get("evidence_paths") or []
     if not isinstance(paths, list):
         _fail("native evidence_paths must be an array")
@@ -325,6 +362,11 @@ def _native_readback(root, payload):
     expected.update(pins)
     # All native preserved request fields are compared; path inputs map to pins.
     skipped = {"evidence_paths", "outbox_path", "linked_outbox_path", *IDENTITY_FIELDS, "event", "idempotency_key"}
+    if "scope" in request and request.get("actor_role", "operations") == "operations":
+        # Historical native rows did not persist this reporting-only context.
+        # The reserved exact payload still binds it; never rewrite the old row.
+        if "reported_scope" in row:expected["reported_scope"] = request["scope"]
+        skipped.add("scope")
     # The native operations verifier converts this path input into a digest.
     # Compare the same frozen bytes, rather than a path string with a pin dict.
     if "control_applied_proof" in request and "control_applied_proof" in row:
@@ -396,22 +438,26 @@ class HandoffAdmission:
 @contextmanager
 def handoff_guard(root, request):
     """Native wrapper guard. Exceptions retain uncertain intent until readback."""
-    if not isinstance(request, dict) or request.get("event") not in FINAL_EVENTS:
+    _w().validate_result_handoff_request(root, request)
+    if request.get("event") not in FINAL_EVENTS:
         yield HandoffAdmission(None, None, None, None)
         return
     root = Path(root).resolve()
     role = request.get("coordinator_role", "operations")
     if role != "operations":
-        _fail("assistant precheck cannot record final controller events")
+        if not request.get("routine_grant"):
+            _fail("assistant precheck cannot record final controller events without exact routine grant")
+        routine_grants.check_result(root, request)
     identity = exact_identity(request)
-    with coordination_lock(root):
+    with human_control.action_gate(root, identity["task_id"]), coordination_lock(root):
+        routine_grants.check_result(root, request)
         store = CoordinationStore(root)
         try:
             row = store._row(identity)
             if row and row["owner"]:
                 _validate_queued(root, identity)
                 store._lease(identity, role, request.get("coordinator_owner"), request.get("coordination_claim"))
-            elif request.get("coordination_claim"):
+            elif role != "operations" or request.get("coordination_claim"):
                 _fail("claim was released or does not own this exact result")
             payload = _payload(root, request)
             effect = _sha([request["event"], request.get("idempotency_key")])
@@ -461,17 +507,27 @@ def recover_reservation(root, request, reason):
     """Explicitly reconcile an uncertain append, never execute its side effect."""
     if not isinstance(reason, str) or not reason.strip() or request.get("event") not in FINAL_EVENTS:
         _fail("explicit uncertain-effect recovery reason required")
-    if request.get("coordinator_role", "operations") != "operations":
-        _fail("assistant cannot recover final controller effects")
     root = Path(root).resolve()
     identity = exact_identity(request)
-    with coordination_lock(root):
+    role = request.get("recoverer_role", request.get("coordinator_role", "operations"))
+    owner = request.get("recoverer_owner", request.get("coordinator_owner"))
+    claim = request.get("recoverer_claim", request.get("coordination_claim"))
+    _role(root, role, owner if role != "operations" or owner else "legacy-operations")
+    if role != "operations":
+        if role != request.get("coordinator_role"):
+            _fail("assistant recovery cannot change the original admitted actor")
+        routine_grants.check_result(root, request)
+    with human_control.action_gate(root, identity["task_id"]), coordination_lock(root):
+        _validate_queued(root, identity)
+        if role != "operations":
+            routine_grants.check_result(root, request)
         store = CoordinationStore(root)
         try:
             row = store._row(identity)
             if row and row["owner"]:
-                _validate_queued(root, identity)
-                store._lease(identity, "operations", request.get("coordinator_owner"), request.get("coordination_claim"))
+                store._lease(identity, role, owner, claim)
+            elif role != "operations" or claim:
+                _fail("recovery requires ownership of this exact result")
             payload = _payload(root, request)
             effect = _sha([request["event"], request.get("idempotency_key")])
             store._begin()
@@ -495,11 +551,11 @@ def recover_reservation(root, request, reason):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("claim", "readback", "renew", "release", "transfer", "recover", "precheck", "recover-reservation"))
+    parser.add_argument("command", choices=("claim", "readback", "renew", "release", "transfer", "recover", "precheck", "escalate", "recover-reservation"))
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--input", type=Path, required=True)
     args = parser.parse_args(argv)
-    request = json.loads(args.input.read_text(encoding="utf-8"))
+    request = _w().read_json(_w().safe_path(args.root, args.input))
     if args.command == "recover-reservation":
         result = recover_reservation(args.root, request["handoff_request"], request["reason"])
     else:

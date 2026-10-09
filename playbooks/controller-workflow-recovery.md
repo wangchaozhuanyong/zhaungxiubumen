@@ -1,3 +1,5 @@
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # FLASH CAST 工作流中断恢复手册 V2
 
 ## 部门健康恢复

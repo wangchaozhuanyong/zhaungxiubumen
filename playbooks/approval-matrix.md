@@ -1,3 +1,5 @@
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # 人工审批矩阵
 
 | 动作 | Agent 可否直接做 | 需要谁批准 |

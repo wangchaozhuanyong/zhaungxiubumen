@@ -1,3 +1,5 @@
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # FLASH CAST 跨项目路由阻断与恢复手册
 
 ## 适用范围
@@ -54,7 +56,6 @@ python3 tools/flashcast_ops.py receipt-record \
 
 ## 计划任务规则
 
-- FLASH CAST 计划任务只能绑定注册表中的 6 个固定部门任务。
 - 创建或更新前使用相同身份字段执行 `automation_create` 或 `automation_update` 预检。
 - 临时发布监控必须在目标项目的专用发布任务中建立，不得由 FLASH CAST 总控代建。
 - 临时监控提示词必须包含终止条件：成功、失败、取消或超时后关闭；无实质变化时保持安静。

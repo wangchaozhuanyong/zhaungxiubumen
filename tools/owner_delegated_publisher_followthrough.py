@@ -23,7 +23,7 @@ STAGES = {
     "fc-20261007-publisher-three-execution-admission-qa-v1":
         ("qa", "<LOCAL_TASK_ID>", "FLASH CAST｜质检与Reality Checker部｜2026-09", PROJECT_ID, PROJECT_ROOT, "装修公司部门"),
     "fc-20261007-publisher-three-designated-binding-v1":
-        ("designated-website-developer", "<WEBSITE_DEVELOPER_THREAD>", "同步管理后台与客户端功能", "<WEBSITE_PROJECT_ID>", "<WEBSITE_PROJECT_ROOT>", "threads"),
+        ("designated-website-developer", "<WEBSITE_DEVELOPER_THREAD>", "同步管理后台与客户端功能", "<LOCAL_PROJECT_ID>", "<WEBSITE_PROJECT_ROOT>", "threads"),
 }
 TARGET_IDS = ['example-old-house', 'example-quotation-checklist', 'example-design']
 TARGETS = [

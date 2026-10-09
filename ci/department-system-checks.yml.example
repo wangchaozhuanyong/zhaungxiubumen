@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.9', '3.12']
+        python-version: ['3.11', '3.12']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -18,6 +18,7 @@ jobs:
       - name: Run control and handoff checks
         env:
           PYTHONDONTWRITEBYTECODE: '1'
+          FLASHCAST_TEST_RUNTIME: ${{ github.workspace }}/.test-runtime
         run: |
           cd tools
           python -m unittest test_workflow_control test_flashcast_ops test_department_reply test_result_handoff_key test_result_handoff_readback test_qa_dispatch_priority test_controller_progress test_controller_event_state test_controller_stop_hook test_department_next_work test_department_next_work_rework test_result_coordination test_runtime_continuation test_runtime_qa_admission test_department_system_distribution

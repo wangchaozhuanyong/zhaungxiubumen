@@ -1,3 +1,5 @@
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # seo geo推广部门3 每日本地SEO与地图执行
 
 每天马来西亚时间09:15、12:15、16:15，在seo geo推广部门3固定任务运行。project_id=<LOCAL_PROJECT_ID>，cwd=<PROJECT_ROOT>，department_id=local-seo-maps，task_id=<LOCAL_TASK_ID>，分组为装修公司部门。每次依据注册表及Codex现场唯一核对项目、固定任务、准确标题、cwd和分组；分组ID不是永久身份。仅ID漂移回报STALE_SIDEBAR_BINDING，停止业务写入等待总控恢复；其他身份不符、过期健康或缺权限如实阻断，不跨项目、不新建任务或替补。

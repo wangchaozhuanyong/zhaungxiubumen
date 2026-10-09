@@ -1,3 +1,5 @@
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # 准确QA2 R0评审入口
 
 本文件描述候选采用后的入口；本轮未在运行根目录登记准入或QA verdict。唯一默认评审仍为固定`qa`。QA2是`qa-technical`，不会被别名成`qa`，不取得生产准入。

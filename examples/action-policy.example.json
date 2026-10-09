@@ -99,7 +99,7 @@
         "paid-growth-data"
       ],
       "allowed_scope_prefixes": [
-        "google-ads:814-251-0200:readonly:",
+        "google-ads:<LOCAL_ACCOUNT_ID>:readonly:",
         "ga4:540413787:readonly:fc-20260928-organic-50-measurement-readonly-v2:connected-organic-source-read-v5-20261003",
         "gsc:sc-domain:flashcast.com.my:readonly:fc-20260928-organic-50-measurement-readonly-v2:connected-organic-source-read-v5-20261003"
       ],
@@ -294,5 +294,15 @@
   "standing_authorizations": [],
   "skill_whitelist_source": "data/department-registry.json",
   "disclaimer": "This policy is a project-level audit and decision layer. It is not DeerFlow middleware, a digital signature service, or a global Codex permission interceptor.",
+  "department_system_upgrade": {
+    "migration_required": true,
+    "admitted": false,
+    "adoption": null,
+    "routing_grants": {},
+    "result_grants": {},
+    "business_current_index": null,
+    "cleanup_admitted": false,
+    "production_authority_granted": false
+  },
   "public_template": true
 }

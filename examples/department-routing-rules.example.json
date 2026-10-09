@@ -11,7 +11,7 @@
     "所有聊天消息和计划任务在发送或创建前必须核对 source project、target project、固定任务 ID、标题和 cwd；任一不匹配即 blocked_cross_project。",
     "FLASH CAST 总控不得向 Vendure、CloudBridge、购物网站、ID 系统或其他项目任务发送消息或创建计划任务。",
     "普通表单体验、隐私、CTA、移动端和可访问状态属于内容/SEO/网站增长部；只有明确出现 GA4/GTM、转化追踪、归因、事件去重或业务送达对账时才加入付费增长与转化数据部。",
-    "老板新增seo-content-research与local-seo-maps；按注册表8角色路由。原content-organic-website保留网站实施和原active任务，研究/本地任务由新部门分担。",
+    "老板新增seo-content-research与local-seo-maps；按注册表全部角色路由。原active任务保持责任；CMS保存归publishing、代码实施归指定开发，研究/本地任务由新部门分担。",
     "2026-10-05老板新增后台发布部；当前批次原负责人不变。新部先只读启动与准确CMS执行者接管QA，不继承旧许可；代码仍交老板指定装修网站开发，所有新跨项目交接按准确授权和policy。"
   ],
   "execution_policy": {
@@ -837,6 +837,27 @@
     },
     "dispatch_allowed": false,
     "ask_user_if_ambiguous": true
+  },
+  "department_system_upgrade": {
+    "developer": {
+      "project_id": "<LOCAL_PROJECT_ID>",
+      "thread_id": "<WEBSITE_DEVELOPER_THREAD>",
+      "title": "同步管理后台与客户端功能",
+      "cwd": "<WEBSITE_PROJECT_ROOT>",
+      "native_sidebar_allowed": [
+        "pinned",
+        "threads"
+      ],
+      "code_roots": [
+        "<WEBSITE_PROJECT_ROOT>",
+        "<PROJECT_ROOT>"
+      ],
+      "active_target": "queue_without_interrupt",
+      "production_authority_granted": false
+    },
+    "technical_review": "qa-technical_only_after_exact_R0_admission",
+    "content_fact_review": "qa",
+    "routine_grant_admission": "independent_QA_then_exact_actor_scope"
   },
   "public_template": true
 }

@@ -1,3 +1,4 @@
+import test_runtime_paths
 import hashlib
 import json
 import tempfile
@@ -11,7 +12,7 @@ import qa_dispatch_priority as priority
 
 class PriorityEvidenceRecoveryTest(unittest.TestCase):
     def setUp(self):
-        fixtures = Path(__file__).resolve().parents[1] / "drafts/operations/qa-priority-evidence-recovery-v1/test-runtime"
+        fixtures = test_runtime_paths.root() / "qa-priority"
         fixtures.mkdir(parents=True, exist_ok=True)
         self.temp = tempfile.TemporaryDirectory(dir=fixtures)
         self.addCleanup(self.temp.cleanup)
@@ -92,7 +93,7 @@ class PriorityEvidenceRecoveryTest(unittest.TestCase):
 
 class ExactPacketDispatchTest(unittest.TestCase):
     def setUp(self):
-        fixtures = Path(__file__).resolve().parents[1] / "drafts/operations/qa-priority-evidence-recovery-v1/test-runtime"
+        fixtures = test_runtime_paths.root() / "qa-priority"
         fixtures.mkdir(parents=True, exist_ok=True)
         self.temp = tempfile.TemporaryDirectory(dir=fixtures)
         self.addCleanup(self.temp.cleanup)
@@ -138,7 +139,7 @@ class ExactPacketDispatchTest(unittest.TestCase):
 
 class ReportOnlyVerdictIntakeTest(unittest.TestCase):
     def setUp(self):
-        fixtures = Path(__file__).resolve().parents[1] / "drafts/operations/qa-priority-evidence-recovery-v1/test-runtime"
+        fixtures = test_runtime_paths.root() / "qa-priority"
         fixtures.mkdir(parents=True, exist_ok=True)
         self.temp = tempfile.TemporaryDirectory(dir=fixtures)
         self.addCleanup(self.temp.cleanup)

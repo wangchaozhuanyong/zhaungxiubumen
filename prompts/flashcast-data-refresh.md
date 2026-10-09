@@ -1,3 +1,5 @@
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # FLASH CAST 增长数据刷新提示词
 
 请使用 `FLASH CAST Growth Controller`，按 `audit` 只读模式执行一次增长数据刷新。
@@ -31,4 +33,3 @@
 - 只看不改，不点击 Apply、Save、Enable、Publish 或 Send。
 
 最终必须说明读取了哪些资料、使用了哪些 Agent、发现了什么、生成了哪些文件，以及哪些动作仍需人工批准。
-

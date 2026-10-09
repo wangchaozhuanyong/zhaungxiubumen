@@ -33,6 +33,10 @@ class SeoDepartmentExpansionTests(unittest.TestCase):
                 data["routing_policy"].update(source_project_id="test-project", source_project_root=str(self.root))
             (self.root / "data" / name).write_text(json.dumps(data))
 
+        (self.root / "data/human-control-state.json").write_text(json.dumps({
+            "schema_version":1,"paused":False,"revision":1,"project_root":str(self.root),
+            "reason":"synthetic_fixture_explicit_initialization"}))
+
     def plan(self, request, task_id):
         return ops.dispatch_plan(self.root, argparse.Namespace(request=request, task_id=task_id))[0]
 
@@ -70,7 +74,7 @@ class SeoDepartmentExpansionTests(unittest.TestCase):
         for department in ("seo-content-research", "local-seo-maps"):
             self.assertNotIn(department, [x["department"] for x in policy["standing_authorizations"]])
         registry = workflow.department_registry(self.root)
-        self.assertEqual(len(registry), 8)
+        self.assertEqual(len(registry), len(json.loads((self.root / "data/department-registry.json").read_text())["departments"]))
         declared = json.loads((self.root / "data/department-registry.json").read_text())
         self.assertEqual(set(declared["execution_department_ids"]), set(registry) - {"operations"})
         self.assertEqual(declared["execution_department_count"], len(declared["execution_department_ids"]))

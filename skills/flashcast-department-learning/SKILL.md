@@ -3,6 +3,8 @@ name: flashcast-department-learning
 description: "为 FLASH CAST 装修公司各部门记录、复盘并继承有证据支持的工作经验；适用于部门任务完成、失败复盘和下一次派工前的学习加载。"
 ---
 
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # FLASH CAST 部门学习技能
 
 这个 Skill 是所有部门共用的“学习底座”，给部门增加可继承的工作记忆，不是重新训练模型参数。每个部门还必须同时加载自己的专业 Skill：专业 Skill 负责岗位方法，本 Skill 负责经验记录和继承。部门每次工作前读取自己的记忆，工作后把经过证据支持的经验沉淀下来，下一次任务再读取使用。

@@ -154,10 +154,38 @@ class CurrentEventStateTests(unittest.TestCase):
 
     def test_invalid_checkpoint_cannot_silently_erase_active_work(self):
         path = self.root / 'logs/current-checkpoint.json'
-        for raw in ['{"active_tasks": []}\\n', 'null', '{}', '{"active_tasks": [null]}']:
+        for raw in ['{"active_tasks": []}\\n', 'null', '{}']:
             path.write_text(raw)
             with self.subTest(raw=raw), self.assertRaises(ValueError):
                 self.inspect()
+        raw = '{"active_tasks": [null]}'
+        path.write_text(raw)
+        with self.subTest(raw=raw):
+            answer = self.inspect()
+            self.assertEqual(answer['validation_errors'], [{
+                'task_id': None, 'reason': 'active task row must be object', 'row_quarantined': True}])
+            self.assertEqual(answer['watched_tasks'], [])
+            self.assertEqual(answer['resolved_watches'], [])
+            self.assertEqual(answer['event_wait_targets'], [])
+            self.assertFalse(answer['business_goal_closed'])
+            self.assertEqual(answer['permissions_issued'], 0)
+            self.assertEqual(path.read_text(), raw)
+
+    def test_invalid_checkpoint_row_does_not_erase_valid_watch(self):
+        before = self.inspect()
+        self.fixture.write('logs/current-checkpoint.json', {'active_tasks': [self.watch, None]})
+        path = self.root / 'logs/current-checkpoint.json'
+        checkpoint_before = path.read_bytes()
+        answer = self.inspect()
+        self.assertEqual(answer['validation_errors'], [{
+            'task_id': None, 'reason': 'active task row must be object', 'row_quarantined': True}])
+        self.assertEqual(answer['watched_tasks'], before['watched_tasks'])
+        self.assertEqual(answer['event_wait_targets'], before['event_wait_targets'])
+        self.assertEqual(len(answer['watched_tasks']), 1)
+        self.assertEqual(answer['resolved_watches'], [])
+        self.assertFalse(answer['business_goal_closed'])
+        self.assertEqual(answer['permissions_issued'], 0)
+        self.assertEqual(path.read_bytes(), checkpoint_before)
 
     def test_unknown_dispatch_id_does_not_create_native_wait_target(self):
         watch = dict(self.watch, dispatch_receipt_id='not-sent')

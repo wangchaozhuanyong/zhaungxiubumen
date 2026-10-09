@@ -274,7 +274,7 @@ def _validate(package_path: Path, lexicon_path: Path = DEFAULT_LEXICON, *, sandb
     return {
         "status": ("PASS_SANDBOX_ONLY" if sandbox_root is not None else "PASS") if not errors else "FAIL",
         "validation_mode": "SYNTHETIC_TEST_ONLY" if sandbox_root is not None else "production",
-        "capture_authenticity": "HUMAN_DECLARATION_ONLY_NOT_MACHINE_AUTHENTICATED" if sandbox_root is None else "SYNTHETIC_TEST_ONLY",
+        "capture_authenticity": "REVIEW_DECLARATION_ONLY_NOT_MACHINE_AUTHENTICATED" if sandbox_root is None else "SYNTHETIC_TEST_ONLY",
         "public_release_allowed": False,
         "package": str(package_path),
         "public_text_sha256": computed_hash,

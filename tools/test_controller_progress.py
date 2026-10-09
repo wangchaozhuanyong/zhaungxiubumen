@@ -7,21 +7,23 @@ import controller_progress as progress
 
 
 class ControllerContinuationTest(unittest.TestCase):
-    def test_zero_intake_and_active_department_do_not_allow_stop(self):
+    def test_acknowledged_ordinary_inflight_releases_hq_with_durable_owner(self):
         result = progress.decide_continuation(
             [{"department": "qa", "thread_id": "fixed", "native_status": "active", "identity_verified": True}],
             {"active_tasks": [{"department": "qa"}]},
             {"pending_count": 0, "followthrough_pending_count": 0}, {}, [])
-        self.assertFalse(result["ordinary_stop_allowed"])
-        self.assertEqual(result["next_mode"], "NATIVE_EVENT_WAIT")
+        self.assertTrue(result["ordinary_stop_allowed"])
+        self.assertEqual(result["next_mode"], "RELEASED_WITH_DURABLE_INFLIGHT")
+        self.assertEqual(result["event_wait_targets"], [])
+        self.assertEqual(result["durable_inflight_targets"][0]["department"], "qa")
         self.assertFalse(result["project_queue_wakes_ended_controller"])
 
-    def test_idle_owned_task_requires_result_intake(self):
+    def test_idle_ordinary_watch_preserves_result_intake_without_holding_hq(self):
         result = progress.decide_continuation(
             [{"department": "seo", "thread_id": "fixed", "native_status": "idle", "identity_verified": True}],
             {"active_tasks": [{"department": "seo"}]}, {}, {}, [])
-        self.assertFalse(result["ordinary_stop_allowed"])
-        self.assertIn("owned_task_ended_collect_actual_reply_before_stopping", result["reasons"])
+        self.assertTrue(result["ordinary_stop_allowed"])
+        self.assertEqual(result["durable_inflight_targets"][0]["department"], "seo")
 
     def test_old_closed_workflow_does_not_cancel_followthrough(self):
         result = progress.decide_continuation([], {"workflow_state": "closed"},

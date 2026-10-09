@@ -53,6 +53,55 @@ class TrustedInputTests(unittest.TestCase):
                 "reviewed_at": "2026-10-02T03:40:00+08:00", "declaration": "HUMAN_DECLARED_REAL_QINGDOU_FULL_BATCH",
                 **{k: report[k] for k in ["task_id", "run_id", "public_text_sha256", "batch_sha256", "evidence_sha256"]}}
 
+    def agent_declaration(self, report):
+        return {**self.declaration(report), "status": "agent_inspected_real_full_batch",
+                "declaration": "AGENT_VERIFIED_REAL_QINGDOU_FULL_BATCH", "surface": "codex_iab"}
+
+    def agent_contract(self):
+        # In-memory declaration contract only; these fixtures are never imported
+        # into the active lexicon or saved as real platform evidence/PASS output.
+        self.unmarked_untrusted()
+        report = json.loads(self.report.read_text())
+        report.update(status="PASS", findings=[], observed_result="未检查到敏感词")
+        report["capture_review"] = self.agent_declaration(report)
+        return report
+
+    def test_no_hit_agent_review_needs_no_human_declaration(self):
+        report = self.agent_contract()
+        self.assertIsNone(guard.require_capture_review(report, b"unmarked bytes"))
+        self.assertNotIn("HUMAN_DECLARED", report["capture_review"]["declaration"])
+
+    def test_agent_shortcut_rejects_risk_unchecked_or_missing_result(self):
+        changes = [{"status": "risk_detected"}, {"status": "NOT_PERFORMED"},
+                   {"findings": [{"term": "风险"}]}, {"findings": None},
+                   {"observed_result": ""}, {"observed_result": "检查到1个敏感词"}]
+        report = self.agent_contract()
+        for change in changes:
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, "personal_review_required"):
+                guard.require_capture_review({**report, **change}, b"unmarked bytes")
+
+    def test_agent_review_requires_named_observation_and_iab_surface(self):
+        report = self.agent_contract()
+        for key in ["reviewer", "reviewed_at", "status", "declaration", "surface"]:
+            review = {**report["capture_review"]}
+            review.pop(key)
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "personal_review_required"):
+                guard.require_capture_review({**report, "capture_review": review}, b"unmarked bytes")
+
+    def test_agent_review_cannot_reuse_mismatched_batch_or_evidence(self):
+        report = self.agent_contract()
+        for key in ["task_id", "run_id", "public_text_sha256", "batch_sha256", "evidence_sha256"]:
+            review = {**report["capture_review"], key: "mismatch"}
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "capture_review_binding_mismatch"):
+                guard.require_capture_review({**report, "capture_review": review}, b"unmarked bytes")
+
+    def test_agent_review_does_not_allow_synthetic_report_or_capture(self):
+        report = self.agent_contract()
+        for data, evidence in [({**report, "provenance": "SYNTHETIC_TEST_ONLY"}, b"unmarked bytes"),
+                               (report, b"SYNTHETIC_TEST_ONLY")]:
+            with self.assertRaisesRegex(ValueError, "synthetic_input"):
+                guard.require_capture_review(data, evidence)
+
     def test_default_real_validation_rejects_synthetic_package(self):
         result = publish.validate(self.package, self.lexicon)
         self.assertEqual(result["status"], "FAIL")

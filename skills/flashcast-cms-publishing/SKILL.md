@@ -3,6 +3,8 @@ name: flashcast-cms-publishing
 description: "执行 FLASH CAST 官网已通过准确独立QA的管理后台内容发布、写前保护检查、保存回读与公开复核；不修改文案、网站代码或平台权限。"
 ---
 
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # FLASH CAST 管理后台发布
 
 只执行 flashcast.com.my 的既有内容字段。总控负责派工和审核，内容由原专业部门冻结，独立固定QA验收；代码提交、PR、CI和部署交老板指定的装修网站开发，不在此技能中执行。

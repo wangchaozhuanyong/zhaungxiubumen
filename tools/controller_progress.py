@@ -58,7 +58,7 @@ def inspect_live(registry: dict, live: dict, now: dt.datetime) -> tuple[list[dic
 
 def decide_continuation(roles: list[dict], checkpoint: dict, queue: dict,
                         qa: dict, errors: list[str], business_work: list[dict] | None = None) -> dict:
-    """A timeout/active/closed/zero intake count is never a stop condition."""
+    """A handed-off ordinary task does not hold HQ open; unresolved decisions remain."""
     owned = {row["department"] for row in checkpoint.get("active_tasks", [])}
     waiting = [row for row in roles if row["department"] in owned
                and row["native_status"] == "active" and row["identity_verified"]]
@@ -71,29 +71,25 @@ def decide_continuation(roles: list[dict], checkpoint: dict, queue: dict,
         reasons.append("registered_role_identity_not_fully_verified")
     if unresolved:
         reasons.append("owned_task_identity_needs_recovery")
-    if ended:
-        reasons.append("owned_task_ended_collect_actual_reply_before_stopping")
-    if queue.get("pending_count", 0):
+    if queue.get("headquarters_pending_count", queue.get("pending_count", 0)):
         reasons.append("result_intake_or_decision_pending")
-    if qa.get("waiting_dispatch"):
+    if any(row.get("requires_headquarters_decision", True) for row in qa.get("waiting_dispatch", [])):
         reasons.append("exact_QA_dispatch_pending")
-    if checkpoint.get("prepared_waiting_qa"):
+    if any(row.get("requires_headquarters_decision", True) for row in checkpoint.get("prepared_waiting_qa", [])):
         reasons.append("explicit_prepared_QA_packet_requires_real_dispatch")
     if qa.get("mode") == "BLOCKED_INVALID_PRIORITY_EVIDENCE":
         reasons.append("QA_priority_evidence_invalid")
-    if queue.get("followthrough_pending_count", 0):
+    if queue.get("headquarters_followthrough_pending_count", queue.get("followthrough_pending_count", 0)):
         reasons.append("decision_followthrough_or_due_review_pending")
     if any(row.get("requires_action", True) for row in business_work or []):
         reasons.append("business_backlog_action_or_dependency_reconciliation_pending")
-    if waiting:
-        reasons.append("owned_internal_tasks_running_use_native_event_wait")
     return {"ordinary_stop_allowed": not reasons,
-            "next_mode": "COLLECT_OR_RECONCILE" if ended or any(
-                r != "owned_internal_tasks_running_use_native_event_wait" for r in reasons)
-            else "NATIVE_EVENT_WAIT" if waiting else "NO_EXECUTABLE_CONTROL_ITEM",
+            "next_mode": "COLLECT_OR_RECONCILE" if reasons
+            else "RELEASED_WITH_DURABLE_INFLIGHT" if waiting or ended else "NO_EXECUTABLE_CONTROL_ITEM",
             "reasons": reasons,
-            "event_wait_targets": [{"thread_id": row["thread_id"],
-                                     "department": row["department"]} for row in waiting],
+            "event_wait_targets": [],
+            "durable_inflight_targets": [{"thread_id": row["thread_id"],
+                                     "department": row["department"]} for row in waiting + ended],
             "wait_timeout_is_completion": False,
             "project_queue_wakes_ended_controller": False,
             "business_goal_closed": False}
@@ -177,8 +173,12 @@ def inspect(root: Path, live: dict, now: dt.datetime | None = None) -> dict:
     policy = json.loads((root / "data/content/organic-execution-policy.json").read_text())
     cp = policy["keyword_content_coverage_acceptance"]["controller_checkpoint"]
     checkpoint = json.loads(workflow.safe_path(root, cp).read_text())
-    queue = workflow.result_handoff_pending(root)
+    from routine_authority import partition_queue
+    queue = partition_queue(root, workflow.result_handoff_pending(root))
     qa = priority.inspect(root)
+    from routine_authority import classify_ready_tasks
+    qa["waiting_dispatch"] = classify_ready_tasks(root, qa.get("waiting_dispatch", []))
+    checkpoint = {**checkpoint, "prepared_waiting_qa": classify_ready_tasks(root, checkpoint.get("prepared_waiting_qa", []))}
     roles, errors = inspect_live(registry, live, now)
     latest = latest_results(root)
     for role in roles:

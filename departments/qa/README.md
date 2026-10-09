@@ -1,3 +1,5 @@
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # 质检与 Reality Checker 部
 
 按交付类型使用 `references/` 下的 Google Ads、内容/SEO/网站、视觉媒体、销售线索和数据证据五类门禁。

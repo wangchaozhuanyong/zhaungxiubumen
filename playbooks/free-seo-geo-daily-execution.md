@@ -1,3 +1,5 @@
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # FLASH CAST 免费 SEO/GEO 每日执行规范
 
 - 适用任务：`fc-20260913-free-seo-geo-longterm` 及其每日子任务

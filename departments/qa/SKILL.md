@@ -3,9 +3,7 @@ name: flashcast-reality-checker
 description: "FLASH CAST Reality Checker 质检专业 Skill；用于事实、数据、品牌承诺、证据链、跨部门冲突和广告/网站/内容执行前的放行或返工。"
 ---
 
-## 2026-10-07 部门系统现行规则
-
-本轮按 `playbooks/department-system-current.md` 执行：11个固定角色，总部审核派工、助理预核、质检1/2独立分工；先核实际结果再决策和关联下一动作。旧部门数量和旧通知方式失效，历史证据/权限不改。部门先固定聊天非空回报，再冻结V2/唯一入队及回读；普通结果不发送到其他聊天，不打断active。依赖齐全的已冻结同任务R0步骤按准确输入/步骤指纹继续；停止必列未完成、负责人、下一动作和解除条件。机器准入尚未通过的QA2/发布权限仍不启用，不新增高频轮询。
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
 
 # FLASH CAST Reality Checker 质检专业 Skill
 

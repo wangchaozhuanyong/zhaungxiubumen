@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 
@@ -23,6 +24,11 @@ def setup(root: Path):
         contents["data/" + name + ".json"] = content
     for name in company_names:
         contents[name + ".md"] = (examples / (name + ".md")).read_text()
+    proposed = json.loads(contents["data/department-registry.json"])
+    rows = proposed.get("departments", [])
+    identifiers = [row.get("id", "") for row in rows]
+    if len(identifiers) != len(set(identifiers)) or any(not re.fullmatch(r"[a-z][a-z0-9-]{0,79}",x) for x in identifiers):
+        raise ValueError("Duplicate or unsafe registered role")
     created = []
 
     def put(rel, content):

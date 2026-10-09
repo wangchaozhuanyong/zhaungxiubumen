@@ -1,3 +1,5 @@
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # 结果接续与总控结束前检查
 
 适用项目：装修公司虚拟员工；只改变协调、回报与状态汇总，不增加任何生产或跨项目权限。
@@ -13,7 +15,7 @@
 
 先执行 `python3 tools/controller_event_state.py --output data/controller-event-continuation.json`，从最新政策指针及当前真实回执派生准确有界等待目标。不要手工抄昨天的 watch；旧缓存不可驱动本轮。等待只针对本轮已派准确任务，多个任务在同一聊天合并一次 `wait_threads`，保存真实 cursor；消息和结果哈希必须从原生回复核验。收取、决策及后续证据齐全才解除该范围。
 
-`.codex/hooks.json` 的 Stop 处理器在审阅/信任后采用同一派生器；本地验证与原生启用分别记录。权限缺失不能伪造 trust 记录。未启用时总部仍须实际执行事件等待和结束前核验。钩子不会唤醒已结束或被中断的总部。
+`.codex/hooks.json` 当前 hooks 为空，Stop 未启用。总部在自然接续时手动读回准确队列并核验必要边界；普通在途移交后结束本轮。队列不会唤醒已结束或被中断的总部，保留 18:00 兜底，不配置忙循环。
 
 先用应用现场唯一匹配核对全部注册角色身份，保存真实现场快照（observed_at、threads、sections），不得用注册表补造 projectId。
 

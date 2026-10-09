@@ -1,3 +1,5 @@
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # 内容、SEO 与网站增长部
 
 这是一个合并部门，统一承接原来的内容营销部、SEO/GEO 部和网站转化部。

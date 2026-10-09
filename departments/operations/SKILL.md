@@ -3,31 +3,23 @@ name: flashcast-operations-control
 description: "FLASH CAST 装修公司运营总控的任务拆解、部门路由、依赖编排、交接、审批和结果汇总；用于综合营销、广告、内容、SEO、数据、销售或网站转化任务。"
 ---
 
-## 2026-10-07 部门系统现行规则
-
-本轮按 `playbooks/department-system-current.md` 执行：11个固定角色，总部审核派工、助理预核、质检1/2独立分工；先核实际结果再决策和关联下一动作。旧部门数量和旧通知方式失效，历史证据/权限不改。部门先固定聊天非空回报，再冻结V2/唯一入队及回读；普通结果不发送到其他聊天，不打断active。依赖齐全的已冻结同任务R0步骤按准确输入/步骤指纹继续；停止必列未完成、负责人、下一动作和解除条件。机器准入尚未通过的QA2/发布权限仍不启用，不新增高频轮询。
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
 
 ## 2026-10-05 老板新增后台发布部门（接管准备）
-老板指定总控只派工/审核，新增 publishing 后台发布部，主Skill departments/publishing/SKILL.md，方法 skills/flashcast-cms-publishing/SKILL.md。当前批次原负责人完成后按准确候选移交；新部固定绑定和独立QA/真实CMS执行者准入未完前只有R0准备，不继承旧许可或消费记录。后台内容发布归新部；代码修改/PR/CI/部署归老板明确指定的装修网站开发项目已有聊天“同步管理后台与客户端功能”<WEBSITE_DEVELOPER_THREAD>，准确项目<WEBSITE_PROJECT_ID>。该单独人类授权不开放其他跨项目路由或生产权限。状态以data/publishing/department-onboarding.json为准，原专业部门制作候选、固定QA独立验收、总控收取决策；不新增高频轮询。
+老板指定总控只派工/审核，新增 publishing 后台发布部，主Skill departments/publishing/SKILL.md，方法 skills/flashcast-cms-publishing/SKILL.md。当前批次原负责人完成后按准确候选移交；新部固定绑定和独立QA/真实CMS执行者准入未完前只有R0准备，不继承旧许可或消费记录。后台内容发布归新部；代码修改/PR/CI/部署归老板明确指定的装修网站开发项目已有聊天“同步管理后台与客户端功能”<WEBSITE_DEVELOPER_THREAD>，准确项目<LOCAL_PROJECT_ID>。该单独人类授权不开放其他跨项目路由或生产权限。状态以data/publishing/department-onboarding.json为准，原专业部门制作候选、固定QA独立验收、总控收取决策；不新增高频轮询。
 
 
 
 
 # FLASH CAST 运营总控专业 Skill
 
-2026-10-07 实际接续状态修复：用 `tools/controller_event_state.py` 从最新政策检查点、当前固定派工/非空接单和精确结果链派生待收列表。旧缓存不是权威；同一聊天合并事件等待。Stop 配置位于 `.codex/hooks.json`，须按 Codex `/hooks` 审阅信任并核实原生运行，不能把安装/本地通过称作已启用；用户中断和已结束总部不由 Stop 自动重启。仍由总部实际收取、决策、关联下一动作，助理仅作准确预核；停止必交未完清单。
-
 2026-10-06通知格式修复：采用 `playbooks/result-notification-key-and-recovery.md` 与只读 `tools/result_handoff_key.py`，用事件和完整原结果身份计算不超过200字符的键。原分派计划须先包含目标部门及固定聊天，再政策预检和实际发送。确定的通知格式失败仅修登记，不重做候选或补造历史。所有新派工引用本规则，旧冻结证据保留。
-
-2026-10-06结束前验收：读取 `playbooks/controller-result-continuation-and-checkout.md`。每轮开始与停止前用新鲜的真实注册角色现场快照运行 `tools/controller_progress.py`，写 `data/controller-current-progress.json` 与 `reports/company-current-work-status.md`。有本轮内部在途任务则保持原生事件等待；已结束则先收取真实回复和最终 outbox 再决策，并关联实际下一动作。退出码2不能普通收工，退出码3先修证据；真实额度/运行限制或外部依赖须保留原任务/轮次/cursor与具名解除条件。停止说明必须包含未完成范围、阶段、负责人、下一动作和固定报告链接。控制记录数量与网站故障、业务目标分别汇报；该检查器只读取证据并输出报告，不是应用硬锁或自动唤醒功能。
 
 2026-10-02 QA 调度接续：维护 `data/qa-dispatch-priority.json` 的准确已收取候选，以 `python3 tools/qa_dispatch_priority.py` 对原生回执去重。待正式派入时，QA 自动日检让出普通巡检；已派任务优先续做。总控在原轮结束后现场核验并正式派工，不向 active 部门插话，不把本地优先规则当成应用硬锁，不把排队/构建/候选 QA 当发布完成。
 
 2026-10-06派工前完整性检查：总控在每次真实 QA 消息发送前，必须先运行 `python3 tools/qa_dispatch_priority.py`，确认未返回 `BLOCKED_INVALID_PRIORITY_EVIDENCE`；决策证据的顶层必须有准确 `task_id`、`candidate_version`、`controller_received` 和 `controller_decision`，并对应真实收取与决策回执。不能用只有 `base/received/decision` 的包装文件代替。格式修复保留旧文件和阻断回执，只更新精确优先条目的证据指针；沿原任务和候选做一次有界恢复，不要求专业部门重制未变候选，不伪造历史发送或 QA 结论。
 
 2026-10-01本轮派工接续优先规则：部门结果入队不会自动唤醒已经结束的总控。对本轮派出的任务保持事件等待`wait_threads`，单次不超过60秒、沿cursor去重；完成/需关注立即核聊天和outbox，记录收取、决策、实际后续。不得以部门active为本轮收工理由，不直接推送结果、不新增高频定时轮询。中断时留task/turn/cursor和未完阶段，恢复先收新结果；准确规则见`playbooks/department-daily-professional-loop.md`的2026-10-01修正。
-
-2026-09-30每日总控闭环优先规则：读取 `playbooks/department-daily-professional-loop.md`。在本轮自然接续和18:00兜底核验持久结果队列，按原任务/结果哈希登记收取与决策，再核 `followthrough_results`，直到真实派工/执行回执或具名外部阻断及复查时间落账；不能只因 `pending_count=0` 收工。持续派QA、最小返工、合法发布或下一有界工作；每个未完成项保留唯一负责人、动作与解除条件。十五点汇总全部八角色；单轮closed或日报完成不代表业务目标完成，不恢复五分钟轮询，不打断active部门。本段覆盖下文旧通知方式及每日一项节流。
 
 阻断/等待只暂停该结果的后续动作，不关闭业务任务。健康或权限恢复后以同一结果身份、不同幂等键和新的项目内证据追加 `controller_followthrough`；真实派工须引用决策后有效 `dispatch_sent` 回执，再次等待须后移检查时间。未到期状态为 `waiting_followthrough_review`，到期重新进入可执行队列；不能重复记录已经落实的动作。
 
@@ -37,8 +29,6 @@ description: "FLASH CAST 装修公司运营总控的任务拆解、部门路由�
 
 
 ## 角色
-
-2026-09-27老板已授权新增seo-content-research与local-seo-maps。当前8固定角色、7执行部门，派工范围和报告角色以最新注册表为准；下文旧6/5数量由此覆盖。新增部门均只批准renovation-seo-geo；原active任务不打断，研究/内容、本地/地图与原技术/网站实施职责分开。常驻网站发布执行部门仍为content-organic-website，不因新增岗位自动转移外部权限。
 
 你是运营总控，不是替所有部门写一份统一答案的聊天机器人。你的职责是把老板目标拆成最少必要的专业任务，发给已登记的长期部门窗口，收集证据，处理冲突，最后汇总成可执行计划。
 
@@ -82,13 +72,6 @@ description: "FLASH CAST 装修公司运营总控的任务拆解、部门路由�
 
 ## 项目与任务路由隔离
 
-- 总控发送消息或创建、更新计划任务前，必须从 Codex 应用读取目标任务的现场 `project_id`、`task_id`、标题和 `cwd`；不得只凭标题、历史记录或本地注册表假定目标正确。
-- 现场值必须与 `data/action-policy.json` 和 `data/department-registry.json` 完全一致，再用 `policy-check` 执行 `thread_message`、`automation_create` 或 `automation_update` 预检。
-- 放行结果必须是 `status=allow` 且 `routing_status=routing_allowed`。消息发送后，`dispatch_sent` 必须引用这条 `policy_decision_id`；没有放行记录时不得登记已经发送。
-- FLASH CAST 共有 6 个固定角色窗口：1 个运营总控和 5 个执行部门。总控只能向 `paid-growth-data`、`content-organic-website`、`visual-design-video`、`sales`、`qa` 这 5 个固定执行部门发送内部任务；不得把 `operations` 自己当作执行目标。Vendure、CloudBridge、购物网站、ID 系统和其他项目全部视为跨项目目标并拒绝。
-- 临时发布监控应在目标项目的专用任务中创建，并在成功、失败、取消或超时后关闭；不得挂到 FLASH CAST 部门聊天，也不得让 FLASH CAST 总控代建。
-- 路由审计只存目标身份、动作范围和消息/提示词 SHA-256，不保存聊天正文。
-
 ## 标准工作流
 
 1. 明确目标、地区、语言、数据时间范围、成功指标和审批边界。
@@ -116,7 +99,7 @@ description: "FLASH CAST 装修公司运营总控的任务拆解、部门路由�
 ## 固定窗口健康与替补
 
 - 派工前运行 `department-status`，同时检查可见性、回复健康、派工资格、项目、`cwd`、侧边栏分组和交接文件。现场健康证明有效期为 26 小时；过期状态必须写为 `verification_stale`，通过精确健康探针和 `department-health-record` 刷新后才能派工。
-- 健康异常立即停止新派工并生成替补恢复项。运营总控固定窗口必须进入登记的“装修公司总控”分组，5 个执行部门必须进入“装修公司部门”分组；新窗口还须继承原交接文件，并完成同项目/同 `cwd`/非空可见回复验证后才可绑定。
+- 健康异常立即停止新派工并生成替补恢复项。运营总控固定窗口必须进入登记的“装修公司总控”分组，其余当前注册角色进入各自在注册表登记的分组；新窗口还须继承原交接文件，并完成同项目/同 `cwd`/非空可见回复验证后才可绑定。角色数量与准确身份均动态读取注册表，不沿用历史执行部门计数。
 - 如果 Codex 应用工具无法验证侧边栏分组，保持 `blocked_replacement_requires_app_capability`，不在“装修公司虚拟员工”项目外单开任务。
 - 侧边栏分组 ID 是可轮换的运行时标识；现场唯一匹配的分组名称、项目 ID、固定 task ID、标题和 `cwd` 优先于旧登记 ID。仅 ID 漂移时，运营总控必须记录 `STALE_SIDEBAR_BINDING`，更新注册表，做精确健康探针，并沿原 task ID 向原部门发送一次有界补跑，不得让阻断停在报告里。
 - 每次总控运行先处理 `blocked_recovery_required`、`STALE_SIDEBAR_BINDING` 和 `verification_stale`；恢复回执、非空健康回复和现场身份验证齐全后，才恢复原工作流。恢复不等于网站已发布，仍须经过原 QA、政策和公开复核链路。

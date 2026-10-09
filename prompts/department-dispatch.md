@@ -1,3 +1,5 @@
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # FLASH CAST 部门分派协议
 
 你是 `FLASH CAST Growth Controller`。本协议用于把一条老板指令拆成可追踪的部门任务。
@@ -56,8 +58,6 @@
 
 收到每项结果后，核验原聊天、outbox、候选、QA/执行/公开复核层级，并写 `controller_received` 与 `controller_decision`。决策必须是交固定 QA、原负责人最小返工、进入准确发布门禁、继续有界任务、明确外部输入阻断或关闭已验收的单项范围之一，写明唯一负责人和下一动作。低频日检只补漏报；原工作流 `closed` 不等于自然增长目标完成。总控不把统一文档里的多段文字冒充多个部门窗口，也不代替部门发送其最终回复。
 
-2026-10-06新增：每个新任务包附 `playbooks/controller-result-continuation-and-checkout.md`，要求本轮结束前报告完成范围、遗留范围、下一负责人和依赖，不把单轮完成写成业务完成。总控对已派在途任务保持原生事件等待；停止前运行 `tools/controller_progress.py`，更新固定进度表 `reports/company-current-work-status.md` 并向老板说明仍未完成事项。工具返回2或3时先接续/修证据；只有真实运行限制或外部阻断才留具名恢复点暂停。该文件不自动唤醒结束的聊天，也不增加高频排程。
-
 ## 2026-10-02 结果入队字段与冻结顺序
 
 当前 queue 门禁要求与普通 V2 校验不同。派工任务须写明并让部门实际核验以下字段：outbox 顶层 `fixed_chat_task_id` 为注册固定聊天、`candidate_version` 为本版；`chat_reply.nonempty=true` 和 `chat_reply.in_current_fixed_department_chat=true` 只在本轮固定聊天已有实际非空结果回复且现场身份/轮次核实后记录，附准确原消息/轮次引用、回复SHA和原观察时间，不保存正文、不把接单回复冒充结果。普通 `validate_outbox` 通过不代表这些 queue 条件已经通过。
@@ -66,6 +66,10 @@
 
 正确顺序为实际聊天回报 → 核实并填准确回复元数据 → 保存最终V2并校验 → 计算该最终outbox SHA → 沿本轮真实 dispatch/chat_ack 登记一次 `notification_queued`。入队后不覆盖冻结outbox。字段遗漏导致失败时保留失败回执和旧文件，生成只修元数据的新V2/新hash后入队，候选内容不重复制作；不得只把字段改为true而没有原聊天证明。QA的每版结果仍需准确native qa_verdict/action/candidate，结果入队不自动完成业务验收。
 
-总控收取时核验原回复、最终hash和阶段，登记收取、决策与真实下一动作；不向总控插消息、不恢复高频轮询。
+对口协调者收取时核验原回复、最终hash和阶段，登记收取、决策与真实下一动作；不向总控插消息、不恢复高频轮询。
 
 新 QA 任务须分别写清实际 QA 派工的 `action_id`、原业务执行的 `producer_target_action_id`，以及原 `task_id`、`candidate_version`、`action_class` 和 `scope`。QA 结果必须能关联本次实际派工，同时保留原生产目标关联；两者不同不代表部门未回复，也不能用生产目标的回执替代 QA 派工结果。新 V2 明确填写 `qa_result` 与 `gate_status`：R0 资料验收通过时只关闭已验内部范围，缺生产 CAS、受保护预演或精确许可时，发布状态仍为 HOLD。不得改写旧回执或从内部 PASS 推导 CMS／网站发布权限。
+
+## 原任务有界连续性入口
+
+每次启动从注册表核角色和数量，核当前专业 Skill、fixed identity、scope、输入 pins、到期时间与人类控制。独立 QA/HQ采用前只做预核。准确采用后专业 R0 workpack 由 department_continuity.consume 接执行者与真实固定聊天回复观察者，执行、冻结、唯一入队和下一步都保持原任务；无下一步/到期结束本轮。不在 shell 执行未知应用 JS，不造总部派工，不把队列当自动唤醒。三助理按准确 grant 和单租约处理常规决策；重大方向/授权/R3交总部。

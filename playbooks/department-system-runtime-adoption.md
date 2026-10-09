@@ -1,13 +1,14 @@
-# 总控采用与回滚说明
+# V13 准确采用与恢复
 
-本轮只制作候选，下面步骤未执行。operations在独立QA及准确采用决定后执行；不新增生产权限。所有路径归 `<PROJECT_ROOT>`，备份归项目既有 `backups/`；不用桌面临时目录。
+本版是原任务 fc-20261008-department-system-upgrade-v1 的隔离候选。独立 QA、总部采用、真实 R0 试点、导出推送和生产执行分别记录。候选尚未发生这些步骤。
 
-1. 先按最终 `candidate.json` 核全部候选文件pin、实际V2/原固定聊天、来源64/59候选及当前工作流。QA或本地绿色不等于已经采用。
-2. 读取当前 `tools/workflow_control.py`、`data/task-contract.json`，与 `source-baseline.json` 本轮CURRENT pin比较。若不同，基于 `exact-runtime-candidate.diff`逐段合并到新当前版本，保留根总控规则、导出工具及所有并行修改；重新冻结差异和受影响检查，回交QA。禁止用旧11文件、旧64/59候选或本目录整包覆盖当前项目。
-3. 按准确许可范围备份两个运行目标及任何已存在同名新模块，记录原字节哈希/大小、是否原先存在。采用目标只有已有workflow_control/task-contract，以及新增result_coordination、qa_review_plan和只读department_next_work。policy/注册表/AGENTS/其他工具和测试夹具不在运行替换范围。
-4. 先确保无正在使用旧入口的本地控制动作，再按实际采用包写准确五个目标。记录采用前后SHA与准确QA outbox/hash、候选版本、真实检查；既有CLI自动导入已采用workflow_control，不需改flashcast_ops。使用当前工作流/回执/路由测试和本候选新测试在项目内合成目录复验；核所加载模块的 `__file__` 和采用后SHA，不能把候选测试冒充运行验证。
-5. 新SQLite仅在合法原结果占用或最终总部动作时生成于 `logs/result-coordination.sqlite3`，不迁移/重写历史回执。真实首次占用须核原准确queue/outbox；助理只能预检与草案，最终动作由总部。保存有限R0实际入口及占用释放/移交的真实回读，才登记运行采用验收；不据此宣布专业内容、发布或业务目标完成。
+1. 独立 QA 读取 DELIVERY-MANIFEST、准确源树 SHA、同版代码差异及本地受影响检查。QA 原生固定身份、派工/ACK/outbox/verdict 与准确候选全部对应；不使用旧版本 PASS。
+2. 总部逐项读回活动 before hash，按 ADOPTION-SCOPE 做文件 CAS。AGENTS、当前规则、专业 Skill/README、模板、合同、原生消费者及必要依赖一起迁移。现行付费规则和并行 WIP 保留；历史、账户、主账、原生许可、聊天、学习事件及缺失字节不被候选覆盖。
+3. 注册表仅追加经现场独立核验的关联开发角色并字段 CAS；保留真实不同项目/cwd/title，不整表复制健康。学习注册仅追加缺少的角色，不覆盖现有记忆。计数重新从 departments 派生。
+4. 准入记录引用准确 adoption pin、candidate pin、独立 QA outbox/receipt 及同 QA 结果的 `controller_decision_record_id`。该原生 decision 必须 operations、close_scope、QA pass、准确 acceptance_scope，并含候选及 QA pins。仅设置 admitted=true、放 role 文件或 QA PASS 均不够。
+5. 三助理 grant 明确 R0/R1/R2、原 task/producer/candidate/hash/scope、事件、下一 owner、链接 task、当前 human revision、有效期、原生身份；一份结果只有一个短租约。R3/未知不发 grant，CMS 旧执行许可不转移。
+6. 运行采用后沿同原任务做真实 R0 pilot，记录专业执行→冻结→入队→原助理消费者决策/QA或下一步的真实 pins。合成测试没有试点效力。没有 native 自动唤醒能力；空 hooks 保留，18:00 原兜底不另加高频排程。
+7. independent QA、采用与真实 R0 pilot 都准入后，本固定开发聊天才能沿原任务调用 `adopted_system_export.prepare_adopted` 从完整已采用文件清单导出；完整代码/方法指纹必须与同候选 export_source_files 一致，运行绑定和政策快照另经采用后准确独立 source QA 绑定，真实试点 outbox 必须带同版 system_candidate_sha256/system_candidate_version、applied_source输入及采用后执行时间，再导出到项目内 releases/zhaungxiubumen，未来授权仓库为 wangchaozhuanyong/zhaungxiubumen。运行账户、聊天、客户、许可、秘密及本机个人路径不得导出；最终全树语义隐私检查通过后才有可评审导出。推送保持远端历史，不能 force；此候选没有实际网络推送。
+8. 真正生产发布、CMS 保存、部署和清理仍有各自独立门禁。周计划提案未启用；清理引用扫描不能执行 JS，坏行和无法证明的计算引用保护。学习遗失报告维持 DATA_MISSING。
 
-回滚条件为本次接入直接导致的原生入口/回执或并发回读失败。先停止相关控制动作，读原生准确事件和SQLite effect，收口活跃claim及uncertain（已追加则回读；未追加须明确恢复），再恢复准确备份代码/合同并验证原入口。无法确定副作用时保持具名阻断，不直接回滚后重试。保留SQLite、日志、旧原生回执及全部候选；如需数据库快照使用SQLite备份接口并在协调锁下完成，不能仅复制活跃WAL主文件或删除数据库清空占用。
-
-新增文件回滚后可保留为未启用模块，不删除用户资料；原生历史链不重算、不重新入队、不补造收取/QA。记录恢复代码SHA、影响范围、真实检查及未完动作，由operations具名继续。跨项目、账号、Ads、Maps、CMS、网站、消息和费用边界全部沿原规则。
+恢复：before 只保存本次可采用的文件原字节与哈希。恢复需确认当前值仍等于本版应用后的 SHA，逐文件还原；并行变化先交总部，不批量覆盖、reset 或删除历史。新增文件若已有新修改亦保留，不能直接移除。

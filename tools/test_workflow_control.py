@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+import uuid
 from pathlib import Path
 from unittest import mock
 
@@ -24,6 +25,9 @@ class WorkflowControlTests(unittest.TestCase):
         self.root = Path(self.temp_dir.name)
         data = self.root / "data"
         data.mkdir(parents=True)
+        (data / "human-control-state.json").write_text(json.dumps({
+            "schema_version": 1, "paused": False, "revision": 1,
+            "project_root": str(self.root.resolve()), "reason": "synthetic_test_fixture_only"}))
         departments = []
         for department in ("operations", "content-organic-website", "qa", "paid-growth-data"):
             approved_subskills: list[str] = []
@@ -1019,19 +1023,31 @@ class WorkflowControlTests(unittest.TestCase):
         }
         queued = {**base, "event": "notification_queued", "idempotency_key": "daily-queue-v1",
                   "source_mode": "scheduled_run", "source_automation_id": "flash-cast-4",
-                  "source_turn_id": "11111111-1111-1111-1111-111111111111",
+                  # Runtime-generated synthetic UUID; never a private native turn.
+                  "source_turn_id": str(uuid.UUID(int=1)),
                   "source_thread_id": "fixed-content-organic-website",
                   "source_reply_sha256": "a" * 64,
-                  "reply_observed_at": "2026-09-30T02:35:00+00:00"}
-        with self.assertRaises(workflow.WorkflowError):
+                  "reply_observed_at": "2026-09-30T02:35:00+00:00",
+                  "evidence_paths": ["data/task-contract.json"]}
+        error = "每日自动任务入队须有合同匹配、原固定聊天完成轮次和同日本地V2结果"
+        with self.assertRaisesRegex(workflow.WorkflowError, error):
             workflow.record_result_handoff(self.root, {**queued, "source_automation_id": "other"})
-        with self.assertRaises(workflow.WorkflowError):
+        with self.assertRaisesRegex(workflow.WorkflowError, error):
             workflow.record_result_handoff(self.root, {**queued, "reply_observed_at": "2026-10-01T02:35:00+00:00"})
+        contract["department_output_gates"]["content_organic_website_daily"]["task_id_pattern"] = "other-pattern"
+        contract_path.write_text(json.dumps(contract), encoding="utf-8")
+        with self.assertRaisesRegex(workflow.WorkflowError, error):
+            workflow.record_result_handoff(self.root, queued)
+        contract["department_output_gates"]["content_organic_website_daily"]["task_id_pattern"] = "fc-YYYYMMDD-website-growth-daily"
+        contract_path.write_text(json.dumps(contract), encoding="utf-8")
+        self.assertFalse(workflow.result_handoff_path(self.root, task_id).exists())
         first, _ = workflow.record_result_handoff(self.root, queued)
         self.assertEqual(first["source_mode"], "scheduled_run")
+        self.assertEqual(first["evidence"], [workflow.file_digest(self.root, "data/task-contract.json")])
         self.assertEqual(workflow.record_result_handoff(self.root, queued)[0]["result"], "duplicate_ignored")
         self.assertEqual(workflow.result_handoff_pending(self.root)["pending_count"], 1)
         self.assertFalse((self.root / "data/workflows" / f"{task_id}.json").exists())
+        self.assertFalse(workflow.receipts_path(self.root, task_id).exists())
         workflow.record_result_handoff(self.root, {**base, "event": "controller_received",
             "idempotency_key": "daily-received-v1", "intake_mode": "queue",
             "source_reply_sha256": "a" * 64,
@@ -1045,6 +1061,90 @@ class WorkflowControlTests(unittest.TestCase):
             "next_owner": "operations", "next_action": "request lawful source",
             "unblock_condition": "custodian provides source", "evidence_paths": ["reports/daily-decision.md"]})
         self.assertEqual(workflow.result_handoff_pending(self.root)["pending_count"], 0)
+
+    def test_registered_daily_result_requires_exact_completed_native_run(self) -> None:
+        """Synthetic native readback inputs exercise the real generic consumer."""
+        now = dt.datetime.now(dt.timezone.utc)
+        role = "paid-growth-data"
+        binding = workflow.department_registry(self.root)[role]["chat_binding"]
+        task = "fc-" + now.strftime("%Y%m%d") + "-paid-growth-daily"
+        outbox_path = "logs/department-outbox/synthetic-registered-daily.json"
+        path = self.root / outbox_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        box = {
+            "schema_version": "2.0", "task_id": task, "department": role,
+            "fixed_chat_task_id": binding["task_id"], "candidate_version": "synthetic-daily-v1",
+            "status": "blocked", "conclusion": "synthetic source unavailable", "evidence": {},
+            "risks": ["source unavailable"], "next_actions": ["obtain source"],
+            "handoff": {"receiver": "operations"}, "approval_required": False,
+            "learning": {"status": "no_new_learning"},
+            "chat_reply": {"nonempty": True, "in_current_fixed_department_chat": True,
+                           "sha256": "a" * 64, "ref": "synthetic-fixed-reply"},
+        }
+        path.write_text(json.dumps(box), encoding="utf-8")
+        proof = workflow.file_digest(self.root, outbox_path)
+        run_path = "logs/native-readbacks/synthetic-daily-run.json"
+        native = self.root / run_path
+        native.parent.mkdir(parents=True, exist_ok=True)
+        run = {
+            "source": "native_automation_run_readback", "completed": True,
+            "trusted_native_readback": True, "task_id": task, "department": role,
+            "thread_id": binding["task_id"], "project_id": binding["project_id"],
+            "cwd": binding["cwd"], "automation_id": "synthetic-daily-automation",
+            "turn_id": str(uuid.UUID(int=2)), "reply_sha256": "a" * 64,
+            "reply_ref": box["chat_reply"]["ref"], "outbox": proof,
+            "observed_at": (now - dt.timedelta(seconds=10)).isoformat(),
+        }
+        queued = {
+            "task_id": task, "sender_department": role, "candidate_version": box["candidate_version"],
+            "result_sha256": proof["sha256"], "outbox_path": outbox_path,
+            "event": "notification_queued", "idempotency_key": "synthetic-daily-queue-v1",
+            "source_mode": "scheduled_run", "source_automation_id": run["automation_id"],
+            "source_turn_id": run["turn_id"], "source_thread_id": binding["task_id"],
+            "source_reply_sha256": run["reply_sha256"],
+            "reply_observed_at": (now - dt.timedelta(seconds=30)).isoformat(),
+        }
+
+        def request_for(value):
+            native.write_text(json.dumps(value), encoding="utf-8")
+            return {**queued, "native_run": workflow.file_digest(self.root, run_path)}
+
+        changes = {
+            "source": "caller_assertion", "completed": False, "trusted_native_readback": False,
+            "task_id": "other-task", "department": "content-organic-website",
+            "thread_id": "other-fixed-chat", "project_id": "other-project", "cwd": str(self.root / "other"),
+            "automation_id": "other-automation", "turn_id": "other-turn", "reply_sha256": "b" * 64,
+            "reply_ref": "other-reply", "outbox": {**proof, "sha256": "b" * 64},
+            "observed_at": (now + dt.timedelta(minutes=1)).isoformat(),
+        }
+        for field, value in changes.items():
+            with self.subTest(native_field=field):
+                with self.assertRaisesRegex(workflow.WorkflowError, "exact completed native run and fixed-chat result required"):
+                    workflow.record_result_handoff(self.root, request_for({**run, field: value}))
+                self.assertFalse(workflow.result_handoff_path(self.root, task).exists())
+        stale = request_for({**run, "observed_at": (now - dt.timedelta(minutes=6)).isoformat()})
+        stale["reply_observed_at"] = (now - dt.timedelta(minutes=7)).isoformat()
+        with self.assertRaisesRegex(workflow.WorkflowError, "exact completed native run and fixed-chat result required"):
+            workflow.record_result_handoff(self.root, stale)
+        for reply_at in ("not-a-time", (now + dt.timedelta(minutes=1)).isoformat()):
+            with self.subTest(reply_observed_at=reply_at):
+                with self.assertRaisesRegex(workflow.WorkflowError, "exact completed native run and fixed-chat result required"):
+                    workflow.record_result_handoff(self.root, {**request_for(run), "reply_observed_at": reply_at})
+        bad_pin = request_for(run)
+        bad_pin["native_run"] = {**bad_pin["native_run"], "sha256": "b" * 64}
+        with self.assertRaisesRegex(workflow.WorkflowError, "exact native run pin required"):
+            workflow.record_result_handoff(self.root, bad_pin)
+        with self.assertRaisesRegex(workflow.WorkflowError, "每日自动任务入队须有合同匹配"):
+            workflow.record_result_handoff(self.root, queued)
+        valid = request_for(run)
+        first, _ = workflow.record_result_handoff(self.root, valid)
+        self.assertEqual(first["native_run"], valid["native_run"])
+        self.assertEqual(first["outbox"], proof)
+        self.assertEqual(first["source_reply_sha256"], box["chat_reply"]["sha256"])
+        self.assertEqual(workflow.record_result_handoff(self.root, valid)[0]["result"], "duplicate_ignored")
+        self.assertEqual(workflow.result_handoff_pending(self.root)["pending_count"], 1)
+        self.assertFalse(workflow.snapshot_path(self.root, task).exists())
+        self.assertFalse(workflow.receipts_path(self.root, task).exists())
 
     def test_legacy_received_result_can_register_external_followthrough(self) -> None:
         base, _ = self._result_handoff_fixture()
@@ -2111,9 +2211,9 @@ class WorkflowControlTests(unittest.TestCase):
             action_class="thread_message",
             scope="vendure-release-monitor",
             source_project_id="flashcast-test-project",
-            target_project_id="a5f26a2f-618c-4ba7-a32d-cd9cdf10836d",
+            target_project_id="<LOCAL_NATIVE_ID>",
             target_department="vendure",
-            target_thread_id="01a05cd6-34af-77a1-aea2-f800a523c9e5",
+            target_thread_id="<LOCAL_NATIVE_ID>",
             target_thread_title="恢复后台用户工具2FA",
             target_cwd="<USER_HOME>/Desktop/源码文件夹/vendure开源",
             payload_sha256="b" * 64,
@@ -3953,8 +4053,17 @@ class WorkflowControlTests(unittest.TestCase):
         self.assertEqual(decision["status"], "deny")
         self.assertIn("paid_promotion_disabled_hard_gate", decision["reason"])
 
+    def _synthetic_google_ads_read_scope(self) -> str:
+        """Configure only this test's isolated policy, without real account IDs."""
+        path = self.root / "data/action-policy.json"
+        policy = json.loads(path.read_text(encoding="utf-8"))
+        prefix = "google-ads:synthetic-account:readonly:"
+        policy["action_classes"]["account_read"]["allowed_scope_prefixes"] = [prefix]
+        path.write_text(json.dumps(policy), encoding="utf-8")
+        return prefix + "campaign-consolidation"
+
     def test_exact_owner_approved_google_ads_account_read_is_allowed_without_enabling_paid(self) -> None:
-        scope = "google-ads:814-251-0200:readonly:campaign-consolidation"
+        scope = self._synthetic_google_ads_read_scope()
         approval, _ = workflow.record_approval(
             self.root,
             task_id=self.task_id,
@@ -3978,7 +4087,7 @@ class WorkflowControlTests(unittest.TestCase):
         self.assertIn("owner_approval:exact_scope", decision["required_receipts"])
 
     def test_google_ads_account_read_rejects_missing_approval_wrong_scope_and_wrong_department(self) -> None:
-        scope = "google-ads:814-251-0200:readonly:campaign-consolidation"
+        scope = self._synthetic_google_ads_read_scope()
         missing_approval, _ = workflow.policy_check(
             self.root,
             task_id=self.task_id,
@@ -3988,18 +4097,34 @@ class WorkflowControlTests(unittest.TestCase):
             scope=scope,
         )
         self.assertEqual(missing_approval["status"], "deny")
-        self.assertIn("exact_active_owner_approval_or_standing_scope_required", missing_approval["reason"])
+        self.assertEqual(missing_approval["reason"], ["exact_active_owner_approval_or_standing_scope_required"])
+
+        approval, _ = workflow.record_approval(
+            self.root, task_id=self.task_id, action_id="inspect-campaigns",
+            action_class="account_read", scope=scope,
+            source_message_ref="synthetic-owner-msg-readonly-ads",
+        )
+        approval_id = str(approval["approval_id"])
+        wrong_approval_scope, _ = workflow.policy_check(
+            self.root, task_id=self.task_id, department="paid-growth-data",
+            action_id="inspect-campaigns", action_class="account_read",
+            scope=scope + "-expanded", approval_id=approval_id, consume_approval=True,
+        )
+        self.assertEqual(wrong_approval_scope["status"], "deny")
+        self.assertEqual(wrong_approval_scope["reason"], ["exact_active_owner_approval_or_standing_scope_required"])
 
         wrong_scope, _ = workflow.policy_check(
             self.root,
             task_id=self.task_id,
             department="paid-growth-data",
-            action_id="inspect-other-account",
+            action_id="inspect-campaigns",
             action_class="account_read",
-            scope="google-ads:000-000-0000:readonly:campaign-consolidation",
+            scope="google-ads:synthetic-other-account:readonly:campaign-consolidation",
+            approval_id=approval_id,
+            consume_approval=True,
         )
         self.assertEqual(wrong_scope["status"], "deny")
-        self.assertIn("account_read_scope_not_allowed", wrong_scope["reason"])
+        self.assertEqual(wrong_scope["reason"], ["account_read_scope_not_allowed", "exact_active_owner_approval_or_standing_scope_required"])
 
         wrong_department, _ = workflow.policy_check(
             self.root,
@@ -4008,9 +4133,14 @@ class WorkflowControlTests(unittest.TestCase):
             action_id="inspect-campaigns",
             action_class="account_read",
             scope=scope,
+            approval_id=approval_id,
+            consume_approval=True,
         )
         self.assertEqual(wrong_department["status"], "deny")
-        self.assertIn("account_read_department_not_allowed", wrong_department["reason"])
+        self.assertEqual(wrong_department["reason"], ["account_read_department_not_allowed"])
+        self.assertEqual(workflow.effective_approvals(self.root)[approval_id]["status"], "active")
+        for decision in (missing_approval, wrong_approval_scope, wrong_scope, wrong_department):
+            self.assertFalse(decision["paid_promotion_enabled"])
 
     def test_operations_and_skill_whitelist_are_enforced(self) -> None:
         denied, _ = workflow.policy_check(

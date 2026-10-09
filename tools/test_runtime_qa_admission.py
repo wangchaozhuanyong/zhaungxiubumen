@@ -1,4 +1,5 @@
 from __future__ import annotations
+import test_runtime_paths
 import argparse
 import copy
 import datetime as dt
@@ -11,7 +12,7 @@ import workflow_control as w
 import qa_review_plan as q
 import test_workflow_control as legacy
 
-TMP = Path(__file__).resolve().parents[1] / ".test-tmp"
+TMP = test_runtime_paths.root()
 
 
 class ExactRuntimeQA(unittest.TestCase):

@@ -10,6 +10,8 @@ import controller_stop_hook as hook
 
 class StopHookTests(unittest.TestCase):
     def setUp(self):
+        human_state = mock.patch('human_control.read_state', return_value={'paused':False,'revision':1,'configured':True})
+        human_state.start(); self.addCleanup(human_state.stop)
         controller = mock.patch.object(hook, 'CONTROLLER', 'fixed-operations')
         project = mock.patch.object(hook, 'PROJECT', 'test-project')
         controller.start(); project.start()
@@ -56,9 +58,10 @@ class StopHookTests(unittest.TestCase):
         self.pending['followthrough_pending_count'] = 1
         self.assertEqual(self.check()['decision'], 'block')
 
-    def test_inflight_keeps_controller_waiting(self):
+    def test_ordinary_inflight_releases_hq_and_preserves_watch(self):
         self.state['watched_tasks'] = [{'task_id': 'original-v1', 'cursor': 'native:1'}]
-        self.assertIn('wait_threads', self.check()['reason'])
+        self.assertEqual(self.check(), {})
+        self.assertEqual(self.state['watched_tasks'][0]['task_id'], 'original-v1')
 
     def test_prepared_is_not_dispatched(self):
         self.state['ready_internal_actions'] = [{'task_id': 'original-v1'}]
@@ -72,7 +75,7 @@ class StopHookTests(unittest.TestCase):
     def test_stale_state_demands_live_refresh_not_dispatch(self):
         self.state['updated_at'] = (self.now - dt.timedelta(minutes=6)).isoformat()
         self.state['watched_tasks'] = [{'task_id': 'original-v1'}]
-        self.assertIn('先重新核实', self.check()['reason'])
+        self.assertEqual(self.check(), {})
 
     def test_repeated_stop_is_bounded(self):
         self.event['stop_hook_active'] = True

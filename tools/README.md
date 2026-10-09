@@ -1,3 +1,5 @@
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # FLASH CAST 活跃增长运营工具层
 
 `python3 tools/result_handoff_key.py --outbox <最终V2> --json`：只读生成原结果完整身份的确定通知键，避免超过200字符；不入队、不发送、不授予权限。恢复顺序见 `playbooks/result-notification-key-and-recovery.md`。
@@ -121,7 +123,7 @@ python3 tools/flashcast_ops.py policy-check \
   --target-thread-id <registry-fixed-task-id> \
   --target-thread-title "FLASH CAST｜内容、SEO与网站增长部｜2026-09" \
   --target-cwd "<PROJECT_ROOT>" \
-  --target-sidebar-section-id 24a24d49-6044-4a23-b85b-c60281aba68c \
+  --target-sidebar-section-id <LOCAL_SIDEBAR_SECTION_ID> \
   --payload-sha256 <task-package-sha256>
 
 python3 tools/flashcast_ops.py receipt-record \
@@ -148,7 +150,7 @@ python3 tools/flashcast_ops.py receipt-record \
   --idempotency-key fc-YYYYMMDD-example-content-outbox-v1
 ```
 
-`thread_message`、`automation_create` 和 `automation_update` 都必须提供来源/目标项目、目标部门、固定任务 ID、标题、`cwd`、登记的侧边栏分组 ID 和正文 SHA-256。任一身份不匹配即返回 `blocked_cross_project` 或 `blocked_route_invalid`。路由日志只保存哈希，不保存消息或计划任务提示词正文。公司结构固定为 1 个运营总控 + 5 个执行部门；模糊请求只停在总控补问，不广播给所有部门。
+`thread_message`、`automation_create` 和 `automation_update` 都必须提供来源/目标项目、目标部门、固定任务 ID、标题、`cwd`、登记的侧边栏分组 ID 和正文 SHA-256。任一身份不匹配即返回 `blocked_cross_project` 或 `blocked_route_invalid`。路由日志只保存哈希，不保存消息或计划任务提示词正文。公司角色和关联部门数量逐行读取 data/department-registry.json；模糊请求只停在总控补问，不广播给所有部门。
 
 QA 回执只能是 `pass` 或 `blocked`。`pass` 不会自动创建老板批准：
 
@@ -267,7 +269,7 @@ python3 tools/flashcast_ops.py department-health-record \
   --project-id <LOCAL_PROJECT_ID> \
   --cwd "<PROJECT_ROOT>" \
   --title "FLASH CAST｜质检与Reality Checker部｜2026-09" \
-  --sidebar-section-id 24a24d49-6044-4a23-b85b-c60281aba68c \
+  --sidebar-section-id <LOCAL_SIDEBAR_SECTION_ID> \
   --reply-ref <visible-message-id> \
   --reply-sha256 <visible-reply-sha256> \
   --reply-nonempty \
@@ -396,7 +398,7 @@ python3 tools/flashcast_ops.py seo-index-audit --site https://flashcast.com.my -
 
 共享学习方法仍在 `skills/flashcast-department-learning/SKILL.md`。
 
-查看 6 个核心部门是否都有自己的记忆档案：
+查看注册表中每个部门是否都有自己的记忆档案：
 
 ```bash
 python3 tools/flashcast_ops.py department-learning-status
@@ -500,7 +502,6 @@ QA 自动日检业务入口先运行 `python3 tools/qa_dispatch_priority.py`。�
 目标 → dispatch-plan → 链式回执 → QA → 精确批准 → policy-check → 执行回执 → postcheck → workflow-reconcile
 ```
 
-部门结果到总控的交接独立于上述阶段链。部门在自己的固定聊天非空回报并保存/校验 V2 outbox 后，按原 task_id、候选版本和 outbox SHA 登记 `notification_queued` 到项目内持久队列，不向总控聊天发消息打断 active 工作。总控自然接续或每日18:00兜底运行 `result-handoff-pending`，核对原聊天、结果哈希和 QA/执行层级后用 `intake_mode=queue` 登记 `controller_received`，并登记有唯一负责人、最小下一动作的 `controller_decision`。决策后除 `close_scope` 外还需 `controller_followthrough`：派工引用决策后的真实 `dispatch_sent` 回执，发布引用实际执行和 PASS 公开复核，外部等待或阻断登记解除条件及下次检查时间；到期自动再次列待办。命令分别输出未决策的 `pending_count` 和决策未落地/到期的 `followthrough_pending_count`，总工作量看 `total_actionable_count`。该命令会在当前检查点与唯一 backlog 未关闭任务内恢复漏入队旧结果：优先按 `outbox_received` 哈希回执发现；缺回执时要求当前 V2 outbox 固定聊天绑定、非空回复字段及文件修改时间均与派工/ACK 相符。输出 `recovery_required` 只代表候选，不代表总控已现场收取；总控必须实际核对固定聊天后用 `intake_mode=fallback` 收取。不扩大到已解决历史，不重发原任务，不补造通知发送记录。已收取未决策、通知阻断和旧发送未收取结果仍保持待办。`workflow-status` 的 `controller_handoff` 与原工作流状态并列，旧 `closed` 不表示业务目标达到。
 
 ```bash
 python3 tools/flashcast_ops.py result-handoff-record --input logs/handoffs/<项目内结果交接输入>.json
@@ -521,3 +522,12 @@ python3 tools/flashcast_ops.py result-handoff-pending
 ## 总控结束前进度检查
 
 `python3 tools/controller_progress.py --live-proof <项目内真实现场快照> --json-output data/controller-current-progress.json --report-output reports/company-current-work-status.md` 汇总全部注册角色、原业务主账及准确结果/决策后待办。现场快照须含真实 observed_at/threads/sections；缺 projectId 不补造，超过5分钟重读现场（不建立五分钟排程）。退出码0仅表示本次无待接续控制项；2表示仍需接续/事件等待；3表示证据读取阻断。它不发送消息、不改业务主账、不授予权限，不是应用硬锁或结束后自动唤醒功能。配套规则见 `playbooks/controller-result-continuation-and-checkout.md`。
+
+
+rework3输入修复：result-handoff-record提交事件输入对象，证据用evidence_paths数组；未知/只读键、错误事件字段和类型在效果预留前拒绝。恢复已有不确定效果仍先核准确原生读回，不重发。
+
+qa_dispatch_priority.py默认输出有界明细及总计；全量审计显式使用python3 tools/qa_dispatch_priority.py --full-audit。两种模式使用相同完整证据和优先级，不删除历史。终态原任务的准确R0返工使用initialize_workflow(..., rework_packet=冻结pin)的本项目关联载体，详见运行采用手册；原终态、原聊天及权限不改变。
+
+## 原任务有界连续性入口
+
+每次启动从注册表核角色和数量，核当前专业 Skill、fixed identity、scope、输入 pins、到期时间与人类控制。独立 QA/HQ采用前只做预核。准确采用后专业 R0 workpack 由 department_continuity.consume 接执行者与真实固定聊天回复观察者，执行、冻结、唯一入队和下一步都保持原任务；无下一步/到期结束本轮。不在 shell 执行未知应用 JS，不造总部派工，不把队列当自动唤醒。三助理按准确 grant 和单租约处理常规决策；重大方向/授权/R3交总部。

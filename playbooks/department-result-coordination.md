@@ -1,3 +1,5 @@
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # 准确结果协调接入
 
 本模块调用实际 `workflow_control.record_result_handoff` 的候选入口；不是原先未调用的 ownership 原型。运行根目录未安装。协调身份固定为原 `task_id`、发送部门、候选版本和最终 outbox SHA-256。创建占用前核对唯一原生 queued 行、哈希链、当前 outbox 字节、V2 和注册固定聊天；不扫描历史、不发送消息、不授予发布权限。
@@ -34,3 +36,5 @@ claim 输入：`identity`（四字段）、`role`、`owner`、`request_id`、可
 集成检查运行 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest test_result_coordination -v`，调用候选实际入口和原有真实工作流 fixture。临时项目始终位于本候选 `.test-tmp`，结束后由 tempfile 清理。29 项通过，详见 `result-coordination-tests.log`：独立连接/同时争抢、精确身份、TTL/fence、助理拒绝、转移/释放、草稿状态、原生已追加后的崩溃回读、未追加后的显式恢复、证据变化与旧入口默认行为。
 
 负责人：总部助理制作候选；operations 收取后交固定 QA，决定采用。候选未安装、未产生正式 QA 结论、未改变生产权限；根总控负责后续准确源指纹合并和回滚包。采用前必须核对当前源文件与候选冻结基线，保留并行修改，不以候选整目录覆盖运行目录。
+
+rework3：原生入口与guard共用事件schema；未知/只读/错事件字段、错误类型和evidence_paths先拒绝，零reservation/原生追加/成功audit。已知coordinator_role/scope在通知中只是登记/重试上下文，不是权限；旧行不改，重复只返回retry_context，新增首行保存上下文。final操作的真实routine_grant.scope仍准确验权，operations的scope仅reported_scope；历史缺上下文字段按原生事实读回，不伪补旧账。

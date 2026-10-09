@@ -41,6 +41,8 @@ def decide(event: dict, state: dict, pending: dict, now: dt.datetime) -> dict:
         raise ValueError('stop_hook_active must be a boolean')
     if not isinstance(state, dict) or not isinstance(pending, dict):
         raise ValueError('state and pending must be objects')
+    if state.get('human_paused') is True:
+        return {}
     if (state.get('project_id') != PROJECT
             or state.get('controller_thread_id') != CONTROLLER
             or state.get('cwd') != str(ROOT)):
@@ -48,19 +50,23 @@ def decide(event: dict, state: dict, pending: dict, now: dt.datetime) -> dict:
     reasons = []
     if state.get('validation_errors'):
         reasons.append('当前派工回执或结果证据需恢复；不沿旧缓存派工')
-    if pending.get('pending_count', 0):
+    if pending.get('headquarters_pending_count', pending.get('pending_count', 0)):
         reasons.append('存在尚未收取或决策的真实部门结果')
-    if pending.get('followthrough_pending_count', 0):
+    if pending.get('headquarters_followthrough_pending_count', pending.get('followthrough_pending_count', 0)):
         reasons.append('存在决策后尚未落实的到期待办')
     watched = state.get('watched_tasks', [])
     ready = state.get('ready_internal_actions', [])
     if any(not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows)
            for rows in (watched, ready)):
         raise ValueError('watched and ready must be object lists')
-    if watched:
-        reasons.append('本轮已派任务仍需核实完成事件及准确结果')
-    if ready:
-        reasons.append('本轮还有已准备、依赖齐全的内部动作')
+    # Ordinary acknowledged work stays discoverable; it does not keep HQ open.
+    # Only an actual unresolved HQ decision/risk is a stop blocker.
+    required = [row for row in ready if not (
+        row.get('coordinator_role') in {'operations-assistant','operations-assistant-2','operations-assistant-3'}
+        and row.get('routine_grant_validated') is True
+        and row.get('requires_headquarters_decision') is False)]
+    if required:
+        reasons.append('仍有总部必须处理的准确内部决策或风险')
     if not reasons:
         # External facts, future daily reviews and 50 IP do not keep a turn alive.
         return {}
@@ -77,8 +83,8 @@ def decide(event: dict, state: dict, pending: dict, now: dt.datetime) -> dict:
         'reason': 'FLASH CAST固定总控本轮不能普通收工：' + '；'.join(reasons)
         + '。从data/controller-event-continuation.json和最新controller_checkpoint恢复。'
         + '先收原固定聊天/最终outbox，核QA并登记收取、决策、真实后续。'
-        + '本轮在途用原生wait_threads事件等待，单次不超过60秒并保存cursor；'
-        + '完成后沿原任务继续，禁止给active聊天普通消息、重复派工或恢复五分钟轮询。'
+        + '已接单普通在途保留负责人和持久状态，总部可结束协调轮次或处理其他已到结果；'
+        + '需要观察时才用有界原生事件快照，不逐单占用总部。禁止打断active、重复派工或新增轮询。'
         + '当前原任务：' + ', '.join(tasks[:8])
         + '。仅此控制范围闭环或具名真实外部等待齐全后清除对应watch/ready记录；'
         + '50自然IP和未来日检不要求本轮达成。停止前更新固定未完成清单。',
@@ -99,6 +105,9 @@ def evaluate(event, load_context=_load_context, now=None) -> dict:
     """Expected local failures must not trap the user or emit a traceback."""
     try:
         if not _matching_event(event) or event.get('stop_hook_active') is True:
+            return {}
+        from human_control import read_state
+        if read_state(ROOT)["paused"]:
             return {}
         state, pending = load_context()
         return decide(event, state, pending, now or dt.datetime.now(dt.timezone.utc))

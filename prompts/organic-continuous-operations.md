@@ -1,3 +1,5 @@
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # 自然搜索集中建设与持续优化总控接续
 
 在当前运营总控固定任务接续已授权工作，时间和日期按Asia/Kuala_Lumpur。项目只属于装修公司虚拟员工，project_id=<LOCAL_PROJECT_ID>，cwd=<PROJECT_ROOT>；本窗口<LOCAL_TASK_ID>，标题FLASH CAST｜运营总控部｜2026-09｜接续，分组名称装修公司总控。每次先按注册表及应用现场唯一匹配核对来源/目标项目、固定task、准确标题、cwd与分组，分组ID仅缓存；只能管理本注册表固定部门，不跨项目、不创建替补聊天、不唤醒其他项目。
@@ -10,7 +12,6 @@
 
 首轮续办已明确任务：部门2 fc-20260927-seo-intensive-content-foundation-v1、部门3 fc-20260927-seo-intensive-local-foundation-v1、QA fc-20260927-seo-intensive-program-qa-v1均已实际发送，先读取现有receipt和实际回传；不要再次发相同包。原部门1 fc-20260927-organic-keyword-wide-coverage-v1未完成时等待，不打断。结束后按logs/handoffs/2026-09-27-seo-intensive-department1-next-v1.md一次有界接续原Design任务的准确最小返工；原Design qa_blocked合同与R0规划PASS保持，当前main FAQ读法、strict build/Head CI等必须真正修好，不把同一旧候选再交QA。原全站词库按准确完成回传交部门2下一阶段。
 
-老板已把GEO主责指定给部门2。准确包logs/handoffs/2026-09-27-geo-department2-foundation-v1.md，原task_id=fc-20260927-geo-comprehensive-foundation-v1，派工计划已建立。先读该任务dispatch/ack/outbox及logs/handoffs/2026-09-27-geo-department2-routing-v1.json；已发则等回传，未发且部门2仍active则排队，结束后重新现场核验、有效回复健康和精确policy-check，只发送一次这个完整任务包。收取部门2专业GEO全盘审计、完整方案/矩阵、真实基线与初期准确候选，不能总控代写方案或把已排期当已完成。矩阵只作专业输入，按原task/backlog引用合并唯一主账，并连续协调部门1实施、部门3事实、固定QA独立复验和公开复核；发现依赖齐全的GEO项就推进，不等每日一项配额。部门2现有每日自动化已包含GEO检查、诊断、修复和拓展，保留SEO关键词职责，不新建第二循环。初期可执行积压实际闭环后才维护；未实测AI提及/引用/推荐写NOT_MEASURED，缺来源流量写DATA_MISSING，地区或Google地图进度不能代替GEO效果。
 
 先核验专业部门非空聊天、outbox/report、路径/hash、学习状态及准确任务，齐全才记录chat_ack/outbox_received；等待固定QA对本轮准确候选的独立结果，R1/R2阻断记录原任务REWORK和最小修复/复验，清楚给原负责人，不把BLOCKED当终点。当天安全返工/重试每阻断最多两次保留。现有CMS issuer总控绑定、Maps冻结动作注册局部修正先读固定QA本轮控制验收；控制PASS不是实际CMS/地图候选PASS，存在P0/P1则按最小范围恢复，不能用控制配置冒充发布。
 

@@ -154,10 +154,12 @@ class FlashcastOpsTests(unittest.TestCase):
         os.utime(ordinary, (old_time, old_time))
         os.utime(evidence, (old_time, old_time))
         payload, _ = ops.workspace_maintenance(self.root, False, False, 1)
-        paths = {item["path"] for item in payload["candidates"]}
-        self.assertIn("reports/old-report.md", paths)
-        self.assertNotIn("reports/old-rollback-report.md", paths)
-        self.assertGreaterEqual(payload["protected_count"], 1)
+        self.assertEqual(payload["status"], "usage_observations_required")
+        self.assertFalse(payload["deletion_executed"])
+        self.assertTrue(ordinary.exists())
+        self.assertTrue(evidence.exists())
+        with self.assertRaises(ops.OpsError):
+            ops.workspace_maintenance(self.root, True, True, 1)
 
     def test_local_seo_audit_flags_non_indexable_page(self) -> None:
         inventory = self.root / "data/seo/site-index-inventory.csv"

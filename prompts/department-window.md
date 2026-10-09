@@ -1,8 +1,4 @@
-## 2026-10-07 部门系统现行规则
-
-本轮新V2顶层必须有 task_id、department、fixed_chat_task_id、candidate_version、status；chat_reply 必须有真实固定聊天/轮次/消息ID/回复hash/观察时间。先核完整对象与实际 dispatch/非空ACK，再冻结、计算hash和唯一入队读回。不得覆盖已登记的缺字段文件来掩盖错误；保留旧记录并做准确证据替换或新版本补正。
-
-本轮按 `playbooks/department-system-current.md` 执行：11个固定角色，总部审核派工、助理预核、质检1/2独立分工；先核实际结果再决策和关联下一动作。旧部门数量和旧通知方式失效，历史证据/权限不改。部门先固定聊天非空回报，再冻结V2/唯一入队及回读；普通结果不发送到其他聊天，不打断active。依赖齐全的已冻结同任务R0步骤按准确输入/步骤指纹继续；停止必列未完成、负责人、下一动作和解除条件。机器准入尚未通过的QA2/发布权限仍不启用，不新增高频轮询。
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
 
 # FLASH CAST 独立部门窗口启动词
 
@@ -98,12 +94,15 @@ python3 tools/flashcast_ops.py department-learning-record \
 
 正确顺序为实际聊天回报 → 核实并填准确回复元数据 → 保存最终V2并校验 → 计算该最终outbox SHA → 沿本轮真实 dispatch/chat_ack 登记一次 `notification_queued`。入队后不覆盖冻结outbox。字段遗漏导致失败时保留失败回执和旧文件，生成只修元数据的新V2/新hash后入队，候选内容不重复制作；不得只把字段改为true而没有原聊天证明。QA的每版结果仍需准确native qa_verdict/action/candidate，结果入队不自动完成业务验收。
 
-总控收取时核验原回复、最终hash和阶段，登记收取、决策与真实下一动作；不向总控插消息、不恢复高频轮询。
+对口协调者收取时核验原回复、最终hash和阶段，登记收取、决策与真实下一动作；不向总控插消息、不恢复高频轮询。
 
 新 QA 结果须分别保留本次实际 QA 派工 `action_id` 和原业务 `producer_target_action_id`，准确关联 `task_id`、`candidate_version`、`action_class`、`scope` 与最终 outbox SHA。V2 明确填写 `qa_result` 和 `gate_status`；仅 R0 资料验收通过时不得写成已获生产发布许可，缺 CAS／受保护预演／精确许可仍保留发布 HOLD。旧回执保留历史事实，不回填虚构派工或覆盖冻结文件。
 
-2026-10-06统一进度要求：读取 `playbooks/controller-result-continuation-and-checkout.md`。本部门每轮结束明确已完成范围、真正未完范围、所处阶段、唯一下一负责人、最小下一动作与依赖；继续专业查漏，不把本轮报告完成当业务目标完成。结果只入项目持久队列，总控收取、审核后沿原任务派下一动作。总控每次停止前更新 `reports/company-current-work-status.md` 并给老板简短未完清单；进度脚本不会自动唤醒已结束的聊天，也不增加高频轮询。
+2026-10-06统一进度要求：读取 `playbooks/controller-result-continuation-and-checkout.md`。本部门每轮结束明确已完成范围、真正未完范围、所处阶段、唯一下一负责人、最小下一动作与依赖；继续专业查漏，不把本轮报告完成当业务目标完成。结果只入项目持久队列，准入后的对口助理在准确grant内沿原任务安排下一动作，重大例外交总部。总控每次停止前更新 `reports/company-current-work-status.md` 并给老板简短未完清单；进度脚本不会自动唤醒已结束的聊天，也不增加高频轮询。
 
 ## 2026-10-06 固定聊天回复的工具语义
 
-在本部门汇报是直接输出 assistant commentary/final 消息。不得调用 send_message_to_thread 向自己、总控或其他部门发送结果；该工具发送的输入消息或“tool accepted”不是 assistant 结果回复。V2 chat_reply 必须引用实际 agentMessage 的 message_id、turn_id 和原始 UTF-8（保留 Markdown）SHA；不得用发送 payload 哈希、空 ID、接单或 wait_threads 规范化文本冒充完成证明。正文检查已经有效时，只修正确的回复/证明/回执并保留旧证据，不重制候选。
+
+## 原任务有界连续性入口
+
+每次启动从注册表核角色和数量，核当前专业 Skill、fixed identity、scope、输入 pins、到期时间与人类控制。独立 QA/HQ采用前只做预核。准确采用后专业 R0 workpack 由 department_continuity.consume 接执行者与真实固定聊天回复观察者，执行、冻结、唯一入队和下一步都保持原任务；无下一步/到期结束本轮。不在 shell 执行未知应用 JS，不造总部派工，不把队列当自动唤醒。三助理按准确 grant 和单租约处理常规决策；重大方向/授权/R3交总部。

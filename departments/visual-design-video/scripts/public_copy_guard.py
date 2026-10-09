@@ -87,15 +87,30 @@ def require_capture_review(report: dict[str, Any], evidence_bytes: bytes,
     reject_synthetic(report)
     reject_synthetic(evidence_bytes)
     review = report.get("capture_review")
-    if not (isinstance(review, dict) and review.get("status") == "personally_inspected_real_full_batch"
+    if not (isinstance(review, dict)
             and isinstance(review.get("reviewer"), str) and review["reviewer"].strip()
-            and isinstance(review.get("reviewed_at"), str) and review["reviewed_at"].strip()
-            and review.get("declaration") == "HUMAN_DECLARED_REAL_QINGDOU_FULL_BATCH"):
+            and isinstance(review.get("reviewed_at"), str) and review["reviewed_at"].strip()):
+        raise ValueError("real_full_batch_capture_personal_review_required")
+    human_review = (
+        review.get("status") == "personally_inspected_real_full_batch"
+        and review.get("declaration") == "HUMAN_DECLARED_REAL_QINGDOU_FULL_BATCH"
+    )
+    # Owner's 2026-10-07 instruction: no extra owner confirmation for a
+    # genuinely observed no-hit batch. This never authenticates screenshots.
+    agent_no_hit_review = (
+        review.get("status") == "agent_inspected_real_full_batch"
+        and review.get("declaration") == "AGENT_VERIFIED_REAL_QINGDOU_FULL_BATCH"
+        and review.get("surface") == "codex_iab"
+        and str(report.get("status", "")).casefold() in {"pass", "passed"}
+        and report.get("findings") == []
+        and report.get("observed_result") == "未检查到敏感词"
+    )
+    if not (human_review or agent_no_hit_review):
         raise ValueError("real_full_batch_capture_personal_review_required")
     for key in ("task_id", "run_id", "public_text_sha256", "batch_sha256", "evidence_sha256"):
         if review.get(key) != report.get(key):
             raise ValueError("capture_review_binding_mismatch:" + key)
-    # This is an accountable human declaration, not automated authenticity proof.
+    # A named human/agent review declaration is not automated authenticity proof.
 
 
 def load_json(path: Path, *, sandbox_root: Path | None = None) -> dict[str, Any]:

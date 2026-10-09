@@ -1,6 +1,6 @@
 # 音乐先行与参考视频工作流
 
-用于少字/无字装修空间片、案例氛围片、材质展示和参考风格原创转化。
+用于六类装修短视频的音乐选择、参考分析及少字/无字空间片。常规≤30秒成片先选实际音乐乐句，再按内容与双语阅读时间确定选图，不固定图片数或时长。
 
 先执行 [自适应装修视频生产核心](adaptive-renovation-workflow.md) 建立当前批次和六个核心产物；本文件只负责参考正文与音乐结构，不替代代表帧、逐镜调色或 final 晋级门。
 
@@ -119,11 +119,12 @@ python3 departments/visual-design-video/scripts/music_library.py recommend \
   --scope internal_reference \
   --history data/learning/music-usage-history.jsonl \
   --recent-window 3 \
-  --seed 20260901 \
   --output drafts/creative/<task_id>/music-selection.json
 ```
 
 推荐顺序固定为：适配度排序 → 排除最近 mounted 使用记录（默认最近 3 次）→ 只取剩余最高 3 名进入正权重随机池。`last_used` 永远不能连续复用；如果候选不足，允许放回较早的 recent 曲目，但仍排除 `last_used`。如果只剩 `last_used`，必须阻塞。未传 `--seed` 时使用系统随机源；传入整数种子后，同一目录、查询和历史会复现相同选择。JSON 输出必须保留 `selected`、`ranked_candidates`、`recently_excluded`、`top_pool`、`weights`、`seed/random_source`、`fallback` 和 `selection_rationale` 供复盘。
+
+正式制作不传固定种子，只有测试/复盘显式用 `--seed`；上面的20秒/意式/沉稳是命令例值，必须替换成本条实际需求。选定自然片段后按乐句与阅读量确定≤30秒时间线，不能用完整长歌、循环或加图拖长。
 
 ### mounted 使用历史
 
@@ -134,6 +135,8 @@ python3 departments/visual-design-video/scripts/music_library.py recommend \
 ```
 
 只有视频任务已经实际挂载音乐，且 `evidence` 指向可核验的挂载记录时，视频任务才可追加一行。`recommend` 只读取 JSON/JSONL，不创建、改写或补造使用记录。候选采集也不写这个文件。
+
+同一任务的封面/字幕/局部细节返工保留已选歌曲，挂载仍需在新run验证，但不重复追加一次历史或占用新风格顺序；只有当前任务明确要求换曲或原曲确实不适合时才重新选择。
 
 ### 每日采集与视频选曲边界
 

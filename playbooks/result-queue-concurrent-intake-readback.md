@@ -1,3 +1,5 @@
+现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+
 # 结果入队与总控并发收取
 
 部门登记一次 notification_queued 后，总控可能在部门当轮结束前已经收取并作决策。这是正常推进，不能断言 controller_received 必须 false 或 controller_decision 必须 pending；也不能用 results[0] 或总 pending_count 判定本结果成功。
