@@ -92,8 +92,10 @@ def _goal_actor(root, identity, role, *, assigned=True):
     if assigned and role != goal.get("responsible_assistant"):
         _fail("only assigned responsible assistant may handle this result; explicit transfer required")
     capability = goal.get("acceptance_capability")
-    if not isinstance(capability, str) or capability not in review_capabilities(root, role):
-        _fail("assistant lacks the task acceptance capability")
+    from technical_review_backup import review_capable
+    if not review_capable(root, role, goal, task_id=identity["task_id"],
+                          transfer_from=goal.get("responsible_assistant") if not assigned else None):
+        _fail("assistant lacks the task acceptance capability or approved backup methods")
     return goal
 
 
@@ -369,8 +371,10 @@ class CoordinationStore:
             if goal is not None:
                 _goal_actor(self.root, identity, target_role, assigned=False)
                 capability = goal.get("acceptance_capability")
-                if (target_role == "operations" or capability not in review_capabilities(self.root, target_role)
-                        or (role != "operations" and capability not in review_capabilities(self.root, role))
+                from technical_review_backup import review_capable
+                if (target_role == "operations" or not review_capable(self.root, target_role, goal,
+                            task_id=identity["task_id"], transfer_from=goal["responsible_assistant"])
+                        or (role != "operations" and not review_capable(self.root, role, goal, task_id=identity["task_id"]))
                         or (role == "operations" and target_role != goal.get("responsible_assistant"))):
                     _fail("explicit transfer requires the same task review capability")
                 assignment.update(previous_assistant=goal["responsible_assistant"], target_assistant=target_role,
@@ -474,9 +478,9 @@ def _native_readback(root, payload):
         status = request.get("followthrough_status")
         if status in {"external_wait_registered", "blocked_with_owner"}:
             expected.update({key: str(request.get(key) or "") for key in ("next_check_at", "unblock_condition")})
-        elif status in {"dispatch_sent", "execution_verified", "prior_action_verified", "inflight_result_verified"}:
+        elif status in {"dispatch_sent", "execution_verified", "prior_action_verified", "inflight_result_verified", "subsequent_action_verified"}:
             expected.update({key: str(request.get(key) or "") for key in ("linked_task_id", "action_receipt_id")})
-            if status == "inflight_result_verified":
+            if status in {"inflight_result_verified", "subsequent_action_verified"}:
                 expected["linked_dispatch_receipt_id"] = str(request.get("linked_dispatch_receipt_id") or "")
         elif status == "dependency_resolved":
             expected["resolution_record_id"] = str(request.get("resolution_record_id") or "")

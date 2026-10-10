@@ -1587,7 +1587,7 @@ def result_handoff_status_command(root: Path, args: argparse.Namespace) -> tuple
 
 def result_handoff_pending_command(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any], list[Path]]:
     try:
-        return workflow.result_handoff_pending(root), [root / workflow.RESULT_HANDOFF_DIR]
+        return workflow.result_handoff_pending(root, getattr(args, "task_ids", None)), [root / workflow.RESULT_HANDOFF_DIR]
     except workflow.WorkflowError as exc:
         raise OpsError(str(exc)) from exc
 
@@ -4249,6 +4249,7 @@ def build_parser() -> argparse.ArgumentParser:
     result_status_parser.set_defaults(handler=lambda root, args: result_handoff_status_command(root, args))
 
     result_pending_parser = sub.add_parser("result-handoff-pending", help="列出项目内待总控收取或决策的结果；不发送聊天消息")
+    result_pending_parser.add_argument("--task-id", dest="task_ids", action="append", help="仅检查准确任务；可重复，不把旧全局控制台账当当批业务")
     result_pending_parser.set_defaults(handler=lambda root, args: result_handoff_pending_command(root, args))
 
     approval_parser = sub.add_parser("approval-record", help="记录或撤销单次、精确范围的老板批准")
@@ -4519,7 +4520,11 @@ def build_parser() -> argparse.ArgumentParser:
     rollback_parser.add_argument("--owner-approved", action="store_true")
     rollback_parser.set_defaults(handler=lambda root, args: rollback(root, args.change_id, args.apply, args.owner_approved))
 
-    maintenance_parser = sub.add_parser("workspace-maintenance", help="扫描或归档旧草稿/报告")
+    import safe_cleanup
+    cleanup_parser = sub.add_parser("safe-cleanup", help="准确使用/任务/引用证据的安全清理；默认仅预演")
+    safe_cleanup.configure_parser(cleanup_parser)
+
+    maintenance_parser = sub.add_parser("workspace-maintenance", help="历史mtime归档工具；不得用于每周安全清理")
     maintenance_parser.add_argument("--apply", action="store_true")
     maintenance_parser.add_argument("--owner-approved", action="store_true")
     maintenance_parser.add_argument("--older-than-days", type=int, default=30)

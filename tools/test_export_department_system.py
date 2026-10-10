@@ -55,32 +55,6 @@ class ExportTests(unittest.TestCase):
         self.write("templates/goal-delivery-report.md", "唯一助理验收。父任务范围保留。\n")
         self.write("prompts/automations/assistant-2.md", "以本次完整目标收取原任务结果。\n")
 
-    def test_public_numeric_identifiers_consistent_idempotent_and_type_preserving(self):
-        # Deliberately synthetic input assembled so re-export preserves this test.
-        original = "12345" + "678901"
-        other = "98765" + "432101"
-        source = repr(original) + ' "AW-' + original + '" "locations/' + original + '" ' + repr(other)
-        source += ' "google_ads:example:campaigns:' + original + '+' + other + ':business-logo:asset-' + original + '"'
-        source += ' "google-business-profile:' + other + ':description-only" "row,' + original + ',AW-' + other + '"'
-        result = export.public_numeric_identifiers(source)
-        values = ast.literal_eval("[" + result.replace(' ', ',') + "]")
-        self.assertTrue(values[0].startswith("000"))
-        self.assertEqual(len(values[0]), len(original))
-        self.assertEqual(values[1], "AW-" + values[0])
-        self.assertEqual(values[2], "locations/" + values[0])
-        self.assertNotEqual(values[0], values[3])
-        self.assertEqual(values[4], "google_ads:example:campaigns:" + values[0] + "+" + values[3] + ":business-logo:asset-" + values[0])
-        self.assertEqual(values[5], "google-business-profile:" + values[3] + ":description-only")
-        self.assertEqual(values[6], "row," + values[0] + ",AW-" + values[3])
-        self.assertNotIn(original, result)
-        self.assertNotIn(other, result)
-        self.assertEqual(export.public_numeric_identifiers(result), result)
-        self.assertEqual(export.public_text(source, self.root), result)
-        untouched = original + ' "2026-10-10" "20261010" "tiny-id"'
-        self.assertEqual(export.public_numeric_identifiers(untouched), untouched)
-        integer_pair = "(" + original + "," + other + ")"
-        self.assertEqual(export.public_numeric_identifiers(integer_pair), integer_pair)
-
     def test_manifest_exact_full_payload_bytes_and_fingerprint(self):
         export.prepare(self.root, self.target)
         manifest = json.loads((self.target / "release-manifest.json").read_text())

@@ -220,6 +220,7 @@ def _delegation_context(root, snapshot, binding):
         selected.append(matches[0])
     (di, dispatch), (ai, ack) = selected
     registry = w.department_registry(root)
+    from technical_review_backup import review_capable
     fixed = registry.get(role, {}).get("chat_binding", {})
     if (di >= ai or ack.get("ack_nonempty") is not True
             or any(r.get("department") != role or r.get("chat_task_id") != fixed.get("task_id") for r in (dispatch, ack))
@@ -231,7 +232,7 @@ def _delegation_context(root, snapshot, binding):
             or not any(x.get("department") == role and x.get("chat_task_id") == fixed.get("task_id")
                        for x in snapshot.get("departments", []))
             or registry.get(role, {}).get("coordination_authority", {}).get("routine_decisions") is not True
-            or goal["acceptance_capability"] not in registry[role]["coordination_authority"].get("review_capabilities", [])):
+            or not review_capable(root, role, goal, task_id=snapshot["task_id"])):
         raise w.WorkflowError("current same fixed capable assistant delegation required")
     for key, receipt in (("message", dispatch), ("native_send", dispatch), ("native_ack", ack)):
         pin = binding.get(key)
@@ -345,6 +346,9 @@ def approved_action(root, snapshot, requested):
     if (not isinstance(pin, dict) or w.file_digest(root, pin.get("path", "")) != pin
             or pin["sha256"] != requested["payload_sha256"]):
         return None
+    if row.get("parent_task_id"):
+        from parent_initial_dispatch import validate_action
+        validate_action(root, snapshot, row, phase="policy")
     return row
 
 
@@ -422,6 +426,10 @@ def prepare_assignment_transfer(root, identity, assignment_change):
         raise w.WorkflowError("intact original chains required for assignment transfer")
     if any(x.get("receipt_type") == "qa_verdict" for x in receipts):
         raise w.WorkflowError("accepted verdict cannot be migrated")
+    from technical_review_backup import review_capable
+    if not review_capable(root, assignment_change.get("target_assistant"), goal,
+                          task_id=identity["task_id"], transfer_from=assignment_change.get("previous_assistant")):
+        raise w.WorkflowError("target assistant lacks task capability or approved backup methods")
     packet = assignment_change.get("review_plan_transfer")
     details = {}
     if packet:
@@ -501,6 +509,9 @@ def execution_preflight(root, snapshot, action_id, action_class, scope, departme
     if not enabled(root, snapshot):
         return None
     goal = snapshot["goal_delivery"]
+    from paid_three_page_bounded_cms import exact_tuple, preflight
+    if exact_tuple(snapshot.get("task_id"), action_id, scope, department, action_class):
+        return preflight(root, snapshot, action_id, action_class, scope, department)
     if scope not in goal["authorized_scope"] or department not in goal["producer_departments"]:
         raise w.WorkflowError("execution outside complete-goal authorized scope")
     declared = goal.get("required_execution_actions", [])
@@ -563,6 +574,11 @@ def pending(root, role):
     for path in (Path(root) / w.RESULT_HANDOFF_DIR).glob('*.jsonl'):
         if path.stem in owned:
             continue
+        # Only admitted daily sources can extend this assistant's scope.
+        # Unrelated historical ledgers never become a gate for current work.
+        admitted = [w.scheduled_result_source(root, path.stem, department) for department in registry]
+        if not any(source and source.get('responsible_assistant') == role for source in admitted):
+            continue
         for row in w._result_handoff_rows(root, path.stem):
             if row.get('event') != 'notification_queued':
                 continue
@@ -571,7 +587,7 @@ def pending(root, role):
                 owned.append(path.stem)
                 break
     waiting, followthrough, collaboration_pending, collaboration_not_proven = [], [], [], []
-    knowledge, notifications, named_due = [], [], []
+    knowledge, notifications, named_due, named_waiting, historical_resolved = [], [], [], [], []
     from result_coordination import result_lane, notification_plan
     for task_id in owned:
         grouped = {}
@@ -583,15 +599,24 @@ def pending(root, role):
             if row["event"] == "notification_queued": entry["queued"] = True
             elif row["event"] == "controller_received": entry["received"] = True
             elif row["event"] == "controller_decision":
-                entry.update(decided=True, controller_decision=row.get("decision"), next_owner=row.get("next_owner"), next_action=row.get("next_action"))
+                entry.update(decided=True, controller_decision=row.get("decision"), next_owner=row.get("next_owner"), next_action=row.get("next_action"), unblock_condition=row.get("unblock_condition"))
             elif row["event"] == "controller_followthrough":
-                entry.update(controller_followthrough=row.get("followthrough_status"), next_check_at=row.get("next_check_at"))
+                entry.update(controller_followthrough=row.get("followthrough_status"), next_check_at=row.get("next_check_at"), unblock_condition=row.get("unblock_condition", entry.get("unblock_condition")))
         for entry in grouped.values():
             lane = result_lane(root, entry)
             entry.update(result_lane=lane['lane'], target_department=lane.get('target_department'))
             if lane.get('source_mode') == 'collaboration':
-                # This exact source is counted by collaboration_pending below;
-                # it has no ordinary queued outbox or notification workload.
+                # A finite scope close consumes only its stored, still-valid
+                # original independent acceptance; it has no next action.
+                if entry['decided'] and entry.get('controller_decision') == 'close_scope':
+                    from collaboration_scope_close import readback_collaboration_scope_close
+                    exact_rows = w._result_handoff_rows(root, task_id)
+                    decision = next(row for row in reversed(exact_rows)
+                                    if row.get('event') == 'controller_decision'
+                                    and w._result_identity(row) == w._result_identity(entry))
+                    closed = readback_collaboration_scope_close(root, decision, exact_rows)
+                    historical_resolved.append({**entry, 'closed_collaboration_scope': closed['acceptance_scope'],
+                                                'business_goal_closed': False})
                 continue
             if lane['lane'] == 'HQ_knowledge':
                 entry['acceptance_proven'] = lane.get('acceptance_proven', False)
@@ -606,6 +631,11 @@ def pending(root, role):
                 followthrough.append(entry)
                 if entry.get('controller_decision') == 'wait_external':
                     named_due.append(entry)
+            if entry['decided'] and w._followthrough_waiting(entry):
+                named_waiting.append(entry)
+            if entry['decided'] and (entry.get('controller_decision') == 'close_scope'
+                    or entry.get('controller_followthrough') not in {None, 'pending', 'external_wait_registered', 'blocked_with_owner'}):
+                historical_resolved.append(entry)
         snapshot = restore_goal(root, w.read_json(w.snapshot_path(root, task_id)))
         if enabled(root, snapshot) and snapshot["goal_delivery"]["responsible_assistant"] == role:
             collaboration_pending.extend(_collaboration_pending(root, snapshot, role))
@@ -613,6 +643,12 @@ def pending(root, role):
                 collaboration_not_proven.extend(state for state in _collaboration_wait_states(root, snapshot)
                                                 if state["proof_state"] == "NOT_PROVEN")
     return {"coordinator_role": role, "pending": waiting, "pending_count": len(waiting),
+            "control_records_are_business_jobs": False,
+            "named_waiting_dependencies": named_waiting, "named_waiting_dependency_count": len(named_waiting),
+            "historical_resolved_control_records": historical_resolved, "historical_resolved_control_count": len(historical_resolved),
+            "review_timing": {"active_review_seconds": "NOT_MEASURED", "dependency_wait_seconds": "NOT_MEASURED",
+                              "administrative_seconds": "NOT_MEASURED", "wall_clock_is_active_review": False,
+                              "reason": "no recorded actual activity intervals; queue age is not review time"},
             "followthrough_pending": followthrough, "followthrough_pending_count": len(followthrough),
             "collaboration_pending": collaboration_pending, "collaboration_pending_count": len(collaboration_pending),
             "collaboration_not_proven": collaboration_not_proven,
@@ -657,6 +693,10 @@ def record_approved_action(root, task_id, input_path):
         if not enabled(root, snapshot):
             raise w.WorkflowError("complete original goal required")
         goal = snapshot["goal_delivery"]
+        parent_linked_initial = bool(action.get("parent_task_id"))
+        if parent_linked_initial:
+            from parent_initial_dispatch import validate_action
+            validate_action(root, snapshot, action, phase="prepare")
         declarations = [d for d in goal.get('collaboration_scopes', []) if isinstance(d, dict)
                         and d.get('target_department') == action.get('target_department')
                         and d.get('scope') == action.get('scope')
@@ -664,7 +704,7 @@ def record_approved_action(root, task_id, input_path):
         declared = len(declarations) == 1
         decisions = [row for row in w._result_handoff_rows(root, task_id)
                      if row.get("event") == "controller_decision" and row.get("record_id") == action.get("decision_record_id")]
-        if not declared and (len(decisions) != 1 or decisions[0].get("decision") not in {"rework", "continue", "accept"}
+        if not declared and not parent_linked_initial and (len(decisions) != 1 or decisions[0].get("decision") not in {"rework", "continue", "accept"}
                 or decisions[0].get("coordinator_role") != goal["responsible_assistant"]
                 or action.get("sender_department") != goal["responsible_assistant"]
                 or action.get("target_department") != decisions[0].get("next_owner")
@@ -1139,6 +1179,10 @@ def _collaboration_pending(root, snapshot, role, include_terminal=False):
                 raise w.WorkflowError("formal collaboration intake evidence changed")
         received = any(row.get("event") == "controller_received" for row in matched)
         decision = next((row for row in reversed(matched) if row.get("event") == "controller_decision"), None)
+        if received and decision and decision.get("decision") == "close_scope":
+            from collaboration_scope_close import readback_collaboration_scope_close
+            readback_collaboration_scope_close(root, decision, rows)
+            continue
         follow = next((row for row in reversed(matched) if row.get("event") == "controller_followthrough"), {})
         actual = False
         expected = {"dispatch_sent": "dispatch_sent", "execution_verified": "postcheck",
@@ -1564,6 +1608,7 @@ def main():
     save = sub.add_parser("wait-record"); save.add_argument("--role", required=True); save.add_argument("--input", required=True)
     for name in ('wait-call-start', 'wait-recover'):
         command = sub.add_parser(name); command.add_argument('--role', required=True); command.add_argument('--input', required=True)
+    initial = sub.add_parser("parent-initial-dispatch-begin"); initial.add_argument("--input", required=True)
     args = parser.parse_args(); root = Path(args.project_root).resolve()
     try:
         if args.command == "init": result = initialize_goal(root, args.task_id, args.input)
@@ -1581,6 +1626,9 @@ def main():
         elif args.command == "wait-record": result = record_wait(root, args.role, args.input)
         elif args.command == 'wait-call-start': result = wait_call_started(root, args.role, args.input)
         elif args.command == 'wait-recover': result = recover_wait(root, args.role, args.input)
+        elif args.command == 'parent-initial-dispatch-begin':
+            from parent_initial_dispatch import begin
+            result = begin(root, args.input)
         else:
             cursor_file = root / "logs/goal-delivery-waits" / f"{args.role}.json"
             result = wait_plan(root, args.role, w.read_json(cursor_file).get("cursors", {}))

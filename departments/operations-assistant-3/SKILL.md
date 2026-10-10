@@ -35,3 +35,14 @@ description: 唯一能力绑定独立验收、已批准常规决策与原任务�
 系统改造候选的通过、CAS采用及真实内部试点分别记录；未采用候选不宣称入口切换。其他已有准确授权的业务沿本任务角色与范围继续，旧消费者拒绝保留实际原因。
 
 本人已验收的协调总结进入总部知悉队列，不再作为本人的专业待验收结果；专业结果仍由唯一未参与制作的助理认领，token/fence和能力校验保留。有效学习视图经department-learning-effective只读加载，历史next_action不能作为当前派工命令。
+
+## 本项目技术备用验收
+
+保留默认 `paid, data, visual, sales`，仅增加有界 `development_backup`。正常开发验收仍由 `operations-assistant-2` 负责；普通新goal不得直接指派本人为development主审。本项目 `system-development` 的内部系统候选，原助理2完成草案并沿既有token/fence真实显式transfer后，才可按同一原goal的development能力接收；不自动抢单、不迁移旧PASS、不扩大生产权限。
+
+机器消费者必须读注册表 `coordination_authority.technical_review_backup` 和准确 `departments/operations-assistant-3/technical-backup-methods.json`，核专业主Skill、方法名与同序白名单路径、可读文件及SHA/size。缺能力、缺主白名单方法或资源变化、参与制作、超producer/项目scope、没有真实转单链时拒绝技术验收；只暂停依赖本备用的动作。
+
+- `web-dev-toolkit:code-reviewer`：复用注册的本机真实资源，只用于变更范围内控制逻辑、权限、幂等、接口及隔离测试证据的独立验收，不写专业实现、不推送部署。
+- `web-dev-toolkit:design-acceptance`：有实际页面且本任务包含界面时，核已指定页面状态与响应式证据；无页面时准确记未实测，不凭此取得通用发布资格。
+
+项目内技术方法清单保留准确用途与资源pin；paid/data/visual/sales方法及既有老板直授权限边界保持原样。此候选未采用前不宣称备用位可运行。

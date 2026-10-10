@@ -163,6 +163,19 @@ class GoalRuntimeConsumerTests(unittest.TestCase):
         review.bind_plan(self.root, task_id=self.task_id, plan_path=path, coordinator_role=ASSISTANT)
         return plan, producer_pin
 
+    def completed_result_fields(self):
+        # Synthetic fixture upgrade for the new native-completed-final gate.
+        text = self.task_id + ' Synthetic completed finite result, never a real pilot.'
+        thread, turn = 'fixed-' + PRODUCER, 'synthetic-final-turn'
+        completion = self.write('reports/native-completed-final.json', {
+            'thread': {'id': thread}, 'turn_id': turn, 'status': 'completed', 'error': None, 'completedAt': dt.datetime.now(dt.timezone.utc).timestamp(),
+            'message': {'id': 'synthetic-final-message', 'turnId': turn, 'phase': 'final_answer', 'text': text}})
+        (self.root/'reports/native-final.txt').write_bytes(text.encode('utf-8'))
+        pin = w.file_digest(self.root, 'reports/native-final.txt')
+        return {'source_thread_id': thread, 'source_turn_id': turn, 'source_reply_sha256': pin['sha256'],
+                'reply_observed_at': dt.datetime.now(dt.timezone.utc).isoformat(),
+                'actual_native_completion': w.file_digest(self.root, completion), 'visible_reply': pin}
+
     def test_initial_goal_assignment_ack_producer_result_assistant_bind_and_final_accept(self):
         plan, producer_pin = self.prepare_initial_review()
         verdict = self.assistant_verdict(plan, producer_pin)
@@ -258,13 +271,13 @@ class GoalRuntimeConsumerTests(unittest.TestCase):
     def routine_decision(self, producer_pin, decision="rework"):
         identity = {"task_id": self.task_id, "sender_department": PRODUCER,
                     "candidate_version": "v1", "outbox_path": producer_pin["path"], "result_sha256": producer_pin["sha256"]}
-        w.record_result_handoff(self.root, {**identity, "event": "notification_queued", "idempotency_key": "queue-routine-result"})
+        w.record_result_handoff(self.root, {**identity, **self.completed_result_fields(), "event": "notification_queued", "idempotency_key": "queue-routine-result"})
         store = coordination.CoordinationStore(self.root); self.addCleanup(store.close)
         lease = store.claim(identity, ASSISTANT, "synthetic-assistant-owner", "claim-routine-result")
         actor = {"coordinator_role": ASSISTANT, "coordinator_owner": lease["owner"], "coordination_claim": lease}
         w.record_result_handoff(self.root, {**identity, **actor, "event": "controller_received", "idempotency_key": "receive-routine-result",
                                 "intake_mode": "queue", "source_thread_id": "fixed-" + PRODUCER,
-                                "source_reply_sha256": "a" * 64, "reply_observed_at": w.utc_timestamp()})
+                                "source_reply_sha256": w.file_digest(self.root, 'reports/native-final.txt')['sha256'], "reply_observed_at": w.utc_timestamp()})
         row, _ = w.record_result_handoff(self.root, {**identity, **actor, "event": "controller_decision", "idempotency_key": "decide-routine-result",
                  "decision": decision, "next_owner": PRODUCER, "next_action": "correct exact original authorized behavior",
                  "evidence_paths": [producer_pin["path"]]})
@@ -396,7 +409,7 @@ class GoalRuntimeConsumerTests(unittest.TestCase):
         self.assertEqual(runtime.wait_plan(self.root, ASSISTANT)["batches"], [[{"threadId": "fixed-" + PRODUCER}]])
         identity = {"task_id": self.task_id, "sender_department": PRODUCER, "candidate_version": "v1",
                     "outbox_path": producer_pin["path"], "result_sha256": producer_pin["sha256"]}
-        w.record_result_handoff(self.root, {**identity, "event": "notification_queued", "idempotency_key": "owned-queue"})
+        w.record_result_handoff(self.root, {**identity, **self.completed_result_fields(), "event": "notification_queued", "idempotency_key": "owned-queue"})
         pending = runtime.pending(self.root, ASSISTANT)
         self.assertEqual(pending["pending_count"], 1)
         self.assertEqual(pending["pending"][0]["task_id"], self.task_id)
@@ -435,6 +448,8 @@ class GoalRuntimeConsumerTests(unittest.TestCase):
         batch = runtime.begin_wait(self.root, ASSISTANT, begin)
         record = {"batch_id": batch["batch_id"], "fixture_only": True, "tool": "mcp__codex_app__wait_threads", "native_receipt_ref": "synthetic-wait-receipt",
                   "timeoutMs": 60000, "cursors": {"fixed-" + PRODUCER: "cursor-two"}}
+        native = self.write('reports/native-wait-result.json', {'polls': [{'thread': {'id': 'fixed-'+PRODUCER}, 'cursor': 'cursor-two'}], 'timedOut': True})
+        record.update(native_receipt_ref=native, actual_native_wait=w.file_digest(self.root, native))
         path = self.write("reports/synthetic-native-wait.json", record)
         saved = runtime.record_wait(self.root, ASSISTANT, path)
         self.assertEqual(saved["cursors"], record["cursors"]); self.assertFalse(saved["proves_next_action"])
@@ -519,7 +534,15 @@ class GoalRuntimeConsumerTests(unittest.TestCase):
                    "status": "result_received", "target_thread_id": binding["thread_id"], "payload_sha256": request["payload_sha256"],
                    "policy_decision_id": decision["decision_id"],
                    "message_ref": "synthetic-message-ref", "result": w.file_digest(self.root, result_path), "visible_reply": w.file_digest(self.root, reply_path)}
+        native = self.write('reports/native-collaboration-final.json', {
+            'thread': {'id': binding['thread_id']}, 'turn_id': 'synthetic-final-turn', 'status': 'completed', 'error': None,
+            'message': {'id': receipt['message_ref'], 'turnId': 'synthetic-final-turn', 'phase': 'final_answer',
+                        'text': w.safe_path(self.root, reply_path).read_text()}})
+        receipt.update(native_receipt_ref=native, actual_native_transport=w.file_digest(self.root, native))
         path = self.write("reports/synthetic-collaboration-receipt.json", receipt)
+        send_native = self.write('reports/native-send-before-final.json', {'isError':False, 'content':[{'type':'text','text':json.dumps({'threadId': binding['thread_id']})}]})
+        send = {**receipt, 'status':'sent', 'native_receipt_ref':send_native, 'actual_native_transport':w.file_digest(self.root, send_native), 'message_ref':'synthetic-sent-message'}
+        runtime.record_collaboration(self.root, self.task_id, self.write('reports/original-send-record.json', send))
         result = runtime.record_collaboration(self.root, self.task_id, path)
         self.assertFalse(result["parent_closed"]); self.assertTrue(result["does_not_grant_permission"])
         self.assertEqual(runtime.record_collaboration(self.root, self.task_id, path)["result"], "duplicate_ignored")
@@ -581,6 +604,8 @@ class GoalRuntimeConsumerTests(unittest.TestCase):
                    "tool": "mcp__codex_app__send_message_to_thread", "native_receipt_ref": "synthetic-native-send-receipt",
                    "status": "sent", "target_thread_id": binding["thread_id"], "payload_sha256": request["payload_sha256"],
                    "message_ref": "synthetic-sent-message", "policy_decision_id": decision["decision_id"]}
+        native = self.write('reports/native-collaboration-send.json', {'isError':False, 'content':[{'type':'text','text':json.dumps({'threadId': binding['thread_id']})}]})
+        receipt.update(native_receipt_ref=native, actual_native_transport=w.file_digest(self.root, native))
         path = self.write("reports/synthetic-collaboration-sent.json", {**receipt, "policy_decision_id": "unknown"})
         with self.assertRaisesRegex(w.WorkflowError, "permitted collaboration policy"):
             runtime.record_collaboration(self.root, self.task_id, path)

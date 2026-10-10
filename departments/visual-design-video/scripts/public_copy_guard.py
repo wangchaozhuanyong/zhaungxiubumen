@@ -16,17 +16,20 @@ import unicodedata
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_LEXICON = PROJECT_ROOT / "data/knowledge/qingdou-risk-lexicon.json"
 POLICY_VERSION = "qingdou-batch-v2-neutral-labels"
+HASHTAG_POLICY_VERSION = "malaysia-dual-five-v1"
+FIXED_EN_HASHTAG = "#RenovationCompanyMalaysia"
 FIELD_LABELS = {
     "on_screen_copy": "视频文字",
     "spoken_copy": "口播",
     "cover_copy": "封面",
     "video_description": "描述",
     "hashtags": "话题",
+    "hashtags_en": "英语话题",
 }
 PACKAGE_PATH_FIELDS = (
     "on_screen_copy_path", "cover_copy_path", "video_description_path", "spoken_copy_path",
     "public_text_batch_path", "copy_guard_report_path", "caption_path",
-    "cover_validation_path", "qingdou_report_path",
+    "cover_validation_path", "qingdou_report_path", "caption_en_hashtags_path",
 )
 SYNTHETIC_PATTERN = re.compile(
     r"synthetic[\s_-]*(?:test|fixture|capture)|provenance[\s_-]*test|"
@@ -161,21 +164,47 @@ def read_fields(package_path: Path, *, sandbox_root: Path | None = None) -> tupl
             encoding="utf-8").strip()
         if not fields["spoken_copy"]:
             raise ValueError("spoken_copy_empty")
+    fields.update(hashtag_fields(package))
+    return package, fields
+
+
+def hashtag_fields(package: dict[str, Any]) -> dict[str, list[str]]:
+    """Keep frozen legacy hashes intact; new packages freeze both five-tag sets."""
+    policy = package.get("hashtag_policy_version")
+    if policy not in (None, "", HASHTAG_POLICY_VERSION):
+        raise ValueError("unknown_hashtag_policy_version")
+    dual = policy == HASHTAG_POLICY_VERSION
     tags = package.get("hashtags")
     if not isinstance(tags, list) or len(tags) != 5 or any(
             not isinstance(tag, str) or not re.fullmatch(r"#[^#\s]+", tag) for tag in tags):
         raise ValueError("five_valid_hashtags_required")
-    if len(set(tags)) != 5 or not {"#马来西亚装修公司", "#马来西亚全屋定制"}.issubset(tags):
+    fixed = {"#马来西亚装修公司"} if dual else {"#马来西亚装修公司", "#马来西亚全屋定制"}
+    if len(set(tags)) != 5 or not fixed.issubset(tags):
         raise ValueError("fixed_unique_hashtags_required")
-    fields["hashtags"] = tags
-    return package, fields
+    fields = {"hashtags": tags}
+    if dual:
+        english = package.get("hashtags_en")
+        if not isinstance(english, list) or len(english) != 5 or any(
+                not isinstance(tag, str) or not re.fullmatch(r"#[A-Za-z][A-Za-z0-9_]*", tag)
+                for tag in english):
+            raise ValueError("five_valid_english_hashtags_required")
+        if len(set(english)) != 5:
+            raise ValueError("english_hashtags_must_be_unique")
+        if english[tags.index("#马来西亚装修公司")] != FIXED_EN_HASHTAG:
+            raise ValueError("fixed_english_hashtag_pair_required")
+        if not isinstance(package.get("caption_en_hashtags_path"), str) or not package["caption_en_hashtags_path"].strip():
+            raise ValueError("caption_en_hashtags_path_required")
+        fields["hashtags_en"] = english
+    elif "hashtags_en" in package or "caption_en_hashtags_path" in package:
+        raise ValueError("dual_hashtags_require_current_hashtag_policy")
+    return fields
 
 
 def batch_text(fields: dict[str, Any]) -> str:
     parts = []
     for key, label in FIELD_LABELS.items():
         if key in fields:
-            value = " ".join(fields[key]) if key == "hashtags" else fields[key]
+            value = " ".join(fields[key]) if key in {"hashtags", "hashtags_en"} else fields[key]
             parts.append(f"【{label}】\n{value or '（无）'}")
     return "\n\n".join(parts) + "\n"
 

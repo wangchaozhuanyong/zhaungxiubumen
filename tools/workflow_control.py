@@ -2688,9 +2688,164 @@ def _routing_precheck(
     return reasons, required_receipts
 
 
+def _coordination_responsibility_resume_ready(
+    root: Path, snapshot: dict[str, Any], receipts: list[dict[str, Any]], *,
+    sender_department: str, target_department: str, target_thread_id: str,
+    scope: str, payload_sha256: str,
+) -> bool:
+    """Recognize an existing prepared-only coordination responsibility.
+
+    Original policy -> native send -> native ACK proves the initial handoff.
+    This read-only source check waives only the coordinator's professional
+    outbox dependency. It grants no acceptance or production permission.
+    """
+    from goal_delivery_runtime import restore_goal, validate_goal, _collaboration_native
+    try:
+        goal = snapshot.get("goal_delivery", {})
+        contract = goal.get("coordination_review_contract", {})
+        task_id = snapshot["task_id"]
+        if (sender_department != "operations" or goal.get("primary_owner") != sender_department
+                or goal.get("producer_departments") != [sender_department]
+                or goal.get("responsible_assistant") != target_department
+                or target_department == sender_department
+                or scope not in goal.get("authorized_scope", [])
+                or goal.get("required_execution_actions")
+                or not SHA256_PATTERN.fullmatch(payload_sha256)
+                or contract.get("task_id") != task_id
+                or contract.get("producer") != sender_department
+                or contract.get("reviewer") != target_department
+                or contract.get("not_professional_producer") is not True
+                or contract.get("prepared_only") is not True):
+            return False
+        # Re-read the frozen original contract and its committed event source;
+        # mutable snapshot flags alone cannot manufacture this exception.
+        events_path = root / WORKFLOW_EVENTS
+        events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        if any(not isinstance(row, dict) for row in events) or validate_workflow_events(root, task_id):
+            return False
+        original_receipts = [json.loads(line) for line in receipts_path(root, task_id).read_text(encoding="utf-8").splitlines() if line.strip()]
+        if original_receipts != receipts:
+            return False
+        restored = restore_goal(root, snapshot)
+        _apply_plan_refresh(restored, events, root)
+        pin = restored.get("goal_contract")
+        if (not isinstance(pin, dict) or pin != snapshot.get("goal_contract")
+                or file_digest(root, pin.get("path", "")) != pin
+                or not any(row.get("task_id") == task_id and row.get("details", {}).get("goal_contract") == pin
+                           for row in events)
+                or validate_goal(root, read_json(safe_path(root, pin["path"]))) != goal
+                or restored.get("goal_delivery") != goal):
+            return False
+        fixed = department_registry(root).get(target_department, {}).get("chat_binding", {})
+        routing = load_policy(root).get("routing_policy", {})
+        if (fixed.get("task_id") != target_thread_id
+                or fixed.get("project_id") != routing.get("source_project_id")
+                or not _same_resolved_path(str(fixed.get("cwd") or ""), str(root.resolve()))):
+            return False
+        initial_action = "assign-goal-review:" + task_id
+        dispatches = [(i, row) for i, row in enumerate(receipts)
+                      if row.get("receipt_type") == "dispatch_sent"
+                      and row.get("task_id") == task_id and row.get("department") == target_department
+                      and row.get("chat_task_id") == target_thread_id
+                      and row.get("action_id") == initial_action and row.get("action_class") == "thread_message"
+                      and row.get("scope") == scope]
+        if len(dispatches) != 1:
+            return False
+        di, dispatch = dispatches[0]
+        if any(row.get("supersedes_receipt_id") == dispatch["receipt_id"] for row in receipts[di + 1:]):
+            return False
+        decisions = [row for row in read_jsonl(root / POLICY_DECISIONS)
+                     if row.get("decision_id") == dispatch.get("policy_decision_id")]
+        expected = {"status": "allow", "routing_status": "routing_allowed", "task_id": task_id,
+                    "department": sender_department, "action_class": "thread_message", "action_id": initial_action,
+                    "scope": scope, "payload_sha256": pin["sha256"], "target_department": target_department,
+                    "target_thread_id": target_thread_id, "target_thread_title": fixed.get("title"),
+                    "target_cwd": fixed.get("cwd"), "target_project_id": fixed.get("project_id"),
+                    "source_project_id": routing.get("source_project_id"),
+                    "target_sidebar_section_id": fixed.get("sidebar_section_id")}
+        if len(decisions) != 1 or any(decisions[0].get(k) != v for k, v in expected.items()):
+            return False
+        policy_at = dt.datetime.fromisoformat(decisions[0]["checked_at"])
+        registered_at = dt.datetime.fromisoformat(dispatch["created_at"])
+        if policy_at > registered_at:
+            return False
+        def native_evidence(evidence):
+            document = read_json(safe_path(root, evidence.get("path", "")))
+            if not any(key in document for key in ("content", "threadId", "thread", "wait", "polls",
+                                                    "native_send", "actual_send", "actual_native_send")):
+                return {}
+            return _collaboration_native(root, evidence)
+
+        sends = [native_evidence(evidence) for evidence in dispatch.get("evidence", [])]
+        actual_sends = [native for native in sends if native.get("threadId") == target_thread_id]
+        if len(actual_sends) != 1:
+            return False
+        send = actual_sends[0]
+        def received_original_message(turn):
+            # Native sends need not expose a timestamp. For a turn that starts
+            # before local receipt registration, bind its first received native
+            # input to the exact permitted original goal and registered sender.
+            # A later input appended to an old health turn is not this ACK.
+            items = turn.get("items", [])
+            if not isinstance(items, list) or not items or not isinstance(items[0], dict):
+                return False
+            received = items[0]
+            output = received.get("output", {})
+            if (received.get("type") != "functionCallOutput" or not received.get("id")
+                    or received.get("name") != "send_message_to_thread"
+                    or received.get("namespace") != "codex_app" or not isinstance(output, dict)
+                    or output.get("truncated") is not False or not isinstance(output.get("text"), str)):
+                return False
+            message = re.fullmatch(r"<codex_delegation>\s*<source_thread_id>([^<>]+)</source_thread_id>\s*<input>([\s\S]*)</input>\s*</codex_delegation>\s*",
+                                   output["text"])
+            source = department_registry(root).get(sender_department, {}).get("chat_binding", {})
+            return bool(message and message.group(1) == source.get("task_id")
+                        and source.get("project_id") == fixed.get("project_id")
+                        and _same_resolved_path(str(source.get("cwd") or ""), str(root.resolve()))
+                        and message.group(2).encode("utf-8") == safe_path(root, pin["path"]).read_bytes())
+
+        # Receipt registration is an upper bound, not the native send time.
+        # A pre-registration turn requires exact native message/turn causality;
+        # the old conservative path still handles historical timestamp-less ACKs.
+        for ack in receipts[di + 1:]:
+            if ack.get("department") != target_department or ack.get("chat_task_id") != target_thread_id:
+                continue
+            if ack.get("receipt_type") in {"dispatch_sent", "dispatch_failed"}:
+                break
+            if ack.get("receipt_type") != "chat_ack" or ack.get("ack_nonempty") is not True or ack.get("task_id") != task_id:
+                continue
+            ack_at = dt.datetime.fromisoformat(ack["created_at"])
+            if ack_at < registered_at:
+                continue
+            for evidence in ack.get("evidence", []):
+                native = native_evidence(evidence)
+                thread = native.get("thread", {})
+                if (thread.get("id") != target_thread_id or thread.get("title") != fixed.get("title")
+                        or thread.get("cwd") != fixed.get("cwd")
+                        or ("projectId" in thread and thread["projectId"] != fixed.get("project_id"))):
+                    continue
+                for turn in native.get("turns", []):
+                    started = turn.get("startedAt")
+                    if (not turn.get("id") or turn.get("status") not in {"inProgress", "completed"}
+                            or turn.get("error") or isinstance(started, bool)
+                            or not isinstance(started, (int, float))
+                            or not policy_at.timestamp() <= started <= ack_at.timestamp()
+                            or ("turnId" in send and send["turnId"] != turn["id"])
+                            or (started < registered_at.timestamp() and not received_original_message(turn))):
+                        continue
+                    if any(message.get("type") == "agentMessage" and message.get("id")
+                           and isinstance(message.get("text"), str) and message["text"].strip()
+                           for message in turn.get("items", []) if isinstance(message, dict)):
+                        return True
+        return False
+    except (WorkflowError, ValueError, TypeError, KeyError, OSError, AttributeError):
+        return False
+
+
 def _ordinary_thread_dispatch_precheck(
     root: Path, *, snapshot: dict[str, Any], task_id: str,
     target_department: str, target_thread_id: str, action_id: str, scope: str,
+    sender_department: str = "", payload_sha256: str = "",
 ) -> list[str]:
     """Reject unreceiptable or already-sent ordinary messages before sending.
 
@@ -2724,8 +2879,15 @@ def _ordinary_thread_dispatch_precheck(
         goal = snapshot["goal_delivery"]
         initial_review_assignment = (target_department == goal["responsible_assistant"]
                                      and action_id == "assign-goal-review:" + task_id and snapshot.get("goal_contract"))
+        responsibility_resume = (not invalid and _coordination_responsibility_resume_ready(
+            root, snapshot, receipts, sender_department=sender_department,
+            target_department=target_department, target_thread_id=target_thread_id,
+            scope=scope, payload_sha256=payload_sha256,
+        ))
         if not initial_review_assignment:
             for dep in planned[0].get("depends_on", []):
+                if responsibility_resume and dep == "operations":
+                    continue
                 if not any(r.get("receipt_type") == "outbox_received" and r.get("department") == dep for r in receipts):
                     reasons.append("goal_dispatch_dependency_missing:" + dep)
         unmet = completion_dependencies(root, snapshot)
@@ -3078,6 +3240,7 @@ def policy_check(
             root, snapshot=snapshot, task_id=task_id,
             target_department=target_department, target_thread_id=target_thread_id,
             action_id=action_id, scope=scope,
+            sender_department=department, payload_sha256=payload_sha256,
         )
         if dispatch_reasons:
             allow = False
@@ -3096,9 +3259,19 @@ def policy_check(
         goal_preflight = None
         if action_class in EXTERNAL_ACTION_CLASSES and goal_enabled(root, snapshot or {}):
             try:
-                goal_preflight = execution_preflight(root, snapshot, action_id, action_class, scope, department)
+                from paid_three_page_bounded_cms import MODEL as bounded_model, exact_tuple
+                bounded = (cms_goal_context is not None
+                           and cms_goal_context.get("acceptance_model") == bounded_model
+                           and exact_tuple(task_id, action_id, scope, department, action_class)
+                           and all(cms_goal_context.get(k) == v for k, v in {
+                               "task_id": task_id, "action_id": action_id, "scope": scope,
+                               "department": department, "payload_sha256": payload_sha256}.items()))
+                goal_preflight = (cms_goal_context["preflight"] if bounded else
+                                  execution_preflight(root, snapshot, action_id, action_class, scope, department))
                 qa_risk_level = goal_preflight["risk_level"]
-                required_receipts += ["self_check:exact_pass", "facts_backup_rollback:exact_pins", "assistant_acceptance:after_complete_delivery"]
+                required_receipts += ["self_check:exact_pass", "facts_backup_rollback:exact_pins",
+                                      "assistant_acceptance:bounded_candidate_only" if bounded else
+                                      "assistant_acceptance:after_complete_delivery"]
             except WorkflowError as error:
                 allow = False
                 reasons.append(str(error))
@@ -3398,6 +3571,11 @@ def policy_check(
         "project_layer_only": True,
         "checked_at": utc_timestamp(),
     }
+    if cms_goal_context is not None and cms_goal_context.get("acceptance_model") == "paid_three_page_bounded_cms_candidate_v1":
+        result["cms_candidate_acceptance"] = {
+            "acceptance_model": cms_goal_context["acceptance_model"],
+            "candidate_acceptance_record_id": cms_goal_context["acceptance_receipt_id"],
+            "machine_identity": cms_goal_context["preflight"]["machine_identity"]}
     with workflow_lock(root):
         if retry_requested and result["status"] == "allow":
             previous_retry = any(
@@ -3447,10 +3625,19 @@ def _validate_receipt_prerequisite(
             raise WorkflowError("替补窗口必须在当前固定任务重新派工后才能记录 chat_ack")
     from goal_delivery_runtime import review_delegation
     inherited = None
+    direct_review = None
     if (root is not None and department == reviewer
             and not any(r.get("department") == reviewer and r.get("receipt_type") in {"dispatch_sent", "dispatch_failed"} for r in receipts)):
         inherited = review_delegation(root, snapshot)
-    if receipt_type == "outbox_received" and ("chat_ack", department) not in latest and not inherited:
+        if not inherited and receipt_type in {"outbox_received", "qa_verdict"}:
+            from qa_review_plan import (native_multi_goal_review_context, owner_direct_review_context,
+                                        parent_initial_child_review_context)
+            direct_review = parent_initial_child_review_context(root, snapshot)
+            if direct_review is None:
+                direct_review = native_multi_goal_review_context(root, snapshot)
+            if direct_review is None:
+                direct_review = owner_direct_review_context(root, snapshot)
+    if receipt_type == "outbox_received" and ("chat_ack", department) not in latest and not inherited and not direct_review:
         raise WorkflowError("非法越级：outbox_received 之前必须有同部门非空 chat_ack")
     workers = [
         str(item.get("department", ""))
@@ -3467,7 +3654,7 @@ def _validate_receipt_prerequisite(
             index for index, row in enumerate(receipts)
             if row.get("receipt_type") == "dispatch_sent" and row.get("department") == reviewer
         ]
-        if not qa_dispatches and not inherited:
+        if not qa_dispatches and not inherited and not direct_review:
             raise WorkflowError("非法越级：QA 结论前缺少质检部 dispatch_sent")
         qa_acks = [
             index for index, row in enumerate(receipts)
@@ -3476,10 +3663,10 @@ def _validate_receipt_prerequisite(
             and row.get("department") == reviewer
             and row.get("ack_nonempty")
         ]
-        if not qa_acks and not inherited:
+        if not qa_acks and not inherited and not direct_review:
             raise WorkflowError("非法越级：本次 QA 派工后缺少质检部非空 chat_ack")
         if not any(
-            (inherited is not None or index > qa_acks[-1])
+            (inherited is not None or direct_review is not None or index > qa_acks[-1])
             and row.get("receipt_type") == "outbox_received"
             and row.get("department") == reviewer
             for index, row in enumerate(receipts)
@@ -3682,6 +3869,10 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
         "created_at": utc_timestamp(),
         "chat_body_stored": False,
     }
+    # This exact first-send route can complete within one second. Preserve
+    # real append order without changing legacy clocks or historical receipts.
+    if any(action.get("parent_initial_dispatch") for action in snapshot.get("goal_delivery", {}).get("approved_actions", [])):
+        receipt["created_at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
     path = receipts_path(root, task_id)
     with workflow_lock(root):
         receipts = read_jsonl(path)
@@ -3710,6 +3901,11 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
                 raise WorkflowError("派工失败更正必须提供原因代码")
         else:
             _validate_receipt_prerequisite(snapshot, receipts, receipt_type, department, root=root)
+        if receipt_type == "dispatch_sent":
+            from parent_initial_dispatch import validate_sent
+            parent_initial = validate_sent(root, snapshot, receipt, routing_decision)
+            if parent_initial:
+                receipt["parent_initial_dispatch"] = parent_initial
         if receipt_type == "evidence_replacement":
             _validate_evidence_replacement(root, receipts, receipt)
         if receipt_type == "evidence_archive":
@@ -3738,8 +3934,26 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
     return {**receipt, "result": "recorded", "workflow_state": reconcile.get("current_state")}, [path, *artifacts]
 
 
-def _validate_receipt_chain(root: Path, task_id: str) -> tuple[list[dict[str, Any]], list[str]]:
+def _validate_receipt_chain(root: Path, task_id: str, *, through_receipt_id: str | None = None) -> tuple[list[dict[str, Any]], list[str]]:
+    """Validate the full chain by default, or one exact original receipt prefix.
+
+    A review's original producer provenance must not recurse through its own
+    later QA verdict. Prefix selection never grants acceptance or permission.
+    """
     receipts = read_jsonl(receipts_path(root, task_id))
+    if through_receipt_id is not None:
+        if not isinstance(through_receipt_id, str) or not through_receipt_id:
+            return [], ["receipt_prefix_id_required"]
+        try:
+            receipts = [json.loads(line) for line in receipts_path(root, task_id).read_text(encoding="utf-8").splitlines() if line.strip()]
+        except (OSError, ValueError, UnicodeError):
+            return [], ["receipt_prefix_source_unreadable"]
+        if any(not isinstance(row, dict) for row in receipts):
+            return [], ["receipt_prefix_source_not_object"]
+        matches = [index for index, row in enumerate(receipts) if row.get("receipt_id") == through_receipt_id]
+        if len(matches) != 1:
+            return [], ["receipt_prefix_id_not_unique"]
+        receipts = receipts[:matches[0] + 1]
     invalid: list[str] = []
     replacements: dict[tuple[str, str], list[tuple[int, dict[str, Any], dict[str, Any]]]] = {}
     archives: dict[tuple[str, str], list[tuple[int, dict[str, Any]]]] = {}
@@ -4344,18 +4558,27 @@ RESULT_DECISIONS = {
 RESULT_FOLLOWTHROUGH_STATUSES = {
     "dispatch_sent", "execution_verified", "external_wait_registered",
     "blocked_with_owner", "internal_control_completed", "prior_action_verified", "dependency_resolved",
-    "inflight_result_verified", "no_executable_work"
+    "inflight_result_verified", "subsequent_action_verified", "no_executable_work"
 }
 
 
 def _verify_inflight_followthrough(root: Path, record: dict[str, Any],
                                   decision: dict[str, Any]) -> dict[str, Any]:
-    """Reconcile a real earlier dispatch whose result arrived after the decision.
+    """Reconcile an exact dispatched result arriving after the decision.
 
     This closes only a controller action link. It grants no release permission
     and does not change the original decision, timestamps or business status.
     """
-    receipts, invalid = _validate_receipt_chain(root, record["linked_task_id"])
+    linked_task = record["linked_task_id"]
+    try:
+        for line in receipts_path(root, linked_task).read_text(encoding="utf-8").splitlines():
+            if not isinstance(json.loads(line), dict):
+                raise ValueError("non-object receipt")
+    except (OSError, ValueError, TypeError) as exc:
+        raise WorkflowError("后续原始回执必须是完整严格JSONL，不得跳过损坏行") from exc
+    if validate_workflow_events(root, linked_task):
+        raise WorkflowError("后续原任务事件链损坏，不得关闭旧控制记录")
+    receipts, invalid = _validate_receipt_chain(root, linked_task)
     result_index = next((i for i, row in enumerate(receipts)
                          if row.get("receipt_id") == record["action_receipt_id"]), None)
     owner = decision.get("next_owner")
@@ -4369,6 +4592,12 @@ def _verify_inflight_followthrough(root: Path, record: dict[str, Any],
                            if receipts[i].get("receipt_type") == "dispatch_sent"
                            and receipts[i].get("department") == owner), None)
     dispatch = receipts[dispatch_index] if dispatch_index is not None else {}
+    if decision.get("initial_dispatch") and (
+            linked_task != decision.get("next_task_id")
+            or dispatch.get("action_id") != decision.get("next_action_id")
+            or dispatch.get("scope") != decision.get("next_scope")
+            or dispatch.get("parent_initial_dispatch", {}).get("decision_record_id") != decision.get("record_id")):
+        raise WorkflowError("parent initial dispatch followthrough must retain the exact child/action/scope/decision")
     dispatch_at = _parse_observed_at(dispatch.get("created_at"))
     decision_at = _parse_observed_at(decision.get("created_at"))
     result_at = _parse_observed_at(result_receipt.get("created_at"))
@@ -4377,7 +4606,8 @@ def _verify_inflight_followthrough(root: Path, record: dict[str, Any],
             or dispatch.get("receipt_id") != record["linked_dispatch_receipt_id"]
             or dispatch.get("chat_task_id") != fixed_id
             or dispatch_at is None or decision_at is None or result_at is None
-            or not dispatch_at <= decision_at < result_at
+            or not (decision_at < dispatch_at <= result_at if record.get("followthrough_status") == "subsequent_action_verified"
+                    else dispatch_at <= decision_at < result_at)
             or not any(row.get("receipt_type") == "chat_ack"
                        and row.get("department") == owner
                        and row.get("chat_task_id") == fixed_id
@@ -4407,10 +4637,11 @@ def _verify_inflight_followthrough(root: Path, record: dict[str, Any],
         # conflicting explicit keys must never reconcile unrelated work.
         parents = [outbox[key] for key in ("parent_task_id", "original_business_task_id")
                    if outbox.get(key)]
-        if (decision.get("decision") != "continue" or not parents
+        if (decision.get("decision") not in ({"continue", "rework", "accept"} if record.get("followthrough_status") == "subsequent_action_verified" else {"continue"}) or not parents
                 or any(parent != record["task_id"] for parent in parents)):
             raise WorkflowError("跨任务在途结果须明确引用原父任务，不得关联无关业务")
-    return {"dispatch_before_decision": True, "result_after_decision": True,
+    return {"dispatch_before_decision": dispatch_at <= decision_at,
+            "dispatch_after_decision": decision_at < dispatch_at, "result_after_decision": True,
             "linked_dispatch_at": dispatch["created_at"],
             "linked_result_at": result_receipt["created_at"]}
 
@@ -4561,7 +4792,7 @@ def result_handoff_status(root: Path, task_id: str) -> dict[str, Any]:
     }
 
 
-def result_handoff_pending(root: Path) -> dict[str, Any]:
+def result_handoff_pending(root: Path, task_ids: list[str] | None = None) -> dict[str, Any]:
     """List queued handoffs and verified legacy deliveries missing a handoff record.
 
     Legacy discovery is deliberately derived from the immutable dispatch/ack/outbox
@@ -4569,11 +4800,14 @@ def result_handoff_pending(root: Path) -> dict[str, Any]:
     received; operations must still verify the fixed chat before recording fallback
     intake and a controller decision.
     """
+    selected = {validate_task_id(task) for task in task_ids} if task_ids is not None else None
     directory = root / RESULT_HANDOFF_DIR
     pending: list[dict[str, Any]] = []
     tracked: dict[str, dict[tuple[str, str, str], dict[str, Any]]] = {}
     if directory.is_dir():
         for path in sorted(directory.glob("*.jsonl")):
+            if selected is not None and path.stem not in selected:
+                continue
             task_id = validate_task_id(path.stem)
             rows = _result_handoff_rows(root, task_id)
             by_identity: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -4599,13 +4833,19 @@ def result_handoff_pending(root: Path) -> dict[str, Any]:
                 elif row["event"] == "controller_received":
                     entry["received"] = True
                 elif row["event"] == "controller_decision":
+                    if row.get("source_mode") == "collaboration" and row.get("decision") == "close_scope":
+                        from collaboration_scope_close import readback_collaboration_scope_close
+                        closed = readback_collaboration_scope_close(root, row, rows)
+                        entry["closed_collaboration_scope"] = closed["acceptance_scope"]
                     entry["decided"] = True
                     entry["controller_decision"] = row.get("decision")
                     entry["next_owner"] = row.get("next_owner")
                     entry["next_action"] = row.get("next_action")
+                    entry["unblock_condition"] = row.get("unblock_condition")
                 elif row["event"] == "controller_followthrough":
                     entry["controller_followthrough"] = row.get("followthrough_status")
                     entry["next_check_at"] = row.get("next_check_at")
+                    entry["unblock_condition"] = row.get("unblock_condition", entry.get("unblock_condition"))
             tracked[task_id] = by_identity
             pending.extend(entry for entry in by_identity.values() if not entry["decided"] and (
                 entry["queued"] or entry["received"]
@@ -4613,7 +4853,7 @@ def result_handoff_pending(root: Path) -> dict[str, Any]:
                 or (entry.get("notification_blocked") and not entry["received"])
             ))
 
-    recovery_candidates = _legacy_result_recovery_candidates(root, tracked)
+    recovery_candidates = _legacy_result_recovery_candidates(root, tracked, selected)
     recovery_identities = {
         (item.get("task_id"), item.get("sender_department"), item.get("candidate_version"), item.get("result_sha256"))
         for item in recovery_candidates
@@ -4628,7 +4868,16 @@ def result_handoff_pending(root: Path) -> dict[str, Any]:
         entry for entries in tracked.values() for entry in entries.values()
         if entry.get("decided") and _followthrough_due(entry)
     ]
+    named_waits = [entry for entries in tracked.values() for entry in entries.values()
+                   if entry.get("decided") and _followthrough_waiting(entry)]
+    resolved = [entry for entries in tracked.values() for entry in entries.values()
+                if entry.get("decided") and (entry.get("controller_decision") == "close_scope"
+                    or entry.get("controller_followthrough") not in {None, "pending", "external_wait_registered", "blocked_with_owner"})]
     return {
+        "scope_task_ids": sorted(selected) if selected is not None else None,
+        "control_records_are_business_jobs": False,
+        "named_waiting_dependencies": named_waits, "named_waiting_dependency_count": len(named_waits),
+        "historical_resolved_control_records": resolved, "historical_resolved_control_count": len(resolved),
         "status": "recovery_required" if recovery_candidates else "followthrough_required" if followthrough_pending else "pending_results_ready",
         "pending_count": len(pending),
         "queued_pending_count": sum(1 for item in pending if item.get("queued")),
@@ -4644,6 +4893,7 @@ def result_handoff_pending(root: Path) -> dict[str, Any]:
 def _legacy_result_recovery_candidates(
     root: Path,
     tracked: dict[str, dict[tuple[str, str, str], dict[str, Any]]],
+    selected: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Find current-scope completed department outboxes missing from the result inbox."""
     snapshots = root / WORKFLOW_DIR
@@ -4654,6 +4904,8 @@ def _legacy_result_recovery_candidates(
     registry = department_registry(root)
     found: list[dict[str, Any]] = []
     for snapshot_file in sorted(snapshots.glob("*.json")):
+        if selected is not None and snapshot_file.stem not in selected:
+            continue
         task_id = validate_task_id(snapshot_file.stem)
         if recovery_scope is not None and task_id not in recovery_scope:
             continue
@@ -4986,6 +5238,64 @@ def _validate_scheduled_result(root: Path, request: dict[str, Any], outbox: dict
     return source
 
 
+def _validate_goal_completed_result(root: Path, request: dict[str, Any], fixed_id: str,
+                                    *, through_receipt_id: str | None = None) -> dict[str, Any]:
+    """Bind a new goal result to its actual completed final, never an ACK."""
+    from goal_delivery_runtime import _collaboration_native, _collaboration_final_message
+    completion_pin, reply_pin = request.get("actual_native_completion"), request.get("visible_reply")
+    completion = _collaboration_native(root, completion_pin)
+    message = _collaboration_final_message(completion, fixed_id)
+    turn = request.get("source_turn_id")
+    if (not isinstance(reply_pin, dict) or file_digest(root, reply_pin.get("path", "")) != reply_pin
+            or not isinstance(turn, str) or not turn.strip()
+            or request.get("source_thread_id") != fixed_id or message.get("turnId") != turn
+            or message.get("phase") != "final_answer" or not message.get("id")
+            or not isinstance(message.get("text"), str) or not message["text"].strip()):
+        raise WorkflowError("new goal result requires exact completed fixed thread/turn/final message pins")
+    raw = safe_path(root, reply_pin["path"]).read_bytes()
+    observed = _parse_observed_at(request.get("reply_observed_at"))
+    if (raw != message["text"].encode("utf-8") or hashlib.sha256(raw).hexdigest() != request.get("source_reply_sha256")
+            or observed is None or observed > dt.datetime.now(dt.timezone.utc)):
+        raise WorkflowError("new goal result requires original exact UTF-8 final reply and actual observation time")
+    # Completion time comes from the pinned provider document, not caller observation.
+    native_turn = completion
+    document = completion.get("wait", completion)
+    if isinstance(document.get("polls"), list):
+        native_turn = next(row.get("latestTurn", {}) for row in document["polls"]
+                           if row.get("thread", {}).get("id") == fixed_id)
+    completed_value = native_turn.get("completedAt")
+    if isinstance(completed_value, (int, float)) and not isinstance(completed_value, bool):
+        try:
+            completed_at = dt.datetime.fromtimestamp(completed_value, dt.timezone.utc)
+        except (ValueError, OverflowError, OSError):
+            completed_at = None
+    else:
+        completed_at = _parse_observed_at(completed_value)
+    task = validate_task_id(request["task_id"])
+    try:
+        for line in receipts_path(root, task).read_text(encoding="utf-8").splitlines():
+            if not isinstance(json.loads(line), dict):
+                raise ValueError("non-object receipt")
+    except (OSError, ValueError, TypeError) as exc:
+        raise WorkflowError("completed source requires strict original receipt JSONL") from exc
+    receipts, invalid = _validate_receipt_chain(root, task, through_receipt_id=through_receipt_id)
+    scoped = [row for row in receipts if row.get("department") == request["sender_department"]
+              and row.get("chat_task_id") == fixed_id
+              and (at := _parse_observed_at(row.get("created_at"))) is not None and at <= observed]
+    starts = [_parse_observed_at(row["created_at"]) for row in scoped
+              if row.get("receipt_type") in {"dispatch_sent", "chat_ack"}]
+    if invalid or not starts or completed_at is None or not max(starts) <= completed_at <= observed:
+        raise WorkflowError("actual native completedAt must follow exact task dispatch/ACK and precede observation")
+    outbox_path = request.get("outbox_path") or request.get("outbox", {}).get("path", "")
+    task_mentioned = re.search(r"(?<![A-Za-z0-9_-])" + re.escape(task) + r"(?![A-Za-z0-9_-])", message["text"])
+    path_mentioned = bool(outbox_path) and re.search(re.escape(outbox_path) + r"(?![A-Za-z0-9_./-])", message["text"])
+    if not (task_mentioned or path_mentioned):
+        raise WorkflowError("completed final must explicitly bind this exact task or frozen outbox path")
+    return {"source_turn_id": turn, "source_thread_id": fixed_id,
+            "source_reply_sha256": request["source_reply_sha256"], "reply_observed_at": request["reply_observed_at"],
+            "actual_native_completion": completion_pin, "visible_reply": reply_pin}
+
+
 def _validate_scheduled_acceptance(root: Path, request: dict[str, Any]) -> dict[str, Any]:
     """Independent daily-report acceptance; no synthetic dispatch or production permit."""
     task_id, sender = request["task_id"], request["sender_department"]
@@ -5114,15 +5424,20 @@ def _record_collaboration_result_handoff(root: Path, request: dict[str, Any], so
             raise WorkflowError("formal collaboration intake must identify the original actual completed final reply")
         record.update({k: request[k] for k in ("intake_mode", "source_reply_sha256", "source_thread_id", "reply_observed_at")})
     elif event == "controller_decision":
-        # Source receipt proves delivery. Final QA, permissions and parent
-        # closure keep their existing independent entry and receipt chain.
-        if (request.get("decision") not in {"continue", "rework", "send_qa", "wait_external"}
+        # Delivery alone never implies acceptance. Exact prior fenced independent
+        # release proof may close this scope without parent closure or permission.
+        if (request.get("decision") not in {"continue", "rework", "send_qa", "wait_external", "close_scope"}
                 or not isinstance(request.get("next_action"), str) or not request["next_action"].strip()
                 or not isinstance(request.get("next_owner"), str)
                 or request.get("next_owner") not in (set(department_registry(root)) | set(read_json(root / "data/department-registry.json").get("collaboration_bindings", {})))):
             raise WorkflowError("collaboration intake requires a bounded continuation decision, not inferred acceptance")
         record.update({k: request[k] for k in ("decision", "next_owner", "next_action")})
-        if record["decision"] != "wait_external":
+        if record["decision"] == "close_scope":
+            record.update({k: request.get(k) for k in (
+                "acceptance_scope", "collaboration_acceptance_mode", "collaboration_acceptance",
+                "acceptance_intake_record_id", "collaboration_release_outcome",
+                "collaboration_remote_readback", "collaboration_public_manifest")})
+        elif record["decision"] != "wait_external":
             parent = read_json(snapshot_path(root, task_id))
             if (not isinstance(request.get("next_action_id"), str) or not request["next_action_id"].strip()
                     or request.get("next_scope") not in parent["goal_delivery"]["authorized_scope"]):
@@ -5156,6 +5471,9 @@ def _record_collaboration_result_handoff(root: Path, request: dict[str, Any], so
     path = result_handoff_path(root, task_id)
     with workflow_lock(root):
         rows = _result_handoff_rows(root, task_id)
+        if event == "controller_decision" and record.get("decision") == "close_scope":
+            from collaboration_scope_close import verify_collaboration_scope_close
+            record.update(verify_collaboration_scope_close(root, request, source, evidence, rows))
         current = [row for row in rows if _result_identity(row) == _result_identity(record)]
         comparable = {k: v for k, v in record.items() if k not in {"record_id", "created_at"}}
         duplicate = next((row for row in rows if row.get("idempotency_key") == key), None)
@@ -5173,6 +5491,8 @@ def _record_collaboration_result_handoff(root: Path, request: dict[str, Any], so
             decision = next((row for row in reversed(current) if row.get("event") == "controller_decision"), None)
             if not decision:
                 raise WorkflowError("actual current assistant decision required before followthrough")
+            if decision.get("decision") == "close_scope":
+                raise WorkflowError("exact collaboration scope is already closed; no followthrough or repeated execution")
             previous = next((row for row in reversed(current) if row.get("event") == event), None)
             if previous:
                 if previous.get("followthrough_status") not in {"blocked_with_owner", "external_wait_registered"}:
@@ -5272,6 +5592,11 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
     if (not snapshot or not any(item.get("department") == sender for item in snapshot.get("departments", []))):
         if not (is_scheduled_queue or scheduled_queue):
             raise WorkflowError("结果来源部门未列入原任务工作流")
+    goal_completed_source = None
+    if event == "notification_queued" and goal_enabled(root, snapshot) and not is_scheduled_queue:
+        if str(outbox.get("status") or "").lower() in {"", "active", "in_progress", "pending"}:
+            raise WorkflowError("new goal final outbox requires a finite delivered result status")
+        goal_completed_source = _validate_goal_completed_result(root, request, fixed_id)
     if event == "notification_queued":
         if is_scheduled_queue:
             scheduled_source = _validate_scheduled_result(root, request, outbox, fixed_id)
@@ -5315,6 +5640,12 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
         "idempotency_key": key, "created_at": utc_timestamp(),
         "message_body_stored": False, "business_goal_closed": False,
     }
+    child_goal = snapshot.get("goal_delivery", {})
+    if (child_goal.get("parent_task_id") == "fc-20261010-system-flow-throughput-and-ledger-close-v1"
+            and child_goal.get("initial_dispatch_mode") == "read_only"
+            and any(action.get("parent_initial_dispatch")
+                    for action in child_goal.get("approved_actions", []))):
+        record["created_at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
     if goal_enabled(root, snapshot) and event in {"controller_received", "controller_decision", "controller_followthrough"}:
         claim = request.get("coordination_claim", {})
         record.update(coordinator_role=request.get("coordinator_role"),
@@ -5345,6 +5676,9 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
             record.update(source_mode="owner_direct", authorization_pin=snapshot["goal_delivery"]["authorization_pin"],
                           source_thread_id=fixed_id, source_reply_sha256=request["source_reply_sha256"],
                           reply_observed_at=request["reply_observed_at"])
+        if goal_completed_source is not None:
+            record.update(goal_completed_source)
+            record.setdefault("source_mode", "approved_dispatch")
     elif event == "notification_sent":
         from result_coordination import result_lane, notification_record
         identity = {"task_id": task_id, "sender_department": sender,
@@ -5373,6 +5707,15 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
             raise WorkflowError("总控收取须记录固定聊天的非空回复哈希、时间和实际收取方式")
         record.update(intake_mode=intake_mode, source_reply_sha256=reply_sha,
                       source_thread_id=reply_thread, reply_observed_at=observed_at)
+        original_goal_queue = next((row for row in _result_handoff_rows(root, task_id)
+                                    if row.get("event") == "notification_queued" and _result_identity(row) == scheduled_identity
+                                    and row.get("actual_native_completion") and row.get("source_mode") in {"owner_direct", "approved_dispatch"}), None)
+        if original_goal_queue:
+            source = _validate_goal_completed_result(root, original_goal_queue, fixed_id)
+            if reply_sha != source["source_reply_sha256"]:
+                raise WorkflowError("goal intake must retain the original completed final, not a later ACK")
+            record.update(source)
+            record.update(reply_observed_at=observed_at, source_completion_observed_at=source["reply_observed_at"])
         if scheduled_queue:
             source = scheduled_result_source(root, task_id, sender)
             if source and not source.get("legacy_contract"):
@@ -5418,6 +5761,11 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
                       qa_status=str(request.get("qa_status") or "NOT_VERIFIED"),
                       execution_status=str(request.get("execution_status") or "NOT_EXECUTED"),
                       public_postcheck_status=str(request.get("public_postcheck_status") or "NOT_VERIFIED"))
+        from parent_initial_dispatch import freeze_next
+        initial_next = freeze_next(root, snapshot, request, evidence)
+        record.update(initial_next)
+        if initial_next:
+            record["created_at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
         if decision == "wait_external":
             unlock = str(request.get("unblock_condition") or "")
             if not unlock:
@@ -5434,7 +5782,7 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
             raise WorkflowError("总控后续动作须有有效状态和项目内证据")
         record["followthrough_status"] = followthrough_status
         if followthrough_status in {"dispatch_sent", "execution_verified", "prior_action_verified",
-                                    "inflight_result_verified"}:
+                                    "inflight_result_verified", "subsequent_action_verified"}:
             linked_task_id = validate_task_id(str(request.get("linked_task_id") or ""))
             if followthrough_status == "execution_verified" and linked_task_id != task_id:
                 raise WorkflowError("发布后续复核必须引用原任务的执行回执")
@@ -5442,19 +5790,19 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
             linked_receipts, invalid = _validate_receipt_chain(root, linked_task_id)
             expected_type = {"dispatch_sent": "dispatch_sent", "execution_verified": "postcheck",
                              "prior_action_verified": "outbox_received",
-                             "inflight_result_verified": "outbox_received"}[followthrough_status]
+                             "inflight_result_verified": "outbox_received", "subsequent_action_verified": "outbox_received"}[followthrough_status]
             matches = [row for row in linked_receipts if row.get("receipt_id") == receipt_id
                        and row.get("receipt_type") == expected_type]
             if invalid or len(matches) != 1 or (followthrough_status == "execution_verified"
                                                  and matches[0].get("verdict") != "pass"):
                 raise WorkflowError("总控后续动作须引用已核实的派工或公开复核回执")
             record.update(linked_task_id=linked_task_id, action_receipt_id=receipt_id)
-            if followthrough_status in {"prior_action_verified", "inflight_result_verified"}:
+            if followthrough_status in {"prior_action_verified", "inflight_result_verified", "subsequent_action_verified"}:
                 linked_outbox = file_digest(root, str(request.get("linked_outbox_path") or ""))
                 if linked_outbox not in matches[0].get("evidence", []):
                     raise WorkflowError("既有后续工作须绑定准确 outbox 字节与收取回执")
                 record["linked_outbox"] = linked_outbox
-            if followthrough_status == "inflight_result_verified":
+            if followthrough_status in {"inflight_result_verified", "subsequent_action_verified"}:
                 record["linked_dispatch_receipt_id"] = str(request.get("linked_dispatch_receipt_id") or "")
         elif followthrough_status in {"external_wait_registered", "blocked_with_owner"}:
             next_check_at = str(request.get("next_check_at") or "")
@@ -5542,6 +5890,8 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
                 allowed_followthrough["rework"] = allowed_followthrough["rework"] | {"internal_control_completed"}
                 if record["followthrough_status"] == "internal_control_completed":
                     record.update(_verify_operations_rework_completion(root, request, task_id))
+            for decision_kind in ("accept", "send_qa", "rework", "continue"):
+                allowed_followthrough[decision_kind].add("subsequent_action_verified")
             if record["followthrough_status"] not in allowed_followthrough.get(decision_row["decision"], set()):
                 raise WorkflowError("总控后续动作状态与原决策不匹配")
             if (record["followthrough_status"] == "internal_control_completed"
@@ -5549,12 +5899,18 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
                 raise WorkflowError("专业部门下一动作不能以总控内部记录冒充派工")
             if record["followthrough_status"] == "dependency_resolved":
                 record.update(_verify_external_dependency_resolution(root, record, decision_row, rows))
-            if record["followthrough_status"] == "inflight_result_verified":
+            if record["followthrough_status"] in {"inflight_result_verified", "subsequent_action_verified"}:
                 record.update(_verify_inflight_followthrough(root, record, decision_row))
             if record["followthrough_status"] == "dispatch_sent":
                 linked_receipts, invalid = _validate_receipt_chain(root, record["linked_task_id"])
                 action_receipt = next((row for row in linked_receipts
                                        if row.get("receipt_id") == record["action_receipt_id"]), None)
+                if decision_row.get("initial_dispatch") and (
+                        record["linked_task_id"] != decision_row.get("next_task_id") or not action_receipt
+                        or action_receipt.get("action_id") != decision_row.get("next_action_id")
+                        or action_receipt.get("scope") != decision_row.get("next_scope")
+                        or action_receipt.get("parent_initial_dispatch", {}).get("decision_record_id") != decision_row.get("record_id")):
+                    raise WorkflowError("parent initial dispatch followthrough must retain the exact child/action/scope/decision")
                 action_at = _parse_observed_at(action_receipt.get("created_at") if action_receipt else None)
                 decision_at = _parse_observed_at(decision_row.get("created_at"))
                 if (invalid or not action_receipt or action_receipt.get("department") != decision_row.get("next_owner")

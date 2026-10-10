@@ -12,7 +12,8 @@
     "agent",
     "operations-assistant",
     "operations-assistant-2",
-    "operations-assistant-3"
+    "operations-assistant-3",
+    "system-development"
   ],
   "support_only_roles": [
     "ad-creative-strategist",

@@ -1983,7 +1983,10 @@ BLOG_MEDIA_TARGETS = frozenset({
     "blog-kitchen-cabinet-media-r1-v1",
     "blog-office-checklist-media-r1-v1",
 })
-PARENT_RUN_TARGETS = BLOG_TARGETS | BLOG_MEDIA_TARGETS | {"kl-location-intent-r1-v2"} | set(NATIVE_TARGETS) | set(WAVE234_BODY_TARGETS) | set(SPARSE_PUBLISHER_TARGETS)
+PARENT_RUN_TARGETS = (BLOG_TARGETS | BLOG_MEDIA_TARGETS | {"kl-location-intent-r1-v2"}
+                      | set(NATIVE_TARGETS) | set(WAVE234_BODY_TARGETS) | set(SPARSE_PUBLISHER_TARGETS)
+                      | {"paid-three-page-builtin-exact-fields-v1", "paid-three-page-kitchen-exact-fields-v1",
+                         "paid-three-page-renovation-exact-fields-v1"})
 
 
 class PermitEvidenceError(RuntimeError):
@@ -2072,6 +2075,12 @@ def validate_candidate_binding(candidate: dict, target: dict, *, root: Path | No
     """Bind newly added targets to one approved row and its exact field set."""
     evidence_root = Path(root) if root is not None else ROOT
     shape = target.get("candidate_shape")
+    from paid_three_page_bounded_cms import MODEL as bounded_model, targets as bounded_targets, doc as bounded_doc
+    if shape == bounded_model:
+        exact = bounded_targets(evidence_root).get(target.get("action_id"))
+        require(exact == target and candidate == bounded_doc(evidence_root, target["bounded_row"]["candidate"]),
+                "Original T3 exact full-row candidate source changed")
+        return
     if shape == 'native_publisher_sparse_admission':
         try:
             validate_sparse_publisher_candidate(evidence_root, candidate, target)
@@ -2310,6 +2319,12 @@ def validate_goal_cms_acceptance(root: Path, target: dict, operation: str,
     """
     from goal_delivery_runtime import enabled, restore_goal, validate_goal
     import qa_review_plan as review
+    from paid_three_page_bounded_cms import TASK as bounded_task, MODEL as bounded_model
+    if target.get("task_id") == bounded_task:
+        require(operation in {"publish", "rollback"} and target.get("candidate_shape") == bounded_model,
+                "Original bounded T3 cannot inherit another target or operation")
+        snapshot = wc.read_json(wc.snapshot_path(root, target["task_id"]))
+        return review.validate_cms_candidate_acceptance(root, snapshot, target, operation)
     root = Path(root).resolve()
     snapshot = restore_goal(root, wc.read_json(wc.snapshot_path(root, target["task_id"])))
     require(enabled(root, snapshot), "Current complete goal is required for assistant CMS acceptance")
@@ -2388,7 +2403,9 @@ def validate_goal_cms_policy(root: Path, task_id: str, action_id: str, scope: st
     require(wc.SHA256_PATTERN.fullmatch(str(payload_sha256 or "")) is not None,
             "Exact CMS payload digest required")
     matches = []
-    for name, target in _current_registered_targets(Path(root)).items():
+    from paid_three_page_bounded_cms import TASK as bounded_task, targets as bounded_targets
+    registered = bounded_targets(root) if task_id == bounded_task else _current_registered_targets(Path(root))
+    for name, target in registered.items():
         if (target.get("task_id") != task_id or target.get("scope") != scope
                 or target.get("execution_owner") != department):
             continue
@@ -2408,7 +2425,10 @@ def validate_goal_cms_policy(root: Path, task_id: str, action_id: str, scope: st
     require(preflight.get("payload_sha256") == payload_sha256,
             "Exact CMS payload must be frozen in its current production preflight")
     return {"target_name": name, "operation": operation, "risk_level": accepted["risk_level"],
-            "acceptance_receipt_id": accepted["receipt_id"], "review_outbox": accepted["review_outbox"],
+            "acceptance_receipt_id": accepted.get("candidate_acceptance_record_id", accepted.get("receipt_id")),
+            "acceptance_model": accepted["acceptance_model"], "task_id": task_id, "action_id": action_id,
+            "scope": scope, "department": department, "payload_sha256": payload_sha256,
+            "review_outbox": accepted["review_outbox"],
             "review_plan": accepted["review_plan"], "candidate": accepted["candidate"],
             "authorization_pin": accepted["authorization_pin"], "preflight": preflight,
             "external_permission_issued": False}
@@ -2417,6 +2437,10 @@ def validate_goal_cms_policy(root: Path, task_id: str, action_id: str, scope: st
 def validate_goal_cms_decision(root: Path, decision: dict, target: dict, operation: str,
                                payload_sha256: str, acceptance: dict, now: datetime) -> dict:
     """Reuse the real assigned-assistant decision; do not invent a HQ review."""
+    from paid_three_page_bounded_cms import MODEL as bounded_model, decision as bounded_decision
+    if acceptance.get("acceptance_model") == bounded_model:
+        require(operation == acceptance.get("operation"), "Publish proof cannot grant rollback permission")
+        return bounded_decision(root, decision, target, payload_sha256, acceptance, now)
     require(acceptance.get("acceptance_model") == "goal_delivery_assistant_v1", "Exact assistant acceptance required")
     action_id = target["action_id"] if operation == "publish" else f"rollback-{target['candidate_version']}"
     version = target["candidate_version"] if operation == "publish" else f"{target['candidate_version']}-rollback-v1"
@@ -2602,6 +2626,14 @@ def validate_policy(row: dict, target: dict, operation: str, payload_sha256: str
             and row.get("approval_status") == "consumed"
             and isinstance(row.get("decision_id"), str) and row["decision_id"],
             "Policy decision is not exact, allowed, and consumed")
+    from paid_three_page_bounded_cms import TASK as bounded_task, MODEL as bounded_model
+    if target.get("task_id") == bounded_task:
+        context = row.get("cms_candidate_acceptance", {})
+        require(context.get("acceptance_model") == bounded_model
+                and context.get("candidate_acceptance_record_id") == operations.get("candidate_acceptance_record_id")
+                and context.get("machine_identity") == operations.get("machine_identity")
+                and isinstance(context.get("machine_identity"), dict),
+                "Policy must consume the same actual A2-frozen machine and candidate continue")
     checked_at = timestamp(str(row.get("checked_at", "")))
     require(timestamp(operations["decided_at"]) <= checked_at <= now
             and now - timedelta(minutes=30) <= checked_at, "Policy allow is stale or predates operations")
@@ -2691,6 +2723,11 @@ def endpoint_request(control: dict, secret: str, base_url: str) -> dict:
 
 def validate_new_permit_target(target: dict, *, assistant_acceptance: dict | None = None) -> None:
     """Keep historical evidence readable without reissuing a colliding action."""
+    from paid_three_page_bounded_cms import MODEL as bounded_model
+    if target.get("candidate_shape") == bounded_model:
+        require(isinstance(assistant_acceptance, dict)
+                and assistant_acceptance.get("acceptance_model") == bounded_model,
+                "Original T3 cannot use legacy or full-goal PASS as candidate admission")
     if target.get('candidate_shape') == 'native_publisher_registration':
         raise PermitEvidenceError('Publisher registration cannot issue a permit; protected preview and exact production QA remain required')
     if target.get("candidate_shape") == "native_five_projection_registration":
@@ -2723,6 +2760,16 @@ def validate_new_permit_target(target: dict, *, assistant_acceptance: dict | Non
             require(bool(pin) and len(pin) == 2 and len(str(pin[1])) == 64,
                     "ORG-020 target has no pinned actual fixed QA outbox")
     if assistant_acceptance is not None:
+        from paid_three_page_bounded_cms import TASK as bounded_task, MODEL as bounded_model, exact_tuple
+        if assistant_acceptance.get("acceptance_model") == bounded_model:
+            require(target.get("task_id") == bounded_task and target.get("candidate_shape") == bounded_model
+                    and exact_tuple(target.get("task_id"), target.get("action_id"), target.get("scope"), target.get("execution_owner"))
+                    and assistant_acceptance.get("task_id") == bounded_task
+                    and assistant_acceptance.get("scope") == target.get("scope")
+                    and assistant_acceptance.get("verdict") == ("pass_candidate_only" if assistant_acceptance.get("operation") == "publish" else "pass_rollback_candidate_only")
+                    and assistant_acceptance.get("candidate_acceptance_record_id"),
+                    "Exact original bounded candidate acceptance required")
+            return
         require(assistant_acceptance.get("acceptance_model") == "goal_delivery_assistant_v1"
                 and assistant_acceptance.get("task_id") == target["task_id"]
                 and assistant_acceptance.get("scope") == target["scope"]
@@ -2732,7 +2779,9 @@ def validate_new_permit_target(target: dict, *, assistant_acceptance: dict | Non
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--target", choices=TARGETS, required=True)
+    from paid_three_page_bounded_cms import ROWS as bounded_rows, MODEL as bounded_model, targets as bounded_targets
+    bounded_names = {f"paid-three-page-{slug}-exact-fields-v1" for slug, _, _ in bounded_rows}
+    parser.add_argument("--target", choices=sorted(set(TARGETS) | bounded_names), required=True)
     parser.add_argument("--operation", choices=["publish", "rollback"], required=True)
     parser.add_argument("--dry-run-run-id", type=int, required=True)
     parser.add_argument("--operations-decision", required=True)
@@ -2742,7 +2791,7 @@ def main() -> None:
     parser.add_argument("--parent-run-id", type=int)
     parser.add_argument("--issue-and-dispatch", action="store_true")
     args = parser.parse_args()
-    target = TARGETS[args.target]
+    target = bounded_targets(ROOT)[args.target] if args.target in bounded_names else TARGETS[args.target]
     require(args.operation != "rollback" or target.get("rollback_allowed", True),
             "Rollback to the prior public media is not rights-safe")
     parent_binding = rollback_parent_binding(args.target, args.operation,
@@ -2765,7 +2814,8 @@ def main() -> None:
         require(now - timedelta(minutes=30) <= timestamp(run["updated_at"]) <= now,
                 "Protected dry-run is stale or future-dated")
         expected_action = target["action_id"] if args.operation == "publish" else f"rollback-{target['candidate_version']}"
-        require(receipt.get("task_id") == target["task_id"] and receipt.get("candidate_version") == target["candidate_version"]
+        receipt_version = qa["candidate_version"] if qa.get("acceptance_model") == bounded_model else target["candidate_version"]
+        require(receipt.get("task_id") == target["task_id"] and receipt.get("candidate_version") == receipt_version
                 and receipt.get("action_id") == expected_action and receipt.get("operation") == args.operation
                 and receipt.get("scope") == target["scope"],
                 "Dry-run receipt target differs from the locked candidate")
@@ -2783,10 +2833,19 @@ def main() -> None:
             require(json.loads(backup_path.read_text()).get("record", {}).get("id") == target["record_id"],
                     "Rollback readback does not contain the target record")
 
+        bound_machine = None
+        if qa.get("acceptance_model") == bounded_model:
+            from paid_three_page_bounded_cms import validate_issuer_machine
+            bound_machine = validate_issuer_machine(ROOT, target, qa, run,
+                json.loads((backup_path.parent / "managed-identity-probe.json").read_text()),
+                args.github_actor_id, digest, receipt)
+            if args.operation == "rollback":
+                require(args.parent_permit_id == qa["parent_permit_id"] and args.parent_run_id == qa["parent_run_id"],
+                        "Rollback issuer must use independently reviewed completed parent permit/run")
         decision_path = (ROOT / args.operations_decision).resolve()
         require(decision_path.is_relative_to(ROOT) and decision_path.is_file(), "Operations decision file is missing")
         decision = json.loads(decision_path.read_text())
-        if qa.get("acceptance_model") == "goal_delivery_assistant_v1":
+        if qa.get("acceptance_model") in {"goal_delivery_assistant_v1", bounded_model}:
             validate_goal_cms_policy(ROOT, target["task_id"], expected_action, target["scope"],
                                      target.get("execution_owner", ""), payload_sha256)
             operations = validate_goal_cms_decision(ROOT, decision, target, args.operation,
@@ -2802,8 +2861,11 @@ def main() -> None:
         require(timestamp(qa["created_at"]) <= timestamp(operations["decided_at"]),
                 "Operations decision predates QA PASS")
 
+        acceptance_id = qa.get("candidate_acceptance_record_id", qa.get("receipt_id"))
+        acceptance_hash = qa.get("candidate_acceptance_record_hash", qa.get("receipt_hash"))
+        require(bool(acceptance_id) and bool(acceptance_hash), "Actual current acceptance record required")
         evidence = {"candidate": target["candidate"][1], "rollback": target["rollback"][1],
-                    "qa_receipt_hash": qa["receipt_hash"], "operations_file_sha256": sha256_file(decision_path),
+                    "qa_receipt_hash": acceptance_hash, "acceptance_model": qa.get("acceptance_model", "legacy_QA"), "operations_file_sha256": sha256_file(decision_path),
                     "policy_decision_id": policy["decision_id"], "dry_run_id": args.dry_run_run_id,
                     "dry_run_receipt_sha256": sha256_file(backup_path.parent / "locked-dry-run-receipt.json"),
                     "payload_sha256": payload_sha256}
@@ -2817,9 +2879,12 @@ def main() -> None:
                    "expectedUpdatedAt": digest["expected_updated_at"], "payloadSha256": payload_sha256,
                    "rollbackPayloadSha256": rollback_digest["payload_sha256"] if rollback_digest else None,
                    **parent_binding,
-                   "githubActorId": args.github_actor_id,
-                   "githubWorkflowSha": json.loads((backup_path.parent / "managed-identity-probe.json").read_text())["identity"]["workflowSha"],
-                   "qaReceiptId": qa["receipt_id"], "operationsDecisionId": operations["decision_id"],
+                   "githubActorId": bound_machine["github_actor_id"] if bound_machine else args.github_actor_id,
+                   "githubWorkflowSha": (bound_machine["workflow_sha"] if bound_machine else
+                       json.loads((backup_path.parent / "managed-identity-probe.json").read_text())["identity"]["workflowSha"]),
+                   # Existing endpoint carrier; this is the real committed candidate
+                   # record for bounded T3, not a fabricated qa_verdict receipt.
+                   "qaReceiptId": acceptance_id, "operationsDecisionId": operations["decision_id"],
                    "policyDecisionId": policy["decision_id"], "issuerEvidenceSha256": evidence_sha256,
                    "expiresAt": (now + timedelta(minutes=10)).isoformat().replace("+00:00", "Z")}
         if not args.issue_and_dispatch:
@@ -2836,6 +2901,12 @@ def main() -> None:
             parent_status = endpoint_request({"controlAction": "status", "permitId": args.parent_permit_id},
                                              secret, base_url)
             validate_completed_parent_status(parent_status, target, args.parent_permit_id, args.parent_run_id)
+            if qa.get("acceptance_model") == bounded_model:
+                from paid_three_page_bounded_cms import doc as bounded_document
+                require(parent_status == bounded_document(ROOT, qa["completed_parent"])
+                        and parent_status.get("savedUpdatedAt") == qa["row"]["raw_updated_at"]
+                        and request["permitId"] != args.parent_permit_id,
+                        "Exact actual SavedCAS/completed parent and new distinct rollback permit required")
         issued = endpoint_request(request, secret, base_url)
         require(issued.get("status") == "issued" and issued.get("permitId") == request["permitId"],
                 "Permit issue receipt mismatch; inspect status before retry")

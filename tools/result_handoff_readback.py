@@ -38,12 +38,17 @@ def verify_readback(status: dict, events: list, identity: dict) -> dict:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--outbox', type=Path, required=True)
+    parser.add_argument('--root', type=Path, help='准确项目根；默认当前工具所属项目')
     args = parser.parse_args()
     import workflow_control as workflow
-    root = Path(__file__).resolve().parents[1]
-    path = args.outbox.resolve()
-    if not path.is_relative_to(root / 'logs/department-outbox'):
-        parser.error('Outbox must belong to this project department-outbox directory')
+    root = (args.root or Path(__file__).resolve().parents[1]).resolve()
+    try:
+        path = workflow.safe_path(root, str(args.outbox))
+        relative = path.relative_to(root).as_posix()
+        identity = describe_outbox(path, 'notification_queued')
+        workflow.validate_outbox(root, [workflow.file_digest(root, relative)], identity['sender_department'], identity['task_id'])
+    except (workflow.WorkflowError, ValueError, OSError) as error:
+        parser.error(str(error))
     identity = describe_outbox(path, 'notification_queued')
     value = verify_readback(workflow.result_handoff_status(root, identity['task_id']),
                             workflow._result_handoff_rows(root, identity['task_id']), identity)

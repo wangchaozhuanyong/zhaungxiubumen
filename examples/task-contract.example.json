@@ -566,7 +566,8 @@
     "roles": {
       "seo-content-research": "GEO comprehensive professional audit/plan and continuous optimization; keyword/content research and drafts",
       "local-seo-maps": "local/map/trust research and exact candidates",
-      "content-organic-website": "technical SEO/CRO and implementation input; code execution delegated to designated development, CMS save to publishing"
+      "content-organic-website": "technical SEO/CRO and implementation input; code execution delegated to designated development, CMS save to publishing",
+      "system-development": "本公司部门协调系统Python控制源码、规则、任务/结果接续与源码导出；官网源码不属本角色"
     },
     "active_old_task_owner_preserved_until_handoff": true,
     "one_source_of_truth": "data/content/organic-growth-backlog.json",
@@ -579,7 +580,9 @@
       "title": "FLASH CAST｜专用开发部｜网站与部门系统",
       "cwd": "<WEBSITE_PROJECT_ROOT>",
       "existing_authorization_required": true
-    }
+    },
+    "system_source_developer": "system-development",
+    "future_system_source_tasks_owner": "system-development"
   },
   "organic_execution_contract": {
     "policy": "data/content/organic-execution-policy.json",

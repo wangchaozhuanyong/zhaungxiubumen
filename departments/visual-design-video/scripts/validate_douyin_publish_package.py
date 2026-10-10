@@ -15,6 +15,7 @@ try:
     from public_copy_guard import (
         DEFAULT_LEXICON, POLICY_VERSION, batch_text, load_lexicon, scan, sha_bytes,
         project_path, preflight_package, reject_synthetic, require_capture_review,
+        hashtag_fields, HASHTAG_POLICY_VERSION,
     )
 except ModuleNotFoundError as exc:
     # Existing consumers load this validator by file path solely for its hash API.
@@ -29,6 +30,7 @@ except ModuleNotFoundError as exc:
     batch_text, load_lexicon, scan, sha_bytes = module.batch_text, module.load_lexicon, module.scan, module.sha_bytes
     project_path, preflight_package = module.project_path, module.preflight_package
     reject_synthetic, require_capture_review = module.reject_synthetic, module.require_capture_review
+    hashtag_fields, HASHTAG_POLICY_VERSION = module.hashtag_fields, module.HASHTAG_POLICY_VERSION
 
 
 FIXED_HASHTAGS = {"#马来西亚装修公司", "#马来西亚全屋定制"}
@@ -75,6 +77,7 @@ def public_text_hash(
     video_description: str,
     hashtags: list[str],
     spoken_copy: str | None = None,
+    hashtags_en: list[str] | None = None,
 ) -> str:
     fields = {
         "cover_copy": cover_copy,
@@ -84,6 +87,8 @@ def public_text_hash(
     }
     if spoken_copy is not None:
         fields["spoken_copy"] = spoken_copy
+    if hashtags_en is not None:
+        fields["hashtags_en"] = hashtags_en
     canonical = json.dumps(
         fields,
         ensure_ascii=False,
@@ -140,6 +145,13 @@ def _validate(package_path: Path, lexicon_path: Path = DEFAULT_LEXICON, *, sandb
         errors.append("video_description_must_not_inline_hashtags")
 
     raw_hashtags = package.get("hashtags")
+    dual_hashtags = package.get("hashtag_policy_version") == HASHTAG_POLICY_VERSION
+    fixed_hashtags = {"#马来西亚装修公司"} if dual_hashtags else FIXED_HASHTAGS
+    try:
+        hashtag_sets = hashtag_fields(package)
+    except ValueError as exc:
+        errors.append(str(exc))
+        hashtag_sets = {}
     hashtags = raw_hashtags if isinstance(raw_hashtags, list) else []
     if len(hashtags) != 5:
         errors.append("hashtags_must_contain_exactly_five")
@@ -147,7 +159,7 @@ def _validate(package_path: Path, lexicon_path: Path = DEFAULT_LEXICON, *, sandb
         errors.append("hashtag_format_invalid")
     if len(set(hashtags)) != len(hashtags):
         errors.append("hashtags_must_be_unique")
-    missing_fixed = sorted(FIXED_HASHTAGS - set(hashtags))
+    missing_fixed = sorted(fixed_hashtags - set(hashtags))
     if missing_fixed:
         errors.append("fixed_hashtags_missing:" + ",".join(missing_fixed))
 
@@ -155,8 +167,14 @@ def _validate(package_path: Path, lexicon_path: Path = DEFAULT_LEXICON, *, sandb
     expected_caption = video_description + "\n\n" + " ".join(hashtags)
     if caption and caption != expected_caption:
         errors.append("caption_must_equal_description_plus_five_hashtags")
+    english_hashtags = hashtag_sets.get("hashtags_en")
+    if english_hashtags is not None:
+        english_caption = read_text(bounded_path(base, package.get("caption_en_hashtags_path")),
+                                    "caption_en_hashtags_path", errors)
+        if english_caption and english_caption != video_description + "\n\n" + " ".join(english_hashtags):
+            errors.append("english_caption_must_equal_same_description_plus_five_english_hashtags")
 
-    adaptive_tags = [tag for tag in hashtags if tag not in FIXED_HASHTAGS]
+    adaptive_tags = [tag for tag in hashtags if tag not in fixed_hashtags]
     raw_rationales = package.get("adaptive_hashtags")
     rationales = raw_rationales if isinstance(raw_rationales, list) else []
     rationale_by_tag = {
@@ -165,7 +183,8 @@ def _validate(package_path: Path, lexicon_path: Path = DEFAULT_LEXICON, *, sandb
         if isinstance(item, dict) and nonempty(item.get("tag"))
     }
     if set(rationale_by_tag) != set(adaptive_tags):
-        errors.append("adaptive_hashtag_rationales_must_match_three_tags")
+        errors.append("adaptive_hashtag_rationales_must_match_four_tags" if dual_hashtags
+                      else "adaptive_hashtag_rationales_must_match_three_tags")
     axes = {
         str(item.get("axis"))
         for item in rationales
@@ -187,7 +206,10 @@ def _validate(package_path: Path, lexicon_path: Path = DEFAULT_LEXICON, *, sandb
               "video_description": video_description, "hashtags": hashtags}
     if spoken_copy is not None:
         fields["spoken_copy"] = spoken_copy
-    computed_hash = public_text_hash(on_screen_copy, cover_copy, video_description, hashtags, spoken_copy)
+    if english_hashtags is not None:
+        fields["hashtags_en"] = english_hashtags
+    computed_hash = public_text_hash(on_screen_copy, cover_copy, video_description, hashtags,
+                                     spoken_copy, english_hashtags)
     if package.get("public_text_sha256") != computed_hash:
         errors.append("publish_package_public_text_sha256_mismatch")
 
@@ -280,7 +302,9 @@ def _validate(package_path: Path, lexicon_path: Path = DEFAULT_LEXICON, *, sandb
         "public_text_sha256": computed_hash,
         "batch_sha256": batch_hash,
         "local_risk_hits": local_hits,
-        "fixed_hashtags": sorted(FIXED_HASHTAGS),
+        "fixed_hashtags": sorted(fixed_hashtags),
+        "hashtag_policy_version": package.get("hashtag_policy_version", "legacy_two_fixed"),
+        "hashtags_en": english_hashtags,
         "adaptive_hashtags": adaptive_tags,
         "errors": errors,
     }

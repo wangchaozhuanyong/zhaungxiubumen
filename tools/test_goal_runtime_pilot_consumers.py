@@ -152,14 +152,17 @@ class PilotConsumerTests(unittest.TestCase):
         return runtime.begin_wait(self.root,role,path)
 
     def save_wait(self, batch, cursors=None, role=A, name='completion'):
+        cursors = cursors or {batch['targets'][0]['threadId']:'cursor-'+name}
+        native = self.t.write('reports/native-wait-'+name+'.json', {
+            'polls': [{'thread': {'id': tid}, 'cursor': cursor} for tid,cursor in cursors.items()], 'timedOut': True})
         path=self.t.write('reports/'+name+'.json', {'batch_id':batch['batch_id'], 'tool':'mcp__codex_app__wait_threads',
-                         'timeoutMs':30000,'native_receipt_ref':'synthetic-native-'+name,'cursors':cursors or {batch['targets'][0]['threadId']:'cursor-'+name}})
+                         'timeoutMs':30000,'native_receipt_ref':native,'actual_native_wait':w.file_digest(self.root,native),'cursors':cursors})
         return runtime.record_wait(self.root,role,path)
 
     def test_original_wait_batch_can_close_after_result_queued_and_duplicate_is_idempotent(self):
         t=self.t;plan,producer=t.prepare_initial_review(); batch=self.start_wait()
         identity={'task_id':t.task_id,'sender_department':P,'candidate_version':'v1','outbox_path':producer['path'],'result_sha256':producer['sha256']}
-        w.record_result_handoff(self.root,{**identity,'event':'notification_queued','idempotency_key':'queue-before-native-return'})
+        w.record_result_handoff(self.root,{**identity, **self.t.completed_result_fields(),'event':'notification_queued','idempotency_key':'queue-before-native-return'})
         self.assertEqual(runtime.wait_plan(self.root,A)['batches'],[])
         saved=self.save_wait(batch); self.assertEqual(self.save_wait(batch),saved)
         self.assertFalse(saved['proves_next_action']); self.assertFalse(saved['native_wakeup_guaranteed'])
@@ -217,7 +220,10 @@ class PilotConsumerTests(unittest.TestCase):
         batches=[self.start_wait(targets=targets) for targets in plan['batches']]
         errors=[]; paths=[]
         for i,b in enumerate(batches):
-            tid=b['targets'][0]['threadId'];paths.append(t.write('reports/parallel-'+str(i)+'.json',{'batch_id':b['batch_id'],'tool':b['tool'],'timeoutMs':30000,'native_receipt_ref':'synthetic-'+str(i),'cursors':{tid:'cursor-'+str(i)}}))
+            tid=b['targets'][0]['threadId']
+            cursors = {target['threadId']: 'cursor-'+str(i)+'-'+str(j) for j,target in enumerate(b['targets'])}
+            native = t.write('reports/native-parallel-'+str(i)+'.json', {'polls':[{'thread':{'id':thread},'cursor':cursor} for thread,cursor in cursors.items()], 'timedOut':True})
+            paths.append(t.write('reports/parallel-'+str(i)+'.json',{'batch_id':b['batch_id'],'tool':b['tool'],'timeoutMs':30000,'native_receipt_ref':native,'actual_native_wait':w.file_digest(self.root,native),'cursors':cursors}))
         def consume(path):
             try:runtime.record_wait(self.root,A,path)
             except Exception as error:errors.append(str(error))
@@ -225,7 +231,7 @@ class PilotConsumerTests(unittest.TestCase):
         for thread in threads:thread.start()
         for thread in threads:thread.join()
         self.assertEqual(errors,[])
-        self.assertEqual(len(w.read_json(self.root/'logs/goal-delivery-waits'/ (A+'.json'))['cursors']),2)
+        self.assertEqual(len(w.read_json(self.root/'logs/goal-delivery-waits'/ (A+'.json'))['cursors']),9)
 
     def test_same_target_second_wait_rejected_until_original_batch_completed(self):
         t=self.t;t.initialize();t.dispatch();batch=self.start_wait()

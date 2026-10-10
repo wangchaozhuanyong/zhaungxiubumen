@@ -537,7 +537,9 @@
         "imagegen",
         "hyperframes",
         "media-use",
-        "renovation-sales-ops"
+        "renovation-sales-ops",
+        "web-dev-toolkit:code-reviewer",
+        "web-dev-toolkit:design-acceptance"
       ],
       "approved_subskill_paths": [
         "<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md",
@@ -545,7 +547,9 @@
         "<CODEX_HOME>/skills/.system/imagegen/SKILL.md",
         "<CODEX_HOME>/skills/hyperframes/SKILL.md",
         "<CODEX_HOME>/skills/media-use/SKILL.md",
-        "<CODEX_HOME>/skills/renovation-sales-ops/SKILL.md"
+        "<CODEX_HOME>/skills/renovation-sales-ops/SKILL.md",
+        "<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/code-reviewer/SKILL.md",
+        "<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/design-acceptance/SKILL.md"
       ],
       "input_paths": [
         "AGENTS.md",
@@ -569,12 +573,73 @@
           "paid",
           "data",
           "visual",
-          "sales"
+          "sales",
+          "development_backup"
         ],
         "acceptance_unique_owner": true,
         "HQ_second_review_required": false,
-        "production_write_allowed": false
+        "production_write_allowed": false,
+        "technical_review_backup": {
+          "enabled": true,
+          "capability": "development_backup",
+          "mapped_acceptance_capability": "development",
+          "default_assistant": "operations-assistant-2",
+          "transfer_from": [
+            "operations-assistant-2"
+          ],
+          "allowed_producer_departments": [
+            "system-development"
+          ],
+          "allowed_scope_prefixes": [
+            "project:flashcast:"
+          ],
+          "explicit_transfer_required": true,
+          "production_write_allowed": false,
+          "professional_skill_sha256": "9ccff6d253023bf609abff8d422e084db37b213a4276f758bffd7256887f8e47",
+          "method_manifest": {
+            "path": "departments/operations-assistant-3/technical-backup-methods.json",
+            "sha256": "8a48fcca8eed78ceeffcf0ef065e92a48f4d071d132e31284519498614e13e7f",
+            "size": 1301
+          }
+        }
       },
+      "chat_binding": {
+        "status": "unbound",
+        "task_id": "",
+        "project_id": "",
+        "cwd": "",
+        "title": "",
+        "sidebar_section_id": "",
+        "sidebar_section_name": "",
+        "reply_health": "not_verified",
+        "dispatch_eligible": false,
+        "handoff_path": ""
+      }
+    },
+    {
+      "id": "system-development",
+      "name": "部门系统开发部",
+      "professional_skill": "departments/system-development/SKILL.md",
+      "role_config": ".codex/agents/system-development.toml",
+      "department_readme": "departments/system-development/README.md",
+      "approved_subskills": [],
+      "approved_subskill_paths": [],
+      "input_paths": [
+        "AGENTS.md",
+        "README.md",
+        "data/",
+        "tools/",
+        "playbooks/",
+        "logs/handoffs/"
+      ],
+      "output_paths": [
+        "departments/system-development/",
+        "logs/handoffs/",
+        "reports/",
+        "logs/department-outbox/"
+      ],
+      "mode": "worker",
+      "new_dispatch_enabled": true,
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -589,8 +654,8 @@
       }
     }
   ],
-  "total_role_count": 13,
-  "active_department_count": 11,
+  "total_role_count": 14,
+  "active_department_count": 12,
   "health_policy": {
     "verification_ttl_hours": 26
   },

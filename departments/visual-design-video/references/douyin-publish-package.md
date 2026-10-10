@@ -2,7 +2,7 @@
 
 本规则覆盖抖音视频的全部公开文案。2026-10-02老板要求优先于旧“只在publish/l4检测”的节流：只要要交付可直接用于抖音发布的字幕、封面、口播、描述或话题，就先完整规划，统一一批送轻抖。没有发布文字的纯内部画面小样不强加文案，但不得称其文字“轻抖已通过”。完整发布门禁仍在 `production_profile=publish|l4` 启用；不增加自动上传、发布或收费权限。
 
-2026-10-07最新补充：全部视频可见文字与封面中英双语，标签、主题、说明、改前/改后逐项对应；描述双语。老板明确保留5个中文话题，英语关键词融入英文描述，不新增英语标签。中英文同批冻结与检测，新增翻译使旧单语检测失效。
+2026-10-10最新规则：全部视频可见文字与封面中英双语，描述双语；每次交付中文话题版与英语话题版两份文案，每份正好5个话题、描述完全相同。中文只固定 `#马来西亚装修公司`，另4个由本条内容决定；英语版按相同顺序对应，采用适合马来西亚读者的自然行业用语。此规则替代旧“固定两个中文话题、不新增英语标签”。两套中英文同批冻结与检测，新增英语话题使旧检测失效；不追改冻结历史。
 
 ## 1. 公开文字是一套，不是四次零散检查
 
@@ -11,7 +11,7 @@
 1. 视频内可见文字：字幕、工艺标注、材料标签、CTA 和真实性披露；
 2. 封面文字；
 3. 视频描述；
-4. 正好 5 个话题。
+4. 正好5个中文话题及对应的5个英语话题（供两份不同文案选择，不在一份发布文案中混成10个）。
 
 有口播/旁白时，还必须提供 `spoken_copy_path` 指向全文；只读到字幕不算覆盖口播。视频文字包含片头片尾、品牌/联系方式、CTA、材料标注和“仅设计效果图”等披露。不得把内部制作说明、负面示例或整个storyboard当成公开文案送检；只汇总实际将显示或说出的文字。
 
@@ -19,7 +19,7 @@
 
 仅视觉返工且本任务的全部公开文字/批次字节完全不变时，可引用原真实轻抖结果：保存源task/run、原`checked_at`、原证据路径/哈希和当前整包哈希的一致性记录。当前包正确绑定该来源，不伪造新的检查时间或人类确认。不能跨内容任务借旧PASS，也不能拿旧视频QA放行新视觉版本。
 
-Qingdou 必须覆盖 `on_screen_copy`、`cover_copy`、`video_description`、`hashtags` 四项，有口播另加 `spoken_copy`，并保存可核验截图或导出报告。无法访问、未登录、结果不完整或哈希不匹配时，状态只能为 `HOLD`，不得用本地关键词表冒充 Qingdou 或抖音平台审核通过。
+Qingdou 必须覆盖 `on_screen_copy`、`cover_copy`、`video_description`、`hashtags`、`hashtags_en` 五项，有口播另加 `spoken_copy`，并保存可核验截图或导出报告。无法访问、未登录、结果不完整或哈希不匹配时，状态只能为 `HOLD`，不得用本地关键词表冒充 Qingdou 或抖音平台审核通过。无英语话题字段的冻结旧包只按原版本核验，不拿旧PASS放行新英语版。
 
 2026-10-07老板指定：轻抖操作使用 Codex 右侧内置浏览器（iab），优先绑定已打开并登录的检测页，不另开 Google Chrome，也不切换其登录会话。需要登录或可见安全验证时请老板在右侧完成；仅有后台残留验证节点时先看真实页面，不把隐藏节点误报为阻断。
 
@@ -78,9 +78,9 @@ python3 departments/visual-design-video/scripts/public_copy_guard.py check \
 
 ## 2. 视频描述
 
-必须生成独立 `video-description.txt`，再与话题组合成 `final/caption.txt`。描述遵守：
+必须生成独立 `video-description.txt`，再分别与两套话题组合成 `final/caption.txt`、`final/caption-en-tags.txt`。描述遵守：
 
-对老板交付时只给一个完整可复制发布文案：中文描述、英文描述、5个中文话题放在一起；不要把描述和话题拆成两次回复。内部独立文件用于同包哈希验证，不改变这一交付方式。
+对老板一次给两份完整可复制文案：第一份中文描述＋英文描述＋5个中文话题，第二份相同的中英描述＋5个英语话题。每份都可独立使用，不把描述和话题拆开，不将两套标签合成一份10标签文案。内部独立文件用于同包哈希验证。
 
 双语也须先检查当前项目校验器的长度范围（目前描述正文合计20–300字符，这是内部门限，不称为抖音官方限制）。先精简中英描述、再整包轻抖，避免翻译后才发现超长而反复送检；不修改门限来掩盖超长。
 
@@ -94,22 +94,27 @@ python3 departments/visual-design-video/scripts/public_copy_guard.py check \
 - CTA 克制且只有一个主要动作，例如“留言空间类型”或“预约量尺”；
 - 描述正文不混入 `#话题`，话题由单独字段管理。
 
-## 3. 五个话题
+## 3. 每份五个话题，中文与英语两版
 
-每条抖音发布包必须正好 5 个不重复话题。
+每套必须正好5个、不重复、无空格的完整 `#话题`；两套按相同顺序建立含义对应。
 
-固定话题：
+中文唯一固定话题：
 
 - `#马来西亚装修公司`
-- `#马来西亚全屋定制`
 
-另外 3 个由当前视频自动选择，每条分别覆盖一个轴：
+另外4个由当前视频自动选择，整体覆盖以下三个轴；第四个补充有用的服务、品类、材料或需求关键词，不用近义标签凑数：
 
 1. `content_topic`：当前内容主题，例如 `#装修避坑`、`#柜体设计`、`#全屋设计`；
 2. `space_or_style`：当前空间、品类或风格，例如 `#定制衣柜`、`#厨房橱柜`、`#意式极简`；
 3. `local_service_intent`：真实服务地区或本地意图，例如 `#吉隆坡装修`、`#雪兰莪装修`、`#吉隆坡全屋定制`。
 
-三个自适应话题必须与本条画面和公司服务范围一致，不追无关热词，不使用重复近义词占位。`publish-package.json.adaptive_hashtags[]` 记录每个话题的轴和选择理由。
+4个自适应话题必须与本条画面和公司服务范围一致，不追无关热词。`#马来西亚全屋定制` 可在适合的内容中选择，但不再是所有类型的固定话题。`publish-package.json.adaptive_hashtags[]` 逐个记录轴和选择理由。
+
+英语版的固定对应为 `#RenovationCompanyMalaysia`；其余4个逐项对应中文，使用当地自然的装修、室内设计和定制柜表达，不机械直译“全屋定制”为WholeHouseCustomization。地区限定只用真实服务范围，可用Malaysia、KL/KualaLumpur或Selangor。没有原生数据不称这些标签热门，不承诺流量。
+
+例如本条东方木石：`#马来西亚全屋定制` → `#CustomCabinetryMalaysia`，`#全屋设计` → `#InteriorDesignMalaysia`，`#东方木石` → `#ModernOrientalInterior`，`#吉隆坡装修` → `#KLRenovation`。这是本条含义对应示例，不是各类型共用固定标签池；不改写原视频设计主题。
+
+新包填写 `hashtag_policy_version=malaysia-dual-five-v1`、`hashtags_en` 和 `caption_en_hashtags_path`。两套话题进入同一公开文字哈希和送检文件；更换任一英语标签必须整包复检。旧包缺此话题版本时仅保留旧两固定标签的兼容验证，不作为新制作默认。
 
 ## 4. 两套封面画布
 
@@ -140,6 +145,7 @@ public-text/on-screen-copy.txt
 public-text/cover-copy.txt
 public-text/video-description.txt
 final/caption.txt
+final/caption-en-tags.txt
 qingdou-report.json
 evidence/qingdou-result.png|pdf|json
 cover-3x4.png
@@ -162,14 +168,24 @@ cover-validation.json
   "cover_copy_path": "public-text/cover-copy.txt",
   "video_description_path": "public-text/video-description.txt",
   "caption_path": "final/caption.txt",
+  "caption_en_hashtags_path": "final/caption-en-tags.txt",
+  "hashtag_policy_version": "malaysia-dual-five-v1",
   "hashtags": [
     "#马来西亚装修公司",
-    "#马来西亚全屋定制",
+    "#当前服务或需求",
     "#当前内容主题",
     "#当前空间或风格",
     "#当前本地服务意图"
   ],
+  "hashtags_en": [
+    "#RenovationCompanyMalaysia",
+    "#RelevantServiceOrNeed",
+    "#RelevantContentTopic",
+    "#RelevantSpaceOrStyle",
+    "#RelevantLocalIntent"
+  ],
   "adaptive_hashtags": [
+    {"tag": "#当前服务或需求", "axis": "content_topic", "reason": "<补充实际服务或需求，不是固定全屋定制>"},
     {"tag": "#当前内容主题", "axis": "content_topic", "reason": "<与本条内容的关系>"},
     {"tag": "#当前空间或风格", "axis": "space_or_style", "reason": "<与本条画面的关系>"},
     {"tag": "#当前本地服务意图", "axis": "local_service_intent", "reason": "<与真实服务范围的关系>"}
