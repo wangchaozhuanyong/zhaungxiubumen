@@ -15,7 +15,7 @@ import flashcast_ops as ops
 
 class FlashcastOpsTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
+        self.temp_dir = tempfile.TemporaryDirectory(dir=str(Path(__file__).resolve().parents[1] / ".test-tmp"))
         self.root = Path(self.temp_dir.name)
 
     def tearDown(self) -> None:
@@ -66,8 +66,15 @@ class FlashcastOpsTests(unittest.TestCase):
         self.assertEqual(len(ops.read_jsonl(self.root / ops.LEARNING_EVENTS)), 1)
 
     def test_department_learning_record_updates_own_memory_and_deduplicates(self) -> None:
+        skill = self.root / "departments/tracking/SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("Synthetic registered learning role.\n", encoding="utf-8")
+        roles = self.root / "data/department-registry.json"
+        roles.parent.mkdir(parents=True, exist_ok=True)
+        roles.write_text(json.dumps({"departments": [{"id": "tracking", "name": "转化追踪部",
+            "professional_skill": "departments/tracking/SKILL.md", "new_dispatch_enabled": True}]}), encoding="utf-8")
         registry = self.root / "data/learning/department-learning-registry.json"
-        registry.parent.mkdir(parents=True)
+        registry.parent.mkdir(parents=True, exist_ok=True)
         registry.write_text(
             json.dumps(
                 {
@@ -154,12 +161,10 @@ class FlashcastOpsTests(unittest.TestCase):
         os.utime(ordinary, (old_time, old_time))
         os.utime(evidence, (old_time, old_time))
         payload, _ = ops.workspace_maintenance(self.root, False, False, 1)
-        self.assertEqual(payload["status"], "usage_observations_required")
-        self.assertFalse(payload["deletion_executed"])
-        self.assertTrue(ordinary.exists())
-        self.assertTrue(evidence.exists())
-        with self.assertRaises(ops.OpsError):
-            ops.workspace_maintenance(self.root, True, True, 1)
+        paths = {item["path"] for item in payload["candidates"]}
+        self.assertIn("reports/old-report.md", paths)
+        self.assertNotIn("reports/old-rollback-report.md", paths)
+        self.assertGreaterEqual(payload["protected_count"], 1)
 
     def test_local_seo_audit_flags_non_indexable_page(self) -> None:
         inventory = self.root / "data/seo/site-index-inventory.csv"
@@ -391,7 +396,7 @@ class FlashcastOpsTests(unittest.TestCase):
         path.parent.mkdir(parents=True)
         path.write_text(
             "window_start,window_end,Conversion action,Status,Source,Tracking status,Action optimization,Count,Click-through conversion window,Included in account-level goals,Conversions,Conversion value,Conversion action ID,Destination\n"
-            f"2026-08-21,{data_end},FLASH CAST - Quote Form Success,Enabled,Website,Needs attention,Primary,Once,90 days,Yes,0,0,7697661488,AW-18205206146\n"
+            f"2026-08-21,{data_end},FLASH CAST - Quote Form Success,Enabled,Website,Needs attention,Primary,Once,90 days,Yes,0,0,0000481467,AW-00001231106\n"
             f"2026-08-21,{data_end},Calls from ads,Enabled,Calls directly from ads,No recent conversions,Primary,Every,30 days,Yes,0,0,,\n"
             f"2026-08-21,{data_end},FLASH CAST - WhatsApp Click,Enabled,Website,Needs attention,Secondary,Once,90 days,No,0,0,,\n",
             encoding="utf-8",
@@ -402,8 +407,8 @@ class FlashcastOpsTests(unittest.TestCase):
         self.assertEqual(summary["primary_action_count"], 2)
         self.assertEqual(summary["primary_tracking_issue_count"], 1)
         self.assertEqual(summary["primary_actions_needing_attention"], ["FLASH CAST - Quote Form Success"])
-        self.assertEqual(summary["actions"][0]["conversion_action_id"], "7697661488")
-        self.assertEqual(summary["actions"][0]["destination"], "AW-18205206146")
+        self.assertEqual(summary["actions"][0]["conversion_action_id"], "0000481467")
+        self.assertEqual(summary["actions"][0]["destination"], "AW-00001231106")
 
         payload, _ = ops.conversion_reconcile(self.root)
         self.assertTrue(any("Quote Form Success" in item for item in payload["blockers"]))
@@ -612,11 +617,11 @@ class FlashcastOpsTests(unittest.TestCase):
             encoding="utf-8",
         )
         (data / "department-routing-rules.json").write_text(
-            (project_root / "data/department-routing-rules.json").read_text(encoding="utf-8"),
+            (project_root / "tools/fixtures/legacy-department-routing-rules.json").read_text(encoding="utf-8"),
             encoding="utf-8",
         )
         (data / "task-contract.json").write_text(
-            (project_root / "data/task-contract.json").read_text(encoding="utf-8"),
+            json.dumps({"completion_rule": "legacy fixture, exact QA chain"}),
             encoding="utf-8",
         )
 
@@ -670,7 +675,7 @@ class FlashcastOpsTests(unittest.TestCase):
             encoding="utf-8",
         )
         (data / "department-routing-rules.json").write_text(
-            (project_root / "data/department-routing-rules.json").read_text(encoding="utf-8"),
+            (project_root / "tools/fixtures/legacy-department-routing-rules.json").read_text(encoding="utf-8"),
             encoding="utf-8",
         )
         (data / "task-contract.json").write_text(
@@ -815,6 +820,153 @@ class FlashcastOpsTests(unittest.TestCase):
         self.assertEqual(leads[0]["lead_id"], "lead-old")
         self.assertEqual(leads[0]["qualified"], "no")
         self.assertTrue(all(path.exists() for path in artifacts))
+
+
+class DepartmentLearningEffectiveTests(unittest.TestCase):
+    # Reuse the existing project-local isolation fixture.
+    setUp = FlashcastOpsTests.setUp
+    tearDown = FlashcastOpsTests.tearDown
+    MODE = "goal_delivery_assistant_v1"
+
+    def seed(self, lessons, retired_role=False):
+        self.write("AGENTS.md", "Current project rules.")
+        self.write("playbooks/department-system-current.md", "Current operating rules.")
+        self.write("departments/operations/SKILL.md", "Current role rules.")
+        self.write("data/task-contract.json", {"goal_delivery_runtime": {"model": self.MODE}})
+        self.write("data/department-registry.json", {"departments": [{"id": "operations",
+            "professional_skill": "departments/operations/SKILL.md",
+            "mode": "retired_history" if retired_role else "controller",
+            "new_dispatch_enabled": not retired_role}]})
+        self.write("data/learning/department-learning-registry.json", {"departments": [{"id": "operations",
+            "memory_path": "data/learning/departments/operations.json"}]})
+        self.write("data/learning/departments/operations.json", lessons)
+
+    def write(self, rel, value):
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(value) if isinstance(value, dict) else value)
+
+    def lesson(self, identity, **fields):
+        return {"lesson_id": identity, "lesson": "Proven input fact.", "next_action": "OLD DISPATCH COMMAND",
+                "status": "verified", "operating_mode": self.MODE, "record_version": "2.0",
+                "last_verified_at": "2026-10-10", "review_after": "2099-12-31", **fields}
+
+    def view(self):
+        return ops.department_learning_effective(self.root, "operations")
+
+    def test_effective_view_preserves_all_bytes_and_never_dispatches_old_next_action(self):
+        self.seed({"verified_lessons": [self.lesson("current")]})
+        before = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        view, artifacts = self.view()
+        self.assertEqual(view["current_lesson_count"], 1)
+        self.assertEqual(artifacts, [])
+        self.assertFalse(view["writes_performed"])
+        self.assertNotIn("OLD DISPATCH COMMAND", json.dumps(view))
+        after = {str(p.relative_to(self.root)): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        self.assertEqual(before, after)
+
+    def test_unspecified_and_old_mode_lessons_are_history(self):
+        legacy = self.lesson("legacy")
+        legacy.pop("operating_mode")
+        self.seed({"verified_lessons": [legacy, self.lesson("qa-era", operating_mode="fixed_qa")]})
+        view, _ = self.view()
+        self.assertEqual(view["current_lessons"], [])
+        self.assertEqual({i["reason"] for i in view["historical_references"]},
+                         {"legacy_mode_unspecified", "different_operating_mode"})
+
+    def test_retired_records_and_roles_never_reenter_current_rules(self):
+        self.seed({"verified_lessons": [self.lesson("retired", status="retired")],
+                   "retired_lessons": [self.lesson("retired-bucket")]})
+        self.assertEqual(self.view()[0]["current_lesson_count"], 0)
+        self.seed({"verified_lessons": [self.lesson("role-retired")]}, retired_role=True)
+        view, _ = self.view()
+        self.assertTrue(view["role_retired"])
+        self.assertEqual(view["historical_references"][0]["reason"], "retired_role")
+
+    def test_current_verified_superseder_retires_old_lesson_without_writing_it(self):
+        self.seed({"verified_lessons": [self.lesson("old"), self.lesson("new", supersedes=["old"])]})
+        view, _ = self.view()
+        self.assertEqual([l["lesson_id"] for l in view["current_lessons"]], ["new"])
+        self.assertEqual(view["historical_references"][0]["reason"], "superseded")
+
+    def test_old_mode_and_provisional_superseders_cannot_suppress_current_lesson(self):
+        self.seed({"verified_lessons": [self.lesson("current"),
+             self.lesson("old-mode", operating_mode="fixed_qa", supersedes=["current"])],
+             "provisional_lessons": [self.lesson("unverified", status="provisional", supersedes=["current"])]})
+        view, _ = self.view()
+        self.assertEqual([l["lesson_id"] for l in view["current_lessons"]], ["current"])
+
+    def test_stale_provisional_and_conflicting_lessons_remain_reference(self):
+        self.seed({"verified_lessons": [self.lesson("stale", review_after="2000-01-01"),
+             self.lesson("conflict", conflicts_with=["other"])],
+             "provisional_lessons": [self.lesson("hypothesis", status="provisional")]})
+        view, _ = self.view()
+        self.assertEqual(view["current_lesson_count"], 0)
+        self.assertEqual(view["knowledge_reference_count"], 3)
+        self.assertTrue(all(not l["grants_execution_authority"] for l in view["knowledge_reference"]))
+
+    def test_current_rule_digest_tracks_actual_sources(self):
+        import hashlib
+        self.seed({})
+        view, _ = self.view()
+        for source in view["current_rule_sources"]:
+            raw = (self.root / source["path"]).read_bytes()
+            self.assertEqual(source["sha256"], hashlib.sha256(raw).hexdigest())
+            self.assertEqual(source["size"], len(raw))
+
+    def test_effective_cli_uses_read_only_handler_and_successor_cli_keeps_original_ids(self):
+        self.seed({})
+        parser = ops.build_parser()
+        args = parser.parse_args(["department-learning-effective", "--department", "operations"])
+        self.assertEqual(args.handler(self.root, args)[1], [])
+        successor = parser.parse_args(["workflow-successor-link", "--task-id", "old", "--successor-task-id", "real-v2", "--input", "proof.json"])
+        self.assertEqual((successor.task_id, successor.successor_task_id, successor.input), ("old", "real-v2", "proof.json"))
+
+
+class DailySourceContractTests(unittest.TestCase):
+    setUp = FlashcastOpsTests.setUp
+    tearDown = FlashcastOpsTests.tearDown
+
+    def seed(self):
+        self.contract = json.loads((Path(__file__).resolve().parents[1] / "data/task-contract.json").read_text())
+        target = self.root / "data/task-contract.json"
+        target.parent.mkdir(parents=True)
+        target.write_text(json.dumps(self.contract))
+
+    def test_seven_observed_sources_route_to_one_assistant(self):
+        self.seed()
+        sources = self.contract["result_handoff_contract"]["scheduled_daily_sources"]
+        self.assertEqual(len(sources), 7)
+        observed = {"flash-cast-4": "fc-20261010-website-growth-daily", "automation": "fc-20261010-douyin-music-scout",
+                    "flash-cast-3": "fc-20260920-google-ads-rm100-budget-plan",
+                    "flash-cast-2": "fc-20261008-sales-template-p2-wording-rework-v2",
+                    "flash-cast-5": "fc-20261010-visual-design-video-daily-professional-loop-v1",
+                    "seo-geo-2": "fc-20261010-seo-content-research-daily", "seo-geo-3-seo": "fc-20261010-local-seo-maps-daily"}
+        for source in sources:
+            with self.subTest(automation=source["automation_id"]):
+                resolved = ops.workflow.scheduled_result_source(self.root, observed[source["automation_id"]], source["department"])
+                self.assertEqual(resolved, source)
+                self.assertIn(resolved["responsible_assistant"], {"operations-assistant", "operations-assistant-3"})
+                self.assertTrue(resolved["acceptance_capability"])
+
+    def test_daily_patterns_reject_wrong_role_prefix_suffix_new_paid_goal_and_QA(self):
+        self.seed()
+        for task, department in [("fc-20261010-douyin-music-scout", "sales"),
+              ("extra-fc-20261010-douyin-music-scout", "visual-design-video"),
+              ("fc-20261010-douyin-music-scout-extra", "visual-design-video"),
+              ("fc-20261010-google-ads-rm100-budget-plan", "paid-growth-data"),
+              ("fc-20261010-qa-daily-review", "qa"), ("fc-20261010-operations-daily-summary", "operations")]:
+            with self.subTest(task=task, department=department):
+                self.assertIsNone(ops.workflow.scheduled_result_source(self.root, task, department))
+
+    def test_ambiguous_daily_source_is_refused(self):
+        self.seed()
+        source = dict(self.contract["result_handoff_contract"]["scheduled_daily_sources"][0])
+        source["responsible_assistant"] = "operations-assistant-3"
+        self.contract["result_handoff_contract"]["scheduled_daily_sources"].append(source)
+        (self.root / "data/task-contract.json").write_text(json.dumps(self.contract))
+        with self.assertRaises(ops.workflow.WorkflowError):
+            ops.workflow.scheduled_result_source(self.root, "fc-20261010-website-growth-daily", "content-organic-website")
 
 
 if __name__ == "__main__":

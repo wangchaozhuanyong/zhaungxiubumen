@@ -3,11 +3,9 @@ name: flashcast-department-learning
 description: "为 FLASH CAST 装修公司各部门记录、复盘并继承有证据支持的工作经验；适用于部门任务完成、失败复盘和下一次派工前的学习加载。"
 ---
 
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
-
 # FLASH CAST 部门学习技能
 
-这个 Skill 是所有部门共用的“学习底座”，给部门增加可继承的工作记忆，不是重新训练模型参数。每个部门还必须同时加载自己的专业 Skill：专业 Skill 负责岗位方法，本 Skill 负责经验记录和继承。部门每次工作前读取自己的记忆，工作后把经过证据支持的经验沉淀下来，下一次任务再读取使用。
+这个 Skill 为部门保存有证据的经验。专业主Skill负责岗位方法，本Skill负责经验继承；开始前加载当前模式的只读有效学习视图，原记忆用于追溯，不能代替现行规则或真实授权。
 
 ## 什么时候使用
 
@@ -21,14 +19,20 @@ description: "为 FLASH CAST 装修公司各部门记录、复盘并继承有证
 
 ### 1. 开始前加载记忆
 
-确认当前 `department_id` 和 `task_id`，然后按顺序读取：
+确认当前注册 `department_id` 和 `task_id`，先执行只读命令：
+
+```bash
+python3 tools/flashcast_ops.py department-learning-effective --department <department_id>
+```
+
+视图的规则来源为现行AGENTS、运行规则和注册主Skill，包含准确文件哈希；经验按当前 `goal_delivery_runtime.model`、retired/status、supersedes及新鲜度过滤。`current_lessons` 可作本轮经验参考，`knowledge_reference` 仅供复核，`historical_references` 解释退出原因。每类都不将旧 `next_action` 输出为当前派工命令。要解释原事实时再读取：
 
 1. `data/learning/department-learning-registry.json`
 2. 当前部门的 `data/learning/departments/<department_id>.json`
 3. `data/learning/department-inheritance.json`
 4. 本次任务指定的最新证据文件
 
-只继承当前部门相关的规则和经验，不把别的部门的猜测当作自己的事实。
+历史JSON、继承通知和所有历史字节保持原样。未声明适用当前模式的旧操作经验、retired角色/记录及已被有效supersedes替代的记录不进入当前规则；旧next_action仅解释原任务，新的动作仍由当前目标和真实授权决定。只继承当前部门相关且有证据的经验，不把别的部门猜测当事实。
 
 ### 2. 工作中区分三种内容
 
@@ -40,7 +44,7 @@ description: "为 FLASH CAST 装修公司各部门记录、复盘并继承有证
 
 ### 3. 完成后沉淀学习
 
-部门必须先在自己的 Codex 聊天框直接回复老板/总控，再写结构化回传，最后记录一条学习事件。建议命令：
+部门先在自己的固定聊天提交非空结果，再冻结V2回传，最后记录有证据的学习事件。专业成果交唯一负责助理，助理已验收总结交总部知悉。建议命令：
 
 ```bash
 python3 tools/flashcast_ops.py department-learning-record \
@@ -58,11 +62,11 @@ python3 tools/flashcast_ops.py department-learning-record \
   --review-after "2026-09-07"
 ```
 
-学习记录必须包含部门、任务、经验、证据、结果和下一步。V2 应尽量记录 `data_window`、`last_verified_at`、`review_after`、`confidence`、`status`；有冲突或替代关系时使用 `conflicts_with` 和 `supersedes`。不能写入密码、Token、Cookie、OAuth、私钥或完整客户个人信息。
+学习记录包含部门、原任务、经验、证据、结果和原任务下一步。V2尽量记录 `data_window`、`last_verified_at`、`review_after`、`confidence`、`status`；冲突与替代使用 `conflicts_with` 和 `supersedes`。新记录默认绑定当前运行模式，不能改写旧记录补成当前经验；不能写入密码、Token、Cookie、OAuth、私钥或完整客户个人信息。
 
 ### 4. 下次任务怎么用
 
-下一次任务先读本部门记忆：
+下一次任务先用有效视图核适用模式，再按需回读原记忆：
 
 - `inherited_lessons` 是从总控和旧资料带来的起始经验，必须结合当前证据复核；
 - `verified_lessons` 可以作为工作起点，但仍要核对当前数据；

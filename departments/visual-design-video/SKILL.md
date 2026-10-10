@@ -3,15 +3,18 @@ name: flashcast-visual-design-video
 description: "FLASH CAST 装修视觉与视频专业 Skill。规划、制作、返工和质检六类装修短视频、效果图与封面；统一中英双语编辑式排版、音乐和风格轮换，支持同图局部放大与直接交成片。明确无字任务仍保留无字。"
 ---
 
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
-
 # FLASH CAST 视觉设计与视频专业 Skill
 
 本部门的现行入口；老板截至2026-10-08的已确认制作偏好集中在此及下列引用，不再逐日追加相互覆盖的默认值。当前任务明确要求优先，真实性、安全和准确外部授权边界不变；本项目偏好高于通用 Skill 的默认皮肤、角标和历史样例。
 
 ## 开始前与职责边界
 
+- 读取 `AGENTS.md`、本部门 README、注册表中本部门条目、路由规则、七份公司确认资料、相关 brief/原任务回执。
 - 读取 `skills/flashcast-department-learning/SKILL.md`、本部门活动学习记录；`retired_lessons`只供指定历史复现，不加载为新任务默认，有`supersedes`的新经验优先。
+- 任务只要整理 Skill 或方案时，不额外生成图片/视频；明确制作或返工才进入生产。输出在本项目 `drafts/creative/<task_id>/<run_id>/`、`delivery/creative/<task_id>/<run_id>/`，不写共享 Skill runtime。
+- 按 `playbooks/department-system-current.md` 的动态注册角色与 `playbooks/department-daily-professional-loop.md` 执行。先续原任务、QA最小返工和依赖齐全事项；普通结果不向其他聊天发送、不打断active、不自行跨部门派工。
+- 先在本固定聊天非空回报，再按真实回执冻结V2、唯一入队及回读；缺原生回执只能如实保留待补，不伪造。停止必列未完范围、唯一负责人、下一动作和解除条件。不扩展生产许可。
+
 只使用注册表的4个生产子 Skill：`full-house-custom-ad`（行业总导演）、`imagegen`（空间/封面素材）、`hyperframes`（正式最终时间线）、`media-use`（媒体冻结与来源）。本地脚本与封面描述词模块不是额外子 Skill。技能维护按当前用户授权，不扩展生产白名单。
 
 ## 六类产品，共用文字和封面方法
@@ -41,7 +44,7 @@ description: "FLASH CAST 装修视觉与视频专业 Skill。规划、制作、�
 | 保留全景的同源局部放大、分辨率与定位 | [同图局部细节](references/same-image-detail-lens.md) |
 | 全部文案、风险词库、右侧轻抖、合并发布描述 | [抖音发布包](references/douyin-publish-package.md) |
 | 适配随机音乐、实际使用账与参考视频 | [音乐工作流](references/music-first-reference-workflow.md) |
-| 目录与合同、机器检查和独立QA边界 | [生产合同](references/production-contract.md)、[QA门](references/qa-gates.md) |
+| 目录与合同、机器检查和唯一负责助理独立验收边界 | [生产合同](references/production-contract.md)、[QA门](references/qa-gates.md) |
 
 自主或参考任务再按需读取 [自主创意](references/autonomous-renovation-workflow.md) 与 [技能路由](references/skill-routing.md)。不为了简单字幕返工重新学习全部平台或重新分析未变素材。
 
@@ -69,7 +72,7 @@ description: "FLASH CAST 装修视觉与视频专业 Skill。规划、制作、�
 4. 只在右侧内置浏览器操作轻抖，不打开Google Chrome。真实命中按证据去重入风险库，改写后整包复检；当前整包无命中、证据/哈希经执行者实核即可继续，不问老板是否看过截图。视觉返工且文字完全未改时按发布包规则引用原检测时间，不伪称新检测。
 5. 先做代表帧内检，核原尺寸/360px字体、家具保护、衬底、细节同源与3:4/9:16封面。直接出片自行完成内检后继续；只有当前任务明确“先给图确认”才停在该确认点，不重复问已认可样式。
 6. HyperFrames输出单条MP4，解码核帧0/1、逐镜/切点、稳定主图、图文对应、音视频流和≤30秒时长。最终文件与报告绑定本次run；检查未支持新组件时保留失败事实并补实际测量，不伪造全量PASS。
-7. 给老板成片、可点击绝对文件夹地址，以及**中文描述＋英文描述＋5个话题合在一起**的可复制文案（`caption.txt`）。技术验证、内检、独立QA和平台发布分别说清；不上传/发布。
+7. 给老板成片、可点击绝对文件夹地址，以及**中文描述＋英文描述＋5个话题合在一起**的可复制文案（`caption.txt`）。技术验证、内检、唯一负责助理独立验收和平台发布分别说清；不上传/发布。
 
 `qc-report.json` 为机器证据，`qa-report.json` 是唯一聚合结论，handoff只引用当前聚合QA；同任务新run不能直接使用旧视频QA。可修复问题先在本范围修复并继续，事实/登录/授权等缺口只阻断依赖项，按实际解除条件说明。
 

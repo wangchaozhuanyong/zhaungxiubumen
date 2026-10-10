@@ -1,23 +1,26 @@
 {
   "schema_version": 1,
-  "task_id": "fc-synthetic-qa2-example-v1",
+  "task_id": "fc-synthetic-goal-assistant-example-v1",
   "action_id": "review-synthetic-control",
   "action_class": "internal_control_candidate",
   "scope": "project:synthetic-control:exact-v1",
   "candidate_version": "synthetic-v1",
   "candidate_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "candidate": {
-    "path": "drafts/operations/fc-synthetic-qa2-example-v1/synthetic-v1/candidate.json",
+    "path": "drafts/examples/fc-synthetic-goal-assistant-example-v1/synthetic-v1/candidate.json",
     "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
     "size": 123
   },
-  "producer_department": "operations-assistant",
-  "reviewer_department": "qa-technical",
-  "reviewer_thread_id": "synthetic-fixed-qa2",
-  "controller_department": "operations",
-  "controller_thread_id": "synthetic-fixed-operations",
+  "producer_department": "content-organic-website",
+  "reviewer_department": "operations-assistant-2",
+  "reviewer_thread_id": "UNBOUND_EXAMPLE_ASSISTANT2_REQUIRES_REAL_BINDING",
+  "controller_department": "operations-assistant-2",
+  "controller_thread_id": "UNBOUND_EXAMPLE_ASSISTANT2_REQUIRES_REAL_BINDING",
   "single_final_reviewer": true,
   "risk_level": "R0",
   "production_write_allowed": false,
-  "external_permission_issued": false
+  "external_permission_issued": false,
+  "model": "goal_delivery_assistant_v1",
+  "example_only_not_dispatch_or_permission": true,
+  "HQ_second_review_required": false
 }

@@ -1,4 +1,4 @@
 {
-  "description": "当前没有启用 hooks；Stop 不运行。工具仅供手动检查，队列不能唤醒结束聊天。",
+  "description": "FLASH CAST 总部本轮结束前检查：只读当前准确回执；不发消息、不授生产权、不启动定时轮询。需要在 Codex /hooks 审阅并信任后才会运行。",
   "hooks": {}
 }

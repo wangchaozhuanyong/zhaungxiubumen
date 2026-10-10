@@ -1,5 +1,3 @@
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
-
 # 视觉设计与视频部
 
 2026-09-27老板新增“短视频自然增长技能学习”职责：覆盖抖音、TikTok、小红书、IG、Facebook、快手，先选真实热门/维护的GitHub Skill、学习、验证内部应用，再准确接入已验收的方法。原task_id=fc-20260927-short-video-organic-skill-study-v1，入口logs/handoffs/2026-09-27-short-video-organic-skill-study-v1.md。新来源未获准确白名单核验前只读学习；不以研究代替流量实测、不自动发布或投放。
@@ -81,4 +79,4 @@ $full-house-custom-ad
 做一条厨房装修避坑讲解，中英双语，先给脚本、分镜和素材需求，等我确认后再出片。
 ```
 
-已正式接入的静态方法参考包：`data/learning/visual-short-video-method-reference-v1.json`，5份准确路径/hash经固定QA通过；后续短视频任务通过本部门主Skill读取。原第三方10项未授调用/安装权限，原4项制作Skill保持。
+已正式接入的静态方法参考包：`data/learning/visual-short-video-method-reference-v1.json`，5份准确路径/hash经唯一负责助理通过；后续短视频任务通过本部门主Skill读取。原第三方10项未授调用/安装权限，原4项制作Skill保持。

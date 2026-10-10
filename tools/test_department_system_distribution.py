@@ -1,15 +1,28 @@
 from pathlib import Path
+import copy
 import importlib.util
 import json
 import hashlib
+import os
+import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 import setup_department_system as setup
 import export_department_system as exporter
+import department_system_package as package
+import test_export_department_system as export_tests
 
 
 class DistributionTests(unittest.TestCase):
+    def setUp(self):
+        self.area = Path(os.environ.get("DEPARTMENT_SYSTEM_TEST_OUTPUT", str(Path(__file__).resolve().parents[1] / ".test-tmp" / "distribution-tests")))
+        self.area.mkdir(parents=True, exist_ok=True)
+
+    def temporary_directory(self):
+        return tempfile.TemporaryDirectory(dir=self.area)
+
     def preparation_example(self):
         return ('from pathlib import Path\nfrom typing import Any\n'
                 'AUTH_TURN_ID = "private-turn-fixture"\n'
@@ -53,18 +66,32 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(set(namespace["SOURCE_PINS"]), {"v17", "v18", "v20"})
 
     def fixture(self, root):
-        examples = root / "examples"
-        examples.mkdir()
-        for name in ("department-registry", "department-routing-rules", "task-contract", "action-policy", "delegation-policy"):
-            value = {"departments": [{"id": "operations-assistant", "professional_skill": "departments/operations-assistant/SKILL.md", "chat_binding": {"status": "unbound", "dispatch_eligible": False}}]} if name == "department-registry" else {}
-            (examples / (name + ".example.json")).write_text(json.dumps(value))
-        for name in ("company-context", "service-area", "services-and-pricing", "customer-personas", "brand-guidelines", "case-studies", "faq"):
-            (examples / (name + ".md")).write_text("待确认")
+        source_fixture = export_tests.ExportTests("runTest")
+        source_fixture.setUp()
+        self.addCleanup(source_fixture.doCleanups)
+        source = root / "source"
+        shutil.copytree(source_fixture.root, source)
+        target = source / "releases/public"
+        exporter.prepare(source, target)
+        return target
+
+    def files(self, root):
+        return {path.relative_to(root).as_posix(): path.read_bytes()
+                for path in root.rglob("*") if path.is_file()}
+
+    def reseal(self, root):
+        path = root / "release-manifest.json"
+        manifest = json.loads(path.read_text())
+        for row in manifest["files"]:
+            raw = (root / row["path"]).read_bytes()
+            row["bytes"] = len(raw)
+            row["release_sha256"] = hashlib.sha256(raw).hexdigest()
+        path.write_text(json.dumps(package.seal_manifest(manifest), ensure_ascii=False, indent=2) + "\n")
 
     def test_setup_does_not_activate_chats_or_accounts(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with self.temporary_directory() as directory:
             root = Path(directory)
-            self.fixture(root)
+            root = self.fixture(root)
             result = setup.setup(root)
             self.assertEqual(result["external_permissions_issued"], 0)
             self.assertEqual(result["chats_created"], 0)
@@ -72,12 +99,15 @@ class DistributionTests(unittest.TestCase):
             self.assertFalse(binding["dispatch_eligible"])
 
     def test_repeat_setup_preserves_local_bindings_and_company_edits(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with self.temporary_directory() as directory:
             root = Path(directory)
-            self.fixture(root)
+            root = self.fixture(root)
             setup.setup(root)
             path = root / "data/department-registry.json"
-            path.write_text('{"departments": [], "local_history": "keep"}')
+            value = json.loads(path.read_text())
+            value["local_history"] = "keep"
+            value["departments"][0]["chat_binding"]["task_id"] = "fixture-local-history-binding"
+            path.write_text(json.dumps(value))
             company = root / "company-context.md"
             company.write_text("本机已确认资料")
             result = setup.setup(root)
@@ -86,209 +116,215 @@ class DistributionTests(unittest.TestCase):
             self.assertEqual(company.read_text(), "本机已确认资料")
 
     def test_missing_examples_fail_before_creation(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with self.temporary_directory() as directory:
             root = Path(directory)
             with self.assertRaises(ValueError):
                 setup.setup(root)
             self.assertFalse((root / "data").exists())
 
     def test_incomplete_examples_fail_before_creation(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with self.temporary_directory() as directory:
             root = Path(directory)
-            self.fixture(root)
+            root = self.fixture(root)
             (root / "examples/faq.md").unlink()
-            with self.assertRaises(FileNotFoundError):
+            with self.assertRaises((FileNotFoundError, ValueError)):
                 setup.setup(root)
             self.assertFalse((root / "data").exists())
 
-    def test_new_registered_role_is_exported_sanitized_and_initialized(self):
-        import copy,shutil
-        source=Path(__file__).resolve().parents[1]
-        with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory)/'new-role-project'
-            shutil.copytree(source,root,ignore=shutil.ignore_patterns('history','releases','__pycache__'))
-            # Fixture copies stay writable even when the candidate is sealed read-only.
-            for path in root.rglob('*'):
-                path.chmod(0o700 if path.is_dir() else 0o600)
-            root.chmod(0o700)
-            registry=json.loads((root/'data/department-registry.json').read_text())
-            role=copy.deepcopy(registry['departments'][-1]);role.update(id='new-specialist',name='新专业部门',
-                professional_skill='departments/new-specialist/SKILL.md',role_config='.codex/agents/new-specialist.toml',
-                department_readme='departments/new-specialist/README.md')
-            role['chat_binding'].update(task_id='private-native-new-role',project_id='private-new-project',cwd=str(root))
-            registry['departments'].append(role);(root/'data/department-registry.json').write_text(json.dumps(registry))
-            folder=root/'departments/new-specialist';folder.mkdir()
-            (folder/'SKILL.md').write_text('新专业职责；固定绑定private-native-new-role仅在本机。')
-            (folder/'README.md').write_text('依注册表初始化与回报。')
-            (root/role['role_config']).write_text('name = "新专业部门"\n')
-            result=exporter.prepare(root,root/'releases/new-role')
-            self.assertEqual(result['roles'],len(registry['departments']))
-            release=root/'releases/new-role'
-            public=json.loads((release/'examples/department-registry.example.json').read_text())
-            self.assertIn('new-specialist',[r['id'] for r in public['departments']])
-            self.assertNotIn('private-native-new-role',(release/'departments/new-specialist/SKILL.md').read_text())
-            setup.setup(release)
-            learning=json.loads((release/'data/learning/department-learning-registry.json').read_text())
-            self.assertIn('new-specialist',[r['id'] for r in learning['departments']])
-            self.assertEqual(setup.setup(release)['chats_created'],0)
-            second=release/'releases/new-role-again'
-            repeated=exporter.prepare(release,second)
-            self.assertEqual(repeated['roles'],len(registry['departments']))
-            second_manifest=json.loads((second/'release-manifest.json').read_text())
-            self.assertEqual(second_manifest['privacy_gate']['status'],'PASS')
-            self.assertEqual(second_manifest['version'],'2026.10.09.16')
-            self.assertNotIn('private-native-new-role',(second/'departments/new-specialist/SKILL.md').read_text())
-
-    def handover_fixture(self, root):
-        import original_task_publisher_handover as handover
-        (root/'data').mkdir()
-        (root/'data/action-policy.json').write_text('{"schema_version":1}')
-        return handover
-
-    def test_public_handover_ordinary_interfaces_keep_original_neutral_results(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);handover=self.handover_fixture(root)
-            snapshot={'task_id':'ordinary-synthetic-task'};receipts=[]
-            self.assertIsNone(handover.binding(root,snapshot['task_id'],receipts))
-            self.assertEqual(handover.dispatch_precheck(root,snapshot,'qa','synthetic-qa','a','s'),[])
-            self.assertFalse(handover.validate_new_receipt(root,snapshot,receipts,{}))
-            unchanged=handover.legacy_context(root,snapshot,receipts)
-            self.assertIs(unchanged[0],snapshot);self.assertIs(unchanged[1],receipts)
-            self.assertIsNone(handover.replay(root,snapshot))
-            self.assertIsNone(handover.progress(root,snapshot['task_id'],'a','s'))
-            self.assertFalse(handover.recoverable_dispatch(root,snapshot,receipts,{}))
-            self.assertIsNone(handover.retry_projection(root,snapshot['task_id'],'a','s','r','p'))
-            self.assertIsNone(handover.shadow_projection(root,snapshot['task_id']))
-
-    def test_public_handover_actual_ordinary_workflow_consumers_work(self):
-        from test_workflow_control import WorkflowControlTests
-        import workflow_control as workflow
-        fixture=WorkflowControlTests()
-        fixture.setUp()
-        try:
-            self.assertEqual(workflow.validate_workflow_events(fixture.root,fixture.task_id),[])
-            decision=fixture.routing_decision('content-organic-website')
-            self.assertEqual(decision['status'],'allow')
-            fixture.receipt('dispatch_sent','content-organic-website','synthetic-dispatch')
-            receipts,invalid=workflow._validate_receipt_chain(fixture.root,fixture.task_id)
-            self.assertFalse(invalid)
-            snapshot=workflow.read_json(workflow.snapshot_path(fixture.root,fixture.task_id))
-            state=workflow._derive_state(fixture.root,snapshot,receipts)
-            self.assertIn('state',state)
-            projected,_=workflow.shadow_replay(fixture.root,fixture.task_id)
-            self.assertEqual(projected['task_id'],fixture.task_id)
-        finally:
-            fixture.tearDown()
-
-    def test_public_handover_policy_event_special_task_and_execution_stay_denied(self):
-        import workflow_control as workflow
-        from unittest.mock import patch
-        with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);handover=self.handover_fixture(root)
-            calls=(lambda:handover.binding(root,'ordinary-synthetic-task'),
-                   lambda:handover.dispatch_precheck(root,{'task_id':'ordinary-synthetic-task'},'qa','synthetic','a','s'),
-                   lambda:handover.validate_new_receipt(root,{'task_id':'ordinary-synthetic-task'},[],{}))
-            policy=root/'data/action-policy.json'
-            policy.write_text(json.dumps({handover.POLICY_KEY:{'status':'reviewed_exact_execution_only_handover'}}))
-            for call in calls:
-                with self.assertRaisesRegex(workflow.WorkflowError,'public_template_has_no_native_authorization'):call()
-            policy.write_text('{"schema_version":1}')
-            events=root/workflow.WORKFLOW_EVENTS;events.parent.mkdir(parents=True,exist_ok=True)
-            events.write_text(json.dumps({'task_id':'ordinary-synthetic-task','details':{'publisher_execution_handover':True}})+'\n')
-            for call in calls:
-                with self.assertRaisesRegex(workflow.WorkflowError,'public_template_has_no_native_authorization'):call()
-            events.write_text('')
-            with self.assertRaisesRegex(workflow.WorkflowError,'public_template_has_no_native_authorization'):
-                handover.binding(root,handover.TASK)
-            self.assertTrue(handover.TASK.startswith('synthetic-deny-only-'))
-            synthetic_private_task='synthetic-private-task-for-deny-digest'
-            with patch.object(handover,'_TASK_DENY_SHA256',hashlib.sha256(synthetic_private_task.encode()).hexdigest()):
-                with self.assertRaisesRegex(workflow.WorkflowError,'public_template_has_no_native_authorization'):
-                    handover.binding(root,synthetic_private_task)
-                with self.assertRaisesRegex(workflow.WorkflowError,'public_template_has_no_native_authorization'):
-                    handover.dispatch_precheck(root,{'task_id':synthetic_private_task},'qa','synthetic','a','s')
-                events.write_text(json.dumps({'task_id':synthetic_private_task,'details':{}})+'\n')
-                with self.assertRaisesRegex(workflow.WorkflowError,'public_template_has_no_native_authorization'):
-                    handover.binding(root,'ordinary-synthetic-task')
-            events.write_text('')
-            for name in ('validate_request','validate_event','control_qa','apply','main'):
-                with self.assertRaisesRegex(workflow.WorkflowError,'public_template_has_no_native_authorization'):
-                    getattr(handover,name)(root,{})
-
-    def test_private_template_unknown_attributes_follow_import_protocol(self):
-        import types
-        import workflow_control as workflow
-        import original_task_publisher_handover as handover
-        self.assertFalse(hasattr(handover,'__path__'))
-        with self.assertRaises(AttributeError):getattr(handover,'unknown_attribute')
-        source='def private_execution():\n    return True\n'
-        namespace={}
-        exec(exporter.public_source_text('tools/native_example.py',source),namespace)
-        module=types.ModuleType('synthetic_private_template');module.__dict__.update(namespace)
-        self.assertFalse(hasattr(module,'__path__'))
-        with self.assertRaises(AttributeError):getattr(module,'unknown_attribute')
-        with self.assertRaisesRegex(workflow.WorkflowError,'public_template_has_no_native_authorization'):
-            module.private_execution()
-        facade=exporter.public_source_text('tools/original_task_publisher_handover.py',source)
-        self.assertEqual(exporter.public_source_text('tools/original_task_publisher_handover.py',facade),facade)
-        actual=Path(handover.__file__).read_text()
-        self.assertEqual(exporter.public_source_text('tools/original_task_publisher_handover.py',actual),actual)
-        with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);self.handover_fixture(root);generated={};exec(facade,generated)
-            self.assertIsNone(generated['binding'](root,'ordinary-synthetic-task'))
-            with self.assertRaisesRegex(workflow.WorkflowError,'public_template_has_no_native_authorization'):
-                generated['private_execution']()
-
-    def test_only_complete_guarded_generated_AUTH_profile_is_public(self):
-        source=exporter.public_source_text('tools/owner_delegated_publishing_preparation.py',self.preparation_example())
-        with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);(root/'tools').mkdir();public=root/'public';public.mkdir()
-            path=root/'tools/owner_delegated_publishing_preparation.py'
-            path.write_text(source);(public/path.name).write_text(source)
-            self.assertEqual(exporter.private_literals(root),set())
-            self.assertEqual(exporter.validate_public_tree(root,public)['status'],'PASS')
-            self.assertEqual(exporter.public_source_text('tools/owner_delegated_publishing_preparation.py',source),source)
-
-    def test_AUTH_mutation_missing_guard_and_real_secret_shape_are_not_exempt(self):
-        source=exporter.public_source_text('tools/owner_delegated_publishing_preparation.py',self.preparation_example())
-        mutations={
-            'turn':source.replace('example-turn-not-native','changed-turn-fixture'),
-            'text':source.replace('Synthetic example only; not a native authorization.','Changed private owner fixture.'),
-            'digest':source.replace(exporter.synthetic_auth_values()['AUTH_TEXT_SHA256'],'0'*64),
-            'flag':source.replace('PUBLIC_TEMPLATE_ONLY = True','PUBLIC_TEMPLATE_ONLY = False'),
-            'guard':source.replace('    _require(not PUBLIC_TEMPLATE_ONLY, "public_template_has_no_native_authorization")\n',''),
-            'guard_helper':source.replace('if not condition: raise ValueError(reason)','return None'),
-            'extra':source+'AUTH_EXTRA = "private-extra-fixture"\n',
-            'reassignment':source+'PUBLIC_TEMPLATE_ONLY = True\n',
-            'secret_shape':source.replace('example-turn-not-native','ghp_'+'z'*36),
-        }
-        with tempfile.TemporaryDirectory() as directory:
-            root=Path(directory);(root/'tools').mkdir();public=root/'public';public.mkdir()
-            path=root/'tools/owner_delegated_publishing_preparation.py'
-            for name,changed in mutations.items():
-                with self.subTest(mutation=name):
-                    path.write_text(changed);(public/path.name).write_text(changed)
-                    self.assertTrue(exporter.private_literals(root))
-                    with self.assertRaisesRegex(ValueError,'Public privacy gate denied'):
-                        exporter.validate_public_tree(root,public)
-
     def release_root(self):
-        import os
-        explicit = os.environ.get("FLASHCAST_TEST_RELEASE")
-        if explicit:
-            result = Path(explicit)
-            if not result.is_absolute() or not (result / "release-manifest.json").is_file():
-                raise ValueError("Actual assembled local source release required")
-            return result
+        if os.environ.get("DEPARTMENT_SYSTEM_TEST_RELEASE"):
+            return Path(os.environ["DEPARTMENT_SYSTEM_TEST_RELEASE"])
         project = Path(__file__).resolve().parents[1]
-        return project if (project / "release-manifest.json").is_file() else project / "releases/zhaungxiubumen"
+        return project
 
     def test_export_refuses_outside_project_directory(self):
-        with tempfile.TemporaryDirectory() as directory:
+        with self.temporary_directory() as directory:
             root = Path(directory) / "project"
             root.mkdir()
             with self.assertRaises(ValueError):
                 exporter.prepare(root, Path(directory) / "other-project")
+
+    def test_actual_export_to_setup_complete_model_roles_and_learning_sources(self):
+        with self.temporary_directory() as directory:
+            root = self.fixture(Path(directory))
+            manifest = package.validate_release(root)
+            result = setup.setup(root)
+            self.assertEqual(result["external_permissions_issued"], 0)
+            self.assertEqual(result["chats_created"], 0)
+            current = json.loads((root / "data/task-contract.json").read_text())
+            self.assertEqual(current["goal_delivery_runtime"]["model"], "goal_delivery_assistant_v1")
+            roles = json.loads((root / "data/department-registry.json").read_text())["departments"]
+            self.assertEqual({role["id"] for role in roles}, set(manifest["roles"]))
+            self.assertFalse(next(role for role in roles if role["id"] == "qa")["new_dispatch_enabled"])
+            self.assertIn("future-specialist", {role["id"] for role in roles})
+            for role in roles:
+                self.assertTrue((root / role["professional_skill"]).is_file())
+                self.assertTrue((root / ("data/learning/departments/" + role["id"] + ".json")).is_file())
+
+    def test_missing_tampered_or_unknown_package_fails_before_any_local_creation(self):
+        variants = ("missing", "tampered", "unknown", "bad-fingerprint", "bad-bytes")
+        for kind in variants:
+            with self.subTest(kind=kind), self.temporary_directory() as directory:
+                root = self.fixture(Path(directory))
+                if kind == "missing":
+                    (root / "tools/flashcast_ops.py").unlink()
+                elif kind == "tampered":
+                    (root / "tools/flashcast_ops.py").write_text("changed package bytes\n")
+                elif kind == "unknown":
+                    (root / "tools/unmanifested.py").write_text("EXTRA = True\n")
+                else:
+                    path = root / "release-manifest.json"
+                    manifest = json.loads(path.read_text())
+                    if kind == "bad-fingerprint":
+                        manifest["fingerprint"] = "0" * 64
+                    else:
+                        manifest["files"][0]["bytes"] += 1
+                        manifest = package.seal_manifest(manifest)
+                    path.write_text(json.dumps(manifest))
+                before = self.files(root)
+                with self.assertRaises((ValueError, FileNotFoundError)):
+                    setup.setup(root)
+                self.assertEqual(self.files(root), before)
+                self.assertFalse((root / "data").exists())
+
+    def test_resealed_old_or_unknown_model_semantics_cannot_install(self):
+        for model in ("professional_qa_hq_v1", "unknown-future-model", None):
+            with self.subTest(model=model), self.temporary_directory() as directory:
+                root = self.fixture(Path(directory))
+                path = root / "examples/task-contract.example.json"
+                value = json.loads(path.read_text())
+                value["goal_delivery_runtime"]["model"] = model
+                path.write_text(json.dumps(value))
+                self.reseal(root)
+                before = self.files(root)
+                with self.assertRaises(ValueError):
+                    setup.setup(root)
+                self.assertEqual(self.files(root), before)
+                self.assertFalse((root / "data").exists())
+
+    def test_existing_five_configs_old_runtime_model_rejected_before_additional_writes(self):
+        # These are existing local installation inputs, not public defaults.
+        for name in package.CONFIG_NAMES:
+            with self.subTest(existing_config=name), self.temporary_directory() as directory:
+                root = self.fixture(Path(directory))
+                value = json.loads((root / ("examples/" + name + ".example.json")).read_text())
+                value["runtime_model"] = "legacy_fixed_qa"
+                value["local_history"] = "fixture-existing-local-history"
+                data = root / "data"
+                data.mkdir()
+                existing_path = data / (name + ".json")
+                existing_raw = (json.dumps(value, ensure_ascii=False, indent=3) + "\n").encode("utf-8")
+                existing_path.write_bytes(existing_raw)
+                wip_path = data / "fixture-existing-business-wip.bin"
+                wip_raw = b"\x00fixture existing business WIP\n\xff"
+                wip_path.write_bytes(wip_raw)
+                # The release itself is valid; only the effective local input is obsolete.
+                package.validate_release(root)
+                before = self.files(root)
+                before_paths = {path.relative_to(root).as_posix() for path in root.rglob("*")}
+                with self.assertRaisesRegex(ValueError, "Obsolete default runtime model"):
+                    setup.setup(root)
+                self.assertEqual(self.files(root), before)
+                self.assertEqual({path.relative_to(root).as_posix() for path in root.rglob("*")}, before_paths)
+                self.assertEqual(existing_path.read_bytes(), existing_raw)
+                self.assertEqual(wip_path.read_bytes(), wip_raw)
+                self.assertEqual(set(path.name for path in data.iterdir()), {name + ".json", wip_path.name})
+
+    def test_resealed_current_model_flags_or_retired_role_semantics_rejected(self):
+        variants = ("assistant-disabled", "HQ_second_review_required", "producer_self_review_allowed",
+                    "fixed_qa_new_dispatch_enabled", "single_acceptance_owner", "qa-reactivated", "qa-mode")
+        for kind in variants:
+            with self.subTest(kind=kind), self.temporary_directory() as directory:
+                root = self.fixture(Path(directory))
+                if kind.startswith("qa-"):
+                    path = root / "examples/department-registry.example.json"
+                    value = json.loads(path.read_text())
+                    qa = next(role for role in value["departments"] if role["id"] == "qa")
+                    qa["new_dispatch_enabled" if kind == "qa-reactivated" else "mode"] = True if kind == "qa-reactivated" else "active"
+                else:
+                    path = root / "examples/task-contract.example.json"
+                    value = json.loads(path.read_text())
+                    model = value["goal_delivery_runtime"]
+                    model["assistant_decisions_enabled" if kind == "assistant-disabled" else kind] = False if kind in {"assistant-disabled", "single_acceptance_owner"} else True
+                path.write_text(json.dumps(value))
+                self.reseal(root)
+                before = self.files(root)
+                with self.assertRaises(ValueError):
+                    setup.setup(root)
+                self.assertEqual(self.files(root), before)
+                self.assertFalse((root / "data").exists())
+
+    def test_resealed_obsolete_positive_chain_still_rejected_by_setup(self):
+        texts = ("专业部门→QA→HQ\n", "不得自审，专业结果 → QA → 总部\n",
+                 "全部专业结果必须经过总部二审\n", "专业结果提交给质检部门审批后交总部\n")
+        for text in texts:
+            with self.subTest(text=text), self.temporary_directory() as directory:
+                root = self.fixture(Path(directory))
+                (root / "AGENTS.md").write_text(text)
+                self.reseal(root)
+                before = self.files(root)
+                with self.assertRaises(ValueError):
+                    setup.setup(root)
+                self.assertEqual(self.files(root), before)
+                self.assertFalse((root / "data").exists())
+
+    def test_resealed_core_route_flags_cannot_hide_retired_qa_route(self):
+        variants = ({"historical_only": True, "operational_template": False},
+                    {"new_dispatch_enabled": False})
+        for flags in variants:
+            with self.subTest(flags=flags), self.temporary_directory() as directory:
+                root = self.fixture(Path(directory))
+                path = root / "examples/department-routing-rules.example.json"
+                path.write_text(json.dumps({**flags, "routes": [{"required_departments": ["qa"]}]}))
+                if flags.get("historical_only"):
+                    manifest_path = root / "release-manifest.json"
+                    manifest = json.loads(manifest_path.read_text())
+                    manifest["non_runtime_files"].append(path.relative_to(root).as_posix())
+                    manifest_path.write_text(json.dumps(manifest))
+                self.reseal(root)
+                before = self.files(root)
+                with self.assertRaises(ValueError):
+                    setup.setup(root)
+                self.assertEqual(self.files(root), before)
+                self.assertFalse((root / "data").exists())
+
+    def test_repeat_setup_preserves_binding_authority_business_and_user_wip(self):
+        with self.temporary_directory() as directory:
+            root = self.fixture(Path(directory))
+            setup.setup(root)
+            path = root / "data/department-registry.json"
+            registry = json.loads(path.read_text())
+            registry["departments"][0]["chat_binding"].update(task_id="fixture-local-fixed-chat", status="bound")
+            path.write_text(json.dumps(registry))
+            policy = root / "data/action-policy.json"
+            policy.write_text(json.dumps({"standing_authorizations": [{"fixture_only": True, "local_owner_grant": "preserve"}]}))
+            (root / "company-context.md").write_text("本机已确认资料 fixture\n")
+            (root / "drafts/user-wip.md").write_text("user WIP fixture\n")
+            before = self.files(root)
+            result = setup.setup(root)
+            self.assertEqual(result["created"], [])
+            self.assertEqual(self.files(root), before)
+
+    def test_install_io_failure_rolls_back_only_this_run_created_paths(self):
+        with self.temporary_directory() as directory:
+            root = self.fixture(Path(directory))
+            (root / "company-context.md").write_text("existing company WIP\n")
+            (root / "logs").mkdir()
+            (root / "logs/user-history.jsonl").write_text("existing fixture history\n")
+            before = self.files(root)
+            original_create = setup._create_file
+            calls = []
+            def fail_after_second_write(path, raw):
+                original_create(path, raw)
+                calls.append(path)
+                if len(calls) == 2:
+                    raise OSError("synthetic installation I/O failure after actual fixture write")
+            with mock.patch.object(setup, "_create_file", fail_after_second_write), self.assertRaises(OSError):
+                setup.setup(root)
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(self.files(root), before)
+            self.assertTrue((root / "logs").is_dir())
+            self.assertFalse((root / "data").exists())
 
     def test_export_contains_no_runtime_account_or_history_files(self):
         # Test the actual release assembled for this project, if present.

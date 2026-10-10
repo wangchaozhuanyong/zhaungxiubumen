@@ -16,22 +16,11 @@ from owner_delegated_publishing_preparation import (
 
 PREFIX = "owner_delegated_followthrough:"
 MARKER = "owner_authorization:publisher_first_three_coordination_only"
-REQUIRED = ["routing_precheck:owner_delegated_publisher_followthrough", MARKER]
-STAGES = {
-    "fc-20261007-publisher-three-rollback-projection-rework-v1":
-        ("publishing", "<LOCAL_TASK_ID>", "FLASH CAST｜后台发布部｜2026-10", PROJECT_ID, PROJECT_ROOT, "装修公司部门"),
-    "fc-20261007-publisher-three-execution-admission-qa-v1":
-        ("qa", "<LOCAL_TASK_ID>", "FLASH CAST｜质检与Reality Checker部｜2026-09", PROJECT_ID, PROJECT_ROOT, "装修公司部门"),
-    "fc-20261007-publisher-three-designated-binding-v1":
-        ("designated-website-developer", "<WEBSITE_DEVELOPER_THREAD>", "同步管理后台与客户端功能", "<LOCAL_PROJECT_ID>", "<WEBSITE_PROJECT_ROOT>", "threads"),
-}
-TARGET_IDS = ['example-old-house', 'example-quotation-checklist', 'example-design']
-TARGETS = [
-    {"item": "v17", "table": "services", "record_id": TARGET_IDS[0], "slug": "old-house", "changed_fields": ["faqs_en", "faqs_zh"]},
-    {"item": "v18", "table": "blog_posts", "record_id": TARGET_IDS[1], "slug": "renovation-quotation-checklist-malaysia", "changed_fields": ["content_en", "content_zh"]},
-    {"item": "v20", "table": "services", "record_id": TARGET_IDS[2], "slug": "design", "changed_fields": ["faqs_en", "faqs_zh"]},
-]
-SOURCE_PINS = {'v17': ('3a551d55e564e48f08fcf916865c1929a7a4282916f3747248f8f2dbf24abbaa', '0c58a1305473a71e909197851e7a4842c272cff368df563ac7dbff497cf675b0'), 'v18': ('2632bafe1c0678a84e1a0c321260f4f3a49b22fcad3bda5c931ba3f6fd528a5c', 'ec349082004e9a42abfc207ef65b10954a905032e3157492a72de93739452b76'), 'v20': ('152c828c38381ecf3a9dbfa80621596f11ded42b72082969555e90bf04051773', '1029838ba1ec8e64692e6d04e573a97177027542a6553d2404f4b9d63edca7ba')}
+REQUIRED = []
+STAGES = {}
+TARGET_IDS = []
+TARGETS = []
+SOURCE_PINS = {}
 
 
 def _canonical_sha(value: Any) -> str:
@@ -116,6 +105,7 @@ def _request(root: Path, policy: dict[str, Any], task_id: str) -> dict[str, Any]
 
 
 def check_owner_delegated_followthrough(root: Path, *, policy: dict[str, Any], departments: dict[str, dict[str, Any]], requested: dict[str, Any], validate_receipt_chain: Callable[..., Any]) -> tuple[list[str], list[str]]:
+    raise ValueError("public_template_has_no_native_authorization")
     try:
         task_id = requested.get("task_id", "")
         req = _request(root, policy, task_id)

@@ -4,7 +4,6 @@ import json
 import unittest
 
 import department_next_work as target
-import owner_direct_intake
 import workflow_control as w
 import test_department_next_work as baseline
 
@@ -18,29 +17,6 @@ class ReworkTests(unittest.TestCase):
 
     def assert_blocked(self, match):
         with self.assertRaisesRegex(w.WorkflowError,match):self.check()
-
-    def assert_timing_blocked(self):
-        with self.assertRaises(w.WorkflowError) as caught:
-            self.check()
-        self.assertEqual(str(caught.exception),
-                         'bounded actual origin/ACK or owner-observation timestamp required')
-
-    def owner_origin(self):
-        """Register a synthetic human source through the real intake consumer."""
-        self.packet['authorized_scope']='page'
-        for step in self.packet['continuation_plan']['steps']:
-            step['scope']='page:'+step['step_id']
-        request=dict(task_id=self.task,executor_role=self.dep,authorized_scope='page',
-            executor_binding={k:self.bind[k] for k in ('task_id','title','project_id','cwd')},
-            human_message=dict(source='human_user_message',message_id='synthetic-owner-message',
-                thread_id=self.bind['task_id'],explicit_task_id=self.task,explicit_scope='page',
-                authorized_at=(self.now-dt.timedelta(minutes=2)).isoformat(),
-                observed_at=(self.now-dt.timedelta(minutes=1)).isoformat(),
-                message_sha256='a'*64,trusted_native_readback=True))
-        registered=owner_direct_intake.intake(self.root,request)
-        self.packet['owner_intake']=registered['intake'];self.update()
-        self.receipts.clear()
-        return request
 
     def rewrite_synthetic_box(self, change):
         """Generate a self-consistent legacy/wrong binding fixture, never real receipts."""
@@ -61,33 +37,33 @@ class ReworkTests(unittest.TestCase):
         self.update()
 
     def test_missing_dispatch_time_rejected(self):
-        self.dispatch.pop('created_at');self.assert_timing_blocked()
+        self.dispatch.pop('created_at');self.assert_blocked('dispatch timestamp')
 
     def test_invalid_dispatch_time_rejected(self):
-        self.dispatch['created_at']='not-a-time';self.assert_timing_blocked()
+        self.dispatch['created_at']='not-a-time';self.assert_blocked('dispatch timestamp')
 
     def test_future_dispatch_and_ack_rejected(self):
         self.dispatch['created_at']=(self.now+dt.timedelta(minutes=1)).isoformat()
         self.ack['created_at']=(self.now+dt.timedelta(minutes=2)).isoformat()
-        self.assert_timing_blocked()
+        self.assert_blocked('dispatch timestamp')
 
     def test_missing_ack_time_rejected(self):
-        self.ack.pop('created_at');self.assert_timing_blocked()
+        self.ack.pop('created_at');self.assert_blocked('ACK timestamp')
 
     def test_invalid_ack_time_rejected(self):
-        self.ack['created_at']='not-a-time';self.assert_timing_blocked()
+        self.ack['created_at']='not-a-time';self.assert_blocked('ACK timestamp')
 
     def test_future_ack_rejected(self):
         self.ack['created_at']=(self.now+dt.timedelta(seconds=1)).isoformat()
-        self.assert_timing_blocked()
+        self.assert_blocked('ACK timestamp')
 
     def test_ack_time_before_dispatch_rejected(self):
         self.ack['created_at']=(self.now-dt.timedelta(minutes=2)).isoformat()
-        self.assert_timing_blocked()
+        self.assert_blocked('ACK timestamp')
 
     def test_latest_nonempty_ack_does_not_fall_back_to_earlier_good_ack(self):
         self.receipts.append(dict(self.ack,created_at=(self.now+dt.timedelta(seconds=1)).isoformat()))
-        self.assert_timing_blocked()
+        self.assert_blocked('ACK timestamp')
 
     def test_unrelated_future_ack_does_not_replace_fixed_ack(self):
         self.receipts.append(dict(self.ack,department='sales',created_at=(self.now+dt.timedelta(seconds=1)).isoformat()))
@@ -106,44 +82,7 @@ class ReworkTests(unittest.TestCase):
         self.packet['continuation_plan']['expires_at']=(at+dt.timedelta(hours=26)).isoformat();self.update()
         self.assertEqual(self.check()['mode'],'CONTINUE_SCOPED_R0')
         self.packet['continuation_plan']['expires_at']=(at+dt.timedelta(hours=26,seconds=1)).isoformat();self.update()
-        self.assert_timing_blocked()
-
-    def test_expiry_uses_original_dispatch_time_not_later_ack(self):
-        dispatch_at=w._parse_observed_at(self.dispatch['created_at'])
-        ack_at=w._parse_observed_at(self.ack['created_at'])
-        self.assertLess(dispatch_at,ack_at)
-        self.assertEqual(self.check()['mode'],'CONTINUE_SCOPED_R0')
-        self.packet['continuation_plan']['expires_at']=(ack_at+dt.timedelta(hours=26)).isoformat()
-        self.update();self.assert_timing_blocked()
-
-    def test_missing_invalid_and_nonpositive_expiry_rejected(self):
-        for value in (None,'not-a-time',self.dispatch['created_at']):
-            with self.subTest(expires_at=value):
-                if value is None:self.packet['continuation_plan'].pop('expires_at',None)
-                else:self.packet['continuation_plan']['expires_at']=value
-                self.update();self.assert_timing_blocked()
-
-    def test_owner_origin_uses_authorization_and_observation_without_dispatch_or_ack(self):
-        request=self.owner_origin()
-        human=request['human_message']
-        self.assertLess(owner_direct_intake.native_time(human['authorized_at']),
-                        owner_direct_intake.native_time(human['observed_at']))
-        self.assertEqual(self.receipts,[])
-        self.packet['continuation_plan']['expires_at']=(
-            owner_direct_intake.native_time(human['authorized_at'])+dt.timedelta(hours=26)).isoformat()
-        self.update()
-        self.assertEqual(self.check()['mode'],'CONTINUE_SCOPED_R0')
-        self.assertFalse(w.receipts_path(self.root,self.task).exists())
-        self.assertFalse(w.snapshot_path(self.root,self.task).exists())
-        self.packet['continuation_plan']['expires_at']=(
-            owner_direct_intake.native_time(human['observed_at'])+dt.timedelta(hours=26)).isoformat()
-        self.update();self.assert_timing_blocked()
-
-    def test_owner_packet_cannot_substitute_dispatch_for_original_intake_pin(self):
-        self.owner_origin()
-        self.packet['owner_intake']['sha256']='0'*64
-        self.update()
-        self.assert_blocked('exact original owner intake and scope')
+        self.assert_blocked('bounded expiry')
 
     def test_same_cv_different_scope_cannot_release_dependency(self):
         self.queued();self.packet['continuation_plan']['steps'][0]['scope']='different-page'

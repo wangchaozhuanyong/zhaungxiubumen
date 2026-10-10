@@ -16,11 +16,9 @@ import csv
 import datetime as dt
 import hashlib
 import json
-import os
 import re
 import shutil
 import sys
-import tempfile
 import uuid
 from html.parser import HTMLParser
 from pathlib import Path
@@ -2352,164 +2350,68 @@ def event_id(event: dict[str, Any]) -> str:
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
-def _learning_input_sha(event: dict[str, Any], supplied_observed_at: str) -> str:
-    """Every caller-supplied value is identity; an omitted timestamp stays omitted."""
-    value = {key: item for key, item in event.items()
-             if key not in {"observed_at", "freshness_status"}}
-    value["observed_at"] = supplied_observed_at
-    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,
-                                     separators=(",", ":")).encode("utf-8")).hexdigest()
-
-
-def _learning_existing(events: list[dict[str, Any]], event: dict[str, Any],
-                       supplied_observed_at: str) -> dict[str, Any] | None:
-    for row in events:
-        if row.get("input_sha256") == event["input_sha256"]:
-            return row
-        # Legacy rows/references remain byte-for-byte unchanged. A full input
-        # comparison (including outcome) avoids the old partial-ID collision.
-        if not row.get("input_sha256") and all(
-            row.get(key, [] if isinstance(value, list) else "") == value for key, value in event.items()
-            if key not in {"input_sha256", "event_id", "freshness_status", "observed_at"}
-        ) and (not supplied_observed_at or row.get("observed_at") == supplied_observed_at):
-            return row
-    return None
-
-
-def _learning_path(root: Path, value: str | Path) -> Path:
-    path = Path(value)
-    if path.is_absolute() or ".." in path.parts:
-        raise OpsError("学习写入路径必须位于项目内")
-    current = root
-    for part in path.parts:
-        current = current / part
-        if current.is_symlink():
-            raise OpsError("学习写入路径不能包含软链接")
-    return resolve_path(root, str(path))
-
-
-def _learning_report_once(path: Path, content: str) -> None:
-    """Freeze with an exclusive link; failures never expose a partial report."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.is_symlink():
-        raise OpsError("学习报告路径不能是软链接")
-    encoded = content.encode("utf-8")
-    if path.exists():
-        if path.read_bytes() != encoded:
-            raise OpsError("学习报告身份冲突；保留已有文件，禁止覆盖")
-        return
-    handle = tempfile.NamedTemporaryFile(dir=path.parent, prefix=".learning-", delete=False)
-    temporary = Path(handle.name)
-    try:
-        with handle:
-            handle.write(encoded)
-            handle.flush()
-            os.fsync(handle.fileno())
-        try:
-            os.link(temporary, path, follow_symlinks=False)
-        except FileExistsError:
-            if path.is_symlink() or path.read_bytes() != encoded:
-                raise OpsError("学习报告并发身份冲突；禁止覆盖")
-    finally:
-        if temporary.exists():
-            temporary.unlink()
-
-
-def _learning_report_readback(root: Path, event: dict[str, Any]) -> Path | None:
-    if not event.get("report_path"):
-        # No known immutable historical report pin: do not rebuild missing text.
-        return None
-    path = _learning_path(root, str(event["report_path"]))
-    if path.is_symlink() or not path.is_file():
-        raise OpsError("DATA_MISSING: 已登记学习报告缺失；保留旧事件与引用，不重建旧文字")
-    if hashlib.sha256(path.read_bytes()).hexdigest() != event.get("report_sha256"):
-        raise OpsError("学习报告指纹变化；保留原文件并等待准确核验")
-    return path
-
-
-def _append_learning_event(root: Path, event: dict[str, Any]) -> None:
-    path = _learning_path(root, LEARNING_EVENTS)
-    previous = path.read_text(encoding="utf-8") if path.exists() else ""
-    # Validate every old row before appending; malformed history is not ignored.
-    for line in previous.splitlines():
-        if line.strip():
-            try:
-                if not isinstance(json.loads(line), dict):
-                    raise ValueError("not an object")
-            except ValueError as exc:
-                raise OpsError("学习账本存在坏行；禁止覆盖或隐式跳过") from exc
-    workflow.atomic_write_text(path, previous + ("\n" if previous and not previous.endswith("\n") else "") +
-                               json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n")
-
-
-def _learning_run_once(root: Path, event: dict[str, Any], run_type: str,
-                       inputs: list[str], outputs: list[str]) -> str:
-    run_id = str(event["run_id"])
-    _learning_path(root, RUN_LEDGER)
-    if not any(row.get("run_id") == run_id for row in read_jsonl(root / RUN_LEDGER)):
-        append_jsonl(root / RUN_LEDGER, {
-            "run_id": run_id, "run_type": run_type, "status": "recorded",
-            "started_at": event["observed_at"], "completed_at": timestamp(),
-            "inputs": inputs, "outputs": outputs, "event_id": event["event_id"],
-            "input_sha256": event["input_sha256"],
-        })
-    return run_id
-
-
 def learning_record(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any], list[Path]]:
-    with workflow.workflow_lock(root):
-        return _learning_record_locked(root, args)
-
-
-def _learning_record_locked(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any], list[Path]]:
     event = {
         "observed_at": args.observed_at or timestamp(),
         "source": args.source or "owner_or_department_observation",
-        "memory_type": args.memory_type, "entity": args.entity,
-        "signal": args.signal, "evidence": args.evidence, "outcome": args.outcome,
-        "next_action": args.next_action, "confidence": args.confidence,
+        "memory_type": args.memory_type,
+        "entity": args.entity,
+        "signal": args.signal,
+        "evidence": args.evidence,
+        "outcome": args.outcome,
+        "next_action": args.next_action,
+        "confidence": args.confidence,
     }
-    event["input_sha256"] = _learning_input_sha(event, str(args.observed_at or ""))
-    event["event_id"] = event["input_sha256"]
+    event["event_id"] = event_id(event)
     events = read_jsonl(root / LEARNING_EVENTS)
-    existing = _learning_existing(events, event, str(args.observed_at or ""))
-    memory_path = _learning_path(root, "data/learning/learning-memory.json")
-    if existing and not existing.get("input_sha256"):
-        return {**read_json(memory_path), "status": "duplicate_ignored",
-                "event_id": existing["event_id"], "historical_report": "DATA_MISSING_OR_UNPINNED"}, []
-    report_path = _learning_path(root, f"reports/learning-memory-{event['input_sha256']}.md")
-    if existing:
-        event = existing
-        report_path = _learning_report_readback(root, event)
-        if any(row.get("run_id") == event["run_id"] for row in read_jsonl(root / RUN_LEDGER)):
-            return {**read_json(memory_path), "status": "duplicate_ignored",
-                    "report_path": safe_rel(root, report_path), "run_id": event["run_id"]}, [memory_path, report_path]
+    if any(row.get("event_id") == event["event_id"] for row in events):
+        status = "duplicate_ignored"
     else:
-        report_lines = [
-            "# FLASH CAST 学习记忆更新", "", "- 状态：`recorded`",
-            f"- 事件指纹：`{event['event_id']}`", f"- 记忆类型：`{event['memory_type']}`",
-            f"- 对象：`{event['entity']}`", f"- 信号：{event['signal']}",
-            f"- 证据：{event['evidence']}", f"- 结果：{event['outcome']}",
-            f"- 下一步：{event['next_action']}", f"- 置信度：`{event['confidence']}`", "",
-            "学习记录只用于后续分析和周复盘，不自动修改广告、网站或客户数据。",
-        ]
-        _learning_report_once(report_path, "\n".join(report_lines) + "\n")
-        event.update(report_path=safe_rel(root, report_path),
-                     report_sha256=hashlib.sha256(report_path.read_bytes()).hexdigest(),
-                     run_id="learning-record-" + event["input_sha256"])
-        _append_learning_event(root, event)
+        append_jsonl(root / LEARNING_EVENTS, event)
         events.append(event)
+        status = "recorded"
+
     latest: dict[str, dict[str, Any]] = {}
     for row in events:
-        latest[f"{row.get('memory_type', '')}|{row.get('entity', '')}"] = row
-    payload = {"generated_at": timestamp(), "status": "learning_memory_ready",
-               "event_count": len(events), "latest_by_entity": latest,
-               "source": safe_rel(root, root / LEARNING_EVENTS), "run_id": event["run_id"],
-               "report_path": safe_rel(root, report_path)}
-    workflow.atomic_write_json(memory_path, payload)
-    _learning_run_once(root, event, "learning-record", [safe_rel(root, root / LEARNING_EVENTS)],
-                       [safe_rel(root, memory_path), safe_rel(root, report_path)])
-    return payload, [memory_path, report_path]
+        key = f"{row.get('memory_type', '')}|{row.get('entity', '')}"
+        latest[key] = row
+    memory_payload = {
+        "generated_at": timestamp(),
+        "status": "learning_memory_ready",
+        "event_count": len(events),
+        "latest_by_entity": latest,
+        "source": safe_rel(root, root / LEARNING_EVENTS),
+    }
+    memory_path = root / "data/learning/learning-memory.json"
+    report_path = root / "reports" / f"{today()}-learning-memory.md"
+    write_json(memory_path, memory_payload)
+    report_lines = [
+        "# FLASH CAST 学习记忆更新",
+        "",
+        f"- 状态：`{status}`",
+        f"- 记忆类型：`{event['memory_type']}`",
+        f"- 对象：`{event['entity']}`",
+        f"- 信号：{event['signal']}",
+        f"- 证据：{event['evidence']}",
+        f"- 结果：{event['outcome']}",
+        f"- 下一步：{event['next_action']}",
+        f"- 置信度：`{event['confidence']}`",
+        f"- 总事件数：`{len(events)}`",
+        "",
+        "学习记录只用于后续分析和周复盘，不自动修改广告、网站或客户数据。",
+    ]
+    write_text(report_path, "\n".join(report_lines) + "\n")
+    run_id = append_run(
+        root,
+        "learning-record",
+        status,
+        [safe_rel(root, root / LEARNING_EVENTS)],
+        [safe_rel(root, memory_path), safe_rel(root, report_path)],
+        event_id=event["event_id"],
+    )
+    memory_payload["run_id"] = run_id
+    write_json(memory_path, memory_payload)
+    return memory_payload, [memory_path, report_path]
 
 
 def department_learning_event_id(event: dict[str, Any]) -> str:
@@ -2528,11 +2430,51 @@ def department_learning_event_id(event: dict[str, Any]) -> str:
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
-def department_learning_config(root: Path, department: str) -> dict[str, Any]:
+def department_learning_configs(root: Path) -> list[dict[str, Any]]:
     registry = read_json(root / DEPARTMENT_LEARNING_REGISTRY)
+    roles = read_json(root / "data/department-registry.json").get("departments")
+    if not isinstance(roles, list) or not roles:
+        raise OpsError("部门学习需要现行部门注册表，不能只按旧学习角色表判断")
+    configured = {}
     for item in registry.get("departments", []):
-        if isinstance(item, dict) and item.get("id") == department:
-            return item
+        if isinstance(item, dict) and item.get("id"):
+            if item["id"] in configured:
+                raise OpsError(f"部门学习配置ID重复：{item['id']}")
+            configured[item["id"]] = item
+    result = []
+    seen = set()
+    for role in roles:
+        department = str(role.get("id", "")) if isinstance(role, dict) else ""
+        if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", department) or department in seen:
+            raise OpsError("现行部门注册表存在无效或重复ID")
+        seen.add(department)
+        item = dict(configured.get(department, {}))
+        if not item and (role.get("mode") == "retired_history" or not role.get("new_dispatch_enabled")):
+            continue
+        if not item:
+            item = {"id": department, "memory_path": (DEPARTMENT_MEMORY_DIR / f"{department}.json").as_posix(),
+                    "focus": list(role.get("coordination_authority", {}).get("review_capabilities", []))}
+        for key in ("name", "professional_skill", "role_config", "approved_subskills", "approved_subskill_paths", "mode", "new_dispatch_enabled"):
+            if key in role:
+                item[key] = role[key]
+        result.append(item)
+    return result
+
+
+def department_learning_config(root: Path, department: str) -> dict[str, Any]:
+    for item in department_learning_configs(root):
+        if item.get("id") != department:
+            continue
+        memory = str(item.get("memory_path", "")).strip()
+        skill = str(item.get("professional_skill", "")).strip()
+        if not memory or not skill:
+            raise OpsError(f"部门学习缺少自身记忆路径或主Skill：{department}")
+        resolve_path(root, memory)
+        if not resolve_path(root, skill).is_file():
+            raise OpsError(f"部门学习主Skill不存在：{department}")
+        if item.get("role_config") and not resolve_path(root, str(item["role_config"])).is_file():
+            raise OpsError(f"部门学习角色配置不存在：{department}")
+        return item
     raise OpsError(
         f"未找到部门学习配置：{department}；请先检查 {DEPARTMENT_LEARNING_REGISTRY.as_posix()}"
     )
@@ -2549,24 +2491,94 @@ def learning_freshness(review_after: str, last_verified_at: str) -> str:
     return "stale" if deadline < now_utc().astimezone(BUSINESS_TZ).date() else "current"
 
 
-def department_learning_record(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any], list[Path]]:
-    with workflow.workflow_lock(root):
-        return _department_learning_record_locked(root, args)
-
-
-def _department_learning_record_locked(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any], list[Path]]:
-    department = str(args.department).strip()
-    if not re.fullmatch(r"[a-z][a-z0-9-]{0,79}", department):
-        raise OpsError("部门身份不是合法注册值")
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,159}", str(args.task_id)):
-        raise OpsError("学习任务身份不能包含路径或不安全字符")
+def department_learning_effective(root: Path, department: str) -> tuple[dict[str, Any], list[Path]]:
+    """Read current-mode lessons without rewriting historical memory or grants."""
     config = department_learning_config(root, department)
-    memory_path_value = str(config.get("memory_path", "")).strip()
-    if not memory_path_value:
-        raise OpsError(f"部门学习配置缺少 memory_path：{department}")
-    memory_path = _learning_path(root, memory_path_value)
-    if memory_path.is_symlink():
-        raise OpsError("学习记忆不能写入软链接")
+    contract = read_json(root / "data/task-contract.json")
+    mode = str(contract.get("goal_delivery_runtime", {}).get("model", ""))
+    if not mode:
+        raise OpsError("有效学习视图缺少当前运行模式")
+    memory_path = resolve_path(root, str(config["memory_path"]))
+    memory = read_json(memory_path)
+    if not memory_path.is_file():
+        raise OpsError(f"部门学习记忆不存在：{department}")
+    role_retired = config.get("mode") == "retired_history" or config.get("new_dispatch_enabled") is False
+    rows = []
+    for bucket in ("inherited_lessons", "verified_lessons", "provisional_lessons", "retired_lessons", "blocked_patterns"):
+        for index, lesson in enumerate(memory.get(bucket, [])):
+            if isinstance(lesson, dict):
+                rows.append((bucket, index, lesson))
+
+    def applies(lesson: dict[str, Any]) -> bool:
+        named = lesson.get("operating_mode", lesson.get("mode"))
+        modes = lesson.get("applies_to_modes")
+        return named == mode or (isinstance(modes, list) and mode in modes)
+
+    def retired(bucket: str, lesson: dict[str, Any]) -> bool:
+        return bucket == "retired_lessons" or lesson.get("status") in {"retired", "retired_history"} or lesson.get("retired") is True
+
+    def current_lesson(bucket: str, lesson: dict[str, Any]) -> bool:
+        return (not role_retired and applies(lesson) and not retired(bucket, lesson)
+                and lesson.get("status") == "verified"
+                and learning_freshness(str(lesson.get("review_after", "")),
+                                       str(lesson.get("last_verified_at", ""))) == "current"
+                and not lesson.get("conflicts_with", []))
+
+    # Only a current lesson can supersede another lesson. Stale or conflicting
+    # records remain references without suppressing otherwise valid learning.
+    superseded = set()
+    for bucket, _, lesson in rows:
+        targets = lesson.get("supersedes", [])
+        if current_lesson(bucket, lesson) and isinstance(targets, list):
+            superseded.update(item for item in targets if isinstance(item, str))
+    current, reference, history = [], [], []
+    for bucket, index, lesson in rows:
+        identity = str(lesson.get("lesson_id", ""))
+        source_ref = f"{safe_rel(root, memory_path)}#/{bucket}/{index}"
+        reason = ""
+        if role_retired:
+            reason = "retired_role"
+        elif retired(bucket, lesson):
+            reason = "retired_lesson"
+        elif identity and identity in superseded:
+            reason = "superseded"
+        elif not applies(lesson):
+            reason = "legacy_mode_unspecified" if not any(k in lesson for k in ("operating_mode", "mode", "applies_to_modes")) else "different_operating_mode"
+        if reason:
+            history.append({"lesson_id": identity, "source_ref": source_ref, "reason": reason})
+            continue
+        # The original next_action remains in the source, never in the view.
+        entry = {key: value for key, value in lesson.items() if key != "next_action"}
+        entry["source_ref"] = source_ref
+        entry["freshness_status"] = learning_freshness(str(lesson.get("review_after", "")), str(lesson.get("last_verified_at", "")))
+        entry["grants_execution_authority"] = False
+        if current_lesson(bucket, lesson):
+            current.append(entry)
+        else:
+            reference.append(entry)
+    rule_paths = ["AGENTS.md", "playbooks/department-system-current.md", str(config["professional_skill"])]
+    rule_sources = []
+    for rel in dict.fromkeys(rule_paths):
+        path = resolve_path(root, rel)
+        if not path.is_file():
+            raise OpsError(f"有效学习视图缺少现行规则：{rel}")
+        raw = path.read_bytes()
+        rule_sources.append({"path": safe_rel(root, path), "sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw)})
+    raw = memory_path.read_bytes()
+    payload = {"status": "department_learning_effective_read_only", "department": department,
+               "operating_mode": mode, "role_retired": role_retired,
+               "current_rule_sources": rule_sources, "current_lessons": current,
+               "knowledge_reference": reference, "historical_references": history,
+               "current_lesson_count": len(current), "knowledge_reference_count": len(reference),
+               "historical_reference_count": len(history),
+               "source_memory": {"path": safe_rel(root, memory_path), "sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw)},
+               "historical_next_actions_are_current_dispatch": False, "writes_performed": False}
+    return payload, []
+
+
+def department_learning_record(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any], list[Path]]:
+    department = str(args.department).strip()
+    config = department_learning_config(root, department)
     evidence = [item.strip() for item in str(args.evidence).split(";") if item.strip()]
     if not evidence:
         raise OpsError("至少需要一条证据路径")
@@ -2584,6 +2596,7 @@ def _department_learning_record_locked(root: Path, args: argparse.Namespace) -> 
         "evidence": evidence,
         "outcome": args.outcome,
         "next_action": args.next_action,
+        "operating_mode": str(read_json(root / "data/task-contract.json").get("goal_delivery_runtime", {}).get("model", "")),
         "confidence": args.confidence,
         "lesson_status": args.lesson_status,
         "data_window": str(getattr(args, "data_window", "") or ""),
@@ -2601,29 +2614,19 @@ def _department_learning_record_locked(root: Path, args: argparse.Namespace) -> 
         ],
     }
     event["freshness_status"] = learning_freshness(event["review_after"], event["last_verified_at"])
-    event["input_sha256"] = _learning_input_sha(event, str(args.observed_at or ""))
-    event["event_id"] = event["input_sha256"]
+    event["event_id"] = department_learning_event_id(event)
 
     event_log = root / LEARNING_EVENTS
     events = read_jsonl(event_log)
-    existing = _learning_existing(events, event, str(args.observed_at or ""))
-    duplicate = existing is not None
-    if existing and not existing.get("input_sha256"):
-        return {"status": "department_learning_duplicate_ignored", "department": department,
-                "task_id": args.task_id, "event_id": existing["event_id"],
-                "event_count": len([row for row in events if row.get("department") == department]),
-                "memory_path": safe_rel(root, memory_path), "report_path": None,
-                "historical_report": "DATA_MISSING_OR_UNPINNED", "run_id": None}, []
-    report_path = _learning_path(root, f"reports/learning-{department}-{event['input_sha256']}.md")
-    if existing:
-        event = existing
-        report_path = _learning_report_readback(root, event)
-        if any(row.get("run_id") == event["run_id"] for row in read_jsonl(root / RUN_LEDGER)):
-            return {"status": "department_learning_duplicate_ignored", "department": department,
-                    "task_id": args.task_id, "event_id": event["event_id"],
-                    "event_count": len([row for row in events if row.get("department") == department]),
-                    "memory_path": safe_rel(root, memory_path), "report_path": safe_rel(root, report_path),
-                    "run_id": event["run_id"]}, [memory_path, report_path]
+    duplicate = any(row.get("event_id") == event["event_id"] for row in events)
+    if not duplicate:
+        append_jsonl(event_log, event)
+        events.append(event)
+
+    memory_path_value = str(config.get("memory_path", "")).strip()
+    if not memory_path_value:
+        raise OpsError(f"部门学习配置缺少 memory_path：{department}")
+    memory_path = resolve_path(root, memory_path_value)
     memory = read_json(memory_path)
     memory["schema_version"] = "2.0"
     memory["department"] = department
@@ -2645,6 +2648,7 @@ def _department_learning_record_locked(root: Path, args: argparse.Namespace) -> 
         "evidence": event["evidence"],
         "outcome": event["outcome"],
         "next_action": event["next_action"],
+        "operating_mode": event["operating_mode"],
         "confidence": event["confidence"],
         "status": event["lesson_status"],
         "observed_at": event["observed_at"],
@@ -2662,19 +2666,21 @@ def _department_learning_record_locked(root: Path, args: argparse.Namespace) -> 
         "retired": "retired_lessons",
     }
     bucket = buckets[event["lesson_status"]]
-    if not any(item.get("lesson_id") == event["event_id"] for item in memory[bucket]):
+    if not duplicate and not any(item.get("lesson_id") == event["event_id"] for item in memory[bucket]):
         memory[bucket].append(lesson_entry)
 
     department_events = [row for row in events if row.get("department") == department]
-    memory["event_count"] = len(department_events) + (0 if duplicate else 1)
+    memory["event_count"] = len(department_events)
     memory["last_updated_at"] = timestamp()
     memory["latest_event"] = lesson_entry
+    write_json(memory_path, memory)
+
     status = "department_learning_duplicate_ignored" if duplicate else "department_learning_recorded"
+    report_path = root / "reports" / f"{today()}-learning-{department}-{args.task_id}.md"
     report_lines = [
         f"# {memory['display_name']} 部门学习记录",
         "",
-        "- 状态：`department_learning_recorded`",
-        f"- 事件指纹：`{event['event_id']}`",
+        f"- 状态：`{status}`",
         f"- 任务：`{args.task_id}`",
         f"- 学习状态：`{args.lesson_status}`",
         f"- 经验：{args.lesson}",
@@ -2689,16 +2695,17 @@ def _department_learning_record_locked(root: Path, args: argparse.Namespace) -> 
         "",
         "本记录用于下一次同部门任务的上下文继承；不代表已批准任何外部执行。",
     ]
-    if not duplicate:
-        _learning_report_once(report_path, "\n".join(report_lines) + "\n")
-        event.update(report_path=safe_rel(root, report_path),
-                     report_sha256=hashlib.sha256(report_path.read_bytes()).hexdigest(),
-                     run_id="department-learning-record-" + event["input_sha256"])
-        _append_learning_event(root, event)
-    workflow.atomic_write_json(memory_path, memory)
-    run_id = _learning_run_once(root, event, "department-learning-record",
-                               [safe_rel(root, event_log)] + evidence,
-                               [safe_rel(root, memory_path), safe_rel(root, report_path)])
+    write_text(report_path, "\n".join(report_lines) + "\n")
+    run_id = append_run(
+        root,
+        "department-learning-record",
+        status,
+        [safe_rel(root, event_log)] + evidence,
+        [safe_rel(root, memory_path), safe_rel(root, report_path)],
+        department=department,
+        task_id=args.task_id,
+        lesson_status=args.lesson_status,
+    )
     payload = {
         "status": status,
         "department": department,
@@ -2713,14 +2720,12 @@ def _department_learning_record_locked(root: Path, args: argparse.Namespace) -> 
 
 
 def department_learning_status(root: Path) -> tuple[dict[str, Any], list[Path]]:
-    registry = read_json(root / DEPARTMENT_LEARNING_REGISTRY)
     rows: list[dict[str, Any]] = []
     missing: list[str] = []
-    for item in registry.get("departments", []):
-        if not isinstance(item, dict):
-            continue
+    for item in department_learning_configs(root):
         department = str(item.get("id", ""))
-        memory_path = root / str(item.get("memory_path", ""))
+        item = department_learning_config(root, department)
+        memory_path = resolve_path(root, str(item["memory_path"]))
         memory = read_json(memory_path)
         exists = memory_path.exists()
         if not exists:
@@ -3037,18 +3042,81 @@ PROTECTED_MARKERS = ("receipt", "approval", "authorization", "backup", "rollback
 
 
 def workspace_maintenance(root: Path, apply: bool, owner_approved: bool, older_than_days: int) -> tuple[dict[str, Any], list[Path]]:
-    """Age alone is not a cleanup grant. Production execution stays off in this candidate."""
+    if apply and not owner_approved:
+        raise OpsError("工作区清理写入被阻止：--apply 必须同时提供 --owner-approved。")
+    cutoff = dt.datetime.now().timestamp() - older_than_days * 86400
+    candidates: list[dict[str, Any]] = []
+    protected: list[str] = []
+    scan_dirs = [root / "drafts", root / "reports"]
+    for base in scan_dirs:
+        if not base.exists():
+            continue
+        for path in base.rglob("*"):
+            if not path.is_file():
+                continue
+            relative = safe_rel(root, path)
+            lower = relative.casefold()
+            if any(marker in lower for marker in PROTECTED_MARKERS):
+                protected.append(relative)
+                continue
+            if path.stat().st_mtime < cutoff:
+                candidates.append({"path": relative, "size": path.stat().st_size, "reason": f"older_than_{older_than_days}_days"})
+    archived: list[str] = []
+    archive_manifest = root / "archive" / "workspace" / f"{today()}-{now_utc().strftime('%H%M%S')}" / "manifest.json"
     if apply:
-        raise OpsError("清理写入未准入：需独立验收、准确使用记录与冻结计划；旧 --owner-approved 不再放行按年龄移动。")
-    usage_path = root / "data/maintenance/cleanup-usage.json"
-    if not usage_path.is_file():
-        return {"status": "usage_observations_required", "candidate_count": 0,
-                "deletion_executed": False, "execution_enabled": False,
-                "next_action": "核验结束任务、7天使用情况、引用和正式保留项后运行tools/safe_cleanup.py"}, []
-    import safe_cleanup
-    value = safe_cleanup.scan(root, read_json(usage_path))
-    value.update(status="frozen_plan_preview", candidate_count=len(value["items"]), execution_enabled=False)
-    return value, []
+        archive_root = archive_manifest.parent
+        for item in candidates:
+            source = root / item["path"]
+            target = archive_root / item["path"]
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source), str(target))
+            archived.append(item["path"])
+        archive_payload = {"created_at": timestamp(), "status": "archived_not_deleted", "items": archived, "protected_examples": protected[:100]}
+        write_json(archive_manifest, archive_payload)
+    status = "cleanup_applied_archived" if apply else "preview_only"
+    payload = {
+        "generated_at": timestamp(),
+        "status": status,
+        "older_than_days": older_than_days,
+        "candidate_count": len(candidates),
+        "candidate_bytes": sum(int(item["size"]) for item in candidates),
+        "archived_count": len(archived),
+        "protected_count": len(protected),
+        "candidates": candidates,
+        "protected_examples": protected[:100],
+        "protected_directories": ["history/", "backups/", "accounts/", "data/", "logs/"],
+        "deletion_executed": False,
+    }
+    data_path = root / "data/maintenance/workspace-maintenance.json"
+    report_path = root / "reports" / f"{today()}-workspace-maintenance.md"
+    write_json(data_path, payload)
+    lines = [
+        "# FLASH CAST 工作区维护",
+        "",
+        f"- 状态：`{status}`",
+        f"- 扫描阈值：超过 `{older_than_days}` 天",
+        f"- 候选文件：`{len(candidates)}`，约 `{payload['candidate_bytes']}` bytes",
+        f"- 受保护文件样本：`{len(protected)}`",
+        f"- 归档文件：`{len(archived)}`",
+        "- 删除：`0`；本工具只允许预览或移动到 archive，不直接删除。",
+        "",
+        "## 受保护目录",
+        "",
+        "- history/：历史资料，只读保留",
+        "- backups/：回滚依据",
+        "- accounts/：账号索引和权限说明",
+        "- data/：业务输入和分析证据",
+        "- logs/：运行、交接和学习记录",
+        "",
+        "## 候选",
+        "",
+    ]
+    lines.extend(f"- `{item['path']}`：{item['reason']}" for item in candidates[:100]) if candidates else lines.append("- None")
+    write_text(report_path, "\n".join(lines) + "\n")
+    run_id = append_run(root, "workspace-maintenance", status, [], [safe_rel(root, data_path), safe_rel(root, report_path)], candidate_count=len(candidates), apply=apply)
+    payload["run_id"] = run_id
+    write_json(data_path, payload)
+    return payload, [data_path, report_path]
 
 
 def chat_binding_is_healthy(binding: dict[str, Any], verification_ttl_hours: int = 0) -> bool:
@@ -3416,12 +3484,6 @@ def global_routing_audit(root: Path, args: argparse.Namespace) -> tuple[dict[str
 
 
 def dispatch_plan(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any], list[Path]]:
-    import human_control
-    with human_control.action_gate(root):
-        return _dispatch_plan_unpaused(root, args)
-
-
-def _dispatch_plan_unpaused(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any], list[Path]]:
     """Create a deterministic, auditable department routing plan.
 
     This command records what should be sent to Codex department tasks. It
@@ -3501,6 +3563,28 @@ def _dispatch_plan_unpaused(root: Path, args: argparse.Namespace) -> tuple[dict[
         route_source = "fallback"
 
     departments = {str(item.get("id")): item for item in registry.get("departments", [])}
+    goal_delivery = None
+    if getattr(args, "goal_input", ""):
+        from goal_delivery_runtime import validate_goal
+        try:
+            goal_delivery = validate_goal(root, read_json(workflow.safe_path(root, args.goal_input)))
+        except workflow.WorkflowError as exc:
+            raise OpsError(str(exc)) from exc
+        producers = goal_delivery["producer_departments"]
+        assistant = goal_delivery["responsible_assistant"]
+        dependencies = {}
+        for item in goal_delivery["dependencies"]:
+            if isinstance(item, dict) and "depends_on" in item:
+                if item.get("department") not in producers or not isinstance(item["depends_on"], list):
+                    raise OpsError("goal dependency must reference exact producer roles")
+                if any(dep not in producers for dep in item["depends_on"]):
+                    raise OpsError("goal dependency references unplanned producer")
+                dependencies[item["department"]] = item["depends_on"]
+        dependencies[assistant] = list(producers)
+        route = {"id": "complete-goal", "required_departments": list(producers),
+                 "parallel_departments": list(producers), "follow_up_departments": [assistant],
+                 "department_dependencies": dependencies, "approval_required": False}
+        route_source = "complete_goal"
     verification_ttl_hours = int(
         (registry.get("health_policy", {}) or {}).get("verification_ttl_hours", 0) or 0
     )
@@ -3671,6 +3755,9 @@ def _dispatch_plan_unpaused(root: Path, args: argparse.Namespace) -> tuple[dict[
         "completion_rule": contract.get("completion_rule", "等待聊天回传和结构化证据"),
         "safety": "本命令只生成本地分派计划，不创建聊天、不发送消息、不修改外部系统。",
     }
+    if goal_delivery is not None:
+        payload["goal_delivery"] = goal_delivery
+        payload["controller_action"] = "dispatch_goal_with_assistant_then_continue_other_work"
 
     try:
         workflow_snapshot, workflow_initialized = workflow.initialize_workflow(
@@ -3680,6 +3767,8 @@ def _dispatch_plan_unpaused(root: Path, args: argparse.Namespace) -> tuple[dict[
             plan_status=plan_status,
             departments=department_plans,
             owner_approval_required=bool(route.get("approval_required", False)),
+            goal_delivery=goal_delivery,
+            goal_contract=workflow.file_digest(root, args.goal_input) if goal_delivery is not None else None,
         )
     except workflow.WorkflowError as exc:
         raise OpsError(str(exc)) from exc
@@ -4051,6 +4140,18 @@ def print_artifacts(payload: dict[str, Any], artifacts: list[Path], root: Path) 
         "paid_promotion_enabled",
         "shadow_only",
         "writes_performed",
+        "operating_mode",
+        "role_retired",
+        "current_rule_sources",
+        "current_lessons",
+        "knowledge_reference",
+        "historical_references",
+        "current_lesson_count",
+        "knowledge_reference_count",
+        "historical_reference_count",
+        "source_memory",
+        "historical_next_actions_are_current_dispatch",
+        "successor_task_id",
         "delegation_id",
         "decision_id",
         "active_count",
@@ -4118,6 +4219,7 @@ def build_parser() -> argparse.ArgumentParser:
     dispatch_parser = sub.add_parser("dispatch-plan", help="按路由规则生成可审计的部门分派计划")
     dispatch_parser.add_argument("--request", required=True, help="老板的原始任务描述")
     dispatch_parser.add_argument("--task-id", default="", help="可选；不填则按日期和任务内容生成")
+    dispatch_parser.add_argument("--goal-input", default="", help="完整目标合同路径；新运行模式必须提供")
     dispatch_parser.set_defaults(handler=lambda root, args: dispatch_plan(root, args))
 
     receipt_parser = sub.add_parser("receipt-record", help="记录链式部门、QA、执行或复核回执")
@@ -4379,9 +4481,21 @@ def build_parser() -> argparse.ArgumentParser:
     department_learning_parser.set_defaults(handler=lambda root, args: department_learning_record(root, args))
 
     department_learning_status_parser = sub.add_parser(
-        "department-learning-status", help="按注册表检查所有部门的学习记忆档案"
+        "department-learning-status", help="按现行注册角色检查部门学习记忆档案"
     )
     department_learning_status_parser.set_defaults(handler=lambda root, args: department_learning_status(root))
+
+    effective_learning_parser = sub.add_parser(
+        "department-learning-effective", help="只读当前模式有效学习视图，保留历史字节"
+    )
+    effective_learning_parser.add_argument("--department", required=True)
+    effective_learning_parser.set_defaults(handler=lambda root, args: department_learning_effective(root, args.department))
+
+    successor_parser = sub.add_parser("workflow-successor-link", help="关联真实已发送后继，保留旧计划历史，不补造发送")
+    successor_parser.add_argument("--task-id", required=True)
+    successor_parser.add_argument("--successor-task-id", required=True)
+    successor_parser.add_argument("--input", required=True)
+    successor_parser.set_defaults(handler=lambda root, args: workflow.link_workflow_successor(root, args.task_id, args.successor_task_id, args.input))
 
     review_parser = sub.add_parser("weekly-review", help="生成周增长复盘")
     review_parser.set_defaults(handler=lambda root, args: weekly_review(root))
@@ -4416,12 +4530,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    root = Path(args.root).resolve()
+    root = Path(args.root).absolute()
     try:
+        from department_system_package import validate_startup
+        validate_startup(root)
         payload, artifacts = args.handler(root, args)
         print_artifacts(payload, artifacts, root)
         return 0
-    except OpsError as exc:
+    except (OpsError, ValueError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 

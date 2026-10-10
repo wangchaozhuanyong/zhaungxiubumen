@@ -1,10 +1,9 @@
 {
-  "schema_version": "2.0",
+  "schema_version": "3.0",
   "project": {
     "project_id": "",
     "cwd": ""
   },
-  "total_role_count": 14,
   "departments": [
     {
       "id": "operations",
@@ -13,6 +12,7 @@
       "role_config": ".codex/agents/flashcast-growth-controller.toml",
       "department_readme": "departments/operations/README.md",
       "approved_subskills": [],
+      "approved_subskill_paths": [],
       "input_paths": [
         "AGENTS.md",
         "README.md",
@@ -26,6 +26,14 @@
         "reports/"
       ],
       "mode": "controller",
+      "new_dispatch_enabled": true,
+      "coordination_authority": {
+        "routine_decisions": false,
+        "dispatch_approved_next": true,
+        "review_capabilities": [],
+        "sets_goals_and_major_authorization": true,
+        "HQ_second_review_required": false
+      },
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -48,6 +56,9 @@
       "approved_subskills": [
         "google-ads-renovation-ppc"
       ],
+      "approved_subskill_paths": [
+        "<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md"
+      ],
       "input_paths": [
         "data/google-ads/",
         "data/analytics/",
@@ -62,6 +73,7 @@
         "data/action-queue.*"
       ],
       "mode": "worker",
+      "new_dispatch_enabled": true,
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -84,6 +96,9 @@
       "approved_subskills": [
         "renovation-seo-geo"
       ],
+      "approved_subskill_paths": [
+        "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md"
+      ],
       "input_paths": [
         "company-context.md",
         "service-area.md",
@@ -101,6 +116,7 @@
         "reports/"
       ],
       "mode": "worker",
+      "new_dispatch_enabled": true,
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -126,6 +142,12 @@
         "hyperframes",
         "media-use"
       ],
+      "approved_subskill_paths": [
+        "<CODEX_HOME>/skills/full-house-custom-ad/SKILL.md",
+        "<CODEX_HOME>/skills/.system/imagegen/SKILL.md",
+        "<CODEX_HOME>/skills/hyperframes/SKILL.md",
+        "<CODEX_HOME>/skills/media-use/SKILL.md"
+      ],
       "input_paths": [
         "brand-guidelines.md",
         "company-context.md",
@@ -144,6 +166,7 @@
         "reports/"
       ],
       "mode": "worker",
+      "new_dispatch_enabled": true,
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -166,6 +189,9 @@
       "approved_subskills": [
         "renovation-sales-ops"
       ],
+      "approved_subskill_paths": [
+        "<CODEX_HOME>/skills/renovation-sales-ops/SKILL.md"
+      ],
       "input_paths": [
         "data/leads/",
         "services-and-pricing.md",
@@ -178,6 +204,7 @@
         "drafts/"
       ],
       "mode": "worker",
+      "new_dispatch_enabled": true,
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -200,6 +227,9 @@
       "approved_subskills": [
         "renovation-seo-geo"
       ],
+      "approved_subskill_paths": [
+        "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md"
+      ],
       "input_paths": [
         "company-context.md",
         "service-area.md",
@@ -220,6 +250,7 @@
         "logs/department-outbox/"
       ],
       "mode": "worker",
+      "new_dispatch_enabled": true,
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -242,6 +273,9 @@
       "approved_subskills": [
         "renovation-seo-geo"
       ],
+      "approved_subskill_paths": [
+        "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md"
+      ],
       "input_paths": [
         "company-context.md",
         "service-area.md",
@@ -262,6 +296,7 @@
         "logs/department-outbox/"
       ],
       "mode": "worker",
+      "new_dispatch_enabled": true,
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -282,6 +317,7 @@
       "role_config": ".codex/agents/reality-checker.toml",
       "department_readme": "departments/qa/README.md",
       "approved_subskills": [],
+      "approved_subskill_paths": [],
       "input_paths": [
         "logs/department-outbox/",
         "reports/",
@@ -293,7 +329,8 @@
         "reports/",
         "data/qa-gate.json"
       ],
-      "mode": "gate",
+      "mode": "retired_history",
+      "new_dispatch_enabled": false,
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -316,6 +353,9 @@
       "approved_subskills": [
         "flashcast-cms-publishing"
       ],
+      "approved_subskill_paths": [
+        "skills/flashcast-cms-publishing/SKILL.md"
+      ],
       "input_paths": [
         "data/publishing/",
         "logs/handoffs/",
@@ -329,6 +369,7 @@
         "logs/handoffs/"
       ],
       "mode": "worker",
+      "new_dispatch_enabled": true,
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -348,7 +389,12 @@
       "professional_skill": "departments/operations-assistant/SKILL.md",
       "role_config": ".codex/agents/operations-assistant.toml",
       "department_readme": "departments/operations-assistant/README.md",
-      "approved_subskills": [],
+      "approved_subskills": [
+        "renovation-seo-geo"
+      ],
+      "approved_subskill_paths": [
+        "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md"
+      ],
       "input_paths": [
         "AGENTS.md",
         "data/",
@@ -361,7 +407,21 @@
         "reports/",
         "logs/department-outbox/"
       ],
-      "mode": "worker",
+      "mode": "coordinator",
+      "new_dispatch_enabled": true,
+      "coordination_authority": {
+        "routine_decisions": true,
+        "dispatch_approved_next": true,
+        "review_capabilities": [
+          "seo_geo",
+          "content_facts",
+          "brand",
+          "maps"
+        ],
+        "acceptance_unique_owner": true,
+        "HQ_second_review_required": false,
+        "production_write_allowed": false
+      },
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -382,6 +442,7 @@
       "role_config": ".codex/agents/qa-technical.toml",
       "department_readme": "departments/qa-technical/README.md",
       "approved_subskills": [],
+      "approved_subskill_paths": [],
       "input_paths": [
         "AGENTS.md",
         "data/",
@@ -394,7 +455,8 @@
         "reports/",
         "logs/department-outbox/"
       ],
-      "mode": "gate",
+      "mode": "retired_history",
+      "new_dispatch_enabled": false,
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -414,7 +476,14 @@
       "professional_skill": "departments/operations-assistant-2/SKILL.md",
       "role_config": ".codex/agents/operations-assistant-2.toml",
       "department_readme": "departments/operations-assistant-2/README.md",
-      "approved_subskills": [],
+      "approved_subskills": [
+        "web-dev-toolkit:code-reviewer",
+        "web-dev-toolkit:design-acceptance"
+      ],
+      "approved_subskill_paths": [
+        "<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/code-reviewer/SKILL.md",
+        "<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/design-acceptance/SKILL.md"
+      ],
       "input_paths": [
         "AGENTS.md",
         "data/",
@@ -428,7 +497,21 @@
         "reports/",
         "logs/department-outbox/"
       ],
-      "mode": "worker",
+      "mode": "coordinator",
+      "new_dispatch_enabled": true,
+      "coordination_authority": {
+        "routine_decisions": true,
+        "dispatch_approved_next": true,
+        "review_capabilities": [
+          "development",
+          "cms",
+          "functional",
+          "release_result"
+        ],
+        "acceptance_unique_owner": true,
+        "HQ_second_review_required": false,
+        "production_write_allowed": false
+      },
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -448,7 +531,22 @@
       "professional_skill": "departments/operations-assistant-3/SKILL.md",
       "role_config": ".codex/agents/operations-assistant-3.toml",
       "department_readme": "departments/operations-assistant-3/README.md",
-      "approved_subskills": [],
+      "approved_subskills": [
+        "google-ads-renovation-ppc",
+        "full-house-custom-ad",
+        "imagegen",
+        "hyperframes",
+        "media-use",
+        "renovation-sales-ops"
+      ],
+      "approved_subskill_paths": [
+        "<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md",
+        "<CODEX_HOME>/skills/full-house-custom-ad/SKILL.md",
+        "<CODEX_HOME>/skills/.system/imagegen/SKILL.md",
+        "<CODEX_HOME>/skills/hyperframes/SKILL.md",
+        "<CODEX_HOME>/skills/media-use/SKILL.md",
+        "<CODEX_HOME>/skills/renovation-sales-ops/SKILL.md"
+      ],
       "input_paths": [
         "AGENTS.md",
         "data/",
@@ -462,44 +560,21 @@
         "reports/",
         "logs/department-outbox/"
       ],
-      "mode": "worker",
-      "chat_binding": {
-        "status": "unbound",
-        "task_id": "",
-        "project_id": "",
-        "cwd": "",
-        "title": "",
-        "sidebar_section_id": "",
-        "sidebar_section_name": "",
-        "reply_health": "not_verified",
-        "dispatch_eligible": false,
-        "handoff_path": ""
-      }
-    },
-    {
-      "id": "designated-website-developer",
-      "name": "专用开发部",
-      "professional_skill": "departments/designated-website-developer/SKILL.md",
-      "role_config": ".codex/agents/designated-website-developer.toml",
-      "department_readme": "departments/designated-website-developer/README.md",
-      "approved_subskills": [
-        "web-repair-router"
-      ],
-      "input_paths": [
-        "data/department-registry.json",
-        "logs/handoffs/"
-      ],
-      "output_paths": [
-        "drafts/operations/"
-      ],
-      "relationship": "associated_code_department",
-      "mode": "worker",
-      "code_source_roots": [
-        "<WEBSITE_PROJECT_ROOT>",
-        "<PROJECT_ROOT>"
-      ],
-      "permissions_inherited": false,
-      "production_authority_granted": false,
+      "mode": "coordinator",
+      "new_dispatch_enabled": true,
+      "coordination_authority": {
+        "routine_decisions": true,
+        "dispatch_approved_next": true,
+        "review_capabilities": [
+          "paid",
+          "data",
+          "visual",
+          "sales"
+        ],
+        "acceptance_unique_owner": true,
+        "HQ_second_review_required": false,
+        "production_write_allowed": false
+      },
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -514,8 +589,11 @@
       }
     }
   ],
+  "total_role_count": 13,
+  "active_department_count": 11,
   "health_policy": {
     "verification_ttl_hours": 26
   },
-  "public_template": true
+  "public_template": true,
+  "runtime_bindings_require_local_setup": true
 }

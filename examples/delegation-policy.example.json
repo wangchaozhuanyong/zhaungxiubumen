@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "status": "active",
   "scope": "project_local_codex_subagents",
   "purpose": "允许固定部门窗口为独立、有界、有收益的内部工作调用 Codex 短生命周期子智能体；固定部门仍是唯一责任人和回传窗口。",
@@ -77,5 +77,8 @@
     "generic_agent_department_bypass"
   ],
   "security_note": "这是项目级委派账本和政策预检，不是 Codex 全局权限拦截器。",
+  "coordination_authority_source": "registered coordination_authority and exact goal responsible assistant",
+  "ephemeral_producer_self_acceptance_allowed": false,
+  "main_goal_owner_unchanged_by_subagent": true,
   "public_template": true
 }

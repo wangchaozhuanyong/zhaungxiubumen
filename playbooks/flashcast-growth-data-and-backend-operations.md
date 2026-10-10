@@ -1,5 +1,3 @@
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
-
 # FLASH CAST 增长数据与后台只读作业手册
 
 版本：2026-08-31  
@@ -15,24 +13,11 @@
 
 当前项目已经保留一份历史资料索引在 `history/skill-zhuangxiuseogeo/`。以后的最新数据应放到当前项目的 `data/`，不能把历史快照误当成实时状态。
 
-## 2. 总控和员工分工
+## 2. 当前角色与验收
 
-每次任务由 `FLASH CAST Growth Controller` 先确认目标、地区、语言、时间范围、成功指标和审批边界，再调用最少的必要员工：
+总部一次确定完整目标/数据时间窗/范围/标准，专业制作由注册实际部门执行。付费/数据/追踪归paid-growth-data，内容/技术增长输入归content-organic-website，需求GEO归seo-content-research，实体Maps归local-seo-maps，视觉归visual-design-video，销售真值归sales；CMS保存归publishing，代码部署归指定开发。泛用Agent只作内部方法，不是部门窗口。
 
-| 任务 | 负责人 | 交付重点 |
-|---|---|---|
-| 总体协调 | `FLASH CAST Growth Controller` | 任务拆分、证据门槛、优先级、交接 |
-| Google Ads 账户审计 | `Paid Media Auditor` | 账户、系列、预算、地域、设备、结构和风险 |
-| PPC 策略 | `PPC Campaign Strategist` | 服务分组、匹配方式、预算顺序和测试方案 |
-| 搜索词/否定词 | `Search Query Analyst` | 搜索意图、浪费候选、否定词分层、隐藏搜索词 |
-| 广告文案 | `Ad Creative Strategist` | CTR、文案主题、资产、CTA、落地页匹配 |
-| 追踪 | `Tracking & Measurement Specialist` | GA4、GTM、Google Ads 转化、表单、电话、WhatsApp、离线回传 |
-| 数据汇总 | `Analytics Reporter` | 指标计算、时间窗、归因和成本对账 |
-| 网站转化 | `UX Architect`、网站负责人 | 移动端流程、表单、CTA、页面消息匹配；不直接改生产网站 |
-| 销售真值 | `Sales Outreach`、销售负责人 | 实际入站、有效线索、预约、报价、签单、失单原因 |
-| 证据审查 | `Evidence Collector`、`Reality Checker` | 区分事实、推断、缺失和过期数据 |
-
-不要重复安装或复制大量泛用 Agent。广告/PPC 和 SEO/GEO/CRO 各有明确入口，方法由总控统一串联。
+唯一未制作的能力匹配助理验完整成果并常规接续，总部不二审/守候，QA历史角色不接新路由。资料/自检/原授权/实际Save/部署/公众验证/业务效果分层。以下只读数据方法本身不授生产权；已有付费直授批次按原准确边界执行，不恢复旧总控逐步审批。
 
 ## 3. 数据真值层级
 
@@ -167,8 +152,8 @@
 4. `Paid Media Auditor` 检查广告系列、广告组、设备、地区和落地页；
 5. `Ad Creative Strategist` 按有量样本比较 CTR 和服务主题，不能把小样本当赢家；
 6. `Sales Outreach` 补齐实际沟通、有效性、报价和签单；
-7. `Evidence Collector` 和 `Reality Checker` 检查结论是否越过证据；
-8. 总控生成 `reports/YYYY-MM-DD-*.md`，把所有账户修改、网站发布和客户外联列为待批准。
+7. 具data能力的唯一未制作助理检查结论是否越过证据；
+8. 专业部门报告准确已授权/待授权范围、实际结果与未完；负责助理验收及常规接续，已给准确授权不重复等待批准。
 
 刷新节奏建议：新投放前先做一次完整验收；上线后前 72 小时频繁观察；之后每日看异常、每周看搜索词/地区/设备/广告和线索质量、每月做成本对账。没有稳定有效转化时，不扩量、不恢复 PMax、不把自动出价学习建立在按钮点击上。
 

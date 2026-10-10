@@ -1,20 +1,5 @@
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+# SEO/GEO与本地职责交接
 
-# 2026-09-27 SEO扩编与编号执行交接
+注册表动态角色与真实绑定是唯一来源；content-organic-website负责技术增长输入与完整目标协调，seo-content-research负责GEO/需求/双语研究，本地local-seo-maps负责Maps/实体事实。已有active/业务主账/候选与实际许可保留，新增岗位不继承外部权。内容事实验收归具seo_geo/content_facts/maps能力的唯一负责助理，程序/CMS子结果按development/cms能力验收。
 
-老板明确要求在原SEO部门外新增两个固定部门，并统一编号。现场窗口和注册表名称如下：
-
-- seo geo推广部门1：content-organic-website，固定任务<LOCAL_TASK_ID>，技术SEO、CMS/网站代码实施、常规发布与生产复核。
-- seo geo推广部门2：seo-content-research，固定任务<LOCAL_TASK_ID>，自然关键词、主题、双语内容和FAQ草稿。
-- seo geo推广部门3：local-seo-maps，固定任务<LOCAL_TASK_ID>，地图、本地实体、地区内容brief和真实信任资料。
-
-均属于装修公司虚拟员工，project_id=<LOCAL_PROJECT_ID>、cwd=<PROJECT_ROOT>，执行部门分组为装修公司部门。注册表、应用现场及新鲜健康共同决定可派工；历史名字仅为检索别名。现场证据见logs/handoffs/2026-09-27-seo-department-expansion-live-binding-v1.json。新增两部门首次启动已取得可见非空结果及协议检查通过的独立启动report/outbox；这不是业务内容全部完成、QA或发布。
-
-扩编时原fc-20260927-organic-keyword-wide-coverage-v1正在部门1执行，当前轮次仍由原负责人完成，不中断或并行重做。部门2核对其准确完成回传及对应outbox之后，按新职责接续下一批增量；当前正在写入的主词库、活动候选和历史回执保持原归属。部门3按原Maps task_id继承单一商家、80查询及v2字段，初始仅研究/准确候选，平台动作与部门许可齐全后再执行。
-
-唯一主账仍为data/content/organic-growth-backlog.json；不另建完成账。原active轮次完成前保留其写入归属；后续部门1写网站实施状态，部门2/3只提交与原task_id关联的独立状态增量，由operations整合，避免共享JSON同时写入。所有已验收旧页面、关键词归属及发布证据保留，不以新名字重做或改写成果。
-
-广告关键词、预算和投放仍由付费部按独立边界管理；自然词覆盖有关真实需求，不设数量上限，但保留来源、需求验证状态、去重及唯一页面归属。两个新增部门不继承网站常驻发布授权或任何外部账号写入权。常规网站写入仍由部门1按原授权、唯一CMS/代码通道和准确门禁完成。现有其他部门的暂停或缺数据状态不在本次扩编中伪造为健康或运行。
-
-
-2026-09-27最新持续优化指令覆盖先前单日排期及维护期节流：读取playbooks/organic-intensive-execution.md与organic-execution-policy。专业部门多白天窗口接续，operations新增固定总控持续协调heartbeat；原业务task、单次权限和QA/发布通道保留，不因窗口到来重复候选。
+状态分别为执行中、待助理验收、返工中、已完成范围、下一任务真实已安排、具体依赖等待、暂时无可执行工作。验收PASS必须关联实际下一动作或准确范围关闭；prepared不算sent，passed不算adopted，子任务结束不关闭父目标。缺输入只暂停依赖它的动作，其他独立合法工作继续。停止时列已完成、未完成、唯一负责人、下一动作、解除条件和复查时间；自然去重IP口径缺失记DATA_MISSING，AI效果未实测记NOT_MEASURED。

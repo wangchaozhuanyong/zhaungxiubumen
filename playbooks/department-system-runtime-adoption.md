@@ -1,14 +1,13 @@
-# V13 准确采用与恢复
+# 精确候选采用与回滚
 
-本版是原任务 fc-20261008-department-system-upgrade-v1 的隔离候选。独立 QA、总部采用、真实 R0 试点、导出推送和生产执行分别记录。候选尚未发生这些步骤。
+按当前完整目标、真实human-authority和准确范围处理采用。developer交准确候选、diff、baseline、源码pins、指纹与幂等应用方法；唯一具备对应能力且未参与制作的负责助理独立验收该版本，并按已有准确授权采用、回读和接续。总部读结论、定新目标，不重复技术审查，不逐段报审。
 
-1. 独立 QA 读取 DELIVERY-MANIFEST、准确源树 SHA、同版代码差异及本地受影响检查。QA 原生固定身份、派工/ACK/outbox/verdict 与准确候选全部对应；不使用旧版本 PASS。
-2. 总部逐项读回活动 before hash，按 ADOPTION-SCOPE 做文件 CAS。AGENTS、当前规则、专业 Skill/README、模板、合同、原生消费者及必要依赖一起迁移。现行付费规则和并行 WIP 保留；历史、账户、主账、原生许可、聊天、学习事件及缺失字节不被候选覆盖。
-3. 注册表仅追加经现场独立核验的关联开发角色并字段 CAS；保留真实不同项目/cwd/title，不整表复制健康。学习注册仅追加缺少的角色，不覆盖现有记忆。计数重新从 departments 派生。
-4. 准入记录引用准确 adoption pin、candidate pin、独立 QA outbox/receipt 及同 QA 结果的 `controller_decision_record_id`。该原生 decision 必须 operations、close_scope、QA pass、准确 acceptance_scope，并含候选及 QA pins。仅设置 admitted=true、放 role 文件或 QA PASS 均不够。
-5. 三助理 grant 明确 R0/R1/R2、原 task/producer/candidate/hash/scope、事件、下一 owner、链接 task、当前 human revision、有效期、原生身份；一份结果只有一个短租约。R3/未知不发 grant，CMS 旧执行许可不转移。
-6. 运行采用后沿同原任务做真实 R0 pilot，记录专业执行→冻结→入队→原助理消费者决策/QA或下一步的真实 pins。合成测试没有试点效力。没有 native 自动唤醒能力；空 hooks 保留，18:00 原兜底不另加高频排程。
-7. independent QA、采用与真实 R0 pilot 都准入后，本固定开发聊天才能沿原任务调用 `adopted_system_export.prepare_adopted` 从完整已采用文件清单导出；完整代码/方法指纹必须与同候选 export_source_files 一致，运行绑定和政策快照另经采用后准确独立 source QA 绑定，真实试点 outbox 必须带同版 system_candidate_sha256/system_candidate_version、applied_source输入及采用后执行时间，再导出到项目内 releases/zhaungxiubumen，未来授权仓库为 wangchaozhuanyong/zhaungxiubumen。运行账户、聊天、客户、许可、秘密及本机个人路径不得导出；最终全树语义隐私检查通过后才有可评审导出。推送保持远端历史，不能 force；此候选没有实际网络推送。
-8. 真正生产发布、CMS 保存、部署和清理仍有各自独立门禁。周计划提案未启用；清理引用扫描不能执行 JS，坏行和无法证明的计算引用保护。学习遗失报告维持 DATA_MISSING。
+采用前核每个文件的baseline/CAS和必要检查，只应用本次精确差异，保留并行WIP、动态聊天绑定/健康、业务主账及历史账，不整目录覆盖。缺本任务准确授权时只保留该范围候选和具体依赖，不把某批候选状态扩大为其他已授权业务的禁行。
 
-恢复：before 只保存本次可采用的文件原字节与哈希。恢复需确认当前值仍等于本版应用后的 SHA，逐文件还原；并行变化先交总部，不批量覆盖、reset 或删除历史。新增文件若已有新修改亦保留，不能直接移除。
+当前采用状态以实际采用工具回执、journal和采用后源码pins为准，记录准确版本、文件hash、执行者与时间；不能用旧检查点或“本批尚未采用”的历史描述替代真实回读。候选准备、独立验收、实际采用、Save/部署和业务结果分别记录。实际采用不等于真实原生完成事件→负责助理正式收取→下一实际任务试点通过。
+
+平台提示词只处理本次真实新增差异，复用现存已迁移证据，由有权总部或已获准确授权的负责助理经原生工具实际更新；保存前后hash和实际回执，不手改automation.toml，不新增高频轮询。系统采用与助理验收不授账号、费用、跨项目或生产权限，已有合法业务授权和通道继续按原范围执行。
+
+回滚先停止相关控制动作，核真实消息/Save/部署与SQLite effect，收口token/fence/uncertain，再CAS恢复本次精确备份。保留新真实回执、SQLite/队列和业务数据；不删库清空claim，不重算历史、不重复发送。新增模块回滚可保留未启用。回滚预演与实际回滚分别记录；真实效果或合法恢复通道缺失时，仅暂停依赖它的动作并给出准确解除条件。
+
+满足本任务完成标准，且真实内部原生事件→负责助理收取→下一实际任务试点已有准确回执，才称该系统范围完成。有运行限制时保留唯一负责人、下一动作和解除条件，不伪造旧policy许可，不恢复旧QA/HQ等待链。

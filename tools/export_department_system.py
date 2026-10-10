@@ -8,11 +8,16 @@ import hashlib
 import json
 from pathlib import Path
 import re
-import tomllib
+
+from department_system_package import (
+    MODEL, SCHEMA, non_runtime_paths, seal_manifest, validate_model,
+    validate_payloads, validate_release,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICIES = (
     "department-routing-rules.json", "task-contract.json", "delegation-policy.json",
+    "agent-role-policy.json",
 )
 COMPANY = (
     "company-context.md", "service-area.md", "services-and-pricing.md",
@@ -25,215 +30,6 @@ SECRET_PATTERNS = (
     re.compile(r"\bBearer\s+[A-Za-z0-9_.-]{25,}"),
     re.compile(r"(?i)(?:password|access_token|api_key)\s*[=:]\s*[\"'][^\"']{16,}[\"']"),
 )
-PRIVATE_MODULES = {
-    "publisher_native_sparse_admission", "managed_cms_permit_issuer",
-    "native_cms_admission", "native_cms_admission_v2", "native_cms_issuer_integration",
-    "native_remaining186_blog_registration", "native_five_source_projection_registration",
-    "native_publisher_exact_registration", "native_repair_faq_registration",
-    "original_task_publisher_handover", "publisher_designated_successor_qa",
-    "owner_paid_final_qa_route", "owner_paid_completion_policy",
-}
-LOCAL_PERSONAL_PATHS = re.compile(r"(?:/Users/|/home/)[\w.-]+|[A-Za-z]:\\Users\\[\w.-]+", re.IGNORECASE)
-NATIVE_IDS = re.compile(r"\b(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|msg_[0-9a-f]{16,})\b", re.IGNORECASE)
-
-
-def private_module(name):
-    if name == 'native_inventory':
-        return False  # Generic native-shape validator; never an authorization issuer.
-    return name in PRIVATE_MODULES or name.startswith(('native_','publisher_','managed_cms_')) or name.startswith('cms_') and 'native' in name
-
-
-
-PUBLIC_HANDOVER_FACADE = r'''
-TASK = "synthetic-deny-only-publisher-handover"
-_TASK_DENY_SHA256 = "ab9519afcf80d18db599b123d167b32f5c42862b4f04147554d460539ebfa11d"
-POLICY_KEY = "original_task_publisher_execution_only_handover"
-
-
-def _private_task(value):
-    import hashlib
-    return (isinstance(value, str) and (value == TASK
-            or hashlib.sha256(value.encode()).hexdigest() == _TASK_DENY_SHA256))
-
-
-def _has_handover(value):
-    if isinstance(value, dict):
-        if (POLICY_KEY in value or value.get("publisher_execution_handover")
-                or _private_task(value.get("task_id"))):
-            return True
-        return any(_has_handover(item) for item in value.values())
-    if isinstance(value, (list, tuple)):
-        return any(_has_handover(item) for item in value)
-    return False
-
-
-def _ordinary_context(root, task_id=None, snapshot=None, receipts=None, receipt=None):
-    from pathlib import Path
-    import workflow_control as workflow
-    if _private_task(task_id) or _has_handover([snapshot, receipts, receipt]):
-        raise workflow.WorkflowError("public_template_has_no_native_authorization")
-    policy = workflow.load_policy(Path(root))
-    events = workflow.read_jsonl(Path(root) / workflow.WORKFLOW_EVENTS)
-    if _has_handover(policy) or _has_handover(events):
-        raise workflow.WorkflowError("public_template_has_no_native_authorization")
-
-
-def binding(root, task_id, receipts=None):
-    _ordinary_context(root, task_id, receipts=receipts)
-    return None
-
-
-def replay(root, snapshot):
-    _ordinary_context(root, snapshot=snapshot)
-    return None
-
-
-def legacy_context(root, snapshot, receipts):
-    _ordinary_context(root, snapshot=snapshot, receipts=receipts)
-    return snapshot, receipts
-
-
-def validate_new_receipt(root, snapshot, receipts, receipt):
-    _ordinary_context(root, snapshot=snapshot, receipts=receipts, receipt=receipt)
-    return False
-
-
-def progress(root, task_id, action_id, scope):
-    _ordinary_context(root, task_id)
-    return None
-
-
-def recoverable_dispatch(root, snapshot, receipts, sent):
-    _ordinary_context(root, snapshot=snapshot, receipts=receipts, receipt=sent)
-    return False
-
-
-def retry_projection(root, task_id, action_id, scope, receipt_id, approval_id):
-    _ordinary_context(root, task_id)
-    return None
-
-
-def dispatch_precheck(root, snapshot, department, thread, action_id, scope):
-    _ordinary_context(root, snapshot=snapshot)
-    return []
-
-
-def shadow_projection(root, task_id):
-    _ordinary_context(root, task_id)
-    return None
-'''
-
-
-def synthetic_auth_values():
-    text = "Synthetic example only; not a native authorization.\n"
-    return {"AUTH_TURN_ID": "example-turn-not-native",
-            "AUTH_MESSAGE_ID": "example-message-not-native",
-            "AUTH_TEXT": text, "AUTH_TEXT_SHA256": hashlib.sha256(text.encode()).hexdigest()}
-
-
-def synthetic_auth_fields(path, tree):
-    """Only our exact complete guarded example is public, never native evidence."""
-    if path.name != "owner_delegated_publishing_preparation.py":
-        return set()
-    expected = synthetic_auth_values()
-    assignments = {}
-    for node in tree.body:
-        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
-            continue
-        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-        for target in targets:
-            if isinstance(target, ast.Name) and (target.id.startswith("AUTH_") or target.id == "PUBLIC_TEMPLATE_ONLY"):
-                if target.id in assignments:
-                    return set()
-                try:
-                    assignments[target.id] = ast.literal_eval(node.value)
-                except (ValueError, TypeError):
-                    return set()
-    if set(assignments) != set(expected) | {"PUBLIC_TEMPLATE_ONLY"}:
-        return set()
-    if assignments.pop("PUBLIC_TEMPLATE_ONLY") is not True or assignments != expected:
-        return set()
-    tracked = set(expected) | {"PUBLIC_TEMPLATE_ONLY"}
-    if any(sum(isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
-               and node.id == name for node in ast.walk(tree)) != 1 for name in tracked):
-        return set()
-    functions = {node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)}
-    if any(sum(isinstance(node, ast.FunctionDef) and node.name == name
-               for node in tree.body) != 1 for name in ("_frozen_request", "_require")):
-        return set()
-    entry, require = functions.get("_frozen_request"), functions.get("_require")
-    guard = ast.parse('_require(not PUBLIC_TEMPLATE_ONLY, "public_template_has_no_native_authorization")').body[0]
-    if entry is None or not entry.body or ast.dump(entry.body[0]) != ast.dump(guard):
-        return set()
-    if require is None or len(require.body) != 1 or not isinstance(require.body[0], ast.If):
-        return set()
-    test = require.body[0]
-    condition = ast.parse("not condition", mode="eval").body
-    if (ast.dump(test.test) != ast.dump(condition) or test.orelse or len(test.body) != 1
-            or not isinstance(test.body[0], ast.Raise)):
-        return set()
-    return set(expected)
-
-
-def private_literals(root):
-    """Actual values stay in memory; audit output uses hashes and locations only."""
-    values=set()
-    for p in (Path(root)/"tools").glob("*.py"):
-        if p.name.startswith("test_"):continue
-        tree=ast.parse(p.read_text())
-        public_auth = synthetic_auth_fields(p, tree)
-        for node in tree.body:
-            if not isinstance(node,(ast.Assign,ast.AnnAssign)):continue
-            targets=node.targets if isinstance(node,ast.Assign) else [node.target]
-            if not any(isinstance(t,ast.Name) and (
-                    t.id.startswith("AUTH_") or "SOURCE" in t.id and "PIN" in t.id
-                    or "THREAD" in t.id or t.id in {"PROJECT_ID","TARGET_IDS","TARGETS"})
-                    for t in targets):continue
-            if any(isinstance(t, ast.Name) and t.id in public_auth for t in targets):continue
-            try:value=ast.literal_eval(node.value)
-            except (ValueError,TypeError):continue
-            def collect(v):
-                if isinstance(v,str) and len(v)>=16:values.add(v)
-                elif isinstance(v,dict):
-                    for a,b in v.items():collect(a);collect(b)
-                elif isinstance(v,(list,tuple,set)):
-                    for x in v:collect(x)
-            collect(value)
-    return values
-
-
-def validate_public_tree(root, target):
-    forbidden=private_literals(root);hits=[]
-    for p in sorted(Path(target).rglob("*")):
-        if p.is_symlink():raise ValueError("Public tree symlink blocked")
-        rel=str(p.relative_to(target))
-        if Path(rel).parts[0] in {"data","logs","accounts","reports","drafts","backups","history"}:
-            raise ValueError("Private runtime/business directory blocked: "+rel)
-        if not p.is_file():continue
-        text=p.read_text();strings=[text]
-        if p.suffix.casefold()==".py":
-            strings += [n.value for n in ast.walk(ast.parse(text)) if isinstance(n,ast.Constant) and isinstance(n.value,str)]
-        elif p.suffix.casefold() in {".json", ".toml"}:
-            def flatten(value):
-                if isinstance(value,str):strings.append(value)
-                elif isinstance(value,dict):
-                    for k,v in value.items():flatten(k);flatten(v)
-                elif isinstance(value,list):
-                    for v in value:flatten(v)
-            # TOML basic strings, nested arrays/tables and keys must be read
-            # semantically; raw Unicode escapes cannot bypass the gate.
-            flatten(tomllib.loads(text) if p.suffix.casefold() == ".toml" else json.loads(text))
-        for value in forbidden:
-            if any(value in s or (re.fullmatch(r"[a-f0-9]{64}", value)
-                                  and value in s.lower()) for s in strings):
-                hits.append({"path":rel,"value_sha256":hashlib.sha256(value.encode()).hexdigest()})
-        if any(NATIVE_IDS.search(value) for value in strings):hits.append({"path":rel,"kind":"native_identity_pattern"})
-        if any(LOCAL_PERSONAL_PATHS.search(value) for value in strings):hits.append({"path":rel,"kind":"local_personal_path"})
-        secret_hits=[match for pattern in SECRET_PATTERNS for match in pattern.finditer(text)]
-        secret_hits=[match for match in secret_hits if not (p.name.startswith('test_') and text[match.end():].startswith('\\nsynthetic-fixture"'))]
-        if secret_hits:hits.append({"path":rel,"kind":"secret_pattern"})
-    if hits:raise ValueError("Public privacy gate denied "+str(len(hits))+" private-value/identity occurrences; files="+",".join(sorted({x["path"] for x in hits})))
-    return {"status":"PASS","files_scanned":sum(p.is_file() for p in Path(target).rglob("*")),"private_literal_hashes_checked":len(forbidden),"private_values_saved":False}
 
 
 def write_json(path, value):
@@ -241,36 +37,62 @@ def write_json(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
 
 
-def public_text(text, root=None, forbidden=None):
-    root = Path(root) if root is not None else ROOT
+def public_numeric_identifiers(text):
+    """Keep public identifier comparisons consistent without real destinations."""
+    def synthetic(value):
+        if value.startswith("000"):
+            return value
+        width = len(value) - 3
+        number = int(hashlib.sha256(value.encode()).hexdigest(), 16) % (10 ** width)
+        return "000" + str(number).zfill(width)
+
+    text = re.sub(r"(?P<quote>[\"'])(?P<identifier>[0-9]{10,22})(?P=quote)",
+                  lambda match: match["quote"] + synthetic(match["identifier"]) + match["quote"], text)
+    text = re.sub(r"\bAW-([0-9]{10,22})\b",
+                  lambda match: "AW-" + synthetic(match[1]), text)
+    text = re.sub(r"\b(locations|customers|accounts|campaigns|adGroups|assets)/([0-9]{10,22})\b",
+                  lambda match: match[1] + "/" + synthetic(match[2]), text)
+    text = re.sub(r"\b(campaigns?|assets?|google-business-profile)[:/-]([0-9]{10,22}(?:\+[0-9]{10,22})*)\b",
+                  lambda match: match[1] + match[0][len(match[1])] + "+".join(synthetic(value) for value in match[2].split("+")), text)
+    # Conversion-action CSV rows put the identifier immediately before AW-.
+    text = re.sub(r"(?<=,)([0-9]{10,22})(?=,AW-[0-9]{10,22}\b)",
+                  lambda match: synthetic(match[1]), text)
+    return text
+
+
+def public_text(text, root=None):
+    root = (root or ROOT).resolve()
     # Portable references only; the local source and its evidence are untouched.
     text = text.replace(str(root), "<PROJECT_ROOT>")
     text = re.sub(r"/Users/[^/\s\"']+/\.codex/skills", "<CODEX_HOME>/skills", text)
     text = re.sub(r"/Users/[^/\s\"']+/\.agents/skills", "<AGENTS_HOME>/skills", text)
+    text = re.sub(r"/Users/[^/\s\"']+/\.codex/plugins", "<CODEX_HOME>/plugins", text)
     text = re.sub(r"/Users/[^/\s\"']+/Desktop/装修网站(?:/zhuangxiuwangzhan-main)?", "<WEBSITE_PROJECT_ROOT>", text)
     registry_path = root / "data/department-registry.json"
     if registry_path.is_file():
         registry = json.loads(registry_path.read_text())
-        for role in registry.get("departments", []):
-            binding = role.get("chat_binding", {})
-            for field in ("task_id", "project_id", "sidebar_section_id"):
-                value = binding.get(field)
-                if isinstance(value, str) and value:
-                    if field == "sidebar_section_id" and value in {"pinned", "chats", "threads", "agents", "projects"}:
-                        continue  # Public native UI words are not private bindings.
-                    text = text.replace(value, "<LOCAL_" + field.upper() + ">")
+        def identities(value):
+            if isinstance(value, dict):
+                for field, child in value.items():
+                    if field in {"task_id", "thread_id", "project_id", "sidebar_section_id", "cwd", "handoff_path"} and isinstance(child, str) and child:
+                        yield field, child
+                    elif isinstance(child, (dict, list)):
+                        yield from identities(child)
+            elif isinstance(value, list):
+                for child in value:
+                    yield from identities(child)
+        bindings = [role.get("chat_binding", {}) for role in registry.get("departments", [])]
+        bindings.extend([registry.get("project", {}), registry.get("collaboration_bindings", {})])
+        for field, value in identities(bindings):
+            text = text.replace(value, "<LOCAL_" + field.upper() + ">")
     text = text.replace("<WEBSITE_DEVELOPER_THREAD>", "<WEBSITE_DEVELOPER_THREAD>")
     text = text.replace("<LOCAL_PROJECT_ID>", "<WEBSITE_PROJECT_ID>")
-    text = re.sub(r"/Users/[^/\s\"']+/Desktop/装修公司虚拟员工", "<PROJECT_ROOT>", text)
     text = text.replace(str(Path.home()), "<USER_HOME>")
-    # All historical native IDs are private, including superseded bindings.
-    text = NATIVE_IDS.sub("<LOCAL_NATIVE_ID>",text)
-    text = re.sub(r"\b[0-9]{3}-[0-9]{3}-[0-9]{4}\b","<LOCAL_ACCOUNT_ID>",text)
-    for value in sorted(forbidden if forbidden is not None else private_literals(root),key=len,reverse=True):
-        if re.fullmatch(r"[a-f0-9]{64}",value):
-            replacement=hashlib.sha256(("public-synthetic-only:"+value).encode()).hexdigest()
-        else:replacement="<LOCAL_PRIVATE_EVIDENCE>"
-        text=text.replace(value,replacement)
+    # Native message/turn/thread IDs and the local Ads account are never a
+    # portable authority. Synthetic values cannot bind to a real chat.
+    text = re.sub(r"\b01a[0-9a-f]{5}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+                  lambda match: "example-native-" + hashlib.sha256(match[0].encode()).hexdigest()[:16], text)
+    text = re.sub(r"\b[0-9]{3}-[0-9]{3}-[0-9]{4}\b", "example-ads-account", text)
     # The same exact CMS record/source pin may occur in several method modules.
     # Replace those local identities consistently, without changing live files.
     followthrough = root / "tools/owner_delegated_publisher_followthrough.py"
@@ -287,25 +109,28 @@ def public_text(text, root=None, forbidden=None):
             for index, value in enumerate(pins):
                 example = hashlib.sha256(("example-only-" + name + "-" + str(index)).encode()).hexdigest()
                 text = text.replace(value, example)
-    return text
+    return public_numeric_identifiers(text)
 
 
 def public_source_text(rel, text):
     """Remove native owner evidence from the public preparation-only example."""
-    if private_module(Path(rel).stem):
-        tree=ast.parse(text)
-        deny='    from workflow_control import WorkflowError\n    raise WorkflowError("public_template_has_no_native_authorization")\n'
-        result='"""Private native consumer unavailable in a public source template."""\nPUBLIC_TEMPLATE_ONLY = True\n'
-        facade = PUBLIC_HANDOVER_FACADE if Path(rel).stem == 'original_task_publisher_handover' else ''
-        public_names = {node.name for node in ast.parse(facade).body if isinstance(node, ast.FunctionDef)}
-        for node in tree.body:
-            if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)):
-                if node.name in public_names or node.name == '__getattr__':continue
-                result+="\ndef "+node.name+"(*args, **kwargs):\n"+deny
-            elif isinstance(node,ast.ClassDef):
-                result+="\nclass "+node.name+":\n    def __init__(self,*args,**kwargs):\n        raise ValueError('public_template_has_no_native_authorization')\n"
-        result+=facade
-        result+="\ndef __getattr__(name):\n    raise AttributeError(name)\n"
+    if rel in {"tools/owner_paid_logo_policy.py", "tools/owner_paid_completion_policy.py", "tools/owner_paid_final_qa_route.py"}:
+        tree = ast.parse(text)
+        lines = text.splitlines(keepends=True)
+        for node in sorted(tree.body, key=lambda item: item.lineno, reverse=True):
+            if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name):
+                name = node.targets[0].id
+                if name.startswith("AUTH") or name == "FUNDS_AUTH" or name.startswith("HISTORICAL_"):
+                    if not isinstance(node.value, (ast.Dict, ast.List, ast.Constant)):
+                        raise ValueError("Unexpected native evidence expression; export blocked")
+                    replacement = {} if isinstance(node.value, ast.Dict) else [] if isinstance(node.value, ast.List) else "synthetic-evidence-not-native"
+                    lines[node.lineno - 1:node.end_lineno] = [name + " = " + repr(replacement) + "\n"]
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in {"check", "policy_reasons"}:
+                first = node.body[0]
+                line = first.end_lineno if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str) else first.lineno - 1
+                lines[line:line] = ['    raise ValueError("public_template_has_no_native_authorization")\n']
+        result = "".join(lines)
+        ast.parse(result)
         return result
     if rel == "tools/owner_delegated_publisher_followthrough.py":
         tree = ast.parse(text)
@@ -339,7 +164,13 @@ def public_source_text(rel, text):
                 assignments[target.id] = node
     if set(assignments) != expected:
         raise ValueError("Unexpected owner-evidence fields; export blocked")
-    examples = synthetic_auth_values()
+    example_text = "Synthetic example only; not a native authorization.\n"
+    examples = {
+        "AUTH_TURN_ID": "example-turn-not-native",
+        "AUTH_MESSAGE_ID": "example-message-not-native",
+        "AUTH_TEXT": example_text,
+        "AUTH_TEXT_SHA256": hashlib.sha256(example_text.encode()).hexdigest(),
+    }
     lines = text.splitlines(keepends=True)
     for name, node in sorted(assignments.items(), key=lambda item: item[1].lineno, reverse=True):
         lines[node.lineno - 1:node.end_lineno] = [name + " = " + repr(examples[name]) + "\n"]
@@ -357,178 +188,265 @@ def public_source_text(rel, text):
     return text
 
 
+def public_policy(value):
+    """Keep methods; remove this company's native candidates and grants."""
+    if isinstance(value, list):
+        return [public_policy(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+    result = {}
+    for key, child in value.items():
+        if (key.startswith("owner_") or key in {"collaboration_bindings", "chat_binding",
+                "health_evidence", "expansion_history", "system_rebuild_authorization"}
+                or "admission" in key or "handover" in key or key.endswith("_packet")):
+            continue
+        if key in {"standing_authorizations", "exact_requests"}:
+            result[key] = []
+        else:
+            result[key] = public_policy(child)
+    return result
+
+
+def public_exact_helper(rel, text):
+    """Retain exact-action method source without its private frozen payload."""
+    name = Path(rel).name
+    exact_helper = (name.startswith("owner_") or name == "native_publisher_exact_registration.py"
+                    or name.startswith("cms_") and "native_read_contract" in name)
+    if not exact_helper or not rel.startswith("tools/") or not rel.endswith(".py"):
+        return text
+    tree = ast.parse(text)
+    lines = text.splitlines(keepends=True)
+    for node in sorted(tree.body, key=lambda item: item.lineno, reverse=True):
+        if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name) and isinstance(node.value, (ast.Dict, ast.List)):
+            replacement = {} if isinstance(node.value, ast.Dict) else []
+            lines[node.lineno - 1:node.end_lineno] = [node.targets[0].id + " = " + repr(replacement) + "\n"]
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in {
+                "check", "policy_reasons", "publisher_registration_reason", "check_owner_delegated_followthrough"}:
+            first = node.body[0]
+            line = first.end_lineno if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str) else first.lineno - 1
+            lines[line:line] = ['    raise ValueError("public_template_has_no_native_authorization")\n']
+    result = "".join(lines)
+    ast.parse(result)
+    return result
+
+
+def validate_public_runtime(root, registry):
+    """Legacy evidence remains readable, but cannot become a new public route."""
+    retired = {row["id"] for row in registry["departments"] if row.get("new_dispatch_enabled") is False}
+    if any(row["id"] in {"qa", "qa-technical"} and row.get("new_dispatch_enabled") is not False for row in registry["departments"]):
+        raise ValueError("Legacy fixed QA route must be retired before export")
+    contract = json.loads((root / "data/task-contract.json").read_text())
+    validate_model(contract)
+
+    def check(value):
+        if isinstance(value, list):
+            for item in value:
+                check(item)
+        elif isinstance(value, dict):
+            if value.get("new_dispatch_enabled") is False or value.get("historical_only") is True:
+                return
+            if value.get("reviewer_department") in retired:
+                raise ValueError("Public template would revive retired fixed QA reviewer")
+            for key, child in value.items():
+                if key in {"required_departments", "parallel_departments", "follow_up_departments"} and isinstance(child, list) and retired.intersection(child):
+                    raise ValueError("Public template would revive retired fixed QA route")
+                if not key.startswith(("retired_", "historical_", "legacy_")):
+                    check(child)
+    check(json.loads((root / "data/department-routing-rules.json").read_text()))
+    for source in (root / "examples").rglob("*.json"):
+        check(json.loads(source.read_text()))
+    for source in (root / "templates").rglob("*.json"):
+        check(json.loads(source.read_text()))
+
+
 def prepare(root: Path, target: Path):
+    if target.is_symlink() or any(item.is_symlink() for item in target.parents):
+        raise ValueError("Symlink release target blocked")
     root, target = root.resolve(), target.resolve()
     if root not in target.parents or target == root:
         raise ValueError("Release output must be inside the source project")
-    target.mkdir(parents=True, exist_ok=True)
-    old_manifest = target / "release-manifest.json"
-    old_files = json.loads(old_manifest.read_text()).get("files", []) if old_manifest.exists() else []
-    recovery_root=root / "backups" / "public-export-withdrawn" / target.name
-    if old_manifest.exists():
-        recovery_root.mkdir(parents=True,exist_ok=True)
-        saved=recovery_root / ("manifest-"+hashlib.sha256(old_manifest.read_bytes()).hexdigest()+".json")
-        if saved.exists():
-            if saved.read_bytes()!=old_manifest.read_bytes():raise ValueError("Manifest recovery conflict")
-            old_manifest.unlink()
-        else:old_manifest.rename(saved)
-    tracked = []
-    forbidden=private_literals(root)
+    if target.is_symlink() or any(item.is_symlink() for item in target.parents if item != root.parent):
+        raise ValueError("Symlink release target blocked")
+    registry = json.loads((root / "data/department-registry.json").read_text())
+    roles = registry.get("departments", [])
+    ids = [row.get("id") for row in roles]
+    if not all(isinstance(role, str) and re.fullmatch(r"[a-z][a-z0-9-]*", role) for role in ids) or len(set(ids)) != len(ids):
+        raise ValueError("Invalid or duplicate dynamic role")
+    validate_public_runtime(root, registry)
+    payloads, tracked = {}, []
 
-    def copy(rel):
-        source = root / rel
-        if not source.is_file() or source.is_symlink():
-            raise ValueError("Missing or symlink source: " + rel)
-        raw = source.read_bytes()
-        text = public_text(public_source_text(rel, raw.decode("utf-8")),root,forbidden)
+    def add(rel, text, source_raw=None):
+        path = Path(rel)
+        if path.is_absolute() or ".." in path.parts or not path.parts:
+            raise ValueError("Invalid export path")
         hits = [match for pattern in SECRET_PATTERNS for match in pattern.finditer(text)]
-        # Existing scanner tests intentionally contain a header with this exact
-        # non-key fixture. A PEM body or any different credential still blocks.
         hits = [m for m in hits if not (
-            Path(rel).name.startswith("test_")
+            path.name.startswith("test_")
             and text[m.end():].startswith("\\nsynthetic-fixture\""))]
         if hits:
             raise ValueError("Potential secret detected; output blocked: " + rel)
-        dest = target / rel
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(text)
-        tracked.append({"path": rel, "source_sha256": hashlib.sha256(raw).hexdigest(),
-                        "release_sha256": hashlib.sha256(dest.read_bytes()).hexdigest()})
+        raw = text.encode("utf-8")
+        if rel in payloads and payloads[rel] != raw:
+            raise ValueError("Conflicting generated export path: " + rel)
+        if rel in payloads:
+            return
+        payloads[rel] = raw
+        tracked.append({"path": rel, "source_sha256": hashlib.sha256(source_raw).hexdigest() if source_raw is not None else None,
+                        "release_sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw)})
 
-    # Source allowlist. Do not recursively copy the business workspace.
+    def copy(rel):
+        source = root / rel
+        if not source.is_file() or source.is_symlink() or any(item.is_symlink() for item in source.parents if item != root.parent):
+            raise ValueError("Missing or symlink source: " + rel)
+        raw = source.read_bytes()
+        text = raw.decode("utf-8")
+        if source.suffix == ".json" and Path(rel).parts[0] in {"templates", "examples"}:
+            value = public_policy(json.loads(text))
+            if rel in {"examples/packet.json", "examples/step-a-result.json"} and isinstance(value, dict) and value.get("synthetic_example_only") is True:
+                value.update(historical_only=True, operational_template=False)
+            text = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
+        text = public_source_text(rel, public_text(text, root))
+        add(rel, public_exact_helper(rel, text), raw)
+
     for name in ("AGENTS.md", "README.md"):
         copy(name)
-    if (root / ".env.example").is_file():
-        copy(".env.example")
+    # Recursion includes new consumer tools, automation prompts and templates.
+    # Runtime/assets/business data remain outside the source allowlist.
     for base, suffixes in (("tools", {".py", ".md"}), ("playbooks", {".md"}),
-                           ("prompts", {".md"})):
-        for source in sorted((root / base).glob("*")):
-            if source.is_file() and source.suffix.casefold() in suffixes:
-                if source.stem.startswith("test_") and private_module(source.stem[5:]):continue
-                copy(str(source.relative_to(root)))
-    registry = json.loads((root / "data/department-registry.json").read_text())
-    role_rows = {row["id"]: row for row in registry["departments"]}
-    roles = list(role_rows)
-    if len(roles) != len(registry["departments"]) or any(not re.fullmatch(r"[a-z][a-z0-9-]{0,79}",role) for role in roles):
-        raise ValueError("Duplicate or unsafe registered role")
+                           ("prompts", {".md"}), ("templates", {".md", ".json", ".yaml", ".yml"})):
+        for source in sorted((root / base).rglob("*")):
+            relative = source.relative_to(root / base)
+            if source.is_file() and source.suffix in suffixes and not EXCLUDED_PARTS.intersection(relative.parts):
+                copy(source.relative_to(root).as_posix())
     copy(".codex/config.toml")
     if (root / ".codex/hooks.json").is_file():
         copy(".codex/hooks.json")
-    for role in roles:
+    for row in roles:
+        role = row["id"]
         for source in sorted((root / "departments" / role).rglob("*")):
             relative = source.relative_to(root / "departments" / role)
-            if (source.is_file() and source.suffix.casefold() in {".md", ".py", ".yaml"}
+            if (source.is_file() and source.suffix in {".md", ".py", ".yaml", ".yml"}
                     and not EXCLUDED_PARTS.intersection(relative.parts)
                     and (str(relative) in {"README.md", "SKILL.md"}
                          or relative.parts[0] in {"agents", "references", "scripts", "tests"})):
-                copy(str(source.relative_to(root)))
-        agent = role_rows[role]["role_config"]
-        agent_path = Path(agent)
-        if (agent_path.is_absolute() or ".." in agent_path.parts
-                or agent_path.suffix.casefold() != ".toml"
-                or agent_path.parts[0] not in {".codex", "departments"}):
-            raise ValueError("Unapproved role configuration path")
-        copy(agent)
+                copy(source.relative_to(root).as_posix())
+        for field in ("role_config", "professional_skill", "department_readme"):
+            rel = row.get(field)
+            if not isinstance(rel, str):
+                raise ValueError("Missing dynamic role source: " + role + ":" + field)
+            path = Path(rel)
+            if path.is_absolute() or ".." in path.parts or path.parts[0] not in {".codex", "departments", "skills"}:
+                raise ValueError("Unapproved role source path")
+            copy(rel)
     for skill in ("flashcast-department-learning", "flashcast-cms-publishing"):
         for source in sorted((root / "skills" / skill).rglob("*")):
-            if source.is_file() and source.suffix.casefold() in {".md", ".py", ".yaml"}:
-                copy(str(source.relative_to(root)))
-    for name in ("packet.json", "step-a-result.json", "claim-input.json", "qa2-review-plan.json"):
-        if (root / "examples" / name).is_file():
-            copy("examples/" + name)
+            relative = source.relative_to(root / "skills" / skill)
+            if source.is_file() and source.suffix in {".md", ".py", ".yaml", ".yml"} and not EXCLUDED_PARTS.intersection(relative.parts):
+                copy(source.relative_to(root).as_posix())
+    for source in sorted((root / "examples").rglob("*")):
+        if source.is_file() and source.suffix in {".json", ".md", ".yaml", ".yml"}:
+            copy(source.relative_to(root).as_posix())
     if (root / "ci/department-system-checks.yml.example").is_file():
         copy("ci/department-system-checks.yml.example")
 
-    examples = target / "examples"
+    def example(rel, value):
+        text = public_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", root)
+        add("examples/" + rel, text)
+
     rows = []
-    for item in registry["departments"]:
-        if item["id"] not in roles:
-            continue
-        safe = {key: item[key] for key in (
+    for row in roles:
+        safe = {key: row[key] for key in (
             "id", "name", "professional_skill", "role_config", "department_readme",
-            "approved_subskills", "input_paths", "output_paths", "relationship", "mode",
-            "code_source_roots", "permissions_inherited", "production_authority_granted",
-        ) if key in item}
-        safe = json.loads(public_text(json.dumps(safe, ensure_ascii=False),root))
-        safe["chat_binding"] = {"status": "unbound", "task_id": "", "project_id": "",
-            "cwd": "", "title": "", "sidebar_section_id": "", "sidebar_section_name": "",
-            "reply_health": "not_verified", "dispatch_eligible": False, "handoff_path": ""}
+            "approved_subskills", "approved_subskill_paths", "input_paths", "output_paths",
+            "mode", "new_dispatch_enabled", "coordination_authority", "capabilities",
+            "result_report_contract", "result_report_entrypoint",
+        ) if key in row}
+        safe["chat_binding"] = {"status": "unbound", "task_id": "", "project_id": "", "cwd": "", "title": "",
+            "sidebar_section_id": "", "sidebar_section_name": "", "reply_health": "not_verified", "dispatch_eligible": False, "handoff_path": ""}
         rows.append(safe)
-    write_json(examples / "department-registry.example.json", {
-        "schema_version": "2.0", "project": {"project_id": "", "cwd": ""},
-        "total_role_count": len(rows), "departments": rows,
-        "health_policy": {"verification_ttl_hours": 26},
-        "public_template": True,
+    example("department-registry.example.json", {
+        "schema_version": registry.get("schema_version", "2.0"), "project": {"project_id": "", "cwd": ""},
+        "departments": rows, "total_role_count": len(rows),
+        "active_department_count": sum(row.get("new_dispatch_enabled", True) is not False for row in rows),
+        "health_policy": {"verification_ttl_hours": 26}, "public_template": True,
+        "runtime_bindings_require_local_setup": True,
     })
     for name in POLICIES:
-        value = json.loads(public_text((root / "data" / name).read_text(),root))
-        # The examples hold contract/method only. Never import executable grants.
+        value = public_policy(json.loads((root / "data" / name).read_text()))
         value["public_template"] = True
-        write_json(examples / name.replace(".json", ".example.json"), value)
-    policy = json.loads(public_text((root / "data/action-policy.json").read_text(),root))
-    policy.update(status="setup_required", public_template=True, paid_promotion_enabled=False,
-                  standing_authorizations=[])
-    routing = policy["routing_policy"]
+        example(name.replace(".json", ".example.json"), value)
+    policy = public_policy(json.loads((root / "data/action-policy.json").read_text()))
+    policy.update(status="setup_required", public_template=True, paid_promotion_enabled=False, standing_authorizations=[])
+    routing = policy.get("routing_policy", {})
     routing.update(source_project_id="", source_project_root="", source_project_name="")
-    routing.pop("owner_directed_code_handoff", None)
-    routing.pop("owner_delegated_publishing_preparation", None)
-    routing.pop("owner_delegated_publisher_followthrough", None)
-    routing.pop("owner_paid_final_qa", None)
-    routing.pop("owner_paid_completion", None)
-    # Additional bounded native exceptions remain private, regardless of name.
-    for key in list(routing):
-        if key.startswith("owner_"):routing.pop(key)
-    for key in list(policy):
-        if key.startswith("owner_"):policy.pop(key)
-    policy.pop("cms_publisher_native_sparse_admission", None)
-    policy.pop("original_task_publisher_execution_only_handover", None)
-    for value in policy["action_classes"].values():
-        if isinstance(value, dict) and "exact_requests" in value:
-            value["exact_requests"] = []
-    policy["autonomous_site_release_policy"]["enabled"] = False
-    policy["department_system_upgrade"] = {"migration_required": True, "admitted": False,
-        "adoption": None, "routing_grants": {}, "result_grants": {}, "business_current_index": None,
-        "cleanup_admitted": False, "production_authority_granted": False}
-    write_json(examples / "action-policy.example.json", policy)
+    if "autonomous_site_release_policy" in policy:
+        policy["autonomous_site_release_policy"]["enabled"] = False
+    example("action-policy.example.json", policy)
     for name in COMPANY:
-        (examples / name).write_text("# " + name.removesuffix(".md") +
+        add("examples/" + name, "# " + name.removesuffix(".md") +
             "\n\n请填写本公司的已确认事实及确认日期。未确认内容写待确认；不导入其他公司的价格、案例或授权。\n")
-    (target / ".gitignore").write_text(
-        "__pycache__/\n*.py[cod]\n.venv/\n.env*\n!.env.example\n"
+    add(".gitignore", "__pycache__/\n*.py[cod]\n.venv/\n.env*\n!.env.example\n"
         "data/\nlogs/\nreports/\ndrafts/\nbackups/\nreleases/\nruntime/\n"
-        "accounts/\n*.sqlite*\n*.db\n*.pem\n*.key\n.DS_Store\n" +
-        "".join("/" + name + "\n" for name in COMPANY))
-    # Withdraw unchanged obsolete generated files before validation. Recovery
-    # is private and outside the public tree, never bundled as public backups.
-    current={row['path'] for row in tracked}
-    for row in old_files:
-        if row['path'] in current:continue
-        path=(target/row['path']).resolve()
-        if target not in path.parents or not path.is_file() or path.is_symlink():raise ValueError('Invalid previous release path')
-        if hashlib.sha256(path.read_bytes()).hexdigest()!=row['release_sha256']:
-            raise ValueError('Previous generated file was edited; preserve and review: '+row['path'])
-        recovery=recovery_root/row['path'];recovery.parent.mkdir(parents=True,exist_ok=True)
-        if recovery.exists():
-            if recovery.read_bytes()!=path.read_bytes():raise ValueError('Recovery file conflict: '+row['path'])
-            path.unlink()
-        else:path.rename(recovery)
-    privacy=validate_public_tree(root,target)
-    write_json(target / "release-manifest.json", {
-        "version": "2026.10.09.16", "artifact_type": "department_system_source",
-        "roles": roles, "files": tracked,
-        "live_bindings_exported": False, "live_ledgers_exported": False,
+        "accounts/\n*.sqlite*\n*.db\n*.pem\n*.key\n.DS_Store\n" + "".join("/" + name + "\n" for name in COMPANY))
+    public_registry = json.loads(payloads["examples/department-registry.example.json"])
+    retired_roles = [row["id"] for row in rows if row.get("new_dispatch_enabled") is False]
+    historical = non_runtime_paths(payloads, public_registry)
+    validate_payloads(payloads, ids, retired_roles, historical)
+    manifest = seal_manifest({
+        "schema_version": SCHEMA, "runtime_model": MODEL, "non_runtime_files": historical,
+        "version": "2026.10.10.goal-delivery-assistant-v1", "artifact_type": "department_system_source",
+        "roles": ids, "files": sorted(tracked, key=lambda row: row["path"]),
+        "retired_roles": retired_roles,
+        "live_bindings_exported": False, "live_health_exported": False, "live_ledgers_exported": False,
         "credentials_exported": False, "external_permissions_exported": False,
-        "public_templates_require_local_setup": True,
-        "native_owner_evidence_exported": False,
-        "owner_preparation_helper_is_non_executable_example": True,
-        "privacy_gate":privacy,
+        "candidate_admission_exported": False, "public_templates_require_local_setup": True,
+        "native_owner_evidence_exported": False, "owner_preparation_helper_is_non_executable_example": True,
+        "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
     })
-    return {"files": len(tracked), "roles": len(rows), "target": str(target)}
+    old_manifest = target / "release-manifest.json"
+    if old_manifest.exists():
+        validate_release(target)
+    old_files = json.loads(old_manifest.read_text()).get("files", []) if old_manifest.exists() else []
+    old = {row["path"]: row for row in old_files}
+    # Preflight every output and withdrawal before writing any generated byte.
+    for rel, raw in payloads.items():
+        dest = target / rel
+        if dest.is_symlink() or any(item.is_symlink() for item in dest.parents if item != target.parent):
+            raise ValueError("Symlink generated path blocked: " + rel)
+        if dest.exists() and dest.read_bytes() != raw:
+            if rel not in old or hashlib.sha256(dest.read_bytes()).hexdigest() != old[rel]["release_sha256"]:
+                raise ValueError("Edited or unknown output preserved: " + rel)
+    withdrawn = []
+    for rel, row in old.items():
+        if rel in payloads:
+            continue
+        path = (target / rel).resolve()
+        if target not in path.parents or not path.is_file() or path.is_symlink():
+            raise ValueError("Invalid previous release path")
+        if hashlib.sha256(path.read_bytes()).hexdigest() != row["release_sha256"]:
+            raise ValueError("Previous generated file was edited; preserve and review: " + rel)
+        recovery = target / "backups/withdrawn-source" / rel
+        if recovery.exists() and recovery.read_bytes() != path.read_bytes():
+            raise ValueError("Recovery file conflict: " + rel)
+        withdrawn.append((path, recovery))
+    target.mkdir(parents=True, exist_ok=True)
+    for rel, raw in payloads.items():
+        dest = target / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(raw)
+    for path, recovery in withdrawn:
+        recovery.parent.mkdir(parents=True, exist_ok=True)
+        if not recovery.exists():
+            path.rename(recovery)
+        else:
+            # Existing identical recovery preserves the only removed generated copy.
+            path.unlink()
+    write_json(old_manifest, manifest)
+    return {"files": len(tracked), "roles": len(rows), "target": str(target), "external_writes": False}
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=ROOT, help="explicit local source project; never a GitHub target")
     parser.add_argument("--target", type=Path, required=True)
     args = parser.parse_args()
-    print(json.dumps(prepare(args.root, args.target), ensure_ascii=False))
+    print(json.dumps(prepare(ROOT, args.target), ensure_ascii=False))

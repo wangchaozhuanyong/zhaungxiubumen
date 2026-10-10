@@ -1,4 +1,7 @@
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+# qa-technical 历史验收方法（退出新路由）
 
-# 质检2部：技术与发布验收
-负责技术与控制候选、构建/CI/发布通道、受保护权限及生产复核的独立检查。现有qa作为质检1部保留固定身份及原判定链。QA2先R0检查，原生正式QA角色适配与独立准入通过后才承担准确任务的正式判定；不得冒用qa身份。
+new_dispatch_enabled=false。该固定记录、chat_binding/健康及真实旧回执原样保留，不接新任务或例行日检，不把历史PASS改成新goal的PASS。旧资料仅按原task/版本/hash解释。
+
+新完整目标唯一验收由注册表中负责助理承担，技术/控制交具development能力的助理，事实/来源交具content_facts能力的助理，付费/视觉/销售按相应能力。现有references仅作为助理只读验收方法来源，不能复活旧固定QA审批链，不能自审或授生产权限。
+
+原规则准确字节见本批developer/baseline/departments/qa-technical/；当前任务不写本历史角色新的QA回执。

@@ -1,5 +1,3 @@
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
-
 # seo geo推广部门2
 
 老板2026-09-27授权新增，分担原内容/SEO/网站部的关键词与编辑工作。固定角色、任务ID和健康以data/department-registry.json为准，学习记忆为data/learning/departments/seo-content-research.json。

@@ -1,5 +1,5 @@
 {
-  "schema_version": "2.7",
+  "schema_version": "3.0",
   "backward_compatibility": {
     "outbox_v1_readable": true,
     "existing_dispatch_and_run_ledger_readable": true,
@@ -31,7 +31,10 @@
       "target_thread_title",
       "target_cwd",
       "target_sidebar_section_id",
-      "payload_sha256"
+      "payload_sha256",
+      "goal_delivery",
+      "human_authorization",
+      "source_mode"
     ]
   },
   "task_output": {
@@ -67,7 +70,7 @@
         "promotion_gap_matrix",
         "growth_delivery",
         "evidence.growth_artifact",
-        "handoff.receiver=qa"
+        "handoff.receiver=goal_delivery.responsible_assistant"
       ],
       "promotion_gap_categories": [
         "demand_capture",
@@ -83,12 +86,12 @@
         "current_status",
         "artifact_type",
         "artifact_path",
-        "qa_handoff_status"
+        "assistant_handoff_status"
       ],
       "rules": [
         "previous_status_must_differ_from_current_status",
         "artifact_path_must_exist_and_be_nonempty",
-        "qa_handoff_status_must_equal_ready_for_qa"
+        "assistant_handoff_status_must_equal_ready_for_assistant_acceptance"
       ],
       "inspection_only_can_complete": false,
       "measurement_required": [
@@ -105,24 +108,13 @@
     "operations_daily_summary": {
       "task_id_pattern": "fc-YYYYMMDD-operations-daily-summary",
       "run_after_local_time": "15:00 Asia/Kuala_Lumpur",
-      "required_roles": [
-        "operations",
-        "paid-growth-data",
-        "content-organic-website",
-        "visual-design-video",
-        "sales-leads",
-        "qa",
-        "seo-content-research",
-        "local-seo-maps",
-        "publishing"
-      ],
       "required_per_role": [
         "schedule_status",
         "actually_ran",
         "work_done",
         "evidence",
         "done_status",
-        "qa_status",
+        "assistant_acceptance_status",
         "publication_status",
         "production_evidence",
         "blockers",
@@ -141,11 +133,12 @@
         "missing_data_owner"
       ],
       "always_notify": true,
-      "missing_or_paused_roles_must_be_listed": true
+      "missing_or_paused_roles_must_be_listed": true,
+      "required_role_source": "registry_roles_with_new_dispatch_enabled; retired_qa_listed_as_retired_with_historical_evidence"
     }
   },
   "dispatch_gate": {
-    "controller_mode_when_specialist_selected": "dispatch_and_wait",
+    "controller_mode_when_specialist_selected": "dispatch_complete_goal_and_assign_responsible_assistant",
     "controller_may_execute_specialist_work": false,
     "required_before_specialist_execution": [
       "dispatch_plan_created",
@@ -154,9 +147,10 @@
       "department_acknowledged"
     ],
     "on_dispatch_failure": "blocked_no_controller_fallback",
-    "specialist_artifact_owner": "target_department_task"
+    "specialist_artifact_owner": "target_department_task",
+    "HQ_wait_required_after_handoff": false
   },
-  "completion_rule": "新任务只有部门自己的 Codex 聊天回传、部门 outbox 记录、必要证据和学习事件（或明确记录本次无新增学习）四者齐全，才能标记 completed；内容/SEO 每日任务还必须推进一个真实增长资产并交 QA，纯巡检不能 completed；统一文档、总控转述或下级子任务回复不能替代当前部门聊天回传。",
+  "completion_rule": "部门交付完成须真实固定聊天结果、冻结V2、必要证据与learning.status齐全；完整目标还须唯一负责助理独立验收、实际接续或准确范围关闭，子结果/PASS不关闭父目标。旧任务缺goal_delivery按原账读取，不补造新回执。",
   "workflow": {
     "states": [
       "planned",
@@ -179,13 +173,13 @@
       "cancelled"
     ],
     "department_completed_is_workflow_completed": false,
-    "qa_pass_external_next_state": "keep_qa_passed_until_exact_publication_route_policy_check_then_materialized_owner_approved_or_waiting_owner_approval",
+    "qa_pass_external_next_state": "goal assistant acceptance is not a production permission; preserve exact existing authority and actual execution evidence",
     "publication_routes": {
       "cms_content_candidate": "cms_write",
       "site_code_candidate": "site_publish",
       "site_code_rework_candidate": "site_publish",
       "site_cache_candidate": "site_cache_invalidation",
-      "rule": "QA must declare one exact route; cms_write cannot be replaced by site_publish and site_publish cannot be replaced by cms_write"
+      "rule": "exact CMS/code route declared by producer and responsible assistant; no channel substitution"
     },
     "qa_pass_must_not_create_without_authorization": [
       "owner_approved",
@@ -193,11 +187,34 @@
       "published"
     ],
     "internal_read_only_shortcut": [
+      "awaiting_assistant_acceptance",
+      "completed_scope"
+    ],
+    "recovery": "workflow-reconcile rebuilds state from events, receipts and evidence hashes",
+    "goal_states": [
+      "executing",
+      "awaiting_assistant_acceptance",
+      "reworking",
+      "completed_scope",
+      "next_task_dispatched",
+      "waiting_dependency",
+      "no_executable_work"
+    ],
+    "legacy_states_readable": [
+      "planned",
+      "dispatch_ready",
+      "dispatched",
+      "acknowledged",
+      "evidence_received",
       "qa_passed",
+      "qa_blocked",
+      "waiting_owner_approval",
+      "owner_approved",
+      "execution_completed",
       "verified",
       "closed"
     ],
-    "recovery": "workflow-reconcile rebuilds state from events, receipts and evidence hashes"
+    "states_apply_to": "legacy_without_goal_delivery"
   },
   "receipt_contract": {
     "types": [
@@ -263,7 +280,39 @@
       "qa2_alias_as_qa": false,
       "production_release_eligible": false,
       "plan_replacement_after_QA_dispatch_allowed": false,
-      "source_event_recovery": true
+      "source_event_recovery": true,
+      "mode": "legacy_receipts_readable_only_no_new_goal_dispatch"
+    },
+    "goal_review_plan": {
+      "schema_version": 1,
+      "binding_field": "goal_review_plan",
+      "plan_fields": [
+        "candidate",
+        "producer_department",
+        "reviewer_department",
+        "reviewer_thread_id",
+        "controller_department",
+        "controller_thread_id",
+        "risk_level",
+        "single_final_reviewer",
+        "production_write_allowed",
+        "external_permission_issued"
+      ],
+      "identity_fields": [
+        "task_id",
+        "action_id",
+        "action_class",
+        "scope",
+        "candidate_version",
+        "candidate_sha256"
+      ],
+      "reviewer_source": "snapshot.goal_delivery.responsible_assistant",
+      "capability_source": "registry.coordination_authority.review_capabilities",
+      "producer_self_review_allowed": false,
+      "single_final_reviewer": true,
+      "HQ_second_review_required": false,
+      "reuse_legacy_qa_verdict_event_name": true,
+      "pass_is_production_permission": false
     }
   },
   "result_handoff_contract": {
@@ -286,45 +335,37 @@
       "result_sha256"
     ],
     "source_result": "部门先在原固定聊天非空回复，保存并校验V2 outbox；完成、部分完成、需输入、QA阻断和失败均需交接。result_sha256须匹配原任务和固定部门outbox当前字节。",
-    "notification": "2026-09-30起，部门完成原任务后在自己的固定聊天非空回复并保存/校验V2 outbox；以原task_id、部门、候选版本和outbox SHA登记notification_queued到项目内持久队列。不向总控固定聊天发送结果消息，避免打断active任务；旧notification_sent仅保留历史真实记录。",
-    "scheduled_daily_intake": "现有准确每日自动任务合同维持；另以owner_direct_intake纳管真实老板直接任务。原始派工、每日原生完成轮次或准确老板入口分别校验，不补造dispatch_sent/chat_ack。",
+    "notification": "部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。",
+    "scheduled_daily_intake": "真实既有自动任务按scheduled_daily_sources精确匹配automation_id、固定部门、task_id和唯一助理；原生固定聊天当轮完成结果与准确thread/turn/UTF8/outbox及MYT日期现场核实，不补造总部dispatch/ACK。已保存旧结果沿原task/hash收取，不重做专业任务。来源登记不等于完成证明或生产许可。",
     "blocked_notification": "policy拒绝、健康/绑定过期或发送工具失败时记录notification_blocked及原因，不冒充已发送、不绕过门禁、不重复业务派工；每日兜底收取可用fallback方式登记controller_received。",
-    "controller_intake": "总部自然接续及每日兜底核对持久队列；准确正式grant内结果由对口助理收取/决策/接续，总部处理方向、授权变化和重大例外。普通在途不持有总部轮次。",
+    "controller_intake": "新goal由唯一负责助理核真实固定聊天、V2/hash及实际执行层级，认领后收取、决策与落实动作；总部不逐结果再审。旧结果只按原版本回读，恢复漏报不补造通知或人类派工。",
     "controller_decisions": [
-      "send_qa",
+      "accept",
       "rework",
       "release_gate",
       "continue",
       "wait_external",
       "close_scope"
     ],
-    "controller_decision_rule": "每个新结果必须指定唯一下一负责人、最小动作、证据与阻断解除条件；release_gate只是门禁路线，不是发布许可。close_scope只关闭明确验收的单项范围，不能关闭唯一主账的SEO/GEO业务目标。",
-    "controller_followthrough_rule": "决策后须登记真实派工、执行与公开复核，或具名等待/解除条件。派工接单释放短租约；已独立验收close_scope仅关闭准确范围，不关闭全站或增长目标。角色记录实际总部或助理。",
+    "controller_decision_rule": "状态分别为执行中、待助理验收、返工中、已完成范围、下一任务真实已安排、具体依赖等待、暂时无可执行工作。验收PASS必须关联实际下一动作或准确范围关闭；prepared不算sent，passed不算adopted，子任务结束不关闭父目标。缺输入只暂停依赖它的动作，其他独立合法工作继续。停止时列已完成、未完成、唯一负责人、下一动作、解除条件和复查时间；自然去重IP口径缺失记DATA_MISSING，AI效果未实测记NOT_MEASURED。",
+    "controller_followthrough_rule": "实际主体为负责助理。决定后必须关联真实下一派工、准确授权执行/公开复核，或独立验收后的准确范围关闭；具名外部等待保留解除条件和未来复查时间。无真实回执不伪造sent/Saved/部署。既有完成结果复用原来源与hash，变化范围单独复验。",
     "idempotency": "同一原任务、发送部门、候选版本、结果哈希和通知/收取/决策阶段只允许一次记录；已送达或已收取的旧结果不得补入队，已入队结果不得重复入队。controller_followthrough是追加式状态链，仅未解除的阻断/等待允许凭新证据复查或转成真实动作；相同证据与幂等键不得重复。历史漏入队发现由有效原始回执链按原任务/部门/候选版本/outbox SHA确定性去重；完成现场核验后只补总控fallback收取与决策，不回写虚假部门通知。结果变更必须产生新的outbox哈希或候选版本，不因定时任务唤醒复制旧通知。",
     "workflow_closed_is_business_goal_closed": false,
     "read_only_qa_pass_is_publication": false,
     "project_local_control_only": true,
     "controller_await_dispatched_results": {
-      "mode": "bounded_event_wait_same_controller_turn",
+      "mode": "responsible_assistant_batch_event_wait",
       "tool": "wait_threads",
       "max_wait_ms_per_call": 60000,
       "cursor_deduplication": true,
-      "keep_turn_open_for_current_dispatched_tasks": false,
-      "active_is_not_completion_or_turn_stop": true,
-      "on_complete_or_attention": "核固定聊天/准确V2/hash、收取、决策、落实下一动作；依赖齐全继续。",
-      "on_interrupt": "保存原task/turn/cursor和待收阶段，恢复先核新结果。",
-      "does_not_wake_finished_controller": true,
+      "on_complete_or_attention": "claim exact result; independent acceptance; actual authorized next action or exact scope close",
+      "on_interrupt": "save task/turn/cursor; read actual effects before recovery",
       "no_high_frequency_automation_added": true,
-      "no_direct_result_message_to_active_or_idle_controller": true,
-      "current_state_reader": "tools/controller_event_state.py",
-      "authoritative_source": "latest_policy_checkpoint_and_validated_current_dispatch_ack_result_chain",
       "manual_event_cache_is_authoritative": false,
-      "settled_exact_watch_requires": "controller_received + controller_decision + valid followthrough or exact QA close_scope",
       "wait_targets_deduplicate_by_fixed_chat": true,
-      "stop_hook_config": ".codex/hooks.json",
-      "stop_hook_runtime_status": "CONFIGURED_REQUIRES_NATIVE_TRUST_REVIEW",
-      "stop_hook_wakes_finished_controller": false,
-      "stop_hook_restarts_interrupt": false
+      "does_not_wake_finished_chat": true,
+      "keep_HQ_turn_open_for_current_dispatched_tasks": false,
+      "no_direct_ordinary_result_message_to_active_chat": true
     },
     "operations_rework_completion_rule": "Only rework with next_owner=operations may record internal_control_completed for already applied internal control. Require exact original-task independent QA PASS/internal_control_candidate receipt binding QA outbox bytes and version, applied proof with same task/version/QA bytes, successful actual postapply checks, zero external writes/permission, and unchanged runtime hashes limited to workflow_control.py/site_ci_prepare_policy.py/task-contract.json/action-policy.json. No selfdispatch, history rewriting, professional completion, publication permission or business-goal closure. Every present no_external_permission_issued/production_permission_issued flag must have its exact safe boolean value; require at least one explicit safe flag and reject conflicting or malformed flags.",
     "idempotency_key_generation": {
@@ -354,17 +395,85 @@
       "shared_lock": "logs/.result-coordination.lock",
       "sqlite_transaction": "BEGIN IMMEDIATE",
       "ttl_seconds_max": 900,
-      "final_actor": "operations",
-      "draft_actor": "operations-assistant",
+      "final_actor": "registry.coordination_authority.routine_decisions",
+      "draft_actor": "registered_responsible_assistant",
       "active_lease_requires_exact_owner_token_fence": true,
       "expired_lease_requires_explicit_recovery": true,
-      "assistant_final_events_allowed": false,
+      "assistant_final_events_allowed": true,
       "actor_metadata_is_authentication": false,
       "uncertain_effect_rule": "Reserve exact semantics/evidence before native append; exact readback before retry; absent effect requires explicit recovery unless deterministic native validation refusal proves append absent.",
       "legacy_operations_without_active_claim_preserved": true,
-      "production_permission_issued": false
+      "production_permission_issued": false,
+      "goal_final_actions_require_claim_and_exact_responsible_assistant": true,
+      "transfer_requires_same_review_capability": true
     },
-    "owner_direct_intake": "tools/owner_direct_intake.py：真实人类来源和准确执行者纳管，不补造总部派工。"
+    "legacy_controller_decisions_readable": [
+      "send_qa",
+      "rework",
+      "release_gate",
+      "continue",
+      "wait_external",
+      "close_scope"
+    ],
+    "scheduled_daily_sources": [
+      {
+        "automation_id": "flash-cast-4",
+        "department": "content-organic-website",
+        "task_id_pattern": "fc-(?P<date>\\d{8})-website-growth-daily",
+        "responsible_assistant": "operations-assistant",
+        "acceptance_capability": "seo_geo"
+      },
+      {
+        "automation_id": "automation",
+        "department": "visual-design-video",
+        "task_id_pattern": "fc-(?P<date>\\d{8})-douyin-music-scout",
+        "responsible_assistant": "operations-assistant-3",
+        "acceptance_capability": "visual"
+      },
+      {
+        "automation_id": "flash-cast-3",
+        "department": "paid-growth-data",
+        "task_id_pattern": "fc-20260920-google-ads-rm100-budget-plan",
+        "responsible_assistant": "operations-assistant-3",
+        "acceptance_capability": "paid"
+      },
+      {
+        "automation_id": "flash-cast-2",
+        "department": "sales",
+        "task_id_pattern": "fc-20261008-sales-template-p2-wording-rework-v2",
+        "responsible_assistant": "operations-assistant-3",
+        "acceptance_capability": "sales"
+      },
+      {
+        "automation_id": "flash-cast-5",
+        "department": "visual-design-video",
+        "task_id_pattern": "fc-(?P<date>\\d{8})-visual-design-video-daily-professional-loop-v1",
+        "responsible_assistant": "operations-assistant-3",
+        "acceptance_capability": "visual"
+      },
+      {
+        "automation_id": "seo-geo-2",
+        "department": "seo-content-research",
+        "task_id_pattern": "fc-(?P<date>\\d{8})-seo-content-research-daily",
+        "responsible_assistant": "operations-assistant",
+        "acceptance_capability": "seo_geo"
+      },
+      {
+        "automation_id": "seo-geo-3-seo",
+        "department": "local-seo-maps",
+        "task_id_pattern": "fc-(?P<date>\\d{8})-local-seo-maps-daily",
+        "responsible_assistant": "operations-assistant",
+        "acceptance_capability": "maps"
+      }
+    ],
+    "scheduled_daily_source_boundary": {
+      "matching": "full regex only; exact automation_id, actual fixed role/thread and source native completed turn required",
+      "dated_tasks": "named date group and reported_at/observed_at must match the same MYT run day",
+      "existing_goal_daily_continuations": "exact original paid/sales goal ID; reported_at/observed_at match current MYT run day; original authority and state preserved",
+      "control_and_retired_sources": "HQ summary/fallback is knowledge/control, not professional acceptance; retired QA automation receives no new task admission",
+      "naming_evidence_grants_permission": false,
+      "missing_actual_completed_source": "retain original nonempty result/hash; named assistant obtains actual native completion, no fabricated HQ dispatch/ACK or repeat business work"
+    }
   },
   "routing_contract": {
     "controlled_actions": [
@@ -441,9 +550,12 @@
     "standing_authorization": {
       "policy_source": "data/action-policy.json",
       "materializes_exact_single_use_approval": true,
-      "requires_qa_pass": true,
+      "requires_qa_pass": false,
       "no_per_run_owner_confirmation_when_scope_matches": true,
-      "current_authorization_id": "owner-standing-flashcast-site-publish-20260906"
+      "current_authorization_id": "owner-standing-flashcast-site-publish-20260906",
+      "direct_human_authority_preserved_without_extra_review_chain": true,
+      "requires_independent_responsible_assistant_acceptance_before_each_step": false,
+      "requires_independent_responsible_assistant_acceptance_for_scope_closure": true
     }
   },
   "policy_path": "data/action-policy.json",
@@ -454,25 +566,20 @@
     "roles": {
       "seo-content-research": "GEO comprehensive professional audit/plan and continuous optimization; keyword/content research and drafts",
       "local-seo-maps": "local/map/trust research and exact candidates",
-      "content-organic-website": "technical SEO, website code/CMS implementation, production verification"
+      "content-organic-website": "technical SEO/CRO and implementation input; code execution delegated to designated development, CMS save to publishing"
     },
     "active_old_task_owner_preserved_until_handoff": true,
     "one_source_of_truth": "data/content/organic-growth-backlog.json",
-    "production_site_publisher": "content-organic-website",
-    "cms_publisher_after_handover": "publishing",
+    "production_site_publisher": "designated-development",
     "current_batch_executor_unchanged": true,
     "code_publication_owner": {
       "project_id": "<LOCAL_PROJECT_ID>",
       "project_name": "装修网站开发",
-      "thread_id": "<LOCAL_TASK_ID>",
+      "thread_id": "<LOCAL_THREAD_ID>",
       "title": "FLASH CAST｜专用开发部｜网站与部门系统",
       "cwd": "<WEBSITE_PROJECT_ROOT>",
-      "existing_authorization_required": true,
-      "department": "designated-website-developer",
-      "relationship": "associated_code_department",
-      "permissions_inherited": false
-    },
-    "publisher_admission_status_source": "data/publishing/department-onboarding.json"
+      "existing_authorization_required": true
+    }
   },
   "organic_execution_contract": {
     "policy": "data/content/organic-execution-policy.json",
@@ -490,15 +597,6 @@
   "daily_professional_loop": {
     "version": "2026-09-30",
     "playbook": "playbooks/department-daily-professional-loop.md",
-    "department_ids": [
-      "paid-growth-data",
-      "content-organic-website",
-      "seo-content-research",
-      "local-seo-maps",
-      "visual-design-video",
-      "sales",
-      "qa"
-    ],
     "daily_fixed_chat_report_required": true,
     "daily_report_fields": [
       "actual_completed_with_evidence",
@@ -511,13 +609,12 @@
       "unblock_or_recheck_condition"
     ],
     "daily_no_change": "Report what was actually checked; no repeated candidate or user notification when unchanged.",
-    "result_handoff": "Meaningful new/blocked/failed results use notification_queued then controller_received and controller_decision under original task/result hash.",
-    "controller_decision_required_for_business_continuation": true,
+    "result_handoff": "部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。",
+    "controller_decision_required_for_business_continuation": false,
     "controller_followthrough_required_after_decision": true,
     "closed_workflow_is_not_business_goal_closed": true,
     "no_active_interruption": true,
     "no_daily_one_item_quota": true,
-    "owner_daily_organic_ip_target": 50,
     "measurement_status_until_verified": "DATA_MISSING",
     "scoped_r0_continuation": {
       "version": "2026-10-06",
@@ -534,7 +631,7 @@
         "handoff_metadata_repair"
       ],
       "local_continuation_requires_new_controller_decision": false,
-      "business_continuation_definition": "Cross-department handoff, QA/rework expansion, publication, new scope or permissions require decision. An explicitly dispatched local R0 step fulfills the original assignment.",
+      "business_continuation_definition": "Within approved complete goal, routine specialist handoff/repair/execution continuation belongs to responsible assistant; new direction or authorization expansion goes to HQ. Existing paid direct authority stays direct.",
       "queue_each_step_before_next": true,
       "blocked_dependency_only_stops_dependent_steps": true,
       "frozen_candidate_overwrite_allowed": false,
@@ -581,52 +678,91 @@
         "queued_noncompleted": "blocked_or_partial",
         "unreported_existing_output": "RECOVER_EXISTING_OUTPUT",
         "grants_production_permission": false
-      }
+      },
+      "mode_scope": "legacy_workpack_compatibility_only",
+      "new_goal_default": false,
+      "step_queue_is_human_acceptance": false,
+      "compatibility_boundary": "仅保留已有R0 workpack的原step/hash/receipt语义；新goal整批交唯一助理，不自动生成R0包、逐步骤人类验收或33/275旧账重派。"
     },
-    "new_results_before_maintenance": true
+    "new_results_before_maintenance": true,
+    "department_source": "registered active professional roles; QA1/QA2 excluded from new daily dispatch",
+    "responsible_assistant_decision_required_for_routine_continuation": true
   },
-  "department_system_upgrade": {
-    "assistant_roles": [
-      "operations-assistant",
-      "operations-assistant-2",
-      "operations-assistant-3"
-    ],
-    "coordination": "exact_original_task_candidate_result_claim_lease_fence",
-    "routine_decisions": [
-      "send_qa",
-      "continue",
-      "rework",
-      "wait_external",
-      "close_scope",
-      "release_gate"
-    ],
-    "forbidden_assistant_decisions": [
-      "major_direction_change",
-      "authority_change",
-      "R3"
-    ],
-    "grant_required": true,
-    "actor_identity_is_audit_metadata_only": true,
-    "human_pause_priority": "before_queue_and_action_admission",
-    "historical_queue": "preserve_append_only",
-    "qa2": "exact_single_reviewer_R0_only",
-    "publishing_admission": "unchanged_fail_closed",
-    "candidate_version": "developer-delivery-v2-rework4-v13",
-    "admission_required": true,
-    "ordinary_inflight_is_stop_blocker": false,
+  "goal_delivery_runtime": {
+    "model": "goal_delivery_assistant_v1",
+    "schema_version": 1,
+    "assistant_decisions_enabled": true,
+    "activation": "global_model_and_snapshot_goal_delivery",
     "role_source": "data/department-registry.json",
-    "role_config_is_permission": false,
-    "routine_grant_requires_exact_headquarters_adoption": true,
-    "active_consumer": "tools/department_continuity.py",
-    "routine_admission_requires_independent_QA": true
-  },
-  "registered_daily_intake": {
-    "version": 1,
-    "identity_source": "data/department-registry.json",
-    "all_registered_executors_supported": true,
-    "requires_exact_native_run_pin": true,
-    "source_mode": "scheduled_run",
-    "does_not_synthesize_headquarters_dispatch": true
+    "coordination_authority_field": "coordination_authority",
+    "required_goal_fields": [
+      "objective",
+      "completion_criteria",
+      "primary_owner",
+      "responsible_assistant",
+      "existing_results",
+      "authorized_scope",
+      "dependencies",
+      "producer_departments",
+      "acceptance_capability"
+    ],
+    "optional_goal_fields": [
+      "parent_task_id"
+    ],
+    "source_modes": [
+      "approved_dispatch",
+      "owner_direct"
+    ],
+    "human_authorization_fields": [
+      "source_thread_id",
+      "message_id",
+      "executor",
+      "scope",
+      "evidence_path"
+    ],
+    "human_authorization_is_permission_expansion": false,
+    "assistant_capabilities": {
+      "operations-assistant": [
+        "seo_geo",
+        "content_facts",
+        "brand",
+        "maps"
+      ],
+      "operations-assistant-2": [
+        "development",
+        "cms",
+        "functional",
+        "release_result"
+      ],
+      "operations-assistant-3": [
+        "paid",
+        "data",
+        "visual",
+        "sales"
+      ]
+    },
+    "single_acceptance_owner": true,
+    "producer_self_review_allowed": false,
+    "cross_assistant_transfer_requires_same_capability": true,
+    "HQ_second_review_required": false,
+    "fixed_qa_new_dispatch_enabled": false,
+    "states": [
+      "executing",
+      "awaiting_assistant_acceptance",
+      "reworking",
+      "completed_scope",
+      "next_task_dispatched",
+      "waiting_dependency",
+      "no_executable_work"
+    ],
+    "parent_completion": "all_exact_completion_criteria_have_actual_evidence; child_delivery_or_review_pass_never_closes_parent",
+    "adoption_and_native_pilot_required_for_system_completion": true,
+    "legacy_without_goal_delivery": "readable_using_original_consumers; no_fabricated_new_goal_receipts",
+    "authority": {
+      "source_thread_id": "<LOCAL_TASK_ID>",
+      "message_id": "example-native-9cd231a5daaebe45",
+      "evidence_path": "<PROJECT_ROOT>/logs/handoffs/2026-10-10-goal-delivery-assistant-runtime-v1/developer/human-authority.json"
+    }
   },
   "public_template": true
 }

@@ -1,72 +1,26 @@
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本机运行采用须独立QA和总部采用。
+# FLASH CAST 完整目标交付与助理接续系统
 
-# FLASH CAST 部门协作系统
+现行模式为 `goal_delivery_assistant_v1`：总部给完整目标，专业主负责人沿同一任务执行到底，唯一负责助理独立验收并落实已授权常规后续，总部读结论、定新目标。角色/能力/绑定由注册表动态读取；QA1/QA2保留历史证据并退出新派工。禁止生产者自审，跨助理仅显式转给相同验收能力者。候选、自检、验收、采用、实际Save/部署、公开复核和业务结果分别记录。
 
-源码分发候选版本为 `2026.10.09.16`，来自冻结 V13 公开源码包及最小公开兼容修复。本版状态为 `SOURCE_ONLY_UNADOPTED`：仅准备分发源码，本机运行采用与真实 R0 试点尚未完成；不启用聊天绑定、排程、grant 或任何生产许可，也不部署网站。
+现行入口：[项目规则](AGENTS.md)、[运行规则](playbooks/department-system-current.md)、[任务合同](data/task-contract.json)、[角色注册表](data/department-registry.json)。角色按注册表动态发现，QA历史角色不接新任务。
 
-本目录是部门协调与证据系统，不是官网源码或广告账户。专业部门制作准确候选，独立质检审核，总部决策，指定执行者按合法通道实施；后台发布与网站代码发布分开。任务结束不等于业务目标达成。
+1. 总部给完整目标及唯一负责助理；专业主负责人执行到位，依赖齐全的步骤不逐段报审。
+2. 部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。
+3. 总部完成真实派工和负责助理责任交接后可以结束协调。负责助理在本批在途期间用 wait_threads 聚合完成事件，每次最多60秒、按固定聊天去重、保存cursor；结果到达后逐项收取、验收并落实下一实际动作。部门active时普通消息排队。队列不能唤醒已结束聊天；中断保留原task/turn/cursor，先核实际回执再恢复。保留已有每日兜底，不新建高频轮询、监控窗口或后台循环。
+4. 状态分别为执行中、待助理验收、返工中、已完成范围、下一任务真实已安排、具体依赖等待、暂时无可执行工作。验收PASS必须关联实际下一动作或准确范围关闭；prepared不算sent，passed不算adopted，子任务结束不关闭父目标。缺输入只暂停依赖它的动作，其他独立合法工作继续。停止时列已完成、未完成、唯一负责人、下一动作、解除条件和复查时间；自然去重IP口径缺失记DATA_MISSING，AI效果未实测记NOT_MEASURED。
 
-## 日常工作
+三个助理的验收能力：助理1 SEO/GEO、内容事实双语、品牌、Maps；助理2 开发、CMS、功能、实际发布结果；助理3 付费、数据、视觉、销售。对应主Skill及本机方法路径在注册表与角色方法清单中；方法不授生产权限，禁止自审。
 
-1. 总部核当前原任务、真实身份、健康和路由，向最少必要固定部门派一次有界任务。
-2. 部门先接单，在自己的固定聊天报告实绩/未完/问题/专业新增机会，冻结V2回执，唯一入队并回读。
-3. 助理预核准确结果和证据、提交下一动作草案；总部保留最终决策。普通结果不插话打断在途工作。
-4. 总部记录收取、决策，并关联真实下一派工/执行/公开复核，或具名外部等待及复查时间。
-5. 部门按既有任务包明确授权的独立R0步骤继续；每天研究检查专业漏项。停止前总结未完成范围和下一负责人。
+真实生产动作仍须准确授权来源、执行者、范围、事实/必要自检、备份与可执行回滚以及既有合法通道；CMS保存交publishing，代码/构建/部署交指定开发，Ads操作归付费部。助理验收不授账号权限，不绕401、issuer、单次许可或通道。老板已给付费任务的直接执行授权保持有效，不重新加入旧QA/HQ阻断链；只按原精确授权处理，不能扩大到其他Ads、费用或项目。秘密、Cookie、Token和完整客户PII不存不读出。仅系统改造任务 fc-20261010-goal-delivery-assistant-runtime-v1、fc-20261010-continuation-proof-rework-and-cms-entry-v1、fc-20261010-department-flow-audit-repair-v1 的开发交付限制为候选与迁移包，且不含网站/CMS/Ads/Maps实际写入、推送部署或平台自动化变更；该限制不扩展到其他已有准确授权的业务。平台提示词迁移由总部或已获准确授权的助理经原生工具完成，不手改automation.toml。
 
-常用只读检查：
+安装/导出只含控制源码、动态角色与空模板，聊天、账号、许可、健康、业务资料及主账不公开。已有固定ID/历史回执不得复制到新公司。Python 3.9以上标准库；真实导出入口为 `python3 tools/export_department_system.py --target <项目内导出目录>`，安装入口为 `python3 <导出目录>/tools/setup_department_system.py --root <导出目录>`。
 
-```bash
-python3 tools/flashcast_ops.py result-handoff-pending
-python3 tools/flashcast_ops.py department-learning-status
-python3 tools/flashcast_ops.py workflow-status --task-id <原任务ID>
-python3 tools/qa_dispatch_priority.py
-python3 tools/controller_event_state.py
-```
+共用 `tools/department_system_package.py` 在安装写入前核完整manifest的文件path/hash/bytes、canonical指纹、当前goal模型、退役角色和必要依赖，以及effective现有注册表/模型与全部计划目标；缺失、篡改、正向旧链或未声明旧模式拒绝且不留下半套配置。setup仍装原五配置和七份空资料，agent-role-policy示例只作验证依赖；重复安装仅创建missing，保留绑定、授权、业务数据和WIP。`flashcast_ops`启动经 `validate_startup` 验证：导出包核完整manifest，源码公司无manifest时核当前data模型/注册表。历史packet/step-a导出副本为非运行R0兼容示例，不是新goal模板；外部批准Skill须本机核验，不打包机器私有Skill，也不授权限。详见[源码导出与安装](playbooks/department-system-source-release.md)。
 
-`pending_count=0`不等于收工，还要核followthrough、真实在途任务和业务主账。每日15:00汇总、18:00兜底补漏；不新增五分钟轮询。队列本身不会自动唤醒已经结束的聊天，本轮原生完成事件等待和后续自然接续负责衔接。
+源码发布、真实采用与业务目标分别记录；本次系统改造无推送部署授权时不执行推送或部署，该限制不扩大到其他已有准确授权的业务。
 
-2026.10.07 接续补丁从政策最新检查点和真实回执生成准确等待列表，替代手工旧缓存；已收取、决策并落实的范围不再被旧watch反复追踪。`.codex/hooks.json` 当前为空，Stop 未启用。手动只读核验不会唤醒已结束聊天或恢复人工中断；18:00 原兜底保留，不新增高频轮询。详见[结束前核验](playbooks/controller-result-continuation-and-checkout.md)。
+[结果协调](playbooks/department-result-coordination.md)、[采用与恢复](playbooks/department-system-runtime-adoption.md)、[结束与事件接续](playbooks/controller-result-continuation-and-checkout.md)。当前采用状态以实际采用回执和源码回读为准，不以某批历史候选状态推断；本次差异的独立验收、实际采用与原生完成事件→助理收取→下一真实任务试点分别记录，未满足本任务完成标准时不能宣称该范围完成。
 
-## 规则与岗位入口
+开始前用 `python3 tools/flashcast_ops.py department-learning-effective --department <注册部门ID>` 读取当前模式的只读有效学习视图。原学习JSON、继承通知和旧next_action只作历史证据；当前派工操作以现行规则和本任务真实授权为准。专业结果交唯一助理，已验收的助理总结交总部知悉，通知待发送另计；不得把总部知悉变成助理自审。
 
-- [项目规则](AGENTS.md)。本机运行配置为data/task-contract.json、data/action-policy.json和data/department-registry.json；公开仓库提供[机器合同模板](examples/task-contract.example.json)、[动作政策模板](examples/action-policy.example.json)及[注册表模板](examples/department-registry.example.json)。
-- [总部](departments/operations/SKILL.md)、[助理](departments/operations-assistant/SKILL.md)、[质检1](departments/qa/SKILL.md)、[质检2](departments/qa-technical/SKILL.md)、[发布部](departments/publishing/SKILL.md)。其余岗位在departments中。
-- [专业每日循环](playbooks/department-daily-professional-loop.md)、[停止前核验](playbooks/controller-result-continuation-and-checkout.md)、[结果恢复](playbooks/result-notification-key-and-recovery.md)。
-
-质检2部只在机器合同精确准入范围内记录正式审核；旧工作流默认保留质检1部。QA的内部通过不自动赋予账号或生产写入权限。准入后的助理可按准确grant代理常规决策、范围关闭和AUTO_RELEASE安排；重大方向、授权变化及生产许可主体保持原合同。
-
-运行协调入口采用项目内SQLite占用和原生结果回执，关联原任务、部门、候选版本及最终outbox哈希。占用最长15分钟；中断先回读已发生的动作，再显式恢复。身份字符串只用于审计，不能充当账号认证或全局工具拦截器。准确QA2准入只覆盖R0内部/只读候选，生产审核仍沿原质检1链。
-
-入口说明见[运行采用与恢复](playbooks/department-system-runtime-adoption.md)、[结果协调](playbooks/department-result-coordination.md)和[质检2精确准入](playbooks/qa2-exact-r0-admission.md)。这些入口不会替用户创建聊天、发送消息、部署或签发生产许可。
-
-## 从公开源码安装
-
-本版依赖 Python 3.11 以上及标准库（TOML 隐私解析使用 tomllib）；Codex聊天与工具权限仍需由用户实际配置。克隆后执行：
-
-```bash
-python3 tools/setup_department_system.py
-python3 tools/flashcast_ops.py department-status
-```
-
-初始化只创建本地空模板，重复执行不覆盖数据；所有聊天默认unbound、不可派工。填写七份公司确认资料，根据Codex现场逐一绑定真实项目/聊天/标题/cwd/分组及有效非空回复，再通过精确健康和路由检查。不得复制他人的聊天ID、账号、数据、历史批准或消费记录。专业子Skill只按岗位白名单在本机提供，公开包不会代装第三方技能或连接账号。
-
-## 安全与结果边界
-
-Google Ads保持HOLD/OFF/RM0；不自动联系客户，不处理付款、价格承诺、账号权限、密钥、DNS或硬删除。网站/地图写入需各自准确候选、独立QA、有效授权、精确单次许可、真实执行与公众复核。
-
-50个自然来源去重IP/日按合法口径核验，缺数据是DATA_MISSING，AI效果未测是NOT_MEASURED。候选、QA、Saved、部署、公众验证与增长分别记录。
-
-## 发布本系统源码
-
-持续检查配置位于ci/department-system-checks.yml.example，Python 3.11、3.12 矩阵与本版 tomllib 的最低版本要求一致。模板尚未放入.github/workflows，GitHub自动CI未启用；本地检查结果不代表远端CI结果。管理员以后用具有相应权限的合法登录配置；本包不更改登录或账号权限。本地可在tools目录运行模板列出的unittest命令，先将 FLASHCAST_TEST_RUNTIME 指向隔离项目副本内部的可写测试目录。
-
-只用allowlist导出工具，不把整个运营目录直接上传：
-
-```bash
-python3 tools/export_department_system.py --target <项目内发布目录>
-```
-
-公开包包含岗位规则、工具源码和脱敏配置模板；不含本机聊天/健康证明、客户线索、账号资料、原始结果账本、CMS权限或历史生产许可。release-manifest.json记录源码与导出字节指纹。GitHub推送另按用户对准确仓库的授权执行。
-
-2026.10.09.16 是冻结 V13 的公开分发候选，增加普通控制接口与私有授权模板的兼容修复。源码分发不等于本机运行采用或真实 R0 试点完成。公开模板清除本机候选准入绑定；私有接管、授权和执行入口仍依赖原项目真实来源与回执，缺少时拒绝执行，普通不适用查询不受该拒绝误伤。正式分发检查使用上面的 CI 模板测试集；准确最终源码QA通过后才可按仓库授权正常推送。
+公开分发隐私说明：副本中长数字经营标识、Ads 跟踪目的及平台资源标识统一替换为同宽、以 `000` 开头的稳定合成值；仅用于保持示例比较关系，不代表真实账号、投放目标、资料或授权。真实公司运行源码不随此公开副本修改。

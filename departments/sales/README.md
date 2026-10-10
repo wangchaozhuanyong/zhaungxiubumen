@@ -1,5 +1,3 @@
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
-
 # 销售与线索部
 
 这是装修入站销售运营部门，不是通用 B2B 冷外联 Agent。

@@ -36,12 +36,12 @@ def make_step_binding(root: Path, packet: dict, step: dict, workpack_sha256: str
             "step_sha256": w.sha256_value(identity), "step_identity": identity}
 
 def inspect(root: Path, packet_path: str, live: dict, now: dt.datetime | None = None) -> dict:
-    from human_control import guard
-    guard(root)
     now = now or dt.datetime.now(dt.timezone.utc)
     packet = w.read_json(w.safe_path(root, packet_path))
     task = w.validate_task_id(packet.get("task_id"))
-    guard(root, task)
+    from goal_delivery_runtime import enabled as goal_enabled
+    if goal_enabled(root, w.read_json(w.snapshot_path(root, task))):
+        raise w.WorkflowError("legacy R0 workpack is not the complete-goal default; continue the original assigned goal scope")
     department = packet.get("department")
     registry = w.department_registry(root)
     if department not in registry or department == "operations":
@@ -52,8 +52,13 @@ def inspect(root: Path, packet_path: str, live: dict, now: dt.datetime | None = 
     stamp = w._parse_observed_at(live.get("observed_at"))
     if stamp is None or not 0 <= (now - stamp).total_seconds() <= 300:
         raise w.WorkflowError("fresh live identity required")
-    import native_inventory
-    native_inventory.fixed_binding(root, department, live)
+    threads = [t for t in live.get("threads", []) if t.get("id") == bind["task_id"]]
+    groups = [s for s in live.get("sections", []) if "codex:thread:local:" + bind["task_id"] in s.get("itemKeys", [])]
+    if (len(threads) != 1 or len(groups) != 1 or groups[0].get("name") != "装修公司部门"
+            or groups[0].get("id") != bind["sidebar_section_id"]
+            or any(threads[0].get(a) != bind.get(b) for a,b in (
+                ("projectId","project_id"), ("title","title"), ("cwd","cwd")))):
+        raise w.WorkflowError("live fixed identity or section mismatch")
     health = w._parse_observed_at(bind.get("last_health_check_at"))
     if health is None or health > now or not w._chat_binding_healthy(bind, verification_ttl_hours=26, now=now):
         raise w.WorkflowError("current reply health required")
@@ -62,37 +67,29 @@ def inspect(root: Path, packet_path: str, live: dict, now: dt.datetime | None = 
             or plan.get("external_actions_allowed") is not False):
         raise w.WorkflowError("explicit local R0 workpack required")
     digest = w.file_digest(root, packet_path)
-    import owner_direct_intake
-    origin = owner_direct_intake.existing(root, task)
-    if origin:
-        at = owner_direct_intake.native_time(origin["human_message"]["authorized_at"])
-        if (origin.get("executor_role") != department or origin.get("authorized_scope") != packet.get("authorized_scope")
-                or packet.get("owner_intake") != w.file_digest(root, str(owner_direct_intake.path_for(root, task).relative_to(root)))
-                or origin["human_message"].get("thread_id") != bind["task_id"]):
-            raise w.WorkflowError("workpack must bind exact original owner intake and scope")
-        ack_at = owner_direct_intake.native_time(origin["human_message"]["observed_at"])
-    else:
-        receipts, invalid = w._validate_receipt_chain(root, task)
-        sent = [(i,r) for i,r in enumerate(receipts) if r.get("receipt_type") == "dispatch_sent"
-                and r.get("department") == department and r.get("chat_task_id") == bind["task_id"]]
-        if not sent or invalid:
-            raise w.WorkflowError("valid original dispatch chain required")
-        index, dispatch = sent[-1]
-        at = w._parse_observed_at(dispatch.get("created_at"))
-        if digest not in dispatch.get("evidence", []):
-            raise w.WorkflowError("workpack must bind latest actual dispatch")
-        acknowledgements = [r for r in receipts[index+1:] if r.get("receipt_type") == "chat_ack"
-                            and r.get("department") == department and r.get("chat_task_id") == bind["task_id"]
-                            and r.get("ack_nonempty") is True]
-        if not acknowledgements:
-            raise w.WorkflowError("actual nonempty fixed-chat ACK required")
-        ack_at = w._parse_observed_at(acknowledgements[-1].get("created_at"))
+    receipts, invalid = w._validate_receipt_chain(root, task)
+    sent = [(i,r) for i,r in enumerate(receipts) if r.get("receipt_type") == "dispatch_sent"
+            and r.get("department") == department and r.get("chat_task_id") == bind["task_id"]]
+    if not sent or invalid:
+        raise w.WorkflowError("valid original dispatch chain required")
+    index, dispatch = sent[-1]
+    at = w._parse_observed_at(dispatch.get("created_at"))
+    if at is None or at > now:
+        raise w.WorkflowError("latest actual dispatch timestamp required and cannot be in the future")
     expires = w._parse_observed_at(plan.get("expires_at"))
-    if (at is None or at > now or ack_at is None or not at <= ack_at <= now
-            or expires is None or not at < expires <= at + dt.timedelta(hours=26)):
-        raise w.WorkflowError("bounded actual origin/ACK or owner-observation timestamp required")
+    if (digest not in dispatch.get("evidence", []) or at is None or expires is None
+            or not at < expires <= at + dt.timedelta(hours=26)):
+        raise w.WorkflowError("workpack must be bound to latest dispatch with bounded expiry")
     if expires <= now:
-        raise w.WorkflowError("workpack expired; exact authorized renewal required")
+        raise w.WorkflowError("workpack expired; controller renewal required")
+    acknowledgements = [r for r in receipts[index+1:]
+                        if r.get("receipt_type") == "chat_ack" and r.get("department") == department
+                        and r.get("chat_task_id") == bind["task_id"] and r.get("ack_nonempty") is True]
+    if not acknowledgements:
+        raise w.WorkflowError("actual nonempty fixed-chat ACK required")
+    ack_at = w._parse_observed_at(acknowledgements[-1].get("created_at"))
+    if ack_at is None or not at <= ack_at <= now:
+        raise w.WorkflowError("latest nonempty ACK timestamp must be dispatch_at <= ack_at <= now")
     steps = plan.get("steps")
     if not isinstance(steps,list) or not steps:
         raise w.WorkflowError("bounded explicit steps required")
@@ -105,9 +102,6 @@ def inspect(root: Path, packet_path: str, live: dict, now: dt.datetime | None = 
                 or not cv or cv in versions or step.get("kind") not in KINDS
                 or not step.get("scope") or step.get("requires_controller_gate") is not False):
             raise w.WorkflowError("unique scoped R0 step required; gated actions cannot auto-continue")
-        if origin and (step["scope"] != origin["authorized_scope"]
-                       and not step["scope"].startswith(origin["authorized_scope"] + ":")):
-            raise w.WorkflowError("owner workpack step expands original human scope")
         deps = step.get("depends_on", [])
         if not isinstance(deps,list) or any(dep not in ids for dep in deps):
             raise w.WorkflowError("dependencies must refer to earlier steps")

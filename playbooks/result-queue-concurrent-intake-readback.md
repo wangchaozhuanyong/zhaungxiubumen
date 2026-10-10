@@ -1,11 +1,7 @@
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+# 结果唯一入队与助理并发回读
 
-# 结果入队与总控并发收取
+部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。
 
-部门登记一次 notification_queued 后，总控可能在部门当轮结束前已经收取并作决策。这是正常推进，不能断言 controller_received 必须 false 或 controller_decision 必须 pending；也不能用 results[0] 或总 pending_count 判定本结果成功。
+按四字段选准确唯一notification_queued，助理可在部门收尾期间已收取/已决定；这些阶段仍算入队成功，不撤销真实记录、不重放通知或重复制作。result_handoff_readback仅只读回读，不授新权限。
 
-按原 task_id、sender_department、candidate_version、最终 outbox SHA-256 四项选中唯一结果，并回读同一身份的唯一 notification_queued 回执。queued、controller_received、controller_decided 三阶段都保留入队成功。结果已收取或已决策时如实报告当前阶段，不撤销总控记录、不重放通知、不重新制作候选。决策仍须关联真实后续动作，不能记为业务完成。
-
-只读回读命令：python3 tools/result_handoff_readback.py --outbox <本项目最终冻结V2绝对路径>。这个 helper 不登记、修改、发送、派工或发布。准确队列回执缺失、身份不符或重复时保留阻断证据，由原负责人恢复；缺失不能由缓存的状态或其他结果代替。
-
-本规则补充现有冻结方法，不改原 result-notification-key-and-recovery、短键 helper 或历史记录。新派工读本规则，旧 active 轮不插消息；下一次正式有界接续时采用。
+状态分别为执行中、待助理验收、返工中、已完成范围、下一任务真实已安排、具体依赖等待、暂时无可执行工作。验收PASS必须关联实际下一动作或准确范围关闭；prepared不算sent，passed不算adopted，子任务结束不关闭父目标。缺输入只暂停依赖它的动作，其他独立合法工作继续。停止时列已完成、未完成、唯一负责人、下一动作、解除条件和复查时间；自然去重IP口径缺失记DATA_MISSING，AI效果未实测记NOT_MEASURED。

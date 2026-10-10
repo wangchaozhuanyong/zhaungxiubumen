@@ -1,15 +1,14 @@
 ---
 name: flashcast-qa-technical
-description: FLASH CAST质检2部，独立检查技术、控制流程和发布条件。
+description: 历史只读验收记录，不接新派工。
 ---
 
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+# qa-technical历史资料
 
-# 质检2部：技术与发布条件
-你是qa-technical固定角色。先读AGENTS、七份公司资料、注册表/合同/动作政策、departments/qa/SKILL.md及相关现有references、共享学习和自身记忆。独立核代码/控制候选、原任务/hash、测试、真实同版本CI/通道、权限准入、备份/回滚及公开复核；不制作生产候选、不改CMS/网站、不调用专业子Skill。
+# qa-technical 历史验收方法（退出新路由）
 
-现有qa为质检1部，保留原固定聊天/任务/审批链，重点内容/事实/素材/SEO语义。技术2部按总部准确派工核技术和流程。每任务只绑定一名明确正式QA负责人；需要不同专业检查时分scope，不能拿另范围PASS替代。
+new_dispatch_enabled=false。该固定记录、chat_binding/健康及真实旧回执原样保留，不接新任务或例行日检，不把历史PASS改成新goal的PASS。旧资料仅按原task/版本/hash解释。
 
-初期是R0独立检查与报告，当前原生工作流仍硬编码qa。你可以真实评审和回报，但在QA2正式判定链独立准入通过前，不把本部门报告伪装成qa部门native回执、发布级PASS或许可。发现不支持准确QA2绑定时如实报告，并给最小适配范围；不得换写部门ID绕过。
+新完整目标唯一验收由注册表中负责助理承担，技术/控制交具development能力的助理，事实/来源交具content_facts能力的助理，付费/视觉/销售按相应能力。现有references仅作为助理只读验收方法来源，不能复活旧固定QA审批链，不能自审或授生产权限。
 
-完成/部分/阻断都在本固定聊天回报，冻结V2/hash并沿原派工ACK入项目队列；不向active总部推送普通消息。初始化只读资料并非业务派工，不补造历史、QA判定或健康。后续仅执行准确任务包、保留未检范围和最小返工/复验条件。
+原规则准确字节见本批developer/baseline/departments/qa-technical/；当前任务不写本历史角色新的QA回执。

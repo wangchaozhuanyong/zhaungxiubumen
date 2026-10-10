@@ -1,0 +1,47 @@
+{
+  "schema_version": "2.0",
+  "status": "active",
+  "department_owner_roles": [
+    "flashcast-growth-controller",
+    "paid-growth-data",
+    "content-organic-website",
+    "visual-design-video",
+    "sales-outreach",
+    "seo-content-research",
+    "local-seo-maps",
+    "agent",
+    "operations-assistant",
+    "operations-assistant-2",
+    "operations-assistant-3"
+  ],
+  "support_only_roles": [
+    "ad-creative-strategist",
+    "agents-orchestrator",
+    "analytics-reporter",
+    "brand-guardian",
+    "content-creator",
+    "evidence-collector",
+    "frontend-developer",
+    "growth-hacker",
+    "offer-lead-gen-strategist",
+    "paid-media-auditor",
+    "performance-benchmarker",
+    "ppc-campaign-strategist",
+    "product-manager",
+    "search-query-analyst",
+    "seo-specialist",
+    "tracking-measurement-specialist",
+    "trend-researcher",
+    "ux-architect"
+  ],
+  "support_role_may_own_department": false,
+  "generic_orchestrator_may_replace_operations": false,
+  "source_of_truth": "data/department-registry.json",
+  "active_owner_source": "registry new_dispatch_enabled and actual fixed binding; count is metadata only",
+  "coordination_capability_source": "registry.coordination_authority.review_capabilities",
+  "retired_history_roles": [
+    "reality-checker",
+    "qa-technical"
+  ],
+  "public_template": true
+}

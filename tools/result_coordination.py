@@ -3,12 +3,13 @@
 Actor/owner strings are audit metadata, not authentication. This module grants
 no external permission and never executes a message, decision, or publication.
 Lock order is coordination flock -> SQLite transaction -> native workflow lock;
+transfers hold workflow lock before the SQL transaction through assignment apply.
 SQLite transactions finish before invoking the native handoff append.
 """
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import datetime as dt
 import fcntl
 import hashlib
@@ -16,19 +17,84 @@ import json
 from pathlib import Path
 import re
 import sqlite3
-from typing import Any
+from typing import Any, TypedDict
 import uuid
-import threading
-import human_control
-import routine_grants
 
 COORDINATION_LOCK = Path("logs/.result-coordination.lock")
 DATABASE = Path("logs/result-coordination.sqlite3")
-ROLES = {"operations", *routine_grants.ASSISTANTS}
+ROLES = {"operations", "operations-assistant"}
 FINAL_EVENTS = {"controller_received", "controller_decision", "controller_followthrough"}
 REPORT_STATES = {"completed", "partial", "qa_rework", "external_blocked", "queue_failed", "failed"}
 IDENTITY_FIELDS = ("task_id", "sender_department", "candidate_version", "result_sha256")
-COORDINATOR_FIELDS = {"coordinator_role", "coordinator_owner", "coordination_claim", "recoverer_role", "recoverer_owner", "recoverer_claim"}
+COORDINATOR_FIELDS = {"coordinator_role", "coordinator_owner", "coordination_claim"}
+
+
+class NotificationAttempt(TypedDict):
+    """Internal call reservation; never a provider event or execution receipt."""
+    sequence: int
+    attempt_id: str
+    previous_attempt_id: str
+    identity: dict[str, str]
+    tool: str
+    target_thread_id: str
+    payload: dict[str, Any]
+    claim: dict[str, Any]
+    call_started_at: str
+
+
+def goal_delivery_enabled(root):
+    """The global switch alone does not migrate an existing task."""
+    config = _w().read_json(Path(root) / "data/task-contract.json").get("goal_delivery_runtime", {})
+    return (isinstance(config, dict) and config.get("model") == "goal_delivery_assistant_v1"
+            and config.get("assistant_decisions_enabled") is True)
+
+
+def goal_delivery(root, task_id=None, snapshot=None):
+    if not goal_delivery_enabled(root):
+        return None
+    if snapshot is None:
+        snapshot = _w().read_json(_w().snapshot_path(Path(root), task_id))
+    goal = snapshot.get("goal_delivery") if isinstance(snapshot, dict) else None
+    return goal if isinstance(goal, dict) else None
+
+
+def coordinator_roles(root, *, task_id=None):
+    registry = _w().department_registry(root)
+    if not goal_delivery_enabled(root) or (task_id is not None and goal_delivery(root, task_id) is None):
+        return ROLES & registry.keys()
+    return {role for role, item in registry.items()
+            if item.get("coordination_authority", {}).get("routine_decisions") is True
+            and item.get("new_dispatch_enabled") is not False} | ({"operations"} & registry.keys())
+
+
+def review_capabilities(root, role):
+    authority = _w().department_registry(root).get(role, {}).get("coordination_authority", {})
+    values = authority.get("review_capabilities", [])
+    return {value for value in values if isinstance(value, str) and value.strip()} if isinstance(values, list) else set()
+
+
+def _goal_actor(root, identity, role, *, assigned=True):
+    """Check routine responsibility without interpreting actor metadata as auth."""
+    source = _collaboration_source(root, identity)
+    if source is not None and role != source['responsible_assistant']:
+        _fail('only original responsible assistant may handle this collaboration result')
+    goal = goal_delivery(root, identity["task_id"])
+    if goal is None:
+        route = result_lane(root, identity)
+        if route.get('source_mode') == 'scheduled_run' and role != route.get('target_department'):
+            _fail('only exact scheduled source responsible assistant may handle this result')
+        return goal
+    if role == "operations":
+        return goal
+    producers = goal.get("producer_departments", [])
+    if role == identity["sender_department"] or role in producers:
+        _fail("independent assistant required; self review rejected")
+    if assigned and role != goal.get("responsible_assistant"):
+        _fail("only assigned responsible assistant may handle this result; explicit transfer required")
+    capability = goal.get("acceptance_capability")
+    if not isinstance(capability, str) or capability not in review_capabilities(root, role):
+        _fail("assistant lacks the task acceptance capability")
+    return goal
 
 
 def _w():
@@ -62,38 +128,35 @@ def _key(identity):
     return _sha([identity[name] for name in IDENTITY_FIELDS])
 
 
-_locks = threading.local()
-
-
 @contextmanager
 def coordination_lock(root):
     root = Path(root).resolve()
-    key = str(root)
-    active = getattr(_locks, "active", set())
-    if key in active:
-        yield
-        return
     path = _w().safe_path(root, str(COORDINATION_LOCK))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a+", encoding="utf-8") as handle:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        _locks.active = active | {key}
         try:
             yield
         finally:
-            _locks.active = active
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+def _collaboration_source(root, identity):
+    """A declared fixed collaborator is a distinct source, never a department alias."""
+    if identity['sender_department'] in _w().department_registry(root):
+        return None
+    from goal_delivery_runtime import collaboration_result_source
+    return collaboration_result_source(root, identity)
+
+
 def _validate_queued(root, identity):
-    """Claims apply only to an existing exact native queue; no historical scan."""
+    """Claim one exact native queue or strict declared collaboration return."""
     w = _w()
     registry = w.department_registry(root)
     sender = identity["sender_department"]
-    import owner_direct_intake
-    owner = owner_direct_intake.existing(root, identity["task_id"])
-    if owner and sender == owner_direct_intake.DEVELOPER:
-        registry = {**registry, sender: {"chat_binding": owner["executor_binding"]}}
+    collaboration = _collaboration_source(root, identity)
+    if collaboration is not None:
+        return collaboration
     if sender == "operations" or sender not in registry:
         _fail("registered result sender required")
     rows = w._result_handoff_rows(root, identity["task_id"])
@@ -117,8 +180,10 @@ def _validate_queued(root, identity):
     return box
 
 
-def _role(root, role, owner):
-    if role not in ROLES or role not in _w().department_registry(root):
+def _role(root, role, owner, identity=None):
+    scheduled_target = (result_lane(root, identity).get('target_department')
+                        if identity and goal_delivery(root, identity['task_id']) is None else None)
+    if role not in coordinator_roles(root, task_id=identity["task_id"] if identity else None) and role != scheduled_target:
         _fail("registered coordinator role required")
     if not isinstance(owner, str) or not owner.strip() or len(owner) > 200:
         _fail("nonempty coordinator owner audit metadata required")
@@ -194,7 +259,7 @@ class CoordinationStore:
             "precheck": json.loads(row["precheck_json"]) if row["precheck_json"] else None}
 
     def _lease(self, identity, role, owner, claim):
-        _role(self.root, role, owner)
+        _role(self.root, role, owner, identity)
         row = self._row(identity)
         if (not isinstance(claim, dict) or not row or row["role"] != role or row["owner"] != owner
                 or claim.get("result_key") != _key(identity) or claim.get("token") != row["token"]
@@ -218,10 +283,11 @@ class CoordinationStore:
 
     def claim(self, identity, role, owner, request_id, ttl_seconds=900, recovery_reason=""):
         identity = exact_identity(identity)
-        _role(self.root, role, owner)
+        _role(self.root, role, owner, identity)
         if type(ttl_seconds) is not int or not 1 <= ttl_seconds <= 900 or not str(request_id).strip():
             _fail("claim request id and TTL 1..900 seconds required")
-        with human_control.action_gate(self.root, identity["task_id"]), coordination_lock(self.root):
+        with coordination_lock(self.root):
+            _goal_actor(self.root, identity, role)
             _validate_queued(self.root, identity)
             self._begin()
             try:
@@ -254,11 +320,10 @@ class CoordinationStore:
             _fail("explicit interruption recovery reason required")
         return self.claim(identity, role, owner, request_id, ttl_seconds, reason)
 
-    def _change(self, identity, role, owner, claim, event, mutate):
+    def _change(self, identity, role, owner, claim, event, mutate, after_commit=None,
+                lock_workflow=False):
         identity = exact_identity(identity)
-        with human_control.control_lock(self.root), coordination_lock(self.root):
-            if event != "release":
-                human_control.guard(self.root, identity["task_id"])
+        with coordination_lock(self.root), (_w().workflow_lock(self.root) if lock_workflow else nullcontext()):
             box = _validate_queued(self.root, identity)
             self._begin()
             try:
@@ -267,6 +332,8 @@ class CoordinationStore:
                 self._audit(identity, event, details)
                 result = self._view(self._row(identity))
                 self.conn.commit()
+                if after_commit is not None:
+                    result.update(after_commit(result))
                 return result
             except BaseException:
                 self.conn.rollback()
@@ -288,17 +355,49 @@ class CoordinationStore:
             return {"previous_owner": owner, "reason": reason}
         return self._change(identity, role, owner, claim, "release", mutate)
 
-    def transfer(self, identity, role, owner, claim, target_role, target_owner, request_id, ttl_seconds=900):
-        _role(self.root, target_role, target_owner)
+    def transfer(self, identity, role, owner, claim, target_role, target_owner, request_id, ttl_seconds=900,
+                 review_plan_path=""):
+        identity = exact_identity(identity)
+        _role(self.root, target_role, target_owner, identity)
         if type(ttl_seconds) is not int or not 1 <= ttl_seconds <= 900 or not str(request_id).strip():
             _fail("transfer request id and TTL 1..900 seconds required")
+        assignment = {}
         def mutate(row, box):
             if not row["precheck_json"]:
                 _fail("precheck and unfinished scope required before explicit transfer")
+            goal = _goal_actor(self.root, identity, role)
+            if goal is not None:
+                _goal_actor(self.root, identity, target_role, assigned=False)
+                capability = goal.get("acceptance_capability")
+                if (target_role == "operations" or capability not in review_capabilities(self.root, target_role)
+                        or (role != "operations" and capability not in review_capabilities(self.root, role))
+                        or (role == "operations" and target_role != goal.get("responsible_assistant"))):
+                    _fail("explicit transfer requires the same task review capability")
+                assignment.update(previous_assistant=goal["responsible_assistant"], target_assistant=target_role,
+                                  result_identity=identity, fence=row["fence"] + 1, snapshot_binding_required=True)
+                from qa_review_plan import _binding, transfer_plan
+                snapshot = _w().read_json(_w().snapshot_path(self.root, identity["task_id"]))
+                if _binding(self.root, snapshot) is not None and target_role != goal["responsible_assistant"]:
+                    if not isinstance(review_plan_path, str) or not review_plan_path.strip():
+                        _fail("new frozen review plan required before assignment transfer")
+                    assignment["review_plan_transfer"] = transfer_plan(self.root, task_id=identity["task_id"],
+                        plan_path=review_plan_path, target_role=target_role, prepare_only=True)
+                from goal_delivery_runtime import prepare_assignment_transfer
+                prepare_assignment_transfer(self.root, identity, assignment)
             self.conn.execute("UPDATE claims SET role=?,owner=?,token=?,fence=fence+1,expires=?,request_id=? WHERE result_key=?",
                               (target_role, target_owner, uuid.uuid4().hex, self._now()+ttl_seconds, request_id, row["result_key"]))
-            return {"previous_owner": owner, "target_role": target_role, "target_owner": target_owner}
-        return self._change(identity, role, owner, claim, "transfer", mutate)
+            return {"previous_owner": owner, "previous_role": role, "target_role": target_role,
+                    "target_owner": target_owner, "acceptance_capability": goal.get("acceptance_capability") if goal else None,
+                    "assignment_change": assignment or None}
+        def after_commit(result):
+            if not assignment:
+                return {}
+            from goal_delivery_runtime import record_assignment_transfer
+            applied = record_assignment_transfer(self.root, identity, assignment, _workflow_locked=True)
+            return {"responsible_assistant": target_role, "assignment_change": assignment,
+                    "assignment_receipt": applied}
+        return self._change(identity, role, owner, claim, "transfer", mutate, after_commit,
+                            lock_workflow=True)
 
     def precheck(self, identity, role, owner, claim, status, next_owner, next_action, unblock_condition, scope=""):
         if status not in REPORT_STATES or any(not isinstance(value, str) or not value.strip()
@@ -316,28 +415,10 @@ class CoordinationStore:
         return self._change(identity, role, owner, claim, "precheck_draft", mutate)
 
 
-    def escalate(self, identity, role, owner, claim, reason):
-        """Preserve the precheck, invalidate the lease and leave native queue for HQ."""
-        if not isinstance(reason, str) or not reason.strip():
-            _fail("escalation reason required")
-        def mutate(row, box):
-            draft = json.loads(row["precheck_json"] or "{}")
-            if not draft or draft.get("next_owner") != "operations":
-                _fail("HQ escalation requires exact precheck with operations next owner")
-            self.conn.execute("UPDATE claims SET role='',owner='',token='',expires=0,fence=fence+1 WHERE result_key=?", (row["result_key"],))
-            return {"previous_owner": owner, "reason": reason, "next_owner": "operations", "precheck_preserved": True,
-                    "message_sent": False, "native_queue_preserved": True}
-        return self._change(identity, role, owner, claim, "release", mutate)
-
-
 def _payload(root, request):
     """Freeze all request semantics plus exact bytes used by native append."""
     w = _w()
     raw = {key: value for key, value in request.items() if key not in COORDINATOR_FIELDS}
-    if request.get("coordinator_role", "operations") != "operations":
-        role = request["coordinator_role"]
-        raw["actor_role"] = role
-        raw["actor_thread_id"] = w.department_registry(root)[role]["chat_binding"]["task_id"]
     paths = raw.get("evidence_paths") or []
     if not isinstance(paths, list):
         _fail("native evidence_paths must be an array")
@@ -362,11 +443,6 @@ def _native_readback(root, payload):
     expected.update(pins)
     # All native preserved request fields are compared; path inputs map to pins.
     skipped = {"evidence_paths", "outbox_path", "linked_outbox_path", *IDENTITY_FIELDS, "event", "idempotency_key"}
-    if "scope" in request and request.get("actor_role", "operations") == "operations":
-        # Historical native rows did not persist this reporting-only context.
-        # The reserved exact payload still binds it; never rewrite the old row.
-        if "reported_scope" in row:expected["reported_scope"] = request["scope"]
-        skipped.add("scope")
     # The native operations verifier converts this path input into a digest.
     # Compare the same frozen bytes, rather than a path string with a pin dict.
     if "control_applied_proof" in request and "control_applied_proof" in row:
@@ -438,26 +514,31 @@ class HandoffAdmission:
 @contextmanager
 def handoff_guard(root, request):
     """Native wrapper guard. Exceptions retain uncertain intent until readback."""
-    _w().validate_result_handoff_request(root, request)
-    if request.get("event") not in FINAL_EVENTS:
+    if not isinstance(request, dict) or request.get("event") not in FINAL_EVENTS:
         yield HandoffAdmission(None, None, None, None)
         return
     root = Path(root).resolve()
     role = request.get("coordinator_role", "operations")
-    if role != "operations":
-        if not request.get("routine_grant"):
-            _fail("assistant precheck cannot record final controller events without exact routine grant")
-        routine_grants.check_result(root, request)
     identity = exact_identity(request)
-    with human_control.action_gate(root, identity["task_id"]), coordination_lock(root):
-        routine_grants.check_result(root, request)
+    route = result_lane(root, identity)
+    modern = (goal_delivery(root, identity["task_id"]) is not None
+              or route.get('source_mode') == 'scheduled_run')
+    if route['lane'] == 'HQ_knowledge' and (role != 'operations' or request['event'] == 'controller_decision'):
+        _fail('HQ knowledge only; no self review or HQ second acceptance')
+    if not modern and role != "operations":
+        _fail("assistant precheck cannot record final controller events")
+    with coordination_lock(root):
         store = CoordinationStore(root)
         try:
             row = store._row(identity)
+            if modern:
+                _goal_actor(root, identity, role)
+                _validate_queued(root, identity)
+                store._lease(identity, role, request.get("coordinator_owner"), request.get("coordination_claim"))
             if row and row["owner"]:
                 _validate_queued(root, identity)
                 store._lease(identity, role, request.get("coordinator_owner"), request.get("coordination_claim"))
-            elif role != "operations" or request.get("coordination_claim"):
+            elif request.get("coordination_claim"):
                 _fail("claim was released or does not own this exact result")
             payload = _payload(root, request)
             effect = _sha([request["event"], request.get("idempotency_key")])
@@ -509,25 +590,25 @@ def recover_reservation(root, request, reason):
         _fail("explicit uncertain-effect recovery reason required")
     root = Path(root).resolve()
     identity = exact_identity(request)
-    role = request.get("recoverer_role", request.get("coordinator_role", "operations"))
-    owner = request.get("recoverer_owner", request.get("coordinator_owner"))
-    claim = request.get("recoverer_claim", request.get("coordination_claim"))
-    _role(root, role, owner if role != "operations" or owner else "legacy-operations")
-    if role != "operations":
-        if role != request.get("coordinator_role"):
-            _fail("assistant recovery cannot change the original admitted actor")
-        routine_grants.check_result(root, request)
-    with human_control.action_gate(root, identity["task_id"]), coordination_lock(root):
-        _validate_queued(root, identity)
-        if role != "operations":
-            routine_grants.check_result(root, request)
+    role = request.get("coordinator_role", "operations")
+    route = result_lane(root, identity)
+    modern = (goal_delivery(root, identity["task_id"]) is not None
+              or route.get('source_mode') == 'scheduled_run')
+    if route['lane'] == 'HQ_knowledge' and (role != 'operations' or request['event'] == 'controller_decision'):
+        _fail('HQ knowledge only; no self review or HQ second acceptance')
+    if not modern and role != "operations":
+        _fail("assistant cannot recover final controller effects")
+    with coordination_lock(root):
         store = CoordinationStore(root)
         try:
             row = store._row(identity)
+            if modern:
+                _goal_actor(root, identity, role)
+                _validate_queued(root, identity)
+                store._lease(identity, role, request.get("coordinator_owner"), request.get("coordination_claim"))
             if row and row["owner"]:
-                store._lease(identity, role, owner, claim)
-            elif role != "operations" or claim:
-                _fail("recovery requires ownership of this exact result")
+                _validate_queued(root, identity)
+                store._lease(identity, role, request.get("coordinator_owner"), request.get("coordination_claim"))
             payload = _payload(root, request)
             effect = _sha([request["event"], request.get("idempotency_key")])
             store._begin()
@@ -549,14 +630,408 @@ def recover_reservation(root, request, reason):
             store.close()
 
 
+
+def result_lane(root, identity, *, source=None):
+    """Read current evidence; assistant summaries never enter their own review."""
+    identity = exact_identity(identity)
+    collaboration = _collaboration_source(root, identity)
+    if collaboration is not None:
+        return {'lane': 'professional_acceptance',
+                'target_department': collaboration['responsible_assistant'],
+                'source_mode': 'collaboration', 'acceptance_proven': False,
+                'HQ_second_review_required': False}
+    goal = goal_delivery(root, identity['task_id'])
+    sender = identity['sender_department']
+    if goal:
+        assistant = goal['responsible_assistant']
+        if sender == assistant:
+            rows, invalid = _w()._validate_receipt_chain(root, identity['task_id'])
+            accepted = [r for r in rows if r.get('receipt_type') == 'qa_verdict'
+                        and r.get('department') == assistant]
+            latest = accepted[-1] if accepted else {}
+            from qa_review_plan import _binding
+            snapshot = _w().read_json(_w().snapshot_path(root, identity['task_id']))
+            binding = _binding(root, snapshot) or {}
+            summaries = []
+            for pin in latest.get('evidence', []):
+                if pin.get('sha256') != identity['result_sha256'] or _w().file_digest(root, pin.get('path', '')) != pin:
+                    continue
+                box = _w().read_json(_w().safe_path(root, pin['path']))
+                if all(box.get(k) == v for k, v in {'task_id':identity['task_id'],
+                        'department':sender, 'candidate_version':identity['candidate_version']}.items()) and (
+                            box.get('qa_verdict') == 'pass'
+                            and box.get('goal_acceptance', {}).get('responsible_assistant') == assistant
+                            and binding.get('pin') in box.get('evidence', [])):
+                    summaries.append(pin)
+            accepted_exact = (not invalid and latest.get('verdict') == 'pass' and len(summaries) == 1
+                              and binding.get('reviewer_department') == assistant)
+            return {'lane': 'HQ_knowledge', 'target_department': 'operations',
+                    'acceptance_proven': accepted_exact, 'HQ_second_review_required': False,
+                    'reason': 'accepted_exact_assistant_summary' if accepted_exact
+                              else 'assistant_summary_exact_acceptance_not_proven'}
+        if sender in goal.get('producer_departments', []):
+            return {'lane': 'professional_acceptance', 'target_department': assistant,
+                    'acceptance_proven': False, 'HQ_second_review_required': False}
+        return {'lane': 'legacy_unmapped', 'target_department': None,
+                'reason': 'sender_not_bound_to_current_goal'}
+    rows = _w()._result_handoff_rows(root, identity['task_id'])
+    queued = [r for r in rows if _w()._result_identity(r) == tuple(identity[k] for k in IDENTITY_FIELDS[1:])
+              and r.get('event') == 'notification_queued']
+    if not queued and isinstance(source, dict):
+        # The native admission caller has already verified these source pins;
+        # this preview classifies routing and never grants claim/admission.
+        queued = [source]
+    routes = _w().read_json(Path(root) / 'data/task-contract.json').get('result_handoff_contract', {}).get('scheduled_daily_sources', [])
+    matches = [route for route in routes if isinstance(route, dict)
+               and route.get('department') == sender
+               and re.fullmatch(route.get('task_id_pattern', '(?!)'), identity['task_id'])
+               and len(queued) == 1 and queued[0].get('source_mode') == 'scheduled_run'
+               and queued[0].get('source_automation_id') == route.get('automation_id')
+               and queued[0].get('source_thread_id') == _w().department_registry(root).get(sender, {}).get('chat_binding', {}).get('task_id')]
+    if len(matches) == 1 and matches[0].get('responsible_assistant') in coordinator_roles(root):
+        return {'lane': 'professional_acceptance', 'target_department': matches[0]['responsible_assistant'],
+                'source_mode': 'scheduled_run', 'HQ_second_review_required': False}
+    return {'lane': 'legacy_unmapped', 'target_department': None,
+            'reason': 'original_evidence_mapping_required_no_redispatch'}
+
+
+def _notification_path(root, identity):
+    return _w().safe_path(root, 'logs/result-notifications/' + _key(identity) + '.json')
+
+
+def notification_enqueue(root, identity, *, _coordination_locked=False):
+    """Durable delivery intent, never a native send receipt or a new reviewer."""
+    identity = exact_identity(identity)
+    with (nullcontext() if _coordination_locked else coordination_lock(root)):
+        source = _validate_queued(root, identity)
+        if source.get('source_mode') == 'collaboration':
+            _fail('formal collaboration return does not create an ordinary notification queue')
+        route = result_lane(root, identity)
+        path = _notification_path(root, identity)
+        old = _w().read_json(path)
+        if old:
+            if old.get('identity') != identity or old.get('route') != route:
+                _fail('frozen notification identity/routing changed; exact reconciliation required')
+            return old
+        payload = {'schema_version': '1.0', 'identity': identity, 'route': route,
+                   'dedupe_key': _key(identity), 'state': 'queued', 'delivered': False,
+                   'recovery_owner': route.get('target_department'),
+                   'defer_reason': 'fresh_actual_target_idle_or_completion_event_required',
+                   'recovery_condition': 'read native fixed target status; send exact prepared notification once when idle',
+                   'native_wakeup_guaranteed': False, 'queued_at': _w().utc_timestamp(),
+                   'attempts': []}
+        _w().atomic_write_json(path, payload)
+        return payload
+
+
+def notification_plan(root, role=None):
+    records = [_w().read_json(path) for path in (Path(root) / 'logs/result-notifications').glob('*.json')]
+    pending = [r for r in records if not r.get('delivered') and
+               (role is None or r.get('route', {}).get('target_department') == role)]
+    received = []
+    for record in list(pending):
+        identity = record['identity']
+        if any(row.get('event') == 'controller_received'
+               and _w()._result_identity(row) == tuple(identity[key] for key in IDENTITY_FIELDS[1:])
+               for row in _w()._result_handoff_rows(root, identity['task_id'])):
+            pending.remove(record)
+            received.append({'identity': identity, 'resolution': 'actual_queue_intake_already_recorded',
+                             'native_notification_sent': record.get('delivered', False)})
+    return {'notifications': pending, 'pending_count': len(pending),
+            'resolved_by_actual_intake': received,
+            'native_entry': 'mcp__codex_app__list_threads then notification_claim; execute returned send only if ready',
+            'ended_chat_recovery_owner': role or 'operations',
+            'native_wakeup_guaranteed': False, 'queue_is_delivery': False,
+            'no_new_polling_or_automation': True}
+
+
+def notification_claim(root, identity, role, owner, request_id, live_identity, payload, *, recovery_reason=''):
+    """Existing exact-result lease fences preparation; Python never calls native tools."""
+    identity = exact_identity(identity)
+    if any(row.get('event') == 'controller_received'
+           and _w()._result_identity(row) == tuple(identity[key] for key in IDENTITY_FIELDS[1:])
+           for row in _w()._result_handoff_rows(root, identity['task_id'])):
+        _fail('actual result already received; do not send an old notification')
+    queued = notification_enqueue(root, identity)
+    if queued.get('delivered'):
+        return {'result': 'duplicate_ignored', 'delivered': True, 'native_transport': queued['native_transport']}
+    route = result_lane(root, identity)
+    if route.get('target_department') != role or route['lane'] == 'legacy_unmapped':
+        _fail('exact current notification receiver required; legacy mapping is not a send')
+    if route['lane'] == 'HQ_knowledge' and not route.get('acceptance_proven'):
+        _fail('assistant summary exact acceptance required before HQ knowledge delivery')
+    w = _w()
+    if (not isinstance(live_identity, dict) or w.file_digest(root, live_identity.get('path', '')) != live_identity
+            or not isinstance(payload, dict) or w.file_digest(root, payload.get('path', '')) != payload):
+        _fail('frozen native live identity and exact message bytes required')
+    live = w.read_json(w.safe_path(root, live_identity['path']))
+    observed = w._parse_observed_at(live.get('observed_at'))
+    native_pin = live.get('actual_native_observation')
+    from goal_delivery_runtime import _collaboration_native
+    if not isinstance(native_pin, dict) or w.file_digest(root, native_pin.get('path', '')) != native_pin:
+        _fail('original actual native observation pin required')
+    native = _collaboration_native(root, native_pin)
+    binding = w.department_registry(root).get(role, {}).get('chat_binding', {})
+    threads = [*native.get('threads', []), *native.get('pinnedThreads', [])]
+    target = [r for r in threads if r.get('id') == binding.get('task_id')]
+    if (observed is None or not 0 <= (dt.datetime.now(dt.timezone.utc)-observed).total_seconds() <= 300
+            or len(target) != 1 or any(target[0].get(k) != binding.get(v) for k,v in
+                 {'projectId':'project_id','title':'title','cwd':'cwd'}.items())):
+        _fail('fresh exact actual native fixed target identity required')
+    with coordination_lock(root):
+        current = w.read_json(_notification_path(root, identity))
+        # Delivery effects outrank target availability. A busy observation cannot
+        # erase an in-flight call and make its unknown effect retryable later.
+        rows = [row for row in w._result_handoff_rows(root, identity['task_id'])
+                if w._result_identity(row) == tuple(identity[key] for key in IDENTITY_FIELDS[1:])]
+        if any(row.get('event') == 'controller_received' for row in rows):
+            _fail('actual result already received; do not send an old notification')
+        if current.get('delivered'):
+            return {'result': 'duplicate_ignored', 'delivered': True,
+                    'native_transport': current['native_transport']}
+        if current.get('state') == 'sent' or any(row.get('event') == 'notification_sent' for row in rows):
+            _fail('native notification already sent; recover its actual receipt before retry')
+        if current.get('state') == 'sending':
+            if target[0].get('status') != 'idle':
+                current.update(live_identity=live_identity,
+                    waiting_for_target_idle=True,
+                    recovery_condition='read actual send receipt first; unknown is never permission to resend')
+                w.atomic_write_json(_notification_path(root, identity), current)
+            _fail('native send effect uncertain; recover actual receipt before retry')
+        if current.get('state') == 'failed' or current.get('effect_observation') == 'absent':
+            _validate_absent_notification_failure(root, current, current.get('actual_native_failure'))
+        if current.get('payload') and current['payload'] != payload:
+            _fail('prepared notification exact message cannot be replaced')
+        if target[0].get('status') != 'idle':
+            current.update(state='deferred', defer_reason='actual_target_busy', live_identity=live_identity,
+                           recovery_condition='actual fixed target completed/idle; re-read fresh native state then claim once')
+            w.atomic_write_json(_notification_path(root, identity), current)
+            return {'result': 'deferred', 'delivered': False, 'interrupts_active_thread': False,
+                    'recovery_owner': role, 'target_thread_id': binding.get('task_id')}
+    store = CoordinationStore(root)
+    try:
+        claim = store.claim(identity, role, owner, request_id, recovery_reason=recovery_reason)
+    finally:
+        store.close()
+    with coordination_lock(root):
+        current = w.read_json(_notification_path(root, identity))
+        if any(row.get('event') == 'controller_received'
+               and w._result_identity(row) == tuple(identity[key] for key in IDENTITY_FIELDS[1:])
+               for row in w._result_handoff_rows(root, identity['task_id'])):
+            _fail('actual result already received; do not send an old notification')
+        if current.get('delivered'):
+            return {'result': 'duplicate_ignored', 'delivered': True, 'native_transport': current['native_transport']}
+        if current.get('state') == 'sending':
+            _fail('native send effect uncertain; recover actual receipt before retry')
+        if current.get('state') == 'prepared' and current.get('payload') != payload:
+            _fail('prepared notification exact message cannot be replaced')
+        current.update(state='prepared', live_identity=live_identity, payload=payload,
+                       claim=claim, coordinator_owner=owner, target_thread_id=binding['task_id'], defer_reason='',
+                       waiting_for_target_idle=False)
+        w.atomic_write_json(_notification_path(root, identity), current)
+    source = w.department_registry(root).get(identity['sender_department'], {}).get('chat_binding', {})
+    return {'result': 'ready', 'identity': identity, 'claim': claim, 'payload': payload,
+            'tool': 'mcp__codex_app__send_message_to_thread', 'threadId': binding['task_id'],
+            'action_id': 'notify-result-' + _key(identity), 'action_class': 'thread_message',
+            'scope': 'department_result:' + identity['task_id'] + ':' + identity['sender_department'],
+            'department': identity['sender_department'], 'task_id': identity['task_id'],
+            'source_project_id': source.get('project_id'), 'target_department': role,
+            'target_project_id': binding.get('project_id'), 'target_thread_id': binding.get('task_id'),
+            'target_thread_title': binding.get('title'), 'target_cwd': binding.get('cwd'),
+            'target_sidebar_section_id': binding.get('sidebar_section_id'),
+            'payload_sha256': payload['sha256'],
+            'delivered': False, 'requires_existing_exact_message_policy': True}
+
+
+def _notification_attempts(current) -> list[NotificationAttempt]:
+    """Read the append-only local reservation chain without repairing old data."""
+    attempts = current.get('attempts', [])
+    if not isinstance(attempts, list):
+        _fail('exact internal notification attempt history required')
+    previous = ''
+    for sequence, attempt in enumerate(attempts, 1):
+        if (not isinstance(attempt, dict) or set(attempt) != set(NotificationAttempt.__annotations__)
+                or type(attempt.get('sequence')) is not int or attempt['sequence'] != sequence
+                or attempt.get('previous_attempt_id') != previous
+                or attempt.get('identity') != current.get('identity')
+                or attempt.get('tool') != 'mcp__codex_app__send_message_to_thread'
+                or attempt.get('target_thread_id') != current.get('target_thread_id')
+                or attempt.get('payload') != current.get('payload')
+                or _w()._parse_observed_at(attempt.get('call_started_at')) is None):
+            _fail('exact internal notification attempt history required; no historical backfill')
+        lease = attempt.get('claim')
+        if (not isinstance(lease, dict)
+                or set(lease) != {'result_key', 'role', 'owner', 'token', 'fence', 'expires'}
+                or lease.get('result_key') != _key(current['identity'])
+                or type(lease.get('fence')) is not int or lease['fence'] < 1
+                or any(not isinstance(lease.get(key), str) or not lease[key]
+                       for key in ('role', 'owner', 'token'))):
+            _fail('exact original notification attempt lease snapshot required')
+        unsigned = {key: value for key, value in attempt.items() if key != 'attempt_id'}
+        if attempt.get('attempt_id') != _sha(unsigned):
+            _fail('internal notification attempt event changed')
+        previous = attempt['attempt_id']
+    if current.get('active_attempt_id', '') != previous:
+        _fail('exact current internal notification attempt required')
+    return attempts
+
+
+def notification_send_started(root, identity, claim):
+    """Reserve before the native call, so interruption never silently re-sends."""
+    identity = exact_identity(identity)
+    with coordination_lock(root):
+        current = _w().read_json(_notification_path(root, identity))
+        rows = [row for row in _w()._result_handoff_rows(root, identity['task_id'])
+                if _w()._result_identity(row) == tuple(identity[key] for key in IDENTITY_FIELDS[1:])]
+        if any(row.get('event') == 'controller_received' for row in rows):
+            _fail('actual result already received; do not send an old notification')
+        if (current.get('delivered')
+                or any(row.get('event') == 'notification_sent' for row in rows)):
+            _fail('native notification already sent; recover its actual receipt before retry')
+        if (current.get('state') != 'prepared' or not isinstance(claim, dict)
+                or any(current.get('claim', {}).get(key) != claim.get(key)
+                       for key in ('result_key', 'role', 'owner', 'token', 'fence'))):
+            _fail('exact prepared existing lease required before native send')
+        if current.get('effect_observation') == 'absent' or current.get('actual_native_failure'):
+            _validate_absent_notification_failure(root, current, current.get('actual_native_failure'))
+        store = CoordinationStore(root)
+        try:
+            lease = store._lease(identity, current['route']['target_department'], current['coordinator_owner'], claim)
+        finally:
+            store.close()
+        payload = current.get('payload')
+        if (not isinstance(payload, dict)
+                or _w().file_digest(root, payload.get('path', '')) != payload):
+            _fail('frozen exact notification payload required before native call reservation')
+        attempts = _notification_attempts(current)
+        if attempts or 'call_started_at' in current:
+            _fail('native send effect uncertain; original started call requires actual effect readback, no attempt backfill')
+        started_at = _w().utc_timestamp()
+        attempt: NotificationAttempt = {
+            'sequence': len(attempts) + 1,
+            'previous_attempt_id': attempts[-1]['attempt_id'] if attempts else '',
+            'identity': identity,
+            'tool': 'mcp__codex_app__send_message_to_thread',
+            'target_thread_id': current['target_thread_id'],
+            'payload': dict(payload),
+            'claim': {key: lease[key]
+                      for key in ('result_key', 'role', 'owner', 'token', 'fence', 'expires')},
+            'call_started_at': started_at,
+            'attempt_id': '',
+        }
+        attempt['attempt_id'] = _sha({key: value for key, value in attempt.items() if key != 'attempt_id'})
+        current.update(state='sending', call_started_at=started_at,
+                       active_attempt_id=attempt['attempt_id'], attempts=[*attempts, attempt],
+                       effect_observation='unknown')
+        _w().atomic_write_json(_notification_path(root, identity), current)
+        return current
+
+
+def notification_record(root, identity, request, *, _coordination_locked=False):
+    """Commit only an original pinned successful native send plus exact policy."""
+    identity = exact_identity(identity)
+    with (nullcontext() if _coordination_locked else coordination_lock(root)):
+        w = _w(); current = w.read_json(_notification_path(root, identity))
+        native_pin = request.get('actual_native_transport')
+        if not isinstance(native_pin, dict) or w.file_digest(root, native_pin.get('path', '')) != native_pin:
+            _fail('original actual native send pin required; no missing-pin fallback')
+        from goal_delivery_runtime import _collaboration_native
+        native = _collaboration_native(root, native_pin)
+        sent = native.get('actual_native_send', native)
+        if (sent.get('threadId') != current.get('target_thread_id') or sent.get('isError') is True
+                or ('status' in sent and sent['status'] not in {'sent', 'queued', 'running'})):
+            _fail('successful exact native send target receipt required')
+        rows = [row for row in w._result_handoff_rows(root, identity['task_id'])
+                if w._result_identity(row) == tuple(identity[key] for key in IDENTITY_FIELDS[1:])]
+        if any(row.get('event') == 'controller_received' for row in rows):
+            _fail('actual result already received; do not commit a late old notification')
+        prior_sent = [row for row in rows if row.get('event') == 'notification_sent']
+        if prior_sent and (len(prior_sent) != 1 or prior_sent[0].get('actual_native_transport') != native_pin):
+            _fail('existing notification send cannot replace its exact original transport')
+        if current.get('delivered'):
+            if current.get('native_transport') != native_pin:
+                _fail('already delivered notification cannot replace actual transport')
+            return current
+        if current.get('state') not in {'prepared', 'sending'}:
+            _fail('exact prepared original notification required')
+        message_ref = request.get('message_ref')
+        if (not isinstance(message_ref, str) or not message_ref
+                or w.safe_path(root, message_ref.split('#', 1)[0]) != w.safe_path(root, native_pin['path'])):
+            _fail('native send reference must point to its original frozen transport file')
+        store = CoordinationStore(root)
+        try:
+            claim = request.get('coordination_claim', current.get('claim'))
+            store._lease(identity, current['route']['target_department'], current['coordinator_owner'], claim)
+        finally:
+            store.close()
+        payload = current.get('payload', {})
+        if w.file_digest(root, payload.get('path', '')) != payload or request.get('message_sha256') != payload.get('sha256'):
+            _fail('frozen exact notification message bytes required')
+        decisions = [r for r in w.read_jsonl(Path(root) / w.POLICY_DECISIONS)
+                     if r.get('decision_id') == request.get('policy_decision_id')]
+        if len(decisions) != 1 or any(decisions[0].get(k) != v for k,v in
+                {'status':'allow','routing_status':'routing_allowed','task_id':identity['task_id'],
+                 'department':identity['sender_department'], 'action_id':'notify-result-' + _key(identity),
+                 'scope':'department_result:' + identity['task_id'] + ':' + identity['sender_department'],
+                 'action_class':'thread_message','target_department':current['route']['target_department'],
+                 'target_thread_id':current['target_thread_id'],'payload_sha256':payload['sha256']}.items()):
+            _fail('exact existing permitted native notification policy required')
+        current.update(state='sent', delivered=True, native_transport=native_pin, claim=claim,
+                       native_receipt_ref=request.get('message_ref'), policy_decision_id=request['policy_decision_id'],
+                       sent_at=w.utc_timestamp(), queue_is_delivery=False)
+        w.atomic_write_json(_notification_path(root, identity), current)
+        return current
+
+
+def _validate_absent_notification_failure(root, current, actual_native_failure):
+    """No observed native failure format currently proves call-specific absence.
+
+    A digest pins bytes, and the internal reservation identifies a local start.
+    Neither authenticates a provider event or proves that dispatch had no effect.
+    Do not infer absence from isError, timing, copied files, or caller labels.
+    """
+    if (not isinstance(actual_native_failure, dict)
+            or _w().file_digest(root, actual_native_failure.get('path', '')) != actual_native_failure):
+        _fail('original exact native failure pin required to prove send absent')
+    attempts = _notification_attempts(current)
+    if not attempts:
+        _fail('current call has no original internal attempt; native absence contract missing, no backfill')
+    _fail('verified call-specific native no-effect contract missing; errors or attempt labels cannot prove absent')
+
+
+def notification_failed(root, identity, reason, effect='unknown', actual_native_failure=None):
+    identity = exact_identity(identity)
+    if not isinstance(reason, str) or not reason.strip() or effect not in {'absent', 'unknown'}:
+        _fail('actual failure reason and explicit effect required')
+    with coordination_lock(root):
+        current = _w().read_json(_notification_path(root, identity))
+        rows = [row for row in _w()._result_handoff_rows(root, identity['task_id'])
+                if _w()._result_identity(row) == tuple(identity[key] for key in IDENTITY_FIELDS[1:])]
+        if (current.get('delivered') or current.get('state') == 'sent'
+                or any(row.get('event') in {'notification_sent', 'controller_received'} for row in rows)):
+            _fail('delivered effect cannot become failed')
+        if effect == 'absent':
+            _validate_absent_notification_failure(root, current, actual_native_failure)
+            current['actual_native_failure'] = actual_native_failure
+        current.update(state='failed' if effect == 'absent' else 'sending', defer_reason=reason,
+                       effect_observation=effect, recovery_condition='read actual send receipt first; unknown is never permission to resend')
+        _w().atomic_write_json(_notification_path(root, identity), current)
+        return current
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("claim", "readback", "renew", "release", "transfer", "recover", "precheck", "escalate", "recover-reservation"))
+    parser.add_argument("command", choices=("claim", "readback", "renew", "release", "transfer", "recover", "precheck", "recover-reservation", 'notification-enqueue', 'notification-plan', 'notification-claim', 'notification-call-start', 'notification-record', 'notification-failed'))
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--input", type=Path, required=True)
     args = parser.parse_args(argv)
-    request = _w().read_json(_w().safe_path(args.root, args.input))
-    if args.command == "recover-reservation":
+    request = json.loads(args.input.read_text(encoding="utf-8"))
+    if args.command.startswith('notification-'):
+        functions = {'notification-enqueue': notification_enqueue, 'notification-plan': notification_plan,
+                     'notification-claim': notification_claim, 'notification-call-start': notification_send_started,
+                     'notification-record': notification_record, 'notification-failed': notification_failed}
+        result = functions[args.command](args.root, **request)
+    elif args.command == "recover-reservation":
         result = recover_reservation(args.root, request["handoff_request"], request["reason"])
     else:
         store = CoordinationStore(args.root)

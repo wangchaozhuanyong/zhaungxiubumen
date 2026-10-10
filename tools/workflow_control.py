@@ -15,7 +15,7 @@ import os
 import re
 import tempfile
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -119,7 +119,7 @@ class WorkflowError(RuntimeError):
 
 
 def utc_timestamp() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
 def canonical_json(value: Any) -> str:
@@ -288,9 +288,15 @@ def _chat_binding_healthy(
     if reply_health.startswith(("unhealthy", "degraded", "failed", "unavailable", "verification_stale")):
         return False
     if verification_ttl_hours > 0:
-        observed = _parse_observed_at(binding.get("last_health_check_at") or binding.get("last_verified_at"))
+        health_stamp = binding.get("last_health_check_at")
+        if health_stamp is None or health_stamp == "":
+            health_stamp = binding.get("last_verified_at")
+        observed = _parse_observed_at(health_stamp)
         current = (now or dt.datetime.now(dt.timezone.utc)).astimezone(dt.timezone.utc)
-        if observed is None or current - observed > dt.timedelta(hours=verification_ttl_hours):
+        if observed is None:
+            return False
+        age = current - observed
+        if not dt.timedelta(0) <= age <= dt.timedelta(hours=verification_ttl_hours):
             return False
     return True
 
@@ -1244,68 +1250,6 @@ def validate_workflow_events(root: Path, task_id: str) -> list[str]:
     return invalid
 
 
-def validate_rework_packet(root: Path, task_id: str, packet_pin: dict[str, Any]) -> dict[str, Any]:
-    """A bounded child carrier; the closed original and its receipts stay closed.
-
-    This linkage is not permission. Ordinary identity/health/policy and native
-    receipt gates still apply, with a new exact message and candidate.
-    """
-    if not isinstance(packet_pin, dict) or set(packet_pin) != {"path", "sha256", "size"}:
-        raise WorkflowError("exact frozen rework packet pin required")
-    if file_digest(root, packet_pin["path"]) != packet_pin:
-        raise WorkflowError("rework packet changed")
-    packet = read_json(safe_path(root, packet_pin["path"]))
-    fields = {"original_task_id", "continuation_task_id", "prior_workflow", "prior_receipts",
-              "prior_outbox", "prior_candidate", "candidate", "candidate_version", "action_id",
-              "action_class", "scope", "target_department", "risk_level"}
-    if not isinstance(packet, dict) or set(packet) != fields:
-        raise WorkflowError("exact bounded rework packet fields required")
-    parent = validate_task_id(packet["original_task_id"])
-    child = read_json(snapshot_path(root, task_id))
-    if child:
-        planned = [e for e in read_jsonl(root / WORKFLOW_EVENTS)
-                   if e.get("task_id") == task_id and e.get("state") == "planned"]
-        if (child.get("rework_packet") != packet_pin
-                or child.get("original_business_task_id") != parent
-                or len(planned) != 1 or planned[0].get("details", {}).get("rework_packet") != packet_pin):
-            raise WorkflowError("continuation origin differs from immutable initial workflow event")
-    if (parent == task_id or packet["continuation_task_id"] != task_id or packet["risk_level"] != "R0"
-            or packet["action_class"] not in {"internal_control_candidate", "read_only_candidate"}
-            or not packet["action_id"] or not packet["scope"]):
-        raise WorkflowError("rework requires a distinct R0 carrier linked to the original task")
-    for key in ("prior_workflow", "prior_receipts", "prior_outbox", "prior_candidate", "candidate"):
-        value = packet[key]
-        if not isinstance(value, dict) or set(value) != {"path", "sha256", "size"} or file_digest(root, value["path"]) != value:
-            raise WorkflowError("rework source pin changed: " + key)
-    if (packet["prior_workflow"]["path"] != rel_path(root, snapshot_path(root, parent))
-            or packet["prior_receipts"]["path"] != rel_path(root, receipts_path(root, parent))):
-        raise WorkflowError("rework parent native paths differ")
-    snapshot = read_json(snapshot_path(root, parent))
-    receipts, invalid = _validate_receipt_chain(root, parent)
-    if snapshot.get("current_state") not in TERMINAL_STATES or invalid or validate_workflow_events(root, parent):
-        raise WorkflowError("original terminal native history must remain valid")
-    box = read_json(safe_path(root, packet["prior_outbox"]["path"]))
-    validate_outbox(root, [packet["prior_outbox"]], packet["target_department"], parent)
-    def contains(value, wanted):
-        if value == wanted:return True
-        if isinstance(value, dict):return any(contains(v, wanted) for v in value.values())
-        if isinstance(value, list):return any(contains(v, wanted) for v in value)
-        return False
-    if (box.get("department") != packet["target_department"]
-            or not contains(box.get("evidence"), packet["prior_candidate"])
-            or not any(r.get("receipt_type") == "outbox_received" and packet["prior_outbox"] in r.get("evidence", []) for r in receipts)):
-        raise WorkflowError("rework must link the exact received original candidate")
-    candidate = read_json(safe_path(root, packet["candidate"]["path"]))
-    if (candidate.get("task_id") != parent or candidate.get("candidate_version") != packet["candidate_version"]
-            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9+._-]{0,199}", str(packet["candidate_version"]))
-            or packet["candidate_version"] == box.get("candidate_version")
-            or packet["candidate"]["sha256"] == packet["prior_candidate"]["sha256"]):
-        raise WorkflowError("exact new candidate version and new bytes required")
-    if packet["target_department"] not in department_registry(root) or packet["target_department"] == "operations":
-        raise WorkflowError("rework target must be a current registered executor")
-    return packet
-
-
 def initialize_workflow(
     root: Path,
     *,
@@ -1314,12 +1258,19 @@ def initialize_workflow(
     plan_status: str,
     departments: list[dict[str, Any]],
     owner_approval_required: bool,
-    rework_packet: dict[str, Any] | None = None,
+    goal_delivery: dict[str, Any] | None = None,
+    goal_contract: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], bool]:
     task_id = validate_task_id(task_id)
-    rework = validate_rework_packet(root, task_id, rework_packet) if rework_packet is not None else None
-    if rework and {item.get("department") for item in departments} != {rework["target_department"], "qa"}:
-        raise WorkflowError("bounded rework carrier must contain its executor and fixed QA only")
+    from goal_delivery_runtime import enabled, validate_goal
+    if goal_delivery is not None:
+        goal_delivery = validate_goal(root, goal_delivery)
+        if goal_contract is not None and file_digest(root, goal_contract.get("path", "")) != goal_contract:
+            raise WorkflowError("frozen complete goal input bytes required")
+        if goal_contract is not None and validate_goal(root, read_json(safe_path(root, goal_contract["path"]))) != goal_delivery:
+            raise WorkflowError("frozen input must contain this exact complete goal")
+    elif enabled(root) and not snapshot_path(root, task_id).exists():
+        raise WorkflowError("new runtime tasks require one complete goal and responsible assistant")
     request_hash = hashlib.sha256(request.strip().encode("utf-8")).hexdigest()
     path = snapshot_path(root, task_id)
     selected = []
@@ -1332,11 +1283,15 @@ def initialize_workflow(
                 "depends_on": list(item.get("depends_on", [])),
             }
         )
+    if goal_delivery is not None:
+        planned_roles = {x["department"] for x in selected}
+        if not (set(goal_delivery["producer_departments"]) | {goal_delivery["responsible_assistant"]}) <= planned_roles:
+            raise WorkflowError("complete-goal producers and assistant must be planned")
     with workflow_lock(root):
         existing = read_json(path)
         if existing:
-            if existing.get("rework_packet") != rework_packet:
-                raise WorkflowError("original continuation packet cannot change or disappear")
+            if goal_delivery is not None and existing.get("goal_delivery") != goal_delivery:
+                raise WorkflowError("existing task goal differs; bind exact goal without rewriting history")
             if existing.get("request_hash") != request_hash:
                 raise WorkflowError(
                     f"任务编号 {task_id} 已绑定不同内容；已阻止覆盖或重新分派"
@@ -1432,9 +1387,9 @@ def initialize_workflow(
             "receipt_count": 0,
             "integrity_note": "SHA-256 chains detect accidental mutation; they are not digital signatures.",
             "scope_note": "Project-level control only; not a global Codex tool middleware.",
+            **({"goal_delivery": goal_delivery} if goal_delivery is not None else {}),
+            **({"goal_contract": goal_contract} if goal_contract is not None else {}),
         }
-        if rework:
-            snapshot.update(rework_packet=rework_packet, original_business_task_id=rework["original_task_id"])
         append_workflow_event(
             root,
             task_id,
@@ -1444,7 +1399,8 @@ def initialize_workflow(
                 "plan_status": plan_status,
                 "departments": selected,
                 "owner_approval_required": bool(owner_approval_required),
-                **({"rework_packet": rework_packet} if rework else {}),
+                **({"goal_delivery": goal_delivery} if goal_delivery is not None else {}),
+                **({"goal_contract": goal_contract} if goal_contract is not None else {}),
             },
         )
         append_workflow_event(root, task_id, initial_state, {"plan_status": plan_status})
@@ -1466,6 +1422,14 @@ def _apply_plan_refresh(snapshot: dict[str, Any], events: list[dict[str, Any]], 
         details = event.get("details", {})
         if event.get("task_id") != snapshot.get("task_id"):
             continue
+        if isinstance(details.get("goal_delivery"), dict):
+            snapshot["goal_delivery"] = details["goal_delivery"]
+        if isinstance(details.get("goal_contract"), dict):
+            snapshot["goal_contract"] = details["goal_contract"]
+        if isinstance(details.get("workflow_successor_link"), dict):
+            snapshot["workflow_successor_link"] = details["workflow_successor_link"]
+        if isinstance(details.get("assignment_departments"), list):
+            snapshot["departments"] = details["assignment_departments"]
         if details.get("plan_refresh"):
             if details.get("request_hash") != snapshot.get("request_hash"):
                 raise WorkflowError("恢复事件的任务内容哈希不匹配")
@@ -1593,6 +1557,8 @@ def _repair_dispatch_plan_locked(root: Path, snapshot: dict[str, Any]) -> dict[s
         raise WorkflowError("事件或回执链无效，禁止恢复分派计划")
     events = read_jsonl(root / WORKFLOW_EVENTS)
     _apply_plan_refresh(snapshot, events, root=root)
+    if snapshot.get("workflow_successor_link"):
+        raise WorkflowError("original plan has an actual successor; follow its existing delivery, do not redispatch")
     if snapshot.get("plan_status") not in RECOVERABLE_PLAN_STATES:
         raise WorkflowError("该阻断不是可自动恢复的部门健康或路由问题")
     if receipts or snapshot.get("current_state") not in {"planned", "blocked", "dispatch_ready"}:
@@ -1603,6 +1569,9 @@ def _repair_dispatch_plan_locked(root: Path, snapshot: dict[str, Any]) -> dict[s
     registry = department_registry(root)
     policy = load_policy(root)
     routing = policy.get("routing_policy", {})
+    from goal_delivery_runtime import enabled as goal_enabled
+    # Recheck the existing complete goal; this plan repair does not send a message.
+    goal_scope = snapshot["goal_delivery"]["authorized_scope"][0] if goal_enabled(root, snapshot) else ""
     blockers: list[str] = []
     for item in snapshot.get("departments", []):
         department = str(item.get("department", ""))
@@ -1619,6 +1588,8 @@ def _repair_dispatch_plan_locked(root: Path, snapshot: dict[str, Any]) -> dict[s
             target_sidebar_section_id=str(binding.get("sidebar_section_id", "")),
             payload_sha256=str(snapshot.get("request_hash", "")),
             action_class="thread_message",
+            task_id=task_id,
+            scope=goal_scope,
         )
         handoff = str(binding.get("handoff_path") or "")
         if not handoff or not safe_path(root, handoff).is_file():
@@ -1644,6 +1615,76 @@ def _repair_dispatch_plan_locked(root: Path, snapshot: dict[str, Any]) -> dict[s
     })
     atomic_write_json(snapshot_path(root, task_id), snapshot)
     return snapshot
+
+
+def link_workflow_successor(root: Path, task_id: str, successor_task_id: str,
+                            input_path: str) -> tuple[dict[str, Any], list[Path]]:
+    """Associate an already sent recovery; never fabricate an old-plan dispatch."""
+    task_id, successor_task_id = validate_task_id(task_id), validate_task_id(successor_task_id)
+    if task_id == successor_task_id:
+        raise WorkflowError("successor must be a different existing task")
+    with workflow_lock(root):
+        original = read_json(snapshot_path(root, task_id))
+        successor = read_json(snapshot_path(root, successor_task_id))
+        source = read_json(safe_path(root, input_path))
+        source_pin = file_digest(root, input_path)
+        for item in (original, successor):
+            if not item or validate_workflow_events(root, item["task_id"]):
+                raise WorkflowError("intact existing original and successor event chains required")
+        old_receipts, old_invalid = _validate_receipt_chain(root, task_id)
+        new_receipts, new_invalid = _validate_receipt_chain(root, successor_task_id)
+        if old_invalid or new_invalid or old_receipts or original.get("current_state") not in {"planned", "blocked", "dispatch_ready"}:
+            raise WorkflowError("only an unreceived pre-dispatch original may link its existing recovery")
+        _apply_plan_refresh(original, read_jsonl(root / WORKFLOW_EVENTS), root=root)
+        prior = original.get("workflow_successor_link")
+        if prior:
+            if prior.get("successor_task_id") == successor_task_id and prior.get("source") == source_pin:
+                return {**prior, "status": "duplicate_ignored"}, []
+            raise WorkflowError("existing successor association is immutable")
+        old_roles = sorted((x.get("department"), x.get("chat_task_id")) for x in original.get("departments", []))
+        new_roles = sorted((x.get("department"), x.get("chat_task_id")) for x in successor.get("departments", []))
+        if not old_roles or old_roles != new_roles:
+            raise WorkflowError("same original fixed role scope required")
+        for item, key in ((original, "original_request_hash"), (successor, "successor_request_hash")):
+            if source.get(key) != item.get("request_hash"):
+                raise WorkflowError("exact original and successor request hashes required")
+        if source.get("task_id") != task_id or source.get("successor_task_id") != successor_task_id:
+            raise WorkflowError("exact successor association task identity required")
+        from goal_delivery_runtime import enabled as goal_enabled, _collaboration_native
+        if goal_enabled(root, original) or goal_enabled(root, successor):
+            old_goal, new_goal = original.get("goal_delivery", {}), successor.get("goal_delivery", {})
+            if any(old_goal.get(k) != new_goal.get(k) for k in
+                   ("parent_task_id", "primary_owner", "responsible_assistant", "authorized_scope", "authorization_pin")):
+                raise WorkflowError("same complete goal authorization and assigned owner required")
+        elif original.get("request_hash") != successor.get("request_hash"):
+            raise WorkflowError("legacy successor must preserve the original exact request")
+        matches = [row for row in new_receipts if row.get("receipt_type") == "dispatch_sent"
+                   and row.get("receipt_id") == source.get("successor_dispatch_receipt_id")]
+        if len(matches) != 1:
+            raise WorkflowError("actual existing successor dispatch receipt required")
+        native_pin = source.get("actual_native_send")
+        if native_pin not in matches[0].get("evidence", []):
+            raise WorkflowError("successor send pin must already belong to its original dispatch receipt")
+        native = _collaboration_native(root, native_pin)
+        if native.get("threadId") != matches[0].get("chat_task_id"):
+            raise WorkflowError("successor native send must match the existing fixed target")
+        owner = str(source.get("recovery_owner") or "")
+        if owner not in department_registry(root):
+            raise WorkflowError("named registered recovery owner required")
+        recheck = _parse_observed_at(source.get("next_check_at"))
+        if recheck is None or recheck <= dt.datetime.now(dt.timezone.utc):
+            raise WorkflowError("future successor intake recheck required")
+        link = {"task_id": task_id, "successor_task_id": successor_task_id,
+                "source": source_pin, "actual_native_send": native_pin,
+                "successor_dispatch_receipt_id": matches[0]["receipt_id"],
+                "recovery_owner": owner, "original_dispatch_sent": False,
+                "next_action": "receive_existing_successor_result", "next_check_at": source["next_check_at"],
+                "linked_at": utc_timestamp()}
+        append_workflow_event(root, task_id, original["current_state"], {"workflow_successor_link": link})
+        original["workflow_successor_link"] = link
+        original["next_legal_actions"] = ["receive_existing_successor_result:" + successor_task_id]
+        atomic_write_json(snapshot_path(root, task_id), original)
+        return {**link, "status": "successor_linked"}, [snapshot_path(root, task_id), root / WORKFLOW_EVENTS]
 
 
 def repair_dispatch_plan(root: Path, task_id: str) -> tuple[dict[str, Any], list[Path]]:
@@ -1942,6 +1983,10 @@ def validate_outbox(root: Path, evidence: list[dict[str, Any]], department: str,
 
 def validate_content_growth_daily_output(root: Path, outbox: dict[str, Any]) -> None:
     """Reject a content daily that only reports checks without advancing a growth asset."""
+    from goal_delivery_runtime import enabled as goal_enabled
+    snapshot = read_json(snapshot_path(root, str(outbox.get("task_id") or "")))
+    modern = goal_enabled(root, snapshot)
+    handoff_field = "assistant_handoff_status" if modern else "qa_handoff_status"
     matrix = outbox.get("promotion_gap_matrix")
     if not isinstance(matrix, dict):
         raise WorkflowError("内容增长日报 completed 必须包含 promotion_gap_matrix")
@@ -1960,14 +2005,15 @@ def validate_content_growth_daily_output(root: Path, outbox: dict[str, Any]) -> 
         "current_status",
         "artifact_type",
         "artifact_path",
-        "qa_handoff_status",
+        handoff_field,
     }
     missing = sorted(key for key in required if not str(delivery.get(key, "")).strip())
     if missing:
         raise WorkflowError("growth_delivery 缺少非空字段：" + ", ".join(missing))
     if str(delivery["previous_status"]).strip() == str(delivery["current_status"]).strip():
         raise WorkflowError("内容增长日报不能只检查：growth_delivery 状态必须真实推进")
-    if str(delivery["qa_handoff_status"]).strip() != "ready_for_qa":
+    expected_status = "ready_for_assistant_acceptance" if modern else "ready_for_qa"
+    if str(delivery[handoff_field]).strip() != expected_status:
         raise WorkflowError("内容增长日报 completed 必须把增长资产交到 ready_for_qa")
 
     artifact_value = str(delivery["artifact_path"]).strip()
@@ -1982,7 +2028,8 @@ def validate_content_growth_daily_output(root: Path, outbox: dict[str, Any]) -> 
     receiver = ""
     if isinstance(handoff, dict):
         receiver = str(handoff.get("receiver") or handoff.get("to") or "").strip()
-    if receiver != "qa":
+    expected_receiver = snapshot["goal_delivery"]["responsible_assistant"] if modern else "qa"
+    if receiver != expected_receiver:
         raise WorkflowError("内容增长日报 completed 必须明确交接给 qa")
 
 
@@ -2149,6 +2196,61 @@ def _same_resolved_path(left: str, right: str) -> bool:
     return Path(left).resolve() == Path(right).resolve()
 
 
+def _queued_notification_route(root: Path, requested: dict[str, Any]) -> list[str] | None:
+    """Admit only a prepared exact-result notice; this is not a work dispatch."""
+    scope = requested.get("scope", "")
+    sender, task_id = requested.get("sender_department"), requested.get("task_id")
+    if scope != f"department_result:{task_id}:{sender}":
+        return None
+    from result_coordination import notification_plan, result_lane, CoordinationStore
+    matches = [row for row in notification_plan(root)["notifications"]
+               if row.get("identity", {}).get("task_id") == task_id
+               and row.get("identity", {}).get("sender_department") == sender
+               and row.get("payload", {}).get("sha256") == requested.get("payload_sha256")]
+    # Old historical notification rules keep their exact legacy route only.
+    if not matches:
+        snapshot = read_json(snapshot_path(root, task_id))
+        from goal_delivery_runtime import enabled as goal_enabled
+        if not goal_enabled(root, snapshot) and not scheduled_result_source(root, task_id, sender):
+            return None
+        return ["exact_prepared_result_notification_required"]
+    if len(matches) != 1:
+        return ["one_exact_result_notification_required"]
+    notice = matches[0]
+    identity = notice["identity"]
+    if any(row.get("event") in {"controller_received", "notification_sent"}
+           and _result_identity(row) == tuple(identity[k] for k in ("sender_department", "candidate_version", "result_sha256"))
+           for row in _result_handoff_rows(root, task_id)):
+        return ["result_already_received_or_notified_no_late_send"]
+    route = result_lane(root, identity)
+    if route.get("lane") == "legacy_unmapped":
+        return ["legacy_result_requires_original_mapping_not_resend"]
+    if route.get("lane") == "HQ_knowledge" and route.get("acceptance_proven") is not True:
+        return ["accepted_exact_assistant_summary_required"]
+    binding = department_registry(root).get(route.get("target_department"), {}).get("chat_binding", {})
+    expected = {"target_department": route.get("target_department"),
+                "target_thread_id": binding.get("task_id"), "target_thread_title": binding.get("title"),
+                "target_project_id": binding.get("project_id"), "target_cwd": binding.get("cwd"),
+                "target_sidebar_section_id": binding.get("sidebar_section_id"),
+                "action_class": "thread_message", "action_id": "notify-result-" + notice["dedupe_key"]}
+    if notice.get("state") != "prepared" or any(requested.get(k) != v for k, v in expected.items()):
+        return ["exact_prepared_notification_target_and_action_required"]
+    source_binding = department_registry(root).get(sender, {}).get("chat_binding", {})
+    if requested.get("source_project_id") != source_binding.get("project_id"):
+        return ["notification_original_source_project_required"]
+    try:
+        if file_digest(root, notice["payload"]["path"]) != notice["payload"]:
+            raise WorkflowError("notification payload changed")
+        store = CoordinationStore(root)
+        try:
+            store._lease(identity, route["target_department"], notice["coordinator_owner"], notice["claim"])
+        finally:
+            store.close()
+    except (WorkflowError, ValueError, OSError, KeyError, TypeError) as error:
+        return ["notification_exact_current_claim_required:" + str(error)]
+    return []
+
+
 def _routing_precheck(
     root: Path,
     *,
@@ -2170,20 +2272,22 @@ def _routing_precheck(
     action_id: str = "",
 ) -> tuple[list[str], list[str]]:
     routing = policy.get("routing_policy", {})
-    if scope.startswith("routine_grant:"):
-        from routine_grants import check_routing
-        return check_routing(root, {"task_id": task_id, "action_id": action_id, "scope": scope,
-            "action_class": action_class, "sender_department": sender_department,
-            "source_project_id": source_project_id, "target_project_id": target_project_id,
-            "target_department": target_department, "target_thread_id": target_thread_id,
-            "target_thread_title": target_thread_title, "target_cwd": target_cwd,
-            "target_sidebar_section_id": target_sidebar_section_id, "payload_sha256": payload_sha256})
     if not isinstance(routing, dict):
         return ["routing_policy_missing"], ["routing_precheck:exact_live_identity"]
+    if action_class == "thread_message":
+        notification_route = _queued_notification_route(root, {
+            "sender_department": sender_department, "source_project_id": source_project_id,
+            "target_project_id": target_project_id, "target_department": target_department,
+            "target_thread_id": target_thread_id, "target_thread_title": target_thread_title,
+            "target_cwd": target_cwd, "target_sidebar_section_id": target_sidebar_section_id,
+            "payload_sha256": payload_sha256, "action_id": action_id, "action_class": action_class,
+            "scope": scope, "task_id": task_id})
+        if notification_route is not None:
+            return notification_route, ["exact_result_notification:current_prepared_claim_and_target"]
 
     # Native human approval delegates exactly one frozen review message from
     # the actual paid department. No saved controller identity or Ads gate changes.
-    if scope in {"owner_paid_final_qa:<LOCAL_ACCOUNT_ID>:v39", "owner_paid_final_qa:<LOCAL_ACCOUNT_ID>:v40"}:
+    if scope in {"owner_paid_final_qa:example-ads-account:v39", "owner_paid_final_qa:example-ads-account:v40"}:
         from owner_paid_final_qa_route import check as check_paid_final_qa
         requested = {"task_id": task_id, "action_id": action_id, "scope": scope,
                      "action_class": action_class, "sender_department": sender_department,
@@ -2226,25 +2330,143 @@ def _routing_precheck(
             validate_receipt_chain=_validate_receipt_chain,
         )
 
-    # An owner-directed project handoff is one exact message, not a new
-    # department, publication authority or a general cross-project exemption.
-    if action_class == "thread_message" and scope.startswith("owner_project_handoff:"):
-        import developer_bridge
-        return developer_bridge.precheck(root, {
-            "task_id": task_id, "sender_department": sender_department, "action_id": action_id,
-            "action_class": action_class, "scope": scope, "source_project_id": source_project_id,
+    from goal_delivery_runtime import enabled as goal_enabled, assigned_actor, collaboration_route
+    goal_snapshot = read_json(snapshot_path(root, task_id)) if task_id else {}
+    if goal_enabled(root, goal_snapshot):
+        if action_class == "thread_message" and scope not in goal_snapshot["goal_delivery"]["authorized_scope"]:
+            return ["goal_dispatch_scope_outside_contract"], ["goal_delivery:exact_authorized_scope"]
+        if action_id == "assign-goal-review:" + task_id:
+            contract = goal_snapshot.get("goal_contract")
+            if (target_department != goal_snapshot["goal_delivery"]["responsible_assistant"]
+                    or not isinstance(contract, dict) or file_digest(root, contract.get("path", "")) != contract
+                    or payload_sha256 != contract["sha256"]):
+                return ["goal_initial_assistant_assignment_exact_contract_required"], ["goal_delivery:frozen_responsibility_assignment"]
+        collaboration = collaboration_route(root, goal_snapshot, {
+            "sender_department": sender_department, "source_project_id": source_project_id,
             "target_project_id": target_project_id, "target_department": target_department,
             "target_thread_id": target_thread_id, "target_thread_title": target_thread_title,
             "target_cwd": target_cwd, "target_sidebar_section_id": target_sidebar_section_id,
-            "payload_sha256": payload_sha256,
-        }, policy)
+            "payload_sha256": payload_sha256, "action_id": action_id, "action_class": action_class,
+            "scope": scope, "task_id": task_id})
+        if collaboration is not None:
+            return collaboration, ["goal_delivery:exact_collaboration_binding", "human_authorization:original_scope_only"]
+
+    # An owner-directed project handoff is one exact message, not a new
+    # department, publication authority or a general cross-project exemption.
+    if action_class == "thread_message" and scope.startswith("owner_project_handoff:"):
+        exact = routing.get("owner_directed_code_handoff", {})
+        requested = {"task_id": task_id, "action_id": action_id, "scope": scope,
+                     "sender_department": sender_department, "source_project_id": source_project_id,
+                     "target_project_id": target_project_id, "target_department": target_department,
+                     "target_thread_id": target_thread_id, "target_thread_title": target_thread_title,
+                     "target_cwd": target_cwd, "target_sidebar_section_id": target_sidebar_section_id,
+                     "payload_sha256": payload_sha256}
+        failed = ["owner_project_handoff_exact_binding_required"]
+        try:
+            request_pin = file_digest(root, str(exact.get("request_path") or ""))
+            request = read_json(root / request_pin["path"])
+            if (exact.get("status") != "approved_single_use"
+                    or request_pin["sha256"] != exact.get("request_sha256")
+                    or any(request.get(key) != value for key, value in requested.items())
+                    or sender_department != "operations"
+                    or source_project_id != routing.get("source_project_id")
+                    or not _same_resolved_path(str(root.resolve()), str(routing.get("source_project_root") or ""))
+                    or target_project_id != "<LOCAL_PROJECT_ID>"
+                    or target_thread_id != "<LOCAL_THREAD_ID>"
+                    or target_thread_title != "FLASH CAST｜专用开发部｜网站与部门系统"
+                    or target_cwd != "<WEBSITE_PROJECT_ROOT>"
+                    or target_sidebar_section_id != "threads"
+                    or not SHA256_PATTERN.fullmatch(payload_sha256)
+                    or not request.get("owner_authorization_ref")
+                    or request.get("production_authority_granted") is not False):
+                return failed, ["routing_precheck:owner_exact_project_handoff"]
+            acceptance_pin = file_digest(root, str(exact.get("control_acceptance_path") or ""))
+            accepted = read_json(root / acceptance_pin["path"])
+            if file_digest(root, str(request.get("packet_path") or ""))["sha256"] != request.get("packet_sha256"):
+                return ["owner_project_handoff_frozen_packet_required"], ["routing_precheck:owner_exact_project_handoff"]
+            if (acceptance_pin["sha256"] != exact.get("control_acceptance_sha256")
+                    or accepted.get("qa_status") != "PASS_INTERNAL_APPLICATION_ALLOWED"
+                    or accepted.get("request_sha256") != request_pin["sha256"]
+                    or accepted.get("fixed_qa_thread_id") != departments.get("qa", {}).get("chat_binding", {}).get("task_id")
+                    or accepted.get("production_authority_granted") is not False):
+                return ["owner_project_handoff_control_acceptance_required"], ["routing_precheck:owner_exact_project_handoff"]
+            qa_pin = file_digest(root, str(accepted.get("qa_outbox_path") or ""))
+            qa_box = read_json(root / qa_pin["path"])
+            chain, invalid_chain = _validate_receipt_chain(root, task_id)
+            exact_qa = [row for row in chain if row.get("receipt_id") == accepted.get("qa_receipt_id")
+                        and row.get("receipt_type") == "qa_verdict" and row.get("department") == "qa"
+                        and row.get("verdict") == "pass" and row.get("action_class") == "analysis"
+                        and row.get("action_id") == "qa-owner-directed-code-handoff-control-v1"
+                        and row.get("scope") == "project:owner-directed-website-code-handoff-route:single-message:v1"
+                        and row.get("chat_task_id") == departments.get("qa", {}).get("chat_binding", {}).get("task_id")]
+            if (invalid_chain or len(exact_qa) != 1 or qa_pin["sha256"] != accepted.get("qa_outbox_sha256")
+                    or qa_pin not in exact_qa[0].get("evidence", [])
+                    or qa_box.get("task_id") != task_id or qa_box.get("department") != "qa"
+                    or qa_box.get("risk_level") != "R0" or qa_box.get("production_release_eligible") is not False
+                    or qa_box.get("qa_result") != "PASS_INTERNAL_APPLICATION_ALLOWED"
+                    or qa_box.get("candidate_sha256") != accepted.get("candidate_sha256")
+                    or qa_box.get("candidate_sha256") != file_digest(root, str(accepted.get("candidate_path") or ""))["sha256"]):
+                return ["owner_project_handoff_exact_native_control_QA_required"], ["routing_precheck:owner_exact_project_handoff"]
+            validate_outbox(root, [qa_pin], "qa", task_id)
+            live_pin = file_digest(root, str(request.get("live_identity_path") or ""))
+            live = read_json(root / live_pin["path"])
+            observed = _parse_observed_at(live.get("observed_at"))
+            reply = live.get("completed_target_reply", {})
+            reply_time = _parse_observed_at(reply.get("reply_observed_at"))
+            now = dt.datetime.now(dt.timezone.utc)
+            if (observed is None or not 0 <= (now - observed).total_seconds() <= 300
+                    or reply_time is None or not 0 <= (now - reply_time).total_seconds() <= 26 * 3600
+                    or reply.get("completed") is not True or reply.get("nonempty") is not True
+                    or not SHA256_PATTERN.fullmatch(str(reply.get("reply_sha256") or ""))
+                    or reply.get("thread_id") != target_thread_id or reply.get("cwd") != target_cwd):
+                return ["owner_project_handoff_fresh_completed_reply_required"], ["routing_precheck:owner_exact_project_handoff"]
+            target = [x for x in live.get("threads", []) if x.get("id") == target_thread_id]
+            ops_binding = departments.get("operations", {}).get("chat_binding", {})
+            source_live = [x for x in live.get("threads", []) if x.get("id") == ops_binding.get("task_id")]
+            sections = [x for x in live.get("sections", []) if x.get("sectionId") == "threads"
+                        and "codex:project:" + target_project_id in x.get("itemKeys", [])]
+            if (len(target) != 1 or len(source_live) != 1 or len(sections) != 1
+                    or any(target[0].get(k) != v for k, v in {"projectId": target_project_id,
+                        "title": target_thread_title, "cwd": target_cwd, "status": "idle"}.items())
+                    or any(source_live[0].get(k) != v for k, v in {"projectId": source_project_id,
+                        "title": ops_binding.get("title"), "cwd": str(root.resolve())}.items())):
+                return ["owner_project_handoff_live_idle_identity_required"], ["routing_precheck:owner_exact_project_handoff"]
+            sent_path = (root / str(request.get("native_send_receipt_path") or "")).resolve()
+            attempt_path = (root / str(request.get("native_attempt_receipt_path") or "")).resolve()
+            if (not sent_path.is_relative_to(root.resolve()) or sent_path.exists()
+                    or not attempt_path.is_relative_to(root.resolve()) or attempt_path.exists()):
+                return ["owner_project_handoff_already_sent_or_invalid_receipt_path"], ["routing_precheck:owner_exact_project_handoff"]
+            return [], ["routing_precheck:owner_exact_project_handoff", "owner_authorization:exact_message_only"]
+        except (WorkflowError, ValueError, TypeError, KeyError, OSError):
+            return failed, ["routing_precheck:owner_exact_project_handoff"]
+
     reasons: list[str] = []
     required_receipts = ["routing_precheck:exact_live_identity"]
-    if scope in {"owner_paid_final_qa:<LOCAL_ACCOUNT_ID>:v39", "owner_paid_final_qa:<LOCAL_ACCOUNT_ID>:v40"}:
+    if scope in {"owner_paid_final_qa:example-ads-account:v39", "owner_paid_final_qa:example-ads-account:v40"}:
         required_receipts.append("owner_authorization:paid_final_qa_single_native_message")
     expected_source_project_id = str(routing.get("source_project_id") or "")
     expected_root = str(routing.get("source_project_root") or "")
     expected_sender = str(routing.get("controller_sender_department") or "operations")
+    if goal_enabled(root, goal_snapshot) and assigned_actor(root, goal_snapshot, sender_department, scope):
+        expected_sender = sender_department
+        if sender_department != "operations" and action_class == "thread_message":
+            from goal_delivery_runtime import approved_action
+            requested = {"sender_department": sender_department, "source_project_id": source_project_id,
+                "target_project_id": target_project_id, "target_department": target_department,
+                "target_thread_id": target_thread_id, "target_thread_title": target_thread_title,
+                "target_cwd": target_cwd, "target_sidebar_section_id": target_sidebar_section_id,
+                "payload_sha256": payload_sha256, "action_id": action_id, "action_class": action_class,
+                "scope": scope, "task_id": task_id}
+            try:
+                if approved_action(root, goal_snapshot, requested) is None:
+                    reasons.append("goal_assistant_exact_approved_next_message_required")
+            except (WorkflowError, ValueError, KeyError, TypeError, OSError):
+                reasons.append("goal_assistant_approved_message_bytes_changed")
+        sender_binding = departments.get(sender_department, {}).get("chat_binding", {})
+        if not _chat_binding_healthy(sender_binding, verification_ttl_hours=int(routing.get("health_verification_ttl_hours", 26))):
+            reasons.append("goal_coordinator_health_stale")
+    if goal_enabled(root) and departments.get(target_department, {}).get("new_dispatch_enabled") is False:
+        reasons.append("retired_role_new_dispatch_disabled")
     self_service_automation_departments = {
         str(item) for item in routing.get("self_service_automation_departments", [])
     }
@@ -2339,6 +2561,27 @@ def _routing_precheck(
     allowed_message_modes = {
         str(item) for item in routing.get("thread_message_target_modes", ["worker", "gate"])
     }
+    if (goal_enabled(root, goal_snapshot) and target_department == goal_snapshot["goal_delivery"]["responsible_assistant"]
+            and departments.get(target_department, {}).get("coordination_authority", {}).get("routine_decisions") is True):
+        allowed_message_modes.add("coordinator")
+    if (goal_enabled(root, goal_snapshot) and action_class == "thread_message"
+            and sender_department == goal_snapshot["goal_delivery"]["responsible_assistant"]
+            and target_department in goal_snapshot["goal_delivery"]["producer_departments"]
+            and target_department not in {"operations", sender_department}
+            and target_department in {x.get("department") for x in goal_snapshot.get("departments", [])}):
+        from goal_delivery_runtime import approved_action
+        producer_request = {"sender_department": sender_department, "source_project_id": source_project_id,
+            "target_project_id": target_project_id, "target_department": target_department,
+            "target_thread_id": target_thread_id, "target_thread_title": target_thread_title,
+            "target_cwd": target_cwd, "target_sidebar_section_id": target_sidebar_section_id,
+            "payload_sha256": payload_sha256, "action_id": action_id, "action_class": action_class,
+            "scope": scope, "task_id": task_id}
+        try:
+            producer_approved = approved_action(root, goal_snapshot, producer_request) is not None
+        except (WorkflowError, ValueError, KeyError, TypeError, OSError):
+            producer_approved = False
+        if producer_approved:
+            allowed_message_modes.add("coordinator")
     if action_class == "thread_message" and target_mode not in allowed_message_modes and not result_notification:
         reasons.append("operations_controller_cannot_be_thread_message_target")
     if result_notification and result_rule.get("requires_original_workflow_assignment"):
@@ -2447,7 +2690,7 @@ def _routing_precheck(
 
 def _ordinary_thread_dispatch_precheck(
     root: Path, *, snapshot: dict[str, Any], task_id: str,
-    target_department: str, target_thread_id: str, action_id: str, scope: str, payload_sha256: str = "",
+    target_department: str, target_thread_id: str, action_id: str, scope: str,
 ) -> list[str]:
     """Reject unreceiptable or already-sent ordinary messages before sending.
 
@@ -2459,21 +2702,10 @@ def _ordinary_thread_dispatch_precheck(
     reasons.extend(dispatch_precheck(root, snapshot, target_department, target_thread_id, action_id, scope))
     if not snapshot or snapshot.get("task_id") != task_id:
         return ["thread_dispatch_workflow_missing_or_identity_invalid"]
-    if snapshot.get("rework_packet"):
-        try:
-            packet = validate_rework_packet(root, task_id, snapshot["rework_packet"])
-            if target_department == packet["target_department"]:
-                if (action_id != packet["action_id"] or scope != packet["scope"]
-                        or payload_sha256 != snapshot["rework_packet"]["sha256"]):
-                    raise WorkflowError("rework dispatch differs from frozen action/version/payload")
-            elif target_department == "qa":
-                _rework_qa_ready(root, task_id, packet)
-            else:
-                raise WorkflowError("rework target is outside bounded producer/fixed QA")
-        except (WorkflowError, ValueError, TypeError, KeyError, OSError):
-            reasons.append("thread_dispatch_rework_packet_invalid_or_different")
     if snapshot.get("current_state") in TERMINAL_STATES:
         reasons.append("thread_dispatch_workflow_terminal")
+    if snapshot.get("workflow_successor_link"):
+        reasons.append("thread_dispatch_existing_successor_no_redispatch")
     if snapshot.get("plan_status") != "ready_to_send":
         reasons.append("thread_dispatch_plan_not_ready")
     planned = [item for item in snapshot.get("departments", [])
@@ -2487,6 +2719,20 @@ def _ordinary_thread_dispatch_precheck(
     receipts, invalid = _validate_receipt_chain(root, task_id)
     if invalid:
         reasons.append("thread_dispatch_receipt_chain_invalid")
+    from goal_delivery_runtime import enabled as goal_enabled, completion_dependencies
+    if goal_enabled(root, snapshot) and len(planned) == 1:
+        goal = snapshot["goal_delivery"]
+        initial_review_assignment = (target_department == goal["responsible_assistant"]
+                                     and action_id == "assign-goal-review:" + task_id and snapshot.get("goal_contract"))
+        if not initial_review_assignment:
+            for dep in planned[0].get("depends_on", []):
+                if not any(r.get("receipt_type") == "outbox_received" and r.get("department") == dep for r in receipts):
+                    reasons.append("goal_dispatch_dependency_missing:" + dep)
+        unmet = completion_dependencies(root, snapshot)
+        for dependency in goal["dependencies"]:
+            affects = dependency.get("applies_to", [dependency.get("department")])
+            if target_department in affects and any(x.startswith("external_dependency:" + dependency.get("id", "") + ":") for x in unmet):
+                reasons.append("goal_dispatch_named_dependency_missing:" + dependency["id"])
     decisions = {row.get("decision_id"): row
                  for row in read_jsonl(root / POLICY_DECISIONS)}
     for receipt in receipts:
@@ -2518,22 +2764,6 @@ def _ordinary_thread_dispatch_precheck(
     return reasons
 
 
-def _rework_qa_ready(root: Path, task_id: str, packet: dict[str, Any]) -> None:
-    receipts, invalid = _validate_receipt_chain(root, task_id)
-    if invalid:
-        raise WorkflowError("rework child receipt chain invalid")
-    for row in reversed(receipts):
-        if row.get("receipt_type") != "outbox_received" or row.get("department") != packet["target_department"]:
-            continue
-        for pin in row.get("evidence", []):
-            box = read_json(safe_path(root, pin["path"]))
-            if (box.get("candidate_version") == packet["candidate_version"]
-                    and box.get("original_business_task_id") == packet["original_task_id"]
-                    and packet["candidate"] in box.get("evidence", [])):
-                return
-    raise WorkflowError("fixed QA requires received exact new original-task rework result")
-
-
 def policy_check(
     root: Path,
     *,
@@ -2555,10 +2785,6 @@ def policy_check(
     payload_sha256: str = "",
     target_automation_status: str = "",
     retry_blocked_execution_receipt_id: str = "",
-    delegate_actor_role: str = "",
-    delegate_grant: dict | None = None,
-    delegate_coordinator_owner: str = "",
-    delegate_coordination_claim: dict | None = None,
 ) -> tuple[dict[str, Any], list[Path]]:
     task_id = validate_task_id(task_id)
     policy = load_policy(root)
@@ -2566,7 +2792,7 @@ def policy_check(
     department_item = departments.get(department)
     # A separate human-approved Logo channel, pinned to two campaigns and one
     # existing asset. Association still requires the actual fixed QA reply.
-    if scope.startswith("owner_paid_logo:<LOCAL_ACCOUNT_ID>:v1:"):
+    if scope.startswith("owner_paid_logo:example-ads-account:v1:"):
         from owner_paid_logo_policy import check as logo_check
         requested = dict(task_id=task_id, department=department, action_id=action_id,
                          action_class=action_class, scope=scope, skill=skill,
@@ -2597,7 +2823,7 @@ def policy_check(
         return result, [root / ACTION_POLICY, root / POLICY_DECISIONS]
     # Human-authorized v42 is a separate bounded completion, not a rewrite of
     # the closed historical planning workflow or a global Ads gate change.
-    if scope.startswith("owner_paid_completion:<LOCAL_ACCOUNT_ID>:v42:"):
+    if scope.startswith("owner_paid_completion:example-ads-account:v42:"):
         from owner_paid_completion_policy import check as completion_check
         requested = dict(task_id=task_id, department=department, action_id=action_id,
                          action_class=action_class, scope=scope, skill=skill,
@@ -2631,21 +2857,6 @@ def policy_check(
     reasons: list[str] = []
     required_receipts: list[str] = []
     allow = True
-    import human_control
-    try:
-        human_control.guard(root, task_id)
-    except (WorkflowError, OSError, ValueError, TypeError):
-        allow = False
-        reasons.append("human_control_paused_or_invalid")
-    if delegate_actor_role:
-        try:
-            import routine_authority
-            routine_authority.validate_policy_delegate(root, delegate_grant, delegate_actor_role,
-                task_id, department, action_id, action_class, scope, consume_approval,
-                delegate_coordinator_owner, delegate_coordination_claim)
-        except (WorkflowError, OSError, ValueError, KeyError, TypeError):
-            allow = False
-            reasons.append("exact_admitted_policy_delegate_required")
     if not department_item:
         allow = False
         reasons.append("department_not_registered")
@@ -2659,28 +2870,45 @@ def policy_check(
     if skill and department_item and skill not in department_item.get("approved_subskills", []):
         allow = False
         reasons.append("skill_not_in_department_registry_whitelist")
-    if department == 'publishing' and action_class == 'cms_write':
+    cms_goal_context = None
+    cms_goal_mode = False
+    if action_class == 'cms_write':
+        cms_snapshot = read_json(snapshot_path(root, task_id))
+        # A frozen modern task stays modern when its switch is disabled.
+        # Disabling the runtime must never make historical QA a fallback.
+        cms_goal_mode = isinstance(cms_snapshot.get("goal_delivery"), dict)
+        if cms_goal_mode:
+            from managed_cms_permit_issuer import validate_goal_cms_policy, PermitEvidenceError
+            try:
+                cms_goal_context = validate_goal_cms_policy(root, task_id, action_id, scope, department, payload_sha256)
+                required_receipts.extend(['assistant_acceptance:current_exact_CMS_candidate',
+                                          'protected_preview:exact_zero_write',
+                                          'owner_authorization:original_exact_single_use'])
+            except (WorkflowError, PermitEvidenceError, ValueError, OSError, KeyError, TypeError) as error:
+                allow = False
+                reasons.append("goal_cms_acceptance_invalid:" + str(error))
+        elif department == 'publishing':
         # A new reviewed sparse tuple only removes the registration-only stop.
         # Existing exact QA, fresh protected preview, approval and permit gates remain.
-        try:
-            from tools.publisher_native_sparse_admission import exact_target_for_action
-            sparse_target = exact_target_for_action(root, task_id, action_id, scope)
-            if sparse_target is None:
-                from tools.native_publisher_exact_registration import publisher_registration_reason
-                reasons.append(publisher_registration_reason(root, task_id, action_id, scope))
-                allow = False
-            else:
-                from original_task_publisher_handover import progress
-                handover = progress(root, task_id, action_id, scope)
-                if not handover or not handover["qa_passed"]:
+            try:
+                from tools.publisher_native_sparse_admission import exact_target_for_action
+                sparse_target = exact_target_for_action(root, task_id, action_id, scope)
+                if sparse_target is None:
+                    from tools.native_publisher_exact_registration import publisher_registration_reason
+                    reasons.append(publisher_registration_reason(root, task_id, action_id, scope))
                     allow = False
-                    reasons.append("exact_publisher_native_cycle_and_production_QA_required")
-                required_receipts.extend(['qa_verdict:exact_publisher_sparse_candidate',
-                                          'protected_preview:exact_zero_write',
-                                          'owner_approval:new_executor_exact_single_use'])
-        except (ValueError, OSError, KeyError, TypeError):
-            reasons.append('publisher_sparse_admission_evidence_invalid')
-            allow = False
+                else:
+                    from original_task_publisher_handover import progress
+                    handover = progress(root, task_id, action_id, scope)
+                    if not handover or not handover["qa_passed"]:
+                        allow = False
+                        reasons.append("exact_publisher_native_cycle_and_production_QA_required")
+                    required_receipts.extend(['qa_verdict:exact_publisher_sparse_candidate',
+                                              'protected_preview:exact_zero_write',
+                                              'owner_approval:new_executor_exact_single_use'])
+            except (ValueError, OSError, KeyError, TypeError):
+                reasons.append('publisher_sparse_admission_evidence_invalid')
+                allow = False
     if action_class == "ads_write" and policy.get("paid_promotion_enabled") is False:
         allow = False
         reasons.append("paid_promotion_disabled_hard_gate")
@@ -2777,18 +3005,18 @@ def policy_check(
                      and payload_sha256 == request.get("candidate_sha256")
                      and scope == request.get("first_scope")
                      and task_id == request.get("original_task_id")
-                     and request.get("exact_profile_resource_id") == "15562370346948107212"
+                     and request.get("exact_profile_resource_id") == "00024771737855071264"
                      and request.get("first_allowed_field_request") == (
                          ["description:D01"]
                          if (task_id, action_id, scope) == (
                              "fc-20260927-google-maps-local-growth-v1",
                              "gbp-description-only-exact-before-v4",
-                             "google-business-profile:15562370346948107212:description-only:gbp-description-only-v4-exact-before")
+                             "google-business-profile:00024771737855071264:description-only:gbp-description-only-v4-exact-before")
                          else ["description:D01", "services:S01,S02,S03,S05,S06,S07,S08,S09"]
                          if (task_id, action_id, scope) == (
                              "fc-20260927-google-maps-local-growth-v1",
                              "gbp-description-and-services-dedup-v3",
-                             "google-business-profile:15562370346948107212:description-and-services:gbp-local-growth-fields-v3-service-dedup")
+                             "google-business-profile:00024771737855071264:description-and-services:gbp-local-growth-fields-v3-service-dedup")
                          else ["description:D01", "services:S01,S02,S03,S04,S05,S06,S07,S08,S09"]))
         if department not in (class_policy or {}).get("allowed_departments", []):
             valid = False
@@ -2832,19 +3060,24 @@ def policy_check(
             reasons.extend(routing_reasons)
 
     snapshot = read_json(snapshot_path(root, task_id))
-    if not snapshot:
+    prepared_result_notice = (action_class == "thread_message" and scope == f"department_result:{task_id}:{department}"
+                              and action_id.startswith("notify-result-") and not routing_reasons)
+    if not snapshot and not prepared_result_notice:
         allow = False
         reasons.append("workflow_not_found")
+    from goal_delivery_runtime import enabled as goal_enabled
     # Existing exact health probes and the owner-directed single-message route
     # retain their own gates. A prefix does not waive those routing checks.
     if (action_class == "thread_message" and not health_probe_mode
+            and not prepared_result_notice
             and not scope.startswith("owner_project_handoff:")
-            and not (scope in {"owner_paid_final_qa:<LOCAL_ACCOUNT_ID>:v39", "owner_paid_final_qa:<LOCAL_ACCOUNT_ID>:v40"} and not routing_reasons)):
+            and not (goal_enabled(root, snapshot) and target_department in read_json(root / "data/department-registry.json").get("collaboration_bindings", {}) and not routing_reasons)
+            and not (scope in {"owner_paid_final_qa:example-ads-account:v39", "owner_paid_final_qa:example-ads-account:v40"} and not routing_reasons)):
         required_receipts.append("dispatch_precheck:planned_fixed_target_and_unsent_action")
         dispatch_reasons = _ordinary_thread_dispatch_precheck(
             root, snapshot=snapshot, task_id=task_id,
             target_department=target_department, target_thread_id=target_thread_id,
-            action_id=action_id, scope=scope, payload_sha256=payload_sha256,
+            action_id=action_id, scope=scope,
         )
         if dispatch_reasons:
             allow = False
@@ -2859,7 +3092,19 @@ def policy_check(
         allow = False
         reasons.append("blocked_execution_retry_requires_external_action_without_reconsume")
     if (action_class in EXTERNAL_ACTION_CLASSES or action_class == "account_read") and action_class != "site_ci_prepare":
-        if action_class in EXTERNAL_ACTION_CLASSES:
+        from goal_delivery_runtime import enabled as goal_enabled, execution_preflight
+        goal_preflight = None
+        if action_class in EXTERNAL_ACTION_CLASSES and goal_enabled(root, snapshot or {}):
+            try:
+                goal_preflight = execution_preflight(root, snapshot, action_id, action_class, scope, department)
+                qa_risk_level = goal_preflight["risk_level"]
+                required_receipts += ["self_check:exact_pass", "facts_backup_rollback:exact_pins", "assistant_acceptance:after_complete_delivery"]
+            except WorkflowError as error:
+                allow = False
+                reasons.append(str(error))
+        if cms_goal_mode and cms_goal_context is not None:
+            qa_risk_level = cms_goal_context["risk_level"]
+        if action_class in EXTERNAL_ACTION_CLASSES and goal_preflight is None and not cms_goal_mode:
             required_receipts.append("qa_verdict:pass")
             receipts = read_jsonl(receipts_path(root, task_id)) if snapshot else []
             exact_cms_qa = False
@@ -3153,11 +3398,6 @@ def policy_check(
         "project_layer_only": True,
         "checked_at": utc_timestamp(),
     }
-    if delegate_actor_role:
-        result.update(actor_role=delegate_actor_role,
-                      actor_thread_id=departments.get(delegate_actor_role, {}).get("chat_binding", {}).get("task_id"),
-                      delegate_grant=delegate_grant, permission_department=department,
-                      approval_issuer_unchanged=True, actor_metadata_is_authentication=False)
     with workflow_lock(root):
         if retry_requested and result["status"] == "allow":
             previous_retry = any(
@@ -3196,19 +3436,22 @@ def _validate_receipt_prerequisite(
         raise WorkflowError("分派计划仍被阻断，不能记录后续回执")
     if receipt_type == "chat_ack":
         dispatch = latest.get(("dispatch_sent", department))
-        if not dispatch:
+        from goal_delivery_runtime import owner_direct
+        direct = root is not None and owner_direct(root, snapshot, department)
+        if not dispatch and not direct:
             raise WorkflowError("非法越级：chat_ack 之前必须有同部门 dispatch_sent")
         planned = next(
             (item for item in snapshot.get("departments", []) if item.get("department") == department), {}
         )
-        if dispatch.get("chat_task_id") != planned.get("chat_task_id"):
+        if dispatch and dispatch.get("chat_task_id") != planned.get("chat_task_id"):
             raise WorkflowError("替补窗口必须在当前固定任务重新派工后才能记录 chat_ack")
-    if receipt_type == "outbox_received" and ("chat_ack", department) not in latest:
-        import owner_direct_intake
-        origin=owner_direct_intake.queued_origin(root, snapshot.get("task_id", ""), department) if root else None
-        if origin is None:
-            raise WorkflowError("非法越级：outbox_received 缺真实派工接单或准确老板直接任务结果")
-
+    from goal_delivery_runtime import review_delegation
+    inherited = None
+    if (root is not None and department == reviewer
+            and not any(r.get("department") == reviewer and r.get("receipt_type") in {"dispatch_sent", "dispatch_failed"} for r in receipts)):
+        inherited = review_delegation(root, snapshot)
+    if receipt_type == "outbox_received" and ("chat_ack", department) not in latest and not inherited:
+        raise WorkflowError("非法越级：outbox_received 之前必须有同部门非空 chat_ack")
     workers = [
         str(item.get("department", ""))
         for item in snapshot.get("departments", [])
@@ -3224,30 +3467,31 @@ def _validate_receipt_prerequisite(
             index for index, row in enumerate(receipts)
             if row.get("receipt_type") == "dispatch_sent" and row.get("department") == reviewer
         ]
-        if not qa_dispatches:
+        if not qa_dispatches and not inherited:
             raise WorkflowError("非法越级：QA 结论前缺少质检部 dispatch_sent")
         qa_acks = [
             index for index, row in enumerate(receipts)
-            if index > qa_dispatches[-1]
+            if qa_dispatches and index > qa_dispatches[-1]
             and row.get("receipt_type") == "chat_ack"
             and row.get("department") == reviewer
             and row.get("ack_nonempty")
         ]
-        if not qa_acks:
+        if not qa_acks and not inherited:
             raise WorkflowError("非法越级：本次 QA 派工后缺少质检部非空 chat_ack")
         if not any(
-            index > qa_acks[-1]
+            (inherited is not None or index > qa_acks[-1])
             and row.get("receipt_type") == "outbox_received"
             and row.get("department") == reviewer
             for index, row in enumerate(receipts)
         ):
             raise WorkflowError("非法越级：本次 QA 回复后缺少质检部 outbox_received")
     if receipt_type == "execution_result":
+        from goal_delivery_runtime import enabled as goal_enabled
         qa_pass = any(
             row.get("receipt_type") == "qa_verdict" and row.get("verdict") == "pass"
             for row in receipts
         )
-        if not qa_pass:
+        if not qa_pass and not (root is not None and goal_enabled(root, snapshot)):
             raise WorkflowError("非法越级：execution_result 之前必须有 QA PASS")
     if receipt_type == "postcheck" and not any(row.get("receipt_type") == "execution_result" for row in receipts):
         raise WorkflowError("非法越级：postcheck 之前必须有 execution_result")
@@ -3300,27 +3544,8 @@ def _validate_evidence_archive(receipts: list[dict[str, Any]], receipt: dict[str
 
 
 def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
-    import human_control
-    with human_control.control_lock(root):
-        result,paths = _record_receipt_unpaused(root, args)
-        if str(args.receipt_type)=="chat_ack":
-            try:
-                from routine_authority import release_claim_for_ack
-                continuation=release_claim_for_ack(root,str(args.task_id),result)
-                if continuation:result={**result,"coordination_continuation":continuation}
-            except (WorkflowError,OSError,ValueError,KeyError,TypeError) as error:
-                # Actual ACK is already durably recorded. Do not re-send or hide it.
-                result={**result,"coordination_release_pending":str(error),
-                        "next_action":"read back exact native ACK and release/recover original claim"}
-        return result,paths
-
-
-def _record_receipt_unpaused(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
     task_id = validate_task_id(str(args.task_id))
     receipt_type = str(args.receipt_type)
-    if receipt_type == "dispatch_sent":
-        import human_control
-        human_control.guard(root, task_id)
     if receipt_type not in RECEIPT_TYPES:
         raise WorkflowError(f"未知回执类型：{receipt_type}")
     snapshot = read_json(snapshot_path(root, task_id))
@@ -3328,11 +3553,6 @@ def _record_receipt_unpaused(root: Path, args: Any) -> tuple[dict[str, Any], lis
         raise WorkflowError(f"工作流不存在：{task_id}")
     department = str(args.department).strip()
     registry = department_registry(root)
-    import owner_direct_intake
-    owner_origin=owner_direct_intake.existing(root,task_id)
-    if (owner_origin and department==owner_direct_intake.DEVELOPER
-            and receipt_type=='outbox_received'):
-        registry={**registry,department:{'chat_binding':owner_origin['executor_binding']}}
     if department not in registry:
         raise WorkflowError(f"部门未登记：{department}")
     planned = {item.get("department"): item for item in snapshot.get("departments", [])}
@@ -3355,8 +3575,6 @@ def _record_receipt_unpaused(root: Path, args: Any) -> tuple[dict[str, Any], lis
         raise WorkflowError(f"{receipt_type} 必须有可校验的证据文件")
     if receipt_type == "outbox_received":
         validate_outbox(root, evidence, department, task_id)
-        if owner_origin and owner_origin.get('executor_role')==department:
-            owner_direct_intake.queued_origin(root,task_id,department,evidence)
 
     idempotency_key = str(args.idempotency_key).strip()
     if not idempotency_key:
@@ -3364,19 +3582,6 @@ def _record_receipt_unpaused(root: Path, args: Any) -> tuple[dict[str, Any], lis
     action_id = str(getattr(args, "action_id", "") or "")
     action_class = str(getattr(args, "action_class", "") or "")
     scope = str(getattr(args, "scope", "") or "")
-    if snapshot.get("rework_packet") and receipt_type == "dispatch_sent":
-        packet = validate_rework_packet(root, task_id, snapshot["rework_packet"])
-        if (snapshot["rework_packet"] not in evidence or packet["candidate"] not in evidence):
-            raise WorkflowError("rework receipt requires exact packet/candidate/action pins")
-        if department == packet["target_department"]:
-            if action_id != packet["action_id"] or scope != packet["scope"] or action_class != packet["action_class"]:
-                raise WorkflowError("rework producer receipt action differs")
-        elif department == "qa":
-            _rework_qa_ready(root, task_id, packet)
-            if action_class != packet["action_class"]:
-                raise WorkflowError("rework QA receipt cannot change R0 action class")
-        else:
-            raise WorkflowError("rework receipt target outside bounded carrier")
     approval_id = str(getattr(args, "approval_id", "") or "")
     policy_decision_id = str(getattr(args, "policy_decision_id", "") or "")
     supersedes_receipt_id = str(getattr(args, "supersedes_receipt_id", "") or "").strip()
@@ -3404,6 +3609,10 @@ def _record_receipt_unpaused(root: Path, args: Any) -> tuple[dict[str, Any], lis
             "target_thread_id": chat_task_id,
             "routing_status": "routing_allowed",
         }
+        from goal_delivery_runtime import assigned_actor
+        routing_actor = str(routing_decision.get("department") or "")
+        if assigned_actor(root, snapshot, routing_actor, str(routing_decision.get("scope") or "")):
+            expected_routing_decision["department"] = routing_actor
         # Preserve the real assistant identity on this one frozen preparation
         # decision. Every ordinary dispatch still requires operations as sender.
         if routing_decision.get("department") == "operations-assistant":
@@ -3420,10 +3629,6 @@ def _record_receipt_unpaused(root: Path, args: Any) -> tuple[dict[str, Any], lis
                     task_id=task_id, target_department=department, target_thread_id=chat_task_id,
                     action_id=action_id, action_class=action_class, scope=scope):
                 expected_routing_decision["department"] = "operations-assistant"
-        if routing_decision.get("department") in {"operations-assistant", "operations-assistant-2", "operations-assistant-3"} and scope.startswith("routine_grant:"):
-            from routine_grants import verify_dispatch_decision
-            verify_dispatch_decision(root, routing_decision, task_id, action_id, scope, department, chat_task_id)
-            expected_routing_decision["department"] = routing_decision["department"]
         if not routing_decision or any(
             routing_decision.get(key) != value
             for key, value in expected_routing_decision.items()
@@ -3477,16 +3682,6 @@ def _record_receipt_unpaused(root: Path, args: Any) -> tuple[dict[str, Any], lis
         "created_at": utc_timestamp(),
         "chat_body_stored": False,
     }
-    if owner_origin and receipt_type=='outbox_received' and owner_origin.get('executor_role')==department:
-        receipt.update(source_mode='owner_direct',owner_intake=file_digest(root,
-            str(owner_direct_intake.path_for(root,task_id).relative_to(root))),
-            actual_executor_role=department,actual_executor_thread_id=owner_origin['executor_binding']['task_id'],
-            headquarters_dispatch_synthesized=False)
-    if receipt_type == "dispatch_sent" and scope.startswith("routine_grant:"):
-        role = routing_decision.get("department")
-        pin = load_policy(root)["department_system_upgrade"]["routing_grants"][task_id + ":" + action_id]
-        receipt.update(actor_role=role, actor_thread_id=registry[role]["chat_binding"]["task_id"],
-                       routine_grant=pin, actor_metadata_is_authentication=False)
     path = receipts_path(root, task_id)
     with workflow_lock(root):
         receipts = read_jsonl(path)
@@ -3497,7 +3692,7 @@ def _record_receipt_unpaused(root: Path, args: Any) -> tuple[dict[str, Any], lis
                 "task_id", "receipt_type", "department", "chat_task_id", "ack_nonempty",
                 "verdict", "evidence", "idempotency_key", "action_id", "action_class",
                 "scope", "approval_id", "policy_decision_id", "supersedes_receipt_id",
-                "replacement_reason", "chat_body_stored", "actor_role", "actor_thread_id", "routine_grant",
+                "replacement_reason", "chat_body_stored",
             }
             if any(existing.get(key) != receipt.get(key) for key in comparable_keys):
                 raise WorkflowError("幂等键已绑定不同回执内容")
@@ -3762,7 +3957,8 @@ def _derive_state(root: Path, snapshot: dict[str, Any], receipts: list[dict[str,
     state = "dispatch_ready"
     next_actions = ["receipt-record:dispatch_sent"]
 
-    missing_dispatch = [item for item in workers if ("dispatch_sent", item) not in latest]
+    from goal_delivery_runtime import owner_direct, enabled as goal_enabled
+    missing_dispatch = [item for item in workers if ("dispatch_sent", item) not in latest and not owner_direct(root, snapshot, item)]
     if missing_dispatch:
         missing.extend(f"dispatch_sent:{item}" for item in missing_dispatch)
         return {"state": state, "missing": missing, "blockers": blockers, "next": next_actions}
@@ -3791,6 +3987,27 @@ def _derive_state(root: Path, snapshot: dict[str, Any], receipts: list[dict[str,
     if qa.get("verdict") == "blocked":
         return {"state": "qa_blocked", "missing": [], "blockers": ["qa_verdict_blocked"], "next": ["repair_and_resubmit_qa"]}
     state = "qa_passed"
+    if goal_enabled(root, snapshot):
+        from goal_delivery_runtime import completion_dependencies
+        unmet_dependencies = completion_dependencies(root, snapshot)
+        if unmet_dependencies:
+            return {"state": "qa_passed", "missing": unmet_dependencies, "blockers": [],
+                    "next": ["collect_exact_dependency_or_collaboration_result"]}
+        declared = snapshot["goal_delivery"].get("required_execution_actions", [])
+        preflights = snapshot["goal_delivery"].get("execution_preflights", [])
+        for action in declared:
+            if not any(all(item.get(k) == action.get(k) for k in ("department", "action_id", "action_class", "scope")) for item in preflights):
+                return {"state": "qa_passed", "missing": ["production_preflight:" + action["action_id"]],
+                        "blockers": [], "next": ["register_exact_production_self_check"]}
+        for item in snapshot["goal_delivery"].get("execution_preflights", []):
+            execution = [r for r in receipts if r.get("receipt_type") == "execution_result"
+                         and all(r.get(k) == item.get(k) for k in ("department", "action_id", "action_class", "scope"))]
+            postcheck = [r for r in receipts if r.get("receipt_type") == "postcheck" and r.get("verdict") == "pass"
+                         and all(r.get(k) == item.get(k) for k in ("department", "action_id", "action_class", "scope"))]
+            if not execution or execution[-1].get("verdict") == "blocked" or not postcheck:
+                return {"state": "qa_passed", "missing": ["exact_execution_and_postcheck:" + item["action_id"]],
+                        "blockers": [], "next": ["continue_exact_authorized_execution"]}
+        return {"state": "closed", "missing": [], "blockers": [], "next": []}
     # A workflow may contain several independently QA-approved CMS rows. A
     # completed action must not close a different, still-unexecuted action.
     qa_action = str(qa.get("action_id") or "")
@@ -3959,6 +4176,8 @@ def reconcile_workflow(root: Path, *, task_id: str, shadow: bool = False) -> tup
                 "integrity_note": "SHA-256 chains detect accidental mutation; they are not digital signatures.",
                 "scope_note": "Project-level control only; not a global Codex tool middleware.",
             }
+        from goal_delivery_runtime import restore_goal
+        snapshot = restore_goal(root, snapshot)
         from qa_review_plan import _binding
         restored_review = _binding(root, snapshot)
         if restored_review is not None:
@@ -3981,6 +4200,14 @@ def reconcile_workflow(root: Path, *, task_id: str, shadow: bool = False) -> tup
                 "next": ["restore_or_replace_evidence_and_record_new_receipt"],
             }
             resume_from = previous_state if previous_state != target else str(snapshot.get("resume_from", "evidence_received"))
+        elif snapshot.get("workflow_successor_link"):
+            link = snapshot["workflow_successor_link"]
+            if file_digest(root, link["source"]["path"]) != link["source"]:
+                raise WorkflowError("original successor association evidence changed")
+            derived = {"state": "blocked", "missing": [],
+                       "blockers": ["existing_successor_result_intake:" + link["successor_task_id"]],
+                       "next": ["receive_existing_successor_result:" + link["successor_task_id"]]}
+            resume_from = "planned"
         elif snapshot.get("plan_status") != "ready_to_send":
             derived = {
                 "state": "blocked",
@@ -4112,12 +4339,12 @@ RESULT_HANDOFF_EVENTS = {
     "controller_received", "controller_decision", "controller_followthrough"
 }
 RESULT_DECISIONS = {
-    "send_qa", "rework", "release_gate", "continue", "wait_external", "close_scope"
+    "send_qa", "rework", "release_gate", "continue", "wait_external", "close_scope", "accept"
 }
 RESULT_FOLLOWTHROUGH_STATUSES = {
     "dispatch_sent", "execution_verified", "external_wait_registered",
     "blocked_with_owner", "internal_control_completed", "prior_action_verified", "dependency_resolved",
-    "inflight_result_verified"
+    "inflight_result_verified", "no_executable_work"
 }
 
 
@@ -4194,11 +4421,12 @@ def _verify_external_dependency_resolution(root: Path, record: dict[str, Any],
     """Resolve only an old wait using an already accepted, same-task QA result."""
     if decision.get("decision") != "wait_external" or not decision.get("unblock_condition"):
         raise WorkflowError("依赖解除仅用于已有具名条件的外部等待")
+    reviewer = _final_qa_department(root, read_json(snapshot_path(root, record["task_id"])))
     ref = str(record.get("resolution_record_id") or "")
     accepted = next((row for row in rows if row.get("record_id") == ref), None)
     if (not accepted or accepted.get("event") != "controller_decision"
             or accepted.get("task_id") != record.get("task_id")
-            or accepted.get("sender_department") != "qa"
+            or accepted.get("sender_department") != reviewer
             or accepted.get("decision") != "close_scope" or accepted.get("qa_status") != "pass"
             or accepted.get("candidate_version") == record.get("candidate_version")
             or not accepted.get("acceptance_scope")):
@@ -4210,14 +4438,14 @@ def _verify_external_dependency_resolution(root: Path, record: dict[str, Any],
     if digest != accepted.get("outbox"):
         raise WorkflowError("新QA冻结结果字节变化")
     qa = read_json(root / digest["path"])
-    if (qa.get("task_id") != record.get("task_id") or qa.get("department") != "qa"
+    if (qa.get("task_id") != record.get("task_id") or qa.get("department") != reviewer
             or qa.get("candidate_version") != accepted.get("candidate_version")
             or qa.get("qa_verdict") != "pass" or qa.get("production_release_eligible") is not False
             or qa.get("whole_business_task_complete") is not False):
         raise WorkflowError("依赖解除不得代替生产或全业务验收")
     native, invalid = _validate_receipt_chain(root, record["task_id"])
     exact = [row for row in native if row.get("receipt_type") == "qa_verdict"
-             and row.get("department") == "qa" and row.get("verdict") == "pass"
+                  and row.get("department") == reviewer and row.get("verdict") == "pass"
              and digest in row.get("evidence", [])]
     if invalid or not exact:
         raise WorkflowError("缺少绑定新QA准确字节的有效独立回执")
@@ -4334,19 +4562,6 @@ def result_handoff_status(root: Path, task_id: str) -> dict[str, Any]:
 
 
 def result_handoff_pending(root: Path) -> dict[str, Any]:
-    """Add an explicit current-business view without reopening or deleting history."""
-    value = _result_handoff_pending_history(root)
-    cfg = load_policy(root).get("department_system_upgrade", {})
-    pin = cfg.get("current_business_index")
-    if pin is not None:
-        from business_current_view import inspect
-        view = inspect(root, pin)
-        value["current_business_view"] = view
-        value["business_identity_source"] = "explicit_frozen_original_business_index"
-    return value
-
-
-def _result_handoff_pending_history(root: Path) -> dict[str, Any]:
     """List queued handoffs and verified legacy deliveries missing a handoff record.
 
     Legacy discovery is deliberately derived from the immutable dispatch/ack/outbox
@@ -4357,53 +4572,46 @@ def _result_handoff_pending_history(root: Path) -> dict[str, Any]:
     directory = root / RESULT_HANDOFF_DIR
     pending: list[dict[str, Any]] = []
     tracked: dict[str, dict[tuple[str, str, str], dict[str, Any]]] = {}
-    quarantined = []
     if directory.is_dir():
         for path in sorted(directory.glob("*.jsonl")):
-            try:
-                task_id = validate_task_id(path.stem)
-                rows = _result_handoff_rows(root, task_id)
-                by_identity: dict[tuple[str, str, str], dict[str, Any]] = {}
-                for row in rows:
-                    identity = _result_identity(row)
-                    outbox_pin = row.get("outbox")
-                    if not isinstance(outbox_pin, dict):
-                        raise WorkflowError(f"结果交接 outbox 固定值不是对象，须恢复原证据：{task_id}")
-                    entry = by_identity.setdefault(identity, {
-                        "task_id": task_id, "sender_department": identity[0],
-                        "candidate_version": identity[1], "result_sha256": identity[2],
-                        "outbox_path": outbox_pin.get("path"),
-                        "queued": False, "sent": False, "notification_blocked": False,
-                        "received": False, "decided": False,
-                        "controller_followthrough": "pending",
-                    })
-                    if row["event"] == "notification_queued":
-                        entry["queued"] = True
-                    elif row["event"] == "notification_sent":
-                        entry["sent"] = True
-                    elif row["event"] == "notification_blocked":
-                        entry["notification_blocked"] = True
-                    elif row["event"] == "controller_received":
-                        entry["received"] = True
-                    elif row["event"] == "controller_decision":
-                        entry["decided"] = True
-                        entry["controller_decision"] = row.get("decision")
-                        entry["next_owner"] = row.get("next_owner")
-                        entry["next_action"] = row.get("next_action")
-                    elif row["event"] == "controller_followthrough":
-                        entry["controller_followthrough"] = row.get("followthrough_status")
-                        entry["next_check_at"] = row.get("next_check_at")
-                tracked[task_id] = by_identity
-                pending.extend(entry for entry in by_identity.values() if not entry["decided"] and (
-                    entry["queued"] or entry["received"]
-                    or (entry.get("sent") and not entry["received"])
-                    or (entry.get("notification_blocked") and not entry["received"])
-                ))
-
-            except (WorkflowError, ValueError, TypeError, KeyError, OSError) as exc:
-                quarantined.append({"task_id": path.stem, "ledger": rel_path(root, path),
-                                    "reason": str(exc), "requires_exact_recovery": True})
-                tracked[path.stem] = {}  # No inferred legacy rescue of this damaged task.
+            task_id = validate_task_id(path.stem)
+            rows = _result_handoff_rows(root, task_id)
+            by_identity: dict[tuple[str, str, str], dict[str, Any]] = {}
+            for row in rows:
+                identity = _result_identity(row)
+                outbox_pin = row.get("outbox")
+                if not isinstance(outbox_pin, dict):
+                    raise WorkflowError(f"结果交接 outbox 固定值不是对象，须恢复原证据：{task_id}")
+                entry = by_identity.setdefault(identity, {
+                    "task_id": task_id, "sender_department": identity[0],
+                    "candidate_version": identity[1], "result_sha256": identity[2],
+                    "outbox_path": outbox_pin.get("path"),
+                    "queued": False, "sent": False, "notification_blocked": False,
+                    "received": False, "decided": False,
+                    "controller_followthrough": "pending",
+                })
+                if row["event"] == "notification_queued":
+                    entry["queued"] = True
+                elif row["event"] == "notification_sent":
+                    entry["sent"] = True
+                elif row["event"] == "notification_blocked":
+                    entry["notification_blocked"] = True
+                elif row["event"] == "controller_received":
+                    entry["received"] = True
+                elif row["event"] == "controller_decision":
+                    entry["decided"] = True
+                    entry["controller_decision"] = row.get("decision")
+                    entry["next_owner"] = row.get("next_owner")
+                    entry["next_action"] = row.get("next_action")
+                elif row["event"] == "controller_followthrough":
+                    entry["controller_followthrough"] = row.get("followthrough_status")
+                    entry["next_check_at"] = row.get("next_check_at")
+            tracked[task_id] = by_identity
+            pending.extend(entry for entry in by_identity.values() if not entry["decided"] and (
+                entry["queued"] or entry["received"]
+                or (entry.get("sent") and not entry["received"])
+                or (entry.get("notification_blocked") and not entry["received"])
+            ))
 
     recovery_candidates = _legacy_result_recovery_candidates(root, tracked)
     recovery_identities = {
@@ -4425,8 +4633,6 @@ def _result_handoff_pending_history(root: Path) -> dict[str, Any]:
         "pending_count": len(pending),
         "queued_pending_count": sum(1 for item in pending if item.get("queued")),
         "legacy_recovery_count": len(recovery_candidates),
-        "quarantined_ledgers": quarantined,
-        "quarantined_count": len(quarantined),
         "followthrough_pending_count": len(followthrough_pending),
         "followthrough_results": followthrough_pending,
         "total_actionable_count": len(pending) + len(followthrough_pending),
@@ -4453,8 +4659,6 @@ def _legacy_result_recovery_candidates(
             continue
         snapshot = read_json(snapshot_file)
         if not snapshot:
-            continue
-        if task_id in tracked and not tracked[task_id] and result_handoff_path(root, task_id).exists():
             continue
         receipts, invalid = _validate_receipt_chain(root, task_id)
         if invalid:
@@ -4638,14 +4842,15 @@ def _verify_operations_rework_completion(root: Path, request: dict[str, Any], ta
     qa_path = str(request.get("control_qa_outbox_path") or "")
     applied_path = str(request.get("control_applied_proof") or "")
     qa_digest = file_digest(root, qa_path)
-    validate_outbox(root, [qa_digest], "qa", task_id)
+    reviewer = _final_qa_department(root, read_json(snapshot_path(root, task_id)))
+    validate_outbox(root, [qa_digest], reviewer, task_id)
     qa = read_json(safe_path(root, qa_path))
     applied_digest = file_digest(root, applied_path)
     applied = read_json(safe_path(root, applied_path))
     rows, invalid = _validate_receipt_chain(root, task_id)
     receipt = next((row for row in rows if row.get("receipt_id") == request.get("control_qa_receipt_id")), None)
     if (invalid or not receipt or receipt.get("receipt_type") != "qa_verdict"
-            or receipt.get("department") != "qa" or receipt.get("verdict") != "pass"
+            or receipt.get("department") != reviewer or receipt.get("verdict") != "pass"
             or receipt.get("action_class") != "internal_control_candidate"
             or qa_digest not in receipt.get("evidence", [])):
         raise WorkflowError("Applied control requires its exact independent internal QA receipt")
@@ -4672,9 +4877,26 @@ def _verify_operations_rework_completion(root: Path, request: dict[str, Any], ta
         allowed.add("tools/qa_dispatch_priority.py")
     if task_id == "fc-20261008-publisher-three-preview-call-binding-control-qa-v1":
         allowed.add("tools/cms_publisher_three_preview_policy.py")
+    from goal_delivery_runtime import enabled as goal_enabled
+    snapshot = read_json(snapshot_path(root, task_id))
+    if goal_enabled(root, snapshot):
+        manifest_pin = applied.get("candidate_manifest")
+        if (not isinstance(manifest_pin, dict) or file_digest(root, str(manifest_pin.get("path") or "")) != manifest_pin
+                or manifest_pin not in qa.get("evidence", [])):
+            raise WorkflowError("applied full-goal control requires independently reviewed exact candidate manifest")
+        manifest = read_json(safe_path(root, manifest_pin["path"]))
+        if (manifest.get("task_id") != task_id or manifest.get("external_writes") is not False
+                or applied.get("candidate_fingerprint") != manifest.get("candidate_fingerprint")):
+            raise WorkflowError("applied full-goal candidate fingerprint differs")
+        changes = manifest.get("changes", [])
+        allowed = {entry.get("path") for entry in changes if isinstance(entry, dict)}
+        if any(not isinstance(name, str) or name.startswith(("accounts/", "logs/", "backups/")) for name in allowed):
+            raise WorkflowError("reviewed candidate contains non-source scope")
     files = applied.get("applied_files", [])
     if not isinstance(files, list) or not files:
         raise WorkflowError("Applied control must contain current runtime file pins")
+    if goal_enabled(root, snapshot) and {pin.get("path") for pin in files if isinstance(pin, dict)} != allowed:
+        raise WorkflowError("applied full-goal source must cover every exact reviewed change")
     for pin in files:
         if not isinstance(pin, dict) or pin.get("path") not in allowed:
             raise WorkflowError("Applied control file is outside the internal controller scope")
@@ -4686,76 +4908,288 @@ def _verify_operations_rework_completion(root: Path, request: dict[str, Any], ta
             "external_authority_granted": False, "business_goal_closed": False}
 
 
-def validate_result_handoff_request(root: Path, request: dict[str, Any]) -> None:
-    """One input schema, shared before coordination and native effects.
+def scheduled_result_source(root: Path, task_id: str, department: str) -> dict[str, Any] | None:
+    """Resolve one admitted daily source without constructing a business workflow."""
+    contract = read_json(root / "data/task-contract.json")
+    sources = contract.get("result_handoff_contract", {}).get("scheduled_daily_sources")
+    if sources is None:
+        # The pre-existing website intake remains readable for old contracts.
+        old = contract.get("department_output_gates", {}).get("content_organic_website_daily", {})
+        if (old.get("task_id_pattern") == "fc-YYYYMMDD-website-growth-daily"
+                and department == "content-organic-website"
+                and re.fullmatch(r"fc-\d{8}-website-growth-daily", task_id)):
+            return {"automation_id": "flash-cast-4", "department": department,
+                    "task_id_pattern": r"fc-(?P<date>\d{8})-website-growth-daily",
+                    "responsible_assistant": "operations", "legacy_contract": True}
+        return None
+    if not isinstance(sources, list):
+        raise WorkflowError("structured admitted daily sources required")
+    matches = []
+    for source in sources:
+        if not isinstance(source, dict) or source.get("department") != department:
+            continue
+        try:
+            match = re.fullmatch(str(source.get("task_id_pattern") or ""), task_id)
+        except re.error as error:
+            raise WorkflowError("valid exact daily task pattern required") from error
+        if match:
+            matches.append(source)
+    if len(matches) > 1:
+        raise WorkflowError("daily source must have one unique responsible assistant")
+    return matches[0] if matches else None
 
-    Record/readback fields are outputs. Unknown or wrong-event inputs cannot
-    be silently dropped, nor reserve an effect before native validation.
-    """
-    if not isinstance(request, dict):
-        raise WorkflowError("结果交接输入必须是 JSON 对象")
-    common = {"task_id", "event", "sender_department", "candidate_version", "result_sha256",
-              "idempotency_key", "outbox_path", "evidence_paths"}
-    final_actor = {"coordinator_role", "coordinator_owner", "coordination_claim", "routine_grant", "scope"}
-    event_fields = {
-        "notification_queued": {"coordinator_role", "source_mode", "source_automation_id", "source_turn_id",
-                                "source_thread_id", "source_reply_sha256", "reply_observed_at", "authorized_scope", "native_run"},
-        "notification_sent": {"coordinator_role", "policy_decision_id", "message_sha256", "message_ref"},
-        "notification_blocked": {"coordinator_role", "block_reason"},
-        "controller_received": final_actor | {"intake_mode", "source_reply_sha256", "source_thread_id", "reply_observed_at", "fallback_reason"},
-        "controller_decision": final_actor | {"decision", "next_owner", "next_action", "qa_status", "execution_status", "public_postcheck_status", "unblock_condition", "acceptance_scope", "proxy_release"},
-        "controller_followthrough": final_actor | {"followthrough_status", "linked_task_id", "action_receipt_id", "linked_outbox_path", "linked_dispatch_receipt_id", "next_check_at", "unblock_condition", "resolution_record_id", "action_reference", "control_applied_proof", "control_qa_outbox_path", "control_qa_receipt_id"},
-    }
-    event = request.get("event")
-    if not isinstance(event, str) or event not in event_fields:
-        raise WorkflowError("结果交接事件类型无效")
-    allowed = common | event_fields[event] | {"scope"}
-    if event in {"controller_received", "controller_decision", "controller_followthrough"} and request.get("coordinator_role", "operations") == "operations":
-        allowed -= {"routine_grant"}
-    if event == "controller_received" and request.get("intake_mode") != "fallback":
-        allowed -= {"fallback_reason"}
-    if event == "controller_decision":
-        if request.get("decision") != "wait_external":allowed -= {"unblock_condition"}
-        if request.get("decision") != "close_scope":allowed -= {"acceptance_scope"}
-        if request.get("decision") != "release_gate":allowed -= {"proxy_release"}
-    if event == "controller_followthrough":
-        if not isinstance(request.get("followthrough_status"), str):
-            raise WorkflowError("result-handoff followthrough_status must be a string")
-        status_fields = {
-            "dispatch_sent": {"linked_task_id", "action_receipt_id"},
-            "execution_verified": {"linked_task_id", "action_receipt_id"},
-            "prior_action_verified": {"linked_task_id", "action_receipt_id", "linked_outbox_path"},
-            "inflight_result_verified": {"linked_task_id", "action_receipt_id", "linked_outbox_path", "linked_dispatch_receipt_id"},
-            "external_wait_registered": {"next_check_at", "unblock_condition"},
-            "blocked_with_owner": {"next_check_at", "unblock_condition"},
-            "dependency_resolved": {"resolution_record_id"},
-            "internal_control_completed": {"action_reference", "control_applied_proof", "control_qa_outbox_path", "control_qa_receipt_id"},
-        }
-        allowed = common | final_actor | {"followthrough_status"} | status_fields.get(request.get("followthrough_status"), set())
-        if request.get("coordinator_role", "operations") == "operations":allowed -= {"routine_grant"}
-    unknown = set(request) - allowed
-    if unknown:
-        raise WorkflowError("unknown result-handoff input fields: " + ",".join(sorted(map(str, unknown))))
-    dict_fields = {"coordination_claim", "routine_grant", "proxy_release", "native_run"}
-    for key, value in request.items():
-        if key == "evidence_paths":continue
-        if (key in dict_fields and not isinstance(value, dict)) or (key not in dict_fields and not isinstance(value, str)):
-            raise WorkflowError("invalid result-handoff input type: " + key)
-    for key in common - {"evidence_paths"}:
-        if not request.get(key):raise WorkflowError("required result-handoff field missing: " + key)
-    validate_task_id(request["task_id"])
-    if (not re.fullmatch(r"[a-f0-9]{64}", request["result_sha256"])
-            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9+._-]{0,199}", request["candidate_version"])
-            or len(request["idempotency_key"]) > 200):
-        raise WorkflowError("exact result-handoff identity format required")
-    if file_digest(root, request["outbox_path"])["sha256"] != request["result_sha256"]:
-        raise WorkflowError("result-handoff outbox bytes changed")
-    paths = request.get("evidence_paths", [])
-    if (not isinstance(paths, list) or any(not isinstance(p, str) or not p.strip() for p in paths)
-            or len(set(paths)) != len(paths)):
-        raise WorkflowError("evidence_paths 必须是无重复的项目内路径数组")
-    for path in paths:
-        file_digest(root, path)
+
+def _validate_scheduled_result(root: Path, request: dict[str, Any], outbox: dict[str, Any],
+                               fixed_id: str) -> dict[str, Any]:
+    source = scheduled_result_source(root, request["task_id"], request["sender_department"])
+    if not source:
+        raise WorkflowError("daily source is not admitted by the current task contract")
+    reply_at = _parse_observed_at(request.get("reply_observed_at"))
+    report_at = _parse_observed_at(outbox.get("reported_at_myt"))
+    match = re.fullmatch(source["task_id_pattern"], request["task_id"])
+    local_tz = dt.timezone(dt.timedelta(hours=8))
+    day = (match.groupdict().get("date") if match else None)
+    if day is None and match and report_at is not None:
+        day = report_at.astimezone(local_tz).strftime("%Y%m%d")
+    if (not day or request.get("source_automation_id") != source.get("automation_id")
+            or request.get("source_thread_id") != fixed_id
+            or not re.fullmatch(r"[0-9a-f]{64}", str(request.get("source_reply_sha256") or ""))
+            or not re.fullmatch(r"[0-9a-f-]{36}", str(request.get("source_turn_id") or ""))
+            or reply_at is None or report_at is None or reply_at < report_at
+            or reply_at > dt.datetime.now(dt.timezone.utc)
+            or reply_at.astimezone(local_tz).strftime("%Y%m%d") != day
+            or report_at.astimezone(local_tz).strftime("%Y%m%d") != day
+            or outbox.get("chat_reply", {}).get("nonempty") is not True
+            or outbox.get("chat_reply", {}).get("in_current_fixed_department_chat") is not True):
+        raise WorkflowError("daily intake requires the exact admitted automation, fixed completed turn and same-day V2 result")
+    if not source.get("legacy_contract"):
+        receiver = source.get("responsible_assistant")
+        authority = department_registry(root).get(receiver, {}).get("coordination_authority", {})
+        if authority.get("routine_decisions") is not True or outbox.get("handoff", {}).get("receiver") != receiver:
+            raise WorkflowError("daily result must target its unique current responsible assistant")
+        capability = source.get("acceptance_capability")
+        if capability and capability not in authority.get("review_capabilities", []):
+            raise WorkflowError("daily receiver lacks the exact source acceptance capability")
+        from goal_delivery_runtime import _native_document, _collaboration_final_message
+        completion = _native_document(root, request.get("actual_native_completion"))
+        message = _collaboration_final_message(completion, fixed_id)
+        reply_pin = request.get("visible_reply")
+        if not isinstance(reply_pin, dict) or file_digest(root, reply_pin.get("path", "")) != reply_pin:
+            raise WorkflowError("original frozen daily final reply pin required")
+        raw = safe_path(root, reply_pin["path"]).read_bytes()
+        if (message.get("phase") != "final_answer" or not message.get("id")
+                or message.get("turnId") != request["source_turn_id"]
+                or not isinstance(message.get("text"), str) or not raw
+                or raw != message["text"].encode("utf-8")
+                or hashlib.sha256(raw).hexdigest() != request["source_reply_sha256"]):
+            raise WorkflowError("actual daily final thread/turn/message and exact UTF-8 reply required; commentary is not completion")
+    return source
+
+
+def _validate_scheduled_acceptance(root: Path, request: dict[str, Any]) -> dict[str, Any]:
+    """Independent daily-report acceptance; no synthetic dispatch or production permit."""
+    task_id, sender = request["task_id"], request["sender_department"]
+    source = scheduled_result_source(root, task_id, sender)
+    if not source or source.get("legacy_contract"):
+        raise WorkflowError("current admitted daily source required for assistant report acceptance")
+    role = source["responsible_assistant"]
+    if role == sender or role == "operations" or request.get("coordinator_role") != role:
+        raise WorkflowError("unique independent daily assistant required; no self review or HQ acceptance")
+    registry = department_registry(root)
+    authority = registry.get(role, {}).get("coordination_authority", {})
+    if (authority.get("routine_decisions") is not True or registry.get(role, {}).get("new_dispatch_enabled") is False
+            or source.get("acceptance_capability") not in authority.get("review_capabilities", [])):
+        raise WorkflowError("daily acceptance capability is not current")
+    identity = tuple(request[k] for k in ("sender_department", "candidate_version", "result_sha256"))
+    queued = [row for row in _result_handoff_rows(root, task_id)
+              if row.get("event") == "notification_queued" and _result_identity(row) == identity]
+    if (len(queued) != 1 or queued[0].get("source_mode") != "scheduled_run"
+            or queued[0].get("source_automation_id") != source["automation_id"]):
+        raise WorkflowError("exact actually queued daily result required")
+    pin = request.get("scheduled_acceptance")
+    if not isinstance(pin, dict) or file_digest(root, pin.get("path", "")) != pin:
+        raise WorkflowError("current frozen independent daily acceptance pin required")
+    accepted = read_json(safe_path(root, pin["path"]))
+    expected = {"task_id": task_id, "sender_department": sender, "candidate_version": request["candidate_version"],
+                "result_sha256": request["result_sha256"], "reviewer": role, "verdict": "pass",
+                "acceptance_kind": "daily_report_scope", "external_permission_issued": False}
+    if any(accepted.get(k) != value for k, value in expected.items()):
+        raise WorkflowError("daily acceptance must bind this exact report and independent current assistant")
+    if accepted.get("external_permission_issued") is not False:
+        raise WorkflowError("daily report acceptance cannot issue production permission")
+    result = queued[0]["outbox"]
+    if accepted.get("reviewed_outbox") != result or file_digest(root, result["path"]) != result:
+        raise WorkflowError("daily acceptance reviewed result bytes changed")
+    checks = accepted.get("review_evidence", [])
+    if (not isinstance(checks, list) or not checks or not accepted.get("acceptance_scope")
+            or not isinstance(accepted.get("methods_used"), list) or not accepted["methods_used"]
+            or any(not isinstance(item, dict) or file_digest(root, item.get("path", "")) != item for item in checks)):
+        raise WorkflowError("nonempty independent method, scope and unchanged review evidence required")
+    from goal_delivery_runtime import _native_document, _collaboration_final_message
+    native = _native_document(root, accepted.get("actual_native_completion"))
+    message = _collaboration_final_message(native, registry[role]["chat_binding"]["task_id"])
+    reply = accepted.get("visible_reply")
+    if not isinstance(reply, dict) or file_digest(root, reply.get("path", "")) != reply:
+        raise WorkflowError("original independent assistant final reply pin required")
+    raw = safe_path(root, reply["path"]).read_bytes()
+    if (message.get("phase") != "final_answer" or not message.get("id") or not isinstance(message.get("text"), str)
+            or not raw or raw != message["text"].encode("utf-8") or pin["path"] not in message["text"]):
+        raise WorkflowError("actual assistant completed final must identify this acceptance with exact UTF-8 bytes")
+    return {"pin": pin, "acceptance_scope": accepted["acceptance_scope"], "reviewer": role,
+            "actual_native_completion": accepted["actual_native_completion"], "business_goal_closed": False}
+
+
+def _validate_legacy_result_notification(root, request, record, registry, sender, task_id):
+    decision_id = str(request.get("policy_decision_id") or "")
+    message_sha = str(request.get("message_sha256") or "").lower()
+    message_ref = str(request.get("message_ref") or "")
+    matches = [item for item in read_jsonl(root / POLICY_DECISIONS) if item.get("decision_id") == decision_id]
+    routing = matches[-1] if matches else {}
+    controller_id = str(registry["operations"].get("chat_binding", {}).get("task_id") or "")
+    if (routing.get("status") != "allow" or routing.get("routing_status") != "routing_allowed"
+            or routing.get("task_id") != task_id or routing.get("department") != sender
+            or routing.get("action_class") != "thread_message"
+            or not str(routing.get("action_id") or "").startswith("notify-operations-")
+            or routing.get("target_department") != "operations"
+            or routing.get("target_thread_id") != controller_id
+            or routing.get("scope") != f"department_result:{task_id}:{sender}"
+            or routing.get("payload_sha256") != message_sha
+            or not message_ref):
+        raise WorkflowError("通知送达缺少准确放行决定、消息哈希或真实发送引用")
+    record.update(policy_decision_id=decision_id, message_sha256=message_sha, message_ref=message_ref)
+
+
+def _validate_collaboration_followthrough_receipt(root, task_id, decision, follow):
+    """One next action frozen by this decision, never an unrelated true receipt."""
+    linked_id = validate_task_id(follow.get("linked_task_id", ""))
+    rows, invalid = _validate_receipt_chain(root, linked_id)
+    matching = [row for row in rows if row.get("receipt_id") == follow.get("action_receipt_id")
+                and row.get("receipt_type") == "dispatch_sent"]
+    parent = read_json(snapshot_path(root, task_id))
+    child = read_json(snapshot_path(root, linked_id))
+    if invalid or validate_workflow_events(root, linked_id) or len(matching) != 1:
+        raise WorkflowError("one intact actual next dispatch receipt required")
+    action = matching[0]
+    action_time, decision_time = _parse_observed_at(action.get("created_at")), _parse_observed_at(decision.get("created_at"))
+    if (decision.get("decision") == "wait_external" or not action_time or not decision_time or action_time <= decision_time
+            or linked_id != decision.get("next_task_id") or action.get("department") != decision.get("next_owner")
+            or action.get("action_id") != decision.get("next_action_id") or action.get("scope") != decision.get("next_scope")
+            or action.get("scope") not in parent.get("goal_delivery", {}).get("authorized_scope", [])
+            or not child.get("goal_delivery")
+            or (linked_id != task_id and child["goal_delivery"].get("parent_task_id") != task_id)):
+        raise WorkflowError("next dispatch must match the current decision's exact task/action/owner/scope and parent")
+    return action
+
+
+def _record_collaboration_result_handoff(root: Path, request: dict[str, Any], source: dict[str, Any]):
+    """Formal intake of an exact collaboration source; no synthetic queue or ACK."""
+    task_id = validate_task_id(request["task_id"])
+    event = request["event"]
+    key = request.get("idempotency_key")
+    if not isinstance(key, str) or not key or len(key) > 200:
+        raise WorkflowError("exact collaboration intake idempotency key required")
+    paths = request.get("evidence_paths")
+    if not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):
+        raise WorkflowError("collaboration intake frozen evidence paths required")
+    evidence = [file_digest(root, path) for path in paths]
+    state = source["state"]
+    required = [state[k] for k in ("collaboration", "native_transport", "result_receipt", "result", "visible_reply", "native_result")]
+    if any(pin not in evidence for pin in required):
+        raise WorkflowError("formal intake must retain the original strict sent and returned source pins")
+    claim = request.get("coordination_claim", {})
+    record = {"schema_version": "1.0", "record_id": str(uuid.uuid4()),
+              **{k: request[k] for k in ("task_id", "event", "sender_department", "candidate_version", "result_sha256")},
+              "outbox": source["result"], "evidence": evidence, "idempotency_key": key, "created_at": utc_timestamp(),
+              "source_mode": "collaboration", "action_id": state["action_id"], "scope": source["scope"],
+              "collaboration_source": state["result_receipt"], "message_body_stored": False,
+              "business_goal_closed": False, "external_permission_issued": False,
+              "coordinator_role": source["responsible_assistant"], "coordinator_owner": request.get("coordinator_owner"),
+              "coordination_fence": claim.get("fence"), "decision_actor": source["responsible_assistant"],
+              "responsible_assistant": source["responsible_assistant"], "HQ_second_review_required": False}
+    if event == "controller_received":
+        if (request.get("intake_mode") != "collaboration"
+                or request.get("source_reply_sha256") != state["visible_reply"]["sha256"]
+                or request.get("source_thread_id") != source["fixed_chat_task_id"]
+                or _parse_observed_at(request.get("reply_observed_at")) is None):
+            raise WorkflowError("formal collaboration intake must identify the original actual completed final reply")
+        record.update({k: request[k] for k in ("intake_mode", "source_reply_sha256", "source_thread_id", "reply_observed_at")})
+    elif event == "controller_decision":
+        # Source receipt proves delivery. Final QA, permissions and parent
+        # closure keep their existing independent entry and receipt chain.
+        if (request.get("decision") not in {"continue", "rework", "send_qa", "wait_external"}
+                or not isinstance(request.get("next_action"), str) or not request["next_action"].strip()
+                or not isinstance(request.get("next_owner"), str)
+                or request.get("next_owner") not in (set(department_registry(root)) | set(read_json(root / "data/department-registry.json").get("collaboration_bindings", {})))):
+            raise WorkflowError("collaboration intake requires a bounded continuation decision, not inferred acceptance")
+        record.update({k: request[k] for k in ("decision", "next_owner", "next_action")})
+        if record["decision"] != "wait_external":
+            parent = read_json(snapshot_path(root, task_id))
+            if (not isinstance(request.get("next_action_id"), str) or not request["next_action_id"].strip()
+                    or request.get("next_scope") not in parent["goal_delivery"]["authorized_scope"]):
+                raise WorkflowError("next collaboration action and authorized scope must be frozen in the decision")
+            record.update(next_task_id=validate_task_id(request.get("next_task_id", "")),
+                          next_action_id=request["next_action_id"], next_scope=request["next_scope"])
+        record.update({k: str(request.get(k) or default) for k, default in
+                       {"qa_status": "NOT_VERIFIED", "execution_status": "NOT_EXECUTED", "public_postcheck_status": "NOT_VERIFIED"}.items()})
+        if record["decision"] == "wait_external":
+            if not request.get("unblock_condition"):
+                raise WorkflowError("exact collaboration wait unblock condition required")
+            record["unblock_condition"] = request["unblock_condition"]
+    else:
+        status = request.get("followthrough_status")
+        if status not in {"dispatch_sent", "blocked_with_owner", "external_wait_registered"}:
+            raise WorkflowError("collaboration continuation requires an actual dispatch or named bounded wait")
+        record["followthrough_status"] = status
+        if status == "dispatch_sent":
+            linked_id = validate_task_id(request.get("linked_task_id", ""))
+            linked, invalid = _validate_receipt_chain(root, linked_id)
+            found = [row for row in linked if row.get("receipt_id") == request.get("action_receipt_id")
+                     and row.get("receipt_type") == "dispatch_sent"]
+            if invalid or validate_workflow_events(root, linked_id) or len(found) != 1:
+                raise WorkflowError("one intact actual next dispatch receipt required")
+            record.update(linked_task_id=linked_id, action_receipt_id=found[0]["receipt_id"])
+        else:
+            next_check = _parse_observed_at(request.get("next_check_at"))
+            if not next_check or next_check <= dt.datetime.now(dt.timezone.utc) or not request.get("unblock_condition"):
+                raise WorkflowError("named recovery owner, future recheck and unblock condition required")
+            record.update(next_check_at=request["next_check_at"], unblock_condition=request["unblock_condition"])
+    path = result_handoff_path(root, task_id)
+    with workflow_lock(root):
+        rows = _result_handoff_rows(root, task_id)
+        current = [row for row in rows if _result_identity(row) == _result_identity(record)]
+        comparable = {k: v for k, v in record.items() if k not in {"record_id", "created_at"}}
+        duplicate = next((row for row in rows if row.get("idempotency_key") == key), None)
+        if duplicate:
+            if any(duplicate.get(k) != v for k, v in comparable.items()):
+                raise WorkflowError("collaboration idempotency key binds different content")
+            return {**duplicate, "result": "duplicate_ignored"}, [path]
+        if read_json(snapshot_path(root, task_id)).get("current_state") in TERMINAL_STATES:
+            raise WorkflowError("closed collaboration scope cannot append a new formal stage")
+        if event != "controller_followthrough" and any(row.get("event") == event for row in current):
+            raise WorkflowError("exact collaboration stage already recorded")
+        if event == "controller_decision" and not any(row.get("event") == "controller_received" for row in current):
+            raise WorkflowError("actual formal collaboration intake required before decision")
+        if event == "controller_followthrough":
+            decision = next((row for row in reversed(current) if row.get("event") == "controller_decision"), None)
+            if not decision:
+                raise WorkflowError("actual current assistant decision required before followthrough")
+            previous = next((row for row in reversed(current) if row.get("event") == event), None)
+            if previous:
+                if previous.get("followthrough_status") not in {"blocked_with_owner", "external_wait_registered"}:
+                    raise WorkflowError("actual collaboration next action cannot be replayed")
+                if previous.get("evidence") == evidence:
+                    raise WorkflowError("collaboration wait recovery requires new actual evidence")
+                if (record["followthrough_status"] == previous["followthrough_status"]
+                        and _parse_observed_at(record["next_check_at"]) <= _parse_observed_at(previous["next_check_at"])):
+                    raise WorkflowError("collaboration wait recheck must move forward")
+            if record["followthrough_status"] == "dispatch_sent":
+                _validate_collaboration_followthrough_receipt(root, task_id, decision, record)
+            elif record["followthrough_status"] == "external_wait_registered" and decision["decision"] != "wait_external":
+                raise WorkflowError("external wait must follow the accurate wait decision")
+        record["previous_hash"] = rows[-1]["record_hash"] if rows else ""
+        record["record_hash"] = sha256_value(record)
+        append_jsonl_locked(path, record)
+    return {**record, "result": "recorded", "controller_handoff": result_handoff_status(root, task_id)}, [path]
 
 
 def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) -> tuple[dict[str, Any], list[Path]]:
@@ -4764,20 +5198,22 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
     The caller must verify live Codex messages. This project-local ledger records
     that verification; it cannot intercept or prove a Codex tool call by itself.
     """
-    validate_result_handoff_request(root, request)
+    if not isinstance(request, dict):
+        raise WorkflowError("结果交接输入必须是 JSON 对象")
     task_id = validate_task_id(str(request.get("task_id") or ""))
     event = str(request.get("event") or "")
     if event not in RESULT_HANDOFF_EVENTS:
         raise WorkflowError("结果交接事件类型无效")
     sender = str(request.get("sender_department") or "")
     registry = department_registry(root)
-    import owner_direct_intake
-    owner_intake = owner_direct_intake.existing(root, task_id)
-    if owner_intake and sender == owner_direct_intake.DEVELOPER:
-        registry = {**registry, sender: {"chat_binding": owner_intake["executor_binding"]}}
+    if sender not in registry:
+        from goal_delivery_runtime import validate_collaboration_result_handoff
+        source = validate_collaboration_result_handoff(root, request)
+        return _record_collaboration_result_handoff(root, request, source)
     if sender == "operations" or sender not in registry:
         raise WorkflowError("结果来源必须是注册固定执行部门")
     snapshot = read_json(snapshot_path(root, task_id))
+    from goal_delivery_runtime import enabled as goal_enabled, owner_direct
     candidate = str(request.get("candidate_version") or "")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9+._-]{0,199}", candidate):
         raise WorkflowError("候选版本格式无效")
@@ -4832,39 +5268,23 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
         for row in _result_handoff_rows(root, task_id)
     )
     is_scheduled_queue = event == "notification_queued" and request.get("source_mode") == "scheduled_run"
+    is_owner_direct_queue = event == "notification_queued" and owner_direct(root, snapshot, sender)
     if (not snapshot or not any(item.get("department") == sender for item in snapshot.get("departments", []))):
-        if not (is_scheduled_queue or scheduled_queue or owner_intake):
+        if not (is_scheduled_queue or scheduled_queue):
             raise WorkflowError("结果来源部门未列入原任务工作流")
     if event == "notification_queued":
-        if owner_intake:
-            owner_direct_intake.verify_result(root, request, outbox, owner_intake)
-        elif is_scheduled_queue:
-            if request.get("native_run") is not None:
-                import registered_daily_intake
-                registered_daily_intake.validate(root, request, outbox)
-            else:
-                daily_pattern = (read_json(root / "data/task-contract.json")
-                                 .get("department_output_gates", {})
-                                 .get("content_organic_website_daily", {})
-                                 .get("task_id_pattern"))
-                daily_match = re.fullmatch(r"fc-(\d{8})-website-growth-daily", task_id)
-                reply_at = _parse_observed_at(str(request.get("reply_observed_at") or ""))
-                report_at = _parse_observed_at(str(outbox.get("reported_at_myt") or ""))
-                local_tz = dt.timezone(dt.timedelta(hours=8))
-                scheduled_day = daily_match.group(1) if daily_match else ""
-                if (daily_pattern != "fc-YYYYMMDD-website-growth-daily"
-                        or sender != "content-organic-website"
-                        or request.get("source_automation_id") != "flash-cast-4"
-                        or request.get("source_thread_id") != fixed_id
-                        or not re.fullmatch(r"[0-9a-f]{64}", str(request.get("source_reply_sha256") or ""))
-                        or not re.fullmatch(r"[0-9a-f-]{36}", str(request.get("source_turn_id") or ""))
-                        or reply_at is None or report_at is None
-                        or reply_at < report_at
-                        or reply_at.astimezone(local_tz).strftime("%Y%m%d") != scheduled_day
-                        or report_at.astimezone(local_tz).strftime("%Y%m%d") != scheduled_day
-                        or outbox.get("chat_reply", {}).get("nonempty") is not True
-                        or outbox.get("chat_reply", {}).get("in_current_fixed_department_chat") is not True):
-                    raise WorkflowError("每日自动任务入队须有合同匹配、原固定聊天完成轮次和同日本地V2结果")
+        if is_scheduled_queue:
+            scheduled_source = _validate_scheduled_result(root, request, outbox, fixed_id)
+        elif is_owner_direct_queue:
+            direct_rows, invalid = _validate_receipt_chain(root, task_id)
+            if (invalid or not any(r.get("receipt_type") == "chat_ack" and r.get("department") == sender
+                                   and r.get("chat_task_id") == fixed_id and r.get("ack_nonempty") is True for r in direct_rows)
+                    or outbox.get("chat_reply", {}).get("nonempty") is not True
+                    or outbox.get("chat_reply", {}).get("in_current_fixed_department_chat") is not True
+                    or request.get("source_thread_id") != fixed_id
+                    or not re.fullmatch(r"[0-9a-f]{64}", str(request.get("source_reply_sha256") or ""))
+                    or _parse_observed_at(request.get("reply_observed_at")) is None):
+                raise WorkflowError("owner direct result requires actual fixed chat ACK/reply provenance")
         else:
             receipts, invalid = _validate_receipt_chain(root, task_id)
             latest_dispatch_index = next((index for index in range(len(receipts) - 1, -1, -1)
@@ -4895,73 +5315,48 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
         "idempotency_key": key, "created_at": utc_timestamp(),
         "message_body_stored": False, "business_goal_closed": False,
     }
-    if "scope" in request and (event.startswith("notification_") or request.get("coordinator_role", "operations") == "operations"):
-        # This is reporting context, never a routine grant or authorization.
-        record["reported_scope"] = request["scope"]
-    if event not in {"controller_received", "controller_decision", "controller_followthrough"} and "coordinator_role" in request:
-        from result_coordination import ROLES
-        submitter = request["coordinator_role"]
-        if submitter not in ROLES or submitter not in registry:
-            raise WorkflowError("notification submitter must be a registered coordinator")
-        record.update(submitted_by_role=submitter,
-                      submitted_by_thread_id=registry[submitter].get("chat_binding", {}).get("task_id"),
-                      actor_metadata_is_authentication=False)
-    if event in {"controller_received", "controller_decision", "controller_followthrough"}:
-        actor = request.get("coordinator_role", "operations")
-        record.update(actor_role=actor, actor_thread_id=registry.get(actor, {}).get("chat_binding", {}).get("task_id"),
-                      actor_metadata_is_authentication=False,
-                      final_authority_exercised=request.get("decision") in {"release_gate", "close_scope"},
-                      delegated_bounded_authority=actor != "operations")
-        if actor != "operations":
-            from routine_grants import check_result
-            check_result(root, request)
-            record["routine_grant"] = request["routine_grant"]
-            record["scope"] = request["scope"]
+    if goal_enabled(root, snapshot) and event in {"controller_received", "controller_decision", "controller_followthrough"}:
+        claim = request.get("coordination_claim", {})
+        record.update(coordinator_role=request.get("coordinator_role"),
+                      coordinator_owner=request.get("coordinator_owner"),
+                      coordination_fence=claim.get("fence"),
+                      decision_actor=request.get("coordinator_role"),
+                      responsible_assistant=snapshot["goal_delivery"]["responsible_assistant"],
+                      HQ_second_review_required=False)
     if event == "notification_queued":
         record["delivery_mode"] = "durable_inbox"
-        from routine_authority import default_lane
-        parents=[r for r in _result_handoff_rows(root,task_id) if r.get('event')=='controller_decision'
-                 and r.get('sender_department') not in {'qa','qa-technical'}
-                 and r.get('actor_role') in {'operations-assistant','operations-assistant-2','operations-assistant-3'}]
-        parent_owner=parents[-1]['actor_role'] if parents else None
-        try:lane=default_lane(sender,str(outbox.get('action_class') or outbox.get('task_kind') or ''),parent_owner)
-        except WorkflowError:lane='operations'
-        record["target_department"] = "operations"
-        record["recommended_coordinator"] = lane
-        record["original_business_coordinator"] = parent_owner or lane
+        record["target_department"] = snapshot["goal_delivery"]["responsible_assistant"] if goal_enabled(root, snapshot) else "operations"
+        if goal_enabled(root, snapshot) and sender == snapshot["goal_delivery"]["responsible_assistant"]:
+            record.update(result_lane="HQ_knowledge", target_department="operations", HQ_second_review_required=False)
         record["interrupts_active_thread"] = False
-        if owner_intake:
-            record.update(source_mode="owner_direct", owner_intake=owner_direct_intake.verify_result(root, request, outbox, owner_intake),
-                          authorized_scope=owner_intake["authorized_scope"],
-                          source_thread_id=fixed_id, source_reply_sha256=request["source_reply_sha256"],
-                          reply_observed_at=request["reply_observed_at"], headquarters_dispatch_synthesized=False)
         if is_scheduled_queue:
-            if request.get("native_run") is not None:
-                record["native_run"] = request["native_run"]
             record.update(source_mode="scheduled_run",
-                          source_automation_id=request["source_automation_id"],
+                          source_automation_id=scheduled_source["automation_id"],
+                          responsible_assistant=scheduled_source["responsible_assistant"],
+                          target_department=scheduled_source["responsible_assistant"],
                           source_turn_id=request["source_turn_id"],
                           source_thread_id=fixed_id,
                           source_reply_sha256=request["source_reply_sha256"],
                           reply_observed_at=request["reply_observed_at"])
+            if not scheduled_source.get("legacy_contract"):
+                record.update(actual_native_completion=request["actual_native_completion"],
+                              visible_reply=request["visible_reply"])
+        elif is_owner_direct_queue:
+            record.update(source_mode="owner_direct", authorization_pin=snapshot["goal_delivery"]["authorization_pin"],
+                          source_thread_id=fixed_id, source_reply_sha256=request["source_reply_sha256"],
+                          reply_observed_at=request["reply_observed_at"])
     elif event == "notification_sent":
-        decision_id = str(request.get("policy_decision_id") or "")
-        message_sha = str(request.get("message_sha256") or "").lower()
-        message_ref = str(request.get("message_ref") or "")
-        matches = [item for item in read_jsonl(root / POLICY_DECISIONS) if item.get("decision_id") == decision_id]
-        routing = matches[-1] if matches else {}
-        controller_id = str(registry["operations"].get("chat_binding", {}).get("task_id") or "")
-        if (routing.get("status") != "allow" or routing.get("routing_status") != "routing_allowed"
-                or routing.get("task_id") != task_id or routing.get("department") != sender
-                or routing.get("action_class") != "thread_message"
-                or not str(routing.get("action_id") or "").startswith("notify-operations-")
-                or routing.get("target_department") != "operations"
-                or routing.get("target_thread_id") != controller_id
-                or routing.get("scope") != f"department_result:{task_id}:{sender}"
-                or routing.get("payload_sha256") != message_sha
-                or not message_ref):
-            raise WorkflowError("通知送达缺少准确放行决定、消息哈希或真实发送引用")
-        record.update(policy_decision_id=decision_id, message_sha256=message_sha, message_ref=message_ref)
+        from result_coordination import result_lane, notification_record
+        identity = {"task_id": task_id, "sender_department": sender,
+                    "candidate_version": candidate, "result_sha256": result_sha}
+        lane = result_lane(root, identity)
+        if lane.get("lane") != "legacy_unmapped":
+            delivered = notification_record(root, identity, request, _coordination_locked=True)
+            record.update(target_department=lane["target_department"], result_lane=lane["lane"],
+                          policy_decision_id=request["policy_decision_id"], message_sha256=request["message_sha256"],
+                          message_ref=request["message_ref"], actual_native_transport=delivered["native_transport"])
+        else:
+            _validate_legacy_result_notification(root, request, record, registry, sender, task_id)
     elif event == "notification_blocked":
         reason = str(request.get("block_reason") or "")
         if not reason:
@@ -4978,6 +5373,16 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
             raise WorkflowError("总控收取须记录固定聊天的非空回复哈希、时间和实际收取方式")
         record.update(intake_mode=intake_mode, source_reply_sha256=reply_sha,
                       source_thread_id=reply_thread, reply_observed_at=observed_at)
+        if scheduled_queue:
+            source = scheduled_result_source(root, task_id, sender)
+            if source and not source.get("legacy_contract"):
+                original = next(row for row in _result_handoff_rows(root, task_id)
+                                if row.get("event") == "notification_queued" and _result_identity(row) == scheduled_identity)
+                if reply_sha != original.get("source_reply_sha256") or reply_thread != original.get("source_thread_id"):
+                    raise WorkflowError("daily intake must retain the original exact completed reply, not a later ACK")
+                _validate_scheduled_result(root, original, outbox, fixed_id)
+                record.update(source_turn_id=original["source_turn_id"], actual_native_completion=original["actual_native_completion"],
+                              visible_reply=original["visible_reply"], responsible_assistant=source["responsible_assistant"])
         if intake_mode == "fallback":
             fallback_reason = str(request.get("fallback_reason") or "")
             if not fallback_reason:
@@ -4989,18 +5394,26 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
         next_action = str(request.get("next_action") or "")
         if decision not in RESULT_DECISIONS or not next_owner or not next_action or not evidence:
             raise WorkflowError("总控决策须有类型、唯一负责人、下一动作和证据")
-        if decision in {"release_gate", "close_scope"}:
+        daily_source = scheduled_result_source(root, task_id, sender)
+        daily_modern = bool(daily_source and not daily_source.get("legacy_contract") and scheduled_queue)
+        if decision in {"accept", "close_scope"} and daily_modern and not goal_enabled(root, snapshot):
+            accepted = _validate_scheduled_acceptance(root, request)
+            if request.get("qa_status") != "pass":
+                raise WorkflowError("accepted daily report must carry its accurate pass status")
+            record.update(scheduled_acceptance=accepted["pin"], responsible_assistant=accepted["reviewer"],
+                          acceptance_scope=accepted["acceptance_scope"], HQ_second_review_required=False)
+        if decision == "accept" and not goal_enabled(root, snapshot) and not daily_modern:
+            raise WorkflowError("accept requires one assigned complete-goal assistant")
+        if decision in {"release_gate", "close_scope", "accept"} and not (daily_modern and decision != "release_gate"):
             qa_rows = [row for row in read_jsonl(receipts_path(root, task_id))
                        if row.get("receipt_type") == "qa_verdict" and row.get("department") ==
-                       ("qa" if decision == "release_gate" else _final_qa_department(root, snapshot))]
+                       ("qa" if decision == "release_gate" and not goal_enabled(root, snapshot) else _final_qa_department(root, snapshot))]
             if not qa_rows or qa_rows[-1].get("verdict") != "pass" or request.get("qa_status") != "pass":
                 raise WorkflowError("发布门禁或关闭范围须引用原工作流的当前 QA PASS")
-            if decision == "release_gate" and qa_rows[-1].get("action_class") not in {
+            if decision == "release_gate" and not goal_enabled(root, snapshot) and qa_rows[-1].get("action_class") not in {
                 "cms_content_candidate", "site_code_candidate", "site_code_rework_candidate"
             }:
                 raise WorkflowError("发布门禁须有准确网站候选的发布级 QA；只读或内部候选 PASS 不适用")
-        if "proxy_release" in request:
-            record["proxy_release"] = request["proxy_release"]
         record.update(decision=decision, next_owner=next_owner, next_action=next_action,
                       qa_status=str(request.get("qa_status") or "NOT_VERIFIED"),
                       execution_status=str(request.get("execution_status") or "NOT_EXECUTED"),
@@ -5053,6 +5466,16 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
             record["resolution_record_id"] = str(request.get("resolution_record_id") or "")
             if not record["resolution_record_id"]:
                 raise WorkflowError("依赖解除须引用准确有限验收记录")
+        elif followthrough_status == "no_executable_work":
+            if not goal_enabled(root, snapshot):
+                raise WorkflowError("explicit assistant complete goal required for no-work outcome")
+            notice = file_digest(root, str(request.get("department_notice_path") or ""))
+            data = read_json(safe_path(root, notice["path"]))
+            if (notice not in evidence or data.get("task_id") != task_id or data.get("department") != sender
+                    or data.get("thread_id") != fixed_id or not data.get("native_receipt_ref")
+                    or not data.get("message_ref") or data.get("state") != "temporarily_no_executable_work"):
+                raise WorkflowError("actual fixed-department no-work notice receipt required")
+            record["department_notice"] = notice
         else:
             action_reference = str(request.get("action_reference") or "")
             if not action_reference:
@@ -5067,16 +5490,10 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
         prior_same_key = next((row for row in rows if row["idempotency_key"] == key), None)
         comparable = {key: value for key, value in record.items() if key not in {"record_id", "created_at"}}
         if prior_same_key:
-            if event in {"notification_queued", "notification_sent", "notification_blocked"}:
-                # Submitter context is not the queued business effect. Preserve
-                # the original row and expose a retry's context separately.
-                for field in ("submitted_by_role", "submitted_by_thread_id", "actor_metadata_is_authentication", "reported_scope"):
-                    comparable.pop(field, None)
             prior_comparable = {key: prior_same_key.get(key) for key in comparable}
             if prior_comparable != comparable:
                 raise WorkflowError("幂等键已绑定不同结果交接内容")
-            retry = {key: record[key] for key in ("submitted_by_role", "submitted_by_thread_id", "reported_scope") if key in record}
-            return {**prior_same_key, "result": "duplicate_ignored", **({"retry_context": {**retry, "metadata_is_authentication": False}} if retry else {})}, [path]
+            return {**prior_same_key, "result": "duplicate_ignored"}, [path]
         if event != "controller_followthrough" and any(row["event"] == event for row in current):
             raise WorkflowError("同一候选结果的该交接阶段已记录，不能重复通知或决策")
         events = {row["event"] for row in current}
@@ -5109,6 +5526,8 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
                         _parse_observed_at(previous_followthrough.get("next_check_at"))):
                     raise WorkflowError("再次等待须设置晚于上次的复查时间")
             allowed_followthrough = {
+                "accept": {"dispatch_sent", "execution_verified", "external_wait_registered", "blocked_with_owner",
+                           "prior_action_verified", "inflight_result_verified", "no_executable_work"},
                 "send_qa": {"dispatch_sent", "blocked_with_owner", "prior_action_verified",
                             "inflight_result_verified"},
                 "rework": {"dispatch_sent", "blocked_with_owner"},
@@ -5117,6 +5536,8 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any]) ->
                 "release_gate": {"execution_verified", "blocked_with_owner"},
                 "wait_external": {"external_wait_registered", "blocked_with_owner", "dependency_resolved"},
             }
+            if goal_enabled(root, snapshot):
+                allowed_followthrough.setdefault("continue", set()).add("no_executable_work")
             if decision_row["decision"] == "rework" and decision_row.get("next_owner") == "operations":
                 allowed_followthrough["rework"] = allowed_followthrough["rework"] | {"internal_control_completed"}
                 if record["followthrough_status"] == "internal_control_completed":
@@ -5259,11 +5680,15 @@ def shadow_replay(root: Path, task_id: str) -> tuple[dict[str, Any], list[Path]]
 
 def record_result_handoff(root: Path, request: dict[str, Any]) -> tuple[dict[str, Any], list[Path]]:
     """Native final handoff entry, coordinated without changing historical ledgers."""
-    validate_result_handoff_request(root, request)
-    from result_coordination import handoff_guard
-    with handoff_guard(root, request) as admission:
+    from result_coordination import handoff_guard, notification_enqueue, coordination_lock, FINAL_EVENTS
+    notification_lock = coordination_lock(root) if request.get("event") not in FINAL_EVENTS else nullcontext()
+    with notification_lock, handoff_guard(root, request) as admission:
         if admission.replay_record is not None:
+            if request.get("event") == "notification_queued":
+                notification_enqueue(root, request, _coordination_locked=True)
             return {**admission.replay_record, "result": "duplicate_ignored"}, [result_handoff_path(root, request["task_id"])]
         record, artifacts = _record_result_handoff_uncoordinated(root, request)
+        if request.get("event") == "notification_queued":
+            notification_enqueue(root, request, _coordination_locked=True)
         admission.complete(record)
         return record, artifacts

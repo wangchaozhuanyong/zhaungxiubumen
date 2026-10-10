@@ -1,5 +1,3 @@
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
-
 # 付费增长与转化数据部
 
 这是一个合并部门，统一承接原来的 Google Ads 投放部、数据与转化分析部、转化追踪部。
@@ -14,9 +12,9 @@
 
 ## 当前任务唯一入口（2026-10-08整理）
 
-每次接续付费准备，先读 `drafts/google-ads/fc-20260920-google-ads-rm100-budget-plan/CURRENT.md` 与 `data/google-ads/current-preparation.json`；再核原任务和实际平台证据。只读完整性检查：`python3 tools/validate_current_paid_preparation.py`。检查通过只是资料一致，不是独立QA、启用许可或实时账户状态。
+每次接续付费准备，先读 `drafts/google-ads/fc-20260920-google-ads-rm100-budget-plan/CURRENT.md` 与 `data/google-ads/current-preparation.json`；再核原任务和实际平台证据。只读完整性检查：`python3 tools/validate_current_paid_preparation.py`。检查通过只是资料一致，不是唯一负责助理独立验收、启用许可或实时账户状态。
 
-V42当前已实际启用两套中文Search、6组、40Exact、6原RSA；RM3000含税业务上限、两套广告费TOTAL各RM1350，估算含税RM2916留RM84；10月8–14日广告10–22，店铺10–19不改。40词均Enabled，但12词符合条件、28词搜索量较低；启用不等于已有效果。旧RM100/日、中英60/40、RM560/140、RM350/350和RM1388.88仅为历史，不再作为当前执行输入。200多个词是研究库，不是当前全部投放词。
+2026-10-10最新实际状态：120中文＋40英文共160Exact、12组及12RSA已启用，6条英文RSA原生“符合条件/已批准”，英文网址回读正确。两新系列语言已保存简体中文＋英语；中文上级素材隔离、114中文/54英文子关联、Logo两系列关联、分词出价及英文否词保留。英文Q-20261010/C-20261010各提交一次成功、真实保存为内部来源，老板确认两条都收到；统计/追踪排除契约核验及77项定向测试通过，不当客户或Google成功转化。装修Presence以Oct1–10完整55批原生变更历史验收，不冒称直接读到当前单选。完整记录 reports/2026-10-10-paid-English-enabled-final-execution.md；唯一主账 data/google-ads/current-preparation.json。各TOTAL1350、合计广告费2700/业务上限3000、10月8–14日广告10–22/店铺10–19不变。flash-cast-3已同步六英文组启用状态，10/14/18/22含周末巡检；真实英文展示/咨询/Google转化、Logo实际展示和未来巡检效果另验。旧两系列仍暂停未移除；本批无新串行QA、无安全/权限放宽、无付款。
 
 未完成项按当前索引逐项接续；原工作流曾closed不等于开跑完成。现有flash-cast-3已实际保存为每日10/14/18/22四小时汇报、周末照常，10:00兼每日专业学习；尚无未来运行回执，不能当实时硬止损。V42前导航文件封存在项目paid-owner-completion-v42-navigation备份，V35旧字节另保留原paid-cleanup-v36-department-readme快照。旧两系列仍暂停未移除，不覆写旧审批/QA/执行。
 
@@ -27,7 +25,7 @@ V42当前已实际启用两套中文Search、6组、40Exact、6原RSA；RM3000�
 - 表单、电话、WhatsApp、GA4 事件和 Google Ads 主要转化的映射诊断；
 - 搜索词浪费风险、预算建议、测试方案和数据日报/周报；
 - Search 系列结构、RSA/资产、AI Max/PMax 评估、实验审批包和上线后监控；
-- 把量化证据交给内容、SEO/网站增长、销售与质检部门。
+- 把量化证据交给内容、SEO/网站增长、销售与对应负责助理。
 
 ## 输入
 

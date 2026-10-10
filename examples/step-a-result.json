@@ -42,5 +42,7 @@
     }
   },
   "production_write_allowed": false,
-  "synthetic_example_only": true
+  "synthetic_example_only": true,
+  "historical_only": true,
+  "operational_template": false
 }

@@ -1,25 +1,11 @@
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+# 精确结果键与确定格式失败恢复
 
-# 精确结果通知键与失败恢复
+冻结最终V2后用只读result_handoff_key.py取得通知key；按实际helper的event/task/department/version/final SHA完整组合计算，最长200字符，不手截身份/另换顺序。不同字节或事件重新校验/计算；旧成功key和链不改，duplicate_ignored只回读。
 
-本规则仅修复项目内结果登记格式，不改变聊天路由、健康、QA、生产权限或重试上限。
+确定输入格式拒绝保存原失败，核准确结果尚未登记、真实当前固定结果与合法来源/ACK/健康，才能仅修键/元数据登记一次。此分支不是重试CMS Save/401/部署/Ads；效果不确定先实际读回，不盲重试或重做专业成果。
 
-最终 V2 校验后冻结文件，用以下只读命令生成通知元数据：
+部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。
 
-```sh
-python3 tools/result_handoff_key.py --outbox <项目内最终V2路径> --json
-```
+新goal的来源可为真实approved_dispatch或owner_direct引用，不能补造HQ派工。负责助理按准确token/fence/能力收取和独立验收，outbox_received与controller_received分别记录；发现历史漏记只按当前真实来源补元数据，不能假造过去发送/时间。已采用源码另存新hash和实际检查，旧QA证据保留为旧事实。
 
-将输出的 `idempotency_key` 原样用于该结果的 `notification_queued`。键以事件、原任务、部门、候选版本和最终 outbox SHA-256 的完整组合计算；不要拼接长版本名称后再附完整哈希，不截断身份或哈希。文件字节变化必须重新校验并重新计算。其他结果事件用对应 `--event`，事件不同不能共用键。
-
-发生输入格式拒绝时，保留原失败回执。先确认该精确结果没有成功登记；在合法原工作流、实际固定聊天结果、最终 V2 和健康证据齐全后，只修键并登记一次。返回 `duplicate_ignored` 代表原事件已存在，不能再发任务。此恢复只适用于项目内确定失败的格式登记；不用于重试 CMS Save、认证401、部署、广告或其他外部动作。无法确认是否成功时先读回，不能盲重试。
-
-总控可以按真实失败回执作 `intake_mode=fallback` 收取，不补造旧 `notification_queued` 或 `dispatch_sent`。原业务候选不需要重做；已收取结果只补准确后续动作。没有成功入队时不得写已通知。
-
-普通派工在政策预检前先检查原 workflow 的 `departments` 中包含精确目标部门及固定聊天，再核现场身份、健康与政策许可。计划不匹配时由总控保存实际差异，选择已合法登记的原实施任务接续；禁止先发送后伪造原派工记录。老板指定的跨项目开发窗口仍只走已有精确例外。
-
-部门结束时报告结果、未完范围、负责人、解除条件。总控收取后决定 QA、最小返工、合法发布或具名等待，并关联实际动作；入队、R0 PASS和单轮完成都不代表网站已发布或业务目标完成。
-
-## 2026-10-06 结果回复与前置收取的准确语义
-
-部门直接输出 assistant 结果消息，不向自己调用 send_message_to_thread；发送工具成功不证明结果回复，正文哈希必须来自实际 agentMessage。总控 controller_received 与原工作流 outbox_received 是不同记录。派专业候选给 QA 前，必须检查该固定生产部门的准确 V2 outbox_received 回执存在；只有真实回复、最终 outbox 和当前哈希已核验，才能以当前时间补登记缺失回执，不补造过去发送或旧时间。已实施内部控制的 QA 旧基线证据保留，应用后另存新哈希和受影响验证。
+状态分别为执行中、待助理验收、返工中、已完成范围、下一任务真实已安排、具体依赖等待、暂时无可执行工作。验收PASS必须关联实际下一动作或准确范围关闭；prepared不算sent，passed不算adopted，子任务结束不关闭父目标。缺输入只暂停依赖它的动作，其他独立合法工作继续。停止时列已完成、未完成、唯一负责人、下一动作、解除条件和复查时间；自然去重IP口径缺失记DATA_MISSING，AI效果未实测记NOT_MEASURED。

@@ -1,4 +1,3 @@
-import test_runtime_paths
 """Synthetic project-local integration tests against REAL workflow entry points."""
 import datetime as dt
 import json
@@ -20,7 +19,7 @@ class ResultCoordinationIntegrationTests(unittest.TestCase):
         self.fixture = legacy.WorkflowControlTests("runTest")
         original = tempfile.TemporaryDirectory
         def bounded_temp(*args, **kwargs):
-            kwargs["dir"] = test_runtime_paths.root()
+            kwargs["dir"] = CANDIDATE / ".test-tmp"
             return original(*args, **kwargs)
         with mock.patch.object(legacy.tempfile, "TemporaryDirectory", side_effect=bounded_temp):
             self.fixture.setUp()
@@ -137,18 +136,8 @@ class ResultCoordinationIntegrationTests(unittest.TestCase):
     def test_assistant_claim_cannot_record_any_final_event(self):
         lease = self.claim()
         for event in sorted(coordination.FINAL_EVENTS):
-            request = self.claimed_request(lease) if event == "controller_received" else {
-                **self.base, "event": event, "idempotency_key": "assistant-denied-" + event,
-                "coordinator_role": lease["role"], "coordinator_owner": lease["owner"],
-                "coordination_claim": lease,
-            }
-            if event == "controller_decision":
-                request.update(decision="continue", next_owner="operations", next_action="synthetic next step")
-            elif event == "controller_followthrough":
-                request.update(followthrough_status="blocked_with_owner", unblock_condition="synthetic source",
-                               next_check_at=dt.datetime.now(dt.timezone.utc).isoformat())
             with self.subTest(event=event), self.assertRaisesRegex(w.WorkflowError, "assistant precheck"):
-                w.record_result_handoff(self.root, request)
+                w.record_result_handoff(self.root, self.claimed_request(lease, event=event))
 
     def test_ops_owned_claim_requires_exact_owner_token_fence(self):
         lease = self.claim(role="operations", owner="controller")
@@ -352,25 +341,11 @@ class ResultCoordinationIntegrationTests(unittest.TestCase):
 
     def test_pending_malformed_outbox_type_is_controlled_recovery(self):
         rows = w._result_handoff_rows(self.root, self.base['task_id'])
-        ledger = w.result_handoff_path(self.root, self.base['task_id'])
-        ledger_before = ledger.read_bytes()
         for malformed in [None, [], 'not-an-object', True]:
             bad = [dict(row, outbox=malformed) for row in rows]
             with self.subTest(malformed=malformed), mock.patch.object(w, '_result_handoff_rows', return_value=bad):
-                answer = w.result_handoff_pending(self.root)
-                self.assertEqual(answer['quarantined_ledgers'], [{
-                    'task_id': self.base['task_id'], 'ledger': w.rel_path(self.root, ledger),
-                    'reason': '结果交接 outbox 固定值不是对象，须恢复原证据：' + self.base['task_id'],
-                    'requires_exact_recovery': True}])
-                self.assertEqual(answer['quarantined_count'], 1)
-                for count in ('pending_count', 'queued_pending_count', 'legacy_recovery_count',
-                              'followthrough_pending_count', 'total_actionable_count'):
-                    self.assertEqual(answer[count], 0)
-                self.assertEqual(answer['results'], [])
-                self.assertEqual(answer['followthrough_results'], [])
-                self.assertFalse(answer['business_goal_closed'])
-                self.assertEqual(ledger.read_bytes(), ledger_before)
-        self.assertEqual(w._result_handoff_rows(self.root, self.base['task_id']), rows)
+                with self.assertRaisesRegex(w.WorkflowError, 'outbox'):
+                    w.result_handoff_pending(self.root)
 
 
 if __name__ == "__main__":

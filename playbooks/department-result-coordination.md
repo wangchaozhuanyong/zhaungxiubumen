@@ -1,40 +1,13 @@
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+# 准确结果协调与唯一有效处理人
 
-# 准确结果协调接入
+部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。
 
-本模块调用实际 `workflow_control.record_result_handoff` 的候选入口；不是原先未调用的 ownership 原型。运行根目录未安装。协调身份固定为原 `task_id`、发送部门、候选版本和最终 outbox SHA-256。创建占用前核对唯一原生 queued 行、哈希链、当前 outbox 字节、V2 和注册固定聊天；不扫描历史、不发送消息、不授予发布权限。
+沿用tools/result_coordination.py、BEGIN IMMEDIATE、flock及原生record_result_handoff，锁顺序协调锁→短SQLite事务→原生追加。认领/续租/移交/显式过期恢复使用准确owner/token/fence/result identity，role是审计身份而非账号认证。新goal按负责助理及注册能力处理最终事件；legacy账按原模式读。
 
-`tools/result_coordination.py` 的 SQLite 位于调用项目 `logs/result-coordination.sqlite3`，共享锁位于 `logs/.result-coordination.lock`。所有占用修改使用共享 flock 和 `BEGIN IMMEDIATE`；入口在持有协调锁时调用原生工作流，因此顺序始终为协调锁→SQLite 短事务→原生工作流锁。原生非控制通知继续沿既有入口，不打断聊天。
+TTL为1–900秒；bool/浮点或超上限拒绝。过期必须显式恢复，推进fence使旧持有人失效。事务先预留准确语义/证据；崩溃后读原生effect，同一已追加记录只回读不重复副作用；缺效果由recover-reservation明确恢复，证据变更或不确定性保留拒绝。租约不占用全部专业执行等待期；派工ACK后释放领取，新结果再次认领。
 
-`operations-assistant` 只能 claim、核验、保存预核/下一动作草稿、续期、释放和准确移交；不能写最终 `controller_received`、`controller_decision`、`controller_followthrough`，即使没有占用也拒绝。活跃占用下，总控必须提供准确 owner、token、fence 和 result_key；活跃助理占用会阻止总控，须先明确释放或移交。role/owner 字段只是审计元数据，不是身份认证或权限凭据。
+状态分别为执行中、待助理验收、返工中、已完成范围、下一任务真实已安排、具体依赖等待、暂时无可执行工作。验收PASS必须关联实际下一动作或准确范围关闭；prepared不算sent，passed不算adopted，子任务结束不关闭父目标。缺输入只暂停依赖它的动作，其他独立合法工作继续。停止时列已完成、未完成、唯一负责人、下一动作、解除条件和复查时间；自然去重IP口径缺失记DATA_MISSING，AI效果未实测记NOT_MEASURED。
 
-TTL 为 1–900 秒；bool/浮点数和超过 900 秒均拒绝。重复相同唤醒请求沿用 token/fence；过期占用必须有明确恢复原因，恢复/移交/释放均推进 fence，使旧持有人失效。预核记录 completed、partial、qa_rework、external_blocked、queue_failed 或 failed 时仍须给出下一负责人、动作和解除条件；这些状态都是草稿，不产生原生决策，不结束业务目标。新 scope 只有在准确冻结 outbox 已存在且完全一致时才可记录。
+总部完成真实派工和负责助理责任交接后可以结束协调。负责助理在本批在途期间用 wait_threads 聚合完成事件，每次最多60秒、按固定聊天去重、保存cursor；结果到达后逐项收取、验收并落实下一实际动作。部门active时普通消息排队。队列不能唤醒已结束聊天；中断保留原task/turn/cursor，先核实际回执再恢复。保留已有每日兜底，不新建高频轮询、监控窗口或后台循环。
 
-原生最终动作前冻结请求语义和全部 outbox/证据字节指纹，并预留 event/idempotency effect。运行异常保留 uncertain；下一次先回读原生准确幂等键及字段/证据。如果原生已追加，返回同一 record_id 并完成协调记录；不会再次调用原生副作用。如果未找到追加，必须 `recover-reservation` 提供原因，回读证明未追加后才标 retry_ready。原生明确 `WorkflowError` 校验拒绝时，也先回读证明不存在该动作，再释放该失败校验预留，使原有“修正输入后重试”行为可继续。字节变化、不同语义、损坏或缺失的已提交记录保持拒绝。
-
-入口包装协议：
-
-```python
-with result_coordination.handoff_guard(root, request) as admission:
-    if admission.replay_record is not None:
-        return ({**admission.replay_record, "result": "duplicate_ignored"},
-                [result_handoff_path(root, request["task_id"])])
-    record, paths = _native_record_result_handoff(root, request)
-    admission.complete(record)
-    return record, paths
-```
-
-CLI 使用项目内输入 JSON，不隐式创建工作区：
-
-```bash
-python3 tools/result_coordination.py claim --root /absolute/project --input /absolute/project/drafts/claim.json
-python3 tools/result_coordination.py readback --root /absolute/project --input /absolute/project/drafts/readback.json
-```
-
-claim 输入：`identity`（四字段）、`role`、`owner`、`request_id`、可选 `ttl_seconds`。readback 输入仅 `identity`。renew/release/transfer/precheck 使用相同 identity/role/owner 与完整 `claim` 回读对象；release 加 `reason`；recover 加 `request_id`/`reason`；transfer 加 `target_role`/`target_owner`/`request_id`；precheck 加 `status`/`next_owner`/`next_action`/`unblock_condition`。recover-reservation 输入为 `handoff_request` 和 `reason`。CLI 本身只操作协调数据；不写原生最终决策。
-
-集成检查运行 `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest test_result_coordination -v`，调用候选实际入口和原有真实工作流 fixture。临时项目始终位于本候选 `.test-tmp`，结束后由 tempfile 清理。29 项通过，详见 `result-coordination-tests.log`：独立连接/同时争抢、精确身份、TTL/fence、助理拒绝、转移/释放、草稿状态、原生已追加后的崩溃回读、未追加后的显式恢复、证据变化与旧入口默认行为。
-
-负责人：总部助理制作候选；operations 收取后交固定 QA，决定采用。候选未安装、未产生正式 QA 结论、未改变生产权限；根总控负责后续准确源指纹合并和回滚包。采用前必须核对当前源文件与候选冻结基线，保留并行修改，不以候选整目录覆盖运行目录。
-
-rework3：原生入口与guard共用事件schema；未知/只读/错事件字段、错误类型和evidence_paths先拒绝，零reservation/原生追加/成功audit。已知coordinator_role/scope在通知中只是登记/重试上下文，不是权限；旧行不改，重复只返回retry_context，新增首行保存上下文。final操作的真实routine_grant.scope仍准确验权，operations的scope仅reported_scope；历史缺上下文字段按原生事实读回，不伪补旧账。
+真实生产动作仍须准确授权来源、执行者、范围、事实/必要自检、备份与可执行回滚以及既有合法通道；CMS保存交publishing，代码/构建/部署交指定开发，Ads操作归付费部。助理验收不授账号权限，不绕401、issuer、单次许可或通道。老板已给付费任务的直接执行授权保持有效，不重新加入旧QA/HQ阻断链；只按原精确授权处理，不能扩大到其他Ads、费用或项目。秘密、Cookie、Token和完整客户PII不存不读出。仅系统改造任务 fc-20261010-goal-delivery-assistant-runtime-v1、fc-20261010-continuation-proof-rework-and-cms-entry-v1、fc-20261010-department-flow-audit-repair-v1 的开发交付限制为候选与迁移包，且不含网站/CMS/Ads/Maps实际写入、推送部署或平台自动化变更；该限制不扩展到其他已有准确授权的业务。平台提示词迁移由总部或已获准确授权的助理经原生工具完成，不手改automation.toml。

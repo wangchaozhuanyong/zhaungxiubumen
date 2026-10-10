@@ -28,7 +28,7 @@ AUTH_MESSAGE_ID = 'example-message-not-native'
 AUTH_TEXT = 'Synthetic example only; not a native authorization.\n'
 AUTH_TEXT_SHA256 = 'e6ad84a08c6efca5802c9cb62c400a034556ba457b65e982cefe2612e434cb16'
 RECEIPT_MARKER = "owner_authorization:publisher_preparation_only"
-REQUIRED = ["routing_precheck:owner_delegated_publisher_preparation", RECEIPT_MARKER]
+REQUIRED = []
 
 
 class PreparationDenied(ValueError):

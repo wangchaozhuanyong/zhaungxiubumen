@@ -1,54 +1,14 @@
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+# 内容、SEO/GEO增长完整批次
 
-# 内容、SEO 与网站增长部持续增长 Playbook
+开始核原目标/唯一backlog/已有成果、实际公开页面、页面关键词拥有关系和有日期来源；前期集中建设后持续查漏分析，不定每日一项或产物配额。专业方法按内容部批准renovation-seo-geo使用，主负责人收回指定开发/CMS发布子结果。
 
-## 目标
+双轨检查：防守核HTTP/Title/H1/canonical/hreflang/robots/sitemap/真实主张/手机CTA及咨询流程；增长覆盖需求承接、信任证据、搜索GEO、内容拓展、自然分发、转化反馈。每项给客户/意图/URL、证据、商业价值、真实依赖、准确diff/必要自检/备份回滚及完成标准，不只写标题清单或一句建议。
 
-例行工作既守住网站健康，也持续把高商业价值的自然增长机会变成可审查、可实施、可复盘的交付物。页面数量、抓取次数、单一排名或按钮点击都不是最终成果；核心结果是有效咨询路径和能够被验证的商业页面覆盖。
+优先已有高意图页面，不重复城市薄页/关键词堆砌/假案例或评价；双语条件一致，概念标识和素材权利真实。GEO理解/引用用实际平台/日期/语言/查询/地区/来源观察，未测NOT_MEASURED；合法自然IP口径与GSC/GA4/销售分窗，缺数据DATA_MISSING而非0。
 
-## 每日双轨循环
+执行链是原完整目标→专业事实/自检→准确已有授权与合法通道→实施/Save/部署及公开复核→唯一负责助理完整成果验收/最小返工/准确关闭或下一真实任务。CMS交publishing，代码交指定开发，不对同一范围双重终审，不反复申请已有授权。
+旧backlog枚举/历史QA状态可读但不能作新版验收或已执行证明，当前目标状态按task-contract.goal_delivery_runtime。
 
-1. **先对账**：读取上一份日报、最新 QA/授权/发布状态、`data/content/organic-growth-backlog.json`、页面关键词 Mapping、最新公开页面和注明日期范围的数据。已完成、待 QA、常驻授权可执行、授权外待老板输入和已发布必须分开。
-2. **小批量健康与流量分析**：只抽查高价值页面及昨日变更，确认 HTTP、canonical、hreflang、robots/sitemap、Title/H1、CTA/表单和事实声明；同时检查最新脱敏 GSC/GA4/销售数据的数据窗口和新鲜度。数据有效时分别输出 1/7/28 日自然曝光、点击、CTR、平均排名、top queries、top pages、自然用户/会话/落地页、咨询动作和变化；付费与自然分开，点击不等于有效线索。传输失败与页面故障分开；没有新数据写 `DATA_MISSING`、最后可用日期和补数负责人。
-3. **发现增长缺口**：至少评估商业服务覆盖、Location 差异、Project 证据、Blog/Materials 主题集群、内链、GEO 答案、内容新鲜度、Local SEO/公开引用和咨询阻力。先查现有 URL，不能机械新增页面。
-4. **更新推广缺口矩阵**：把缺口归入需求承接、信任证据、搜索/GEO、内容拓展、自然分发或转化反馈，写清目标客户、意图、目标页面、证据、商业价值、负责人、下一产物和验收指标。
-5. **排序**：优先级综合商业意图、现有证据、覆盖缺口、转化影响、工作量、依赖和风险。P0 故障/错误事实优先于拓展；没有数据时可做证据充分的结构性工作，但不得伪造趋势。
-6. **连续推进并收口**：按`playbooks/organic-intensive-execution.md`连续处理最高优先级且依赖齐全的事项，形成准确候选、QA、实施和公开复核。完成一个继续下一项，不设每日数量/工时上限；纯检查、标题清单或改排期不算解决。实际权限、事实或运行环境阻断时记录检查点与唯一下一动作，下一合法窗口接续。
-7. **QA、运营判断与授权匹配**：更新机会队列，在部门聊天非空回复，写日报和 outbox，随后交 QA。按 `playbooks/site-release-risk-boundary.md` 判定风险；R1/R2 在 QA 无 P0/范围内 P1后由运营记录 `AUTO_RELEASE`，再以 `flashcast.com.my:<exact-target>` 运行政策检查并由常驻授权生成当次单次精确许可；R3 才请老板决定。P2 和与候选无关的数据缺失不得无限期卡住普通优化。
-8. **实施发布**：最新候选取得 QA PASS、运营 `AUTO_RELEASE` 和政策层精确放行后，当天 14:30 必须直接执行，不再等待老板逐项确认。CMS 内容只走受保护 `content-publish`；代码优化只走独立装修网站仓库的 feature branch → 检查 → PR → required CI → `main` → Cloudflare Pages 同 SHA 发布。禁止脏工作区、功能分支直发、直接写生产内容表或绕过 release guard。
-9. **公开复核与回滚**：发布后核对中英文页面、Title/Meta、canonical/hreflang、Schema、sitemap、图片/alt、链接、CTA、移动端、表单路径、缓存和版本证据；严重异常按预先记录的回滚方案恢复并复检。商家资料更新、外联或客户联系仍需单独批准。
-
-## 每周覆盖轮换
-
-- 周一：关键词/页面拥有关系、Cannibalization、搜索意图缺口。
-- 周二：住宅与商业高意图 Service 页面、CTA/CRO。
-- 周三：Project 证据页、案例补证和 Materials 支撑。
-- 周四：核心 Location、本地实体一致性和公开引用机会。
-- 周五：Blog Topic Cluster、旧内容更新、内链和 GEO 答案块。
-- 周六：报价路径、移动端、FAQ、表单及转化障碍。
-- 周日：轻量健康检查、队列去重、阻塞清理和下周排序，不为凑数生产内容。
-
-轮换是覆盖底线，不妨碍 P0/P1 优先级。发现真实机会可跨日继续，避免每天换题导致半成品堆积。
-
-每周输出一次未来 7 天增长组合，至少说明：优先优化的既有商业页、需要新增或更新的内容资产、需要补齐的项目/公司证据、可研究的自然引用机会、预计交给 QA 的项目、常驻授权自动发布项目，以及确属授权外需要老板批准的动作。没有进入 QA、实施、发布验证或明确阻断的内容，不得计为完成。
-
-## 机会状态
-
-`discovered → validated → brief_ready → drafting → ready_for_qa → qa_blocked/qa_passed → standing_authorized → implementing → published → postcheck_passed → verified/closed`
-
-授权外流程仍可进入 `waiting_owner_approval`。`blocked_owner_facts`、`blocked_data_missing` 和 `blocked_evidence_invalid` 必须写解除条件。QA PASS、授权匹配、实施完成和公开发布必须分别留证，不能互相冒充。
-
-## 自然推广边界
-
-允许公开研究竞争页面差距、真实行业目录/协会/供应商/项目引用机会和 Google Business Profile 内容缺口，并生成清单。禁止购买链接、PBN、链接农场、批量目录群发、垃圾客座文、假评价、虚假地点、冒充合作或未批准外联。任何站外资料修改和联系都属于外部写入。
-
-## 每日报告最低字段
-
-- `health_check`：检查范围、变化、证据、异常；
-- `growth_gaps`：缺口、目标客户、意图、目标页面、价值与置信度；
-- `promotion_gap_matrix`：需求承接、信任证据、搜索/GEO、内容拓展、自然分发、转化反馈六类缺口及下一产物；
-- `backlog_change`：新增、升降级、合并、关闭及原因；
-- `advanced_item`：本次推进项目、前后状态、产物路径；
-- `measurement`：数据源、提取/最后可用时间、数据窗口、新鲜度、1/7/28 日自然曝光、点击、CTR、平均排名、top queries、top pages、自然用户/会话/落地页、咨询动作、自然/付费隔离、销售有效咨询证据或 `DATA_MISSING`；
-- `handoff`：QA、授权外老板输入、独立网站仓库或其他部门事项；
-- `external_actions`：列出常驻授权命中的精确 scope、政策决定、发布结果；授权外动作才列待批准。
+部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。
+状态分别为执行中、待助理验收、返工中、已完成范围、下一任务真实已安排、具体依赖等待、暂时无可执行工作。验收PASS必须关联实际下一动作或准确范围关闭；prepared不算sent，passed不算adopted，子任务结束不关闭父目标。缺输入只暂停依赖它的动作，其他独立合法工作继续。停止时列已完成、未完成、唯一负责人、下一动作、解除条件和复查时间；自然去重IP口径缺失记DATA_MISSING，AI效果未实测记NOT_MEASURED。
+真实生产动作仍须准确授权来源、执行者、范围、事实/必要自检、备份与可执行回滚以及既有合法通道；CMS保存交publishing，代码/构建/部署交指定开发，Ads操作归付费部。助理验收不授账号权限，不绕401、issuer、单次许可或通道。老板已给付费任务的直接执行授权保持有效，不重新加入旧QA/HQ阻断链；只按原精确授权处理，不能扩大到其他Ads、费用或项目。秘密、Cookie、Token和完整客户PII不存不读出。仅系统改造任务 fc-20261010-goal-delivery-assistant-runtime-v1、fc-20261010-continuation-proof-rework-and-cms-entry-v1、fc-20261010-department-flow-audit-repair-v1 的开发交付限制为候选与迁移包，且不含网站/CMS/Ads/Maps实际写入、推送部署或平台自动化变更；该限制不扩展到其他已有准确授权的业务。平台提示词迁移由总部或已获准确授权的助理经原生工具完成，不手改automation.toml。

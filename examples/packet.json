@@ -35,5 +35,7 @@
         "requires_controller_gate": false
       }
     ]
-  }
+  },
+  "historical_only": true,
+  "operational_template": false
 }

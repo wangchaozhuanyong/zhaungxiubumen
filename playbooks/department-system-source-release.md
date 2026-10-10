@@ -1,31 +1,13 @@
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+# 部门系统源码导出与安装
 
-# 部门系统源码发布与安装
+只导出本系统控制源码、动态角色/空模板与项目自有方法。公司事实用空白模板；账号、聊天绑定/健康、真实许可、data/logs/reports/drafts、客户数据、素材和学习历史不公开，不复制本公司ID、许可或历史PASS。外部批准Skill保留路径声明，新公司须本机实际核验，不打包机器私有Skill，不因此取得生产权限。角色按注册表动态发现，不按固定11/13角色判断。
 
-此流程只发布中控源码和方法模板，不发布装修网站、CMS、地图或广告。真实业务结果、账号信息、运行时聊天绑定和许可留在本项目。
+真实导出入口为 `python3 tools/export_department_system.py --target <项目内导出目录>`；真实安装入口为 `python3 <导出目录>/tools/setup_department_system.py --root <导出目录>`。共用 `tools/department_system_package.py` 验证最终包：manifest的schema_version为 `department-system-package-v1`，每项path/release_sha256/bytes对应实际发布字节，source_sha256保留来源，fingerprint核canonical无fingerprint字段JSON的SHA-256。该指纹证明输入一致性，不是可信签名或授权。缺失、篡改、不安全路径、正向旧QA/HQ链或未声明旧模式须拒绝，不能重新成为默认运行规则。
 
-## 发布范围
+默认runtime_model必须为 `goal_delivery_assistant_v1`，`qa`/`qa-technical`退出新派工；动态注册角色的role_config、professional_skill、department_readme三份源码及批准的项目内方法须齐全，路由与必要依赖按现行规则验证。安装仍只采用原五配置：department-registry、department-routing-rules、task-contract、action-policy、delegation-policy；agent-role-policy示例是验证依赖，不新增第六个安装配置。七份公司资料使用空模板。
 
-release-manifest.json 记录源码与导出文件的SHA-256，Git提交固定发布内容。GitHub发布不是业务任务完成证明。
+安装写入前验证完整静态包与effective当前注册表、模型及全部计划目标；缺失或非法输入不得留下半套配置。重复安装仅创建missing，保留已有绑定、授权、业务数据、历史和WIP。新安装所有窗口unbound/不可派工，生产权为空。`flashcast_ops`启动调用共用 `validate_startup`：导出安装包核完整manifest，源码公司无manifest时核当前data模型/注册表。历史旧task可读，不作为当前默认模型；导出副本中的packet/step-a明确标作历史R0解析兼容、非运行输入，原示例不删，也不作为安装五配置或新goal模板。
 
-## 本项目发布步骤
+升级交准确候选diff/CAS、备份回滚与必要检查，唯一具备对应能力且未参与制作的负责助理独立验收并按已有准确授权采用，保留运行主账和新真实回执；采用后回读实际入口并完成真实下一任务试点。原生自动任务只处理真正新增迁移差异，由有权总部/助理经原生工具实际更新，不手改平台文件。
 
-1. 核对输出目录位于当前项目内，准确远端是老板授权的 wangchaozhuanyong/zhaungxiubumen。保留源工作区和历史回执。
-2. 运行 python3 tools/export_department_system.py --target <PROJECT_ROOT>/releases/zhaungxiubumen。遇到潜在秘密、软链接或未允许目录即停止导出。
-3. 在发布包中运行安装器及控制测试，检查 Git 暂存文件没有运行数据、聊天绑定、许可和客户信息。
-4. 只提交本次包，推送准确仓库；不 force，不清理其他分支，不推送装修网站。
-5. 回读远端提交和同提交CI。区分本地检查通过、源码已推送、CI通过；CI待运行或失败如实保留。
-
-## 新安装
-
-在新项目内克隆源码后运行 python3 tools/setup_department_system.py。它只创建缺失的本地空白配置和目录，不覆盖已有配置或公司事实。
-
-所有角色最初 unbound、dispatch_eligible=false；发布授权和外部请求为空。管理员必须填写自己的真实项目与公司事实，并在应用中核验每个固定聊天及回复健康，再通过本项目路由。不能把公开模板里的占位符作为现场身份。安装器不会创建聊天、自动化或账号权限。
-
-项目引用的外部专业Skill必须另行检查本机真实路径及部门白名单。缺失时停止该专业动作，不能静默调用其他Skill。
-
-## 升级与恢复
-
-先备份本项目当前控制源码/合同并核对源码指纹，再按准确diff采用。禁止用整个公开包覆盖本地data或历史工作流。重复安装不重建业务主账；历史记录仍按原版本解释。
-
-恢复只替换本次控制源码与新合同字段，保留新产生的真实回执、队列和业务数据。曾发送、保存或部署的动作不随代码恢复撤销；先回读实际效果，避免重发或重写。
+本次系统改造只交候选与最小迁移包，不执行未授权GitHub推送或部署；该限制不扩大到其他已有准确授权的业务。源码导出、空安装、实际采用、原生接续试点和业务完成分别记录。旧GitHub流程及旧task作为历史保留，不恢复旧QA/HQ/老板逐段审批链。

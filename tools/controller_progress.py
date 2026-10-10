@@ -18,7 +18,7 @@ def parse_time(value: str) -> dt.datetime:
     return stamp.astimezone(dt.timezone.utc)
 
 
-def inspect_live(registry: dict, live: dict, now: dt.datetime) -> tuple[list[dict], list[str]]:
+def inspect_live(registry: dict, live: dict, now: dt.datetime, exact_sections: bool = False) -> tuple[list[dict], list[str]]:
     errors = []
     try:
         age = (now - parse_time(live["observed_at"])).total_seconds()
@@ -41,7 +41,9 @@ def inspect_live(registry: dict, live: dict, now: dt.datetime) -> tuple[list[dic
         groups = [s for s in live.get("sections", [])
                   if "codex:thread:local:" + bind["task_id"] in s.get("itemKeys", [])]
         expected_name = "装修公司总控" if dep == "operations" else "装修公司部门"
-        if len(groups) != 1 or groups[0].get("name") != expected_name:
+        group_ok = (len(groups) == 1 and (groups[0].get("sectionId", groups[0].get("id")) == bind.get("sidebar_section_id")
+                    if exact_sections else groups[0].get("name") == expected_name))
+        if not group_ok:
             reason = reason or "fixed_thread_group_missing_or_mismatch"
         status = thread.get("status", "unknown")
         if isinstance(status, dict):
@@ -58,7 +60,7 @@ def inspect_live(registry: dict, live: dict, now: dt.datetime) -> tuple[list[dic
 
 def decide_continuation(roles: list[dict], checkpoint: dict, queue: dict,
                         qa: dict, errors: list[str], business_work: list[dict] | None = None) -> dict:
-    """A handed-off ordinary task does not hold HQ open; unresolved decisions remain."""
+    """A timeout/active/closed/zero intake count is never a stop condition."""
     owned = {row["department"] for row in checkpoint.get("active_tasks", [])}
     waiting = [row for row in roles if row["department"] in owned
                and row["native_status"] == "active" and row["identity_verified"]]
@@ -71,25 +73,29 @@ def decide_continuation(roles: list[dict], checkpoint: dict, queue: dict,
         reasons.append("registered_role_identity_not_fully_verified")
     if unresolved:
         reasons.append("owned_task_identity_needs_recovery")
-    if queue.get("headquarters_pending_count", queue.get("pending_count", 0)):
+    if ended:
+        reasons.append("owned_task_ended_collect_actual_reply_before_stopping")
+    if queue.get("pending_count", 0):
         reasons.append("result_intake_or_decision_pending")
-    if any(row.get("requires_headquarters_decision", True) for row in qa.get("waiting_dispatch", [])):
+    if qa.get("waiting_dispatch"):
         reasons.append("exact_QA_dispatch_pending")
-    if any(row.get("requires_headquarters_decision", True) for row in checkpoint.get("prepared_waiting_qa", [])):
+    if checkpoint.get("prepared_waiting_qa"):
         reasons.append("explicit_prepared_QA_packet_requires_real_dispatch")
     if qa.get("mode") == "BLOCKED_INVALID_PRIORITY_EVIDENCE":
         reasons.append("QA_priority_evidence_invalid")
-    if queue.get("headquarters_followthrough_pending_count", queue.get("followthrough_pending_count", 0)):
+    if queue.get("followthrough_pending_count", 0):
         reasons.append("decision_followthrough_or_due_review_pending")
     if any(row.get("requires_action", True) for row in business_work or []):
         reasons.append("business_backlog_action_or_dependency_reconciliation_pending")
+    if waiting:
+        reasons.append("owned_internal_tasks_running_use_native_event_wait")
     return {"ordinary_stop_allowed": not reasons,
-            "next_mode": "COLLECT_OR_RECONCILE" if reasons
-            else "RELEASED_WITH_DURABLE_INFLIGHT" if waiting or ended else "NO_EXECUTABLE_CONTROL_ITEM",
+            "next_mode": "COLLECT_OR_RECONCILE" if ended or any(
+                r != "owned_internal_tasks_running_use_native_event_wait" for r in reasons)
+            else "NATIVE_EVENT_WAIT" if waiting else "NO_EXECUTABLE_CONTROL_ITEM",
             "reasons": reasons,
-            "event_wait_targets": [],
-            "durable_inflight_targets": [{"thread_id": row["thread_id"],
-                                     "department": row["department"]} for row in waiting + ended],
+            "event_wait_targets": [{"thread_id": row["thread_id"],
+                                     "department": row["department"]} for row in waiting],
             "wait_timeout_is_completion": False,
             "project_queue_wakes_ended_controller": False,
             "business_goal_closed": False}
@@ -165,20 +171,91 @@ def latest_results(root: Path) -> dict:
     return latest
 
 
-def inspect(root: Path, live: dict, now: dt.datetime | None = None) -> dict:
+def _modern_inspect(root: Path, registry: dict, live: dict, now: dt.datetime, coordinator_role: str) -> dict:
+    from controller_event_state import derive
+    state, queue = derive(root, now, coordinator_role=coordinator_role)
+    chosen = ({key: item for key, item in registry.items() if key == "operations"
+               or item.get("coordination_authority", {}).get("routine_decisions") is True}
+              if coordinator_role == "operations" else {coordinator_role: registry[coordinator_role]})
+    roles, live_errors = inspect_live(chosen, live, now, exact_sections=True)
+    inventory = state["responsibility_inventory"]
+    for role in roles:
+        role["latest_recorded_result"] = None
+        role["current_checkpoint_tasks"] = [r for r in inventory if r["department"] == role["department"]]
+        role["unfinished_control_results"] = [r for r in queue["results"] + queue["followthrough_results"]
+                                              if r.get("task_id") in {g["task_id"] for g in role["current_checkpoint_tasks"]}]
+    reasons = []
+    if coordinator_role != "operations":
+        reasons.extend(str(e) for e in live_errors + state["validation_errors"])
+        if any(not r["identity_verified"] for r in roles):
+            reasons.append("current_coordinator_identity_requires_recovery")
+        if queue["pending_count"]:
+            reasons.append("owned_result_intake_or_acceptance_pending")
+        if queue["followthrough_pending_count"]:
+            reasons.append("owned_decision_actual_followthrough_pending")
+        if queue["collaboration_pending_count"]:
+            reasons.append("owned_collaboration_formal_intake_or_actual_followthrough_pending")
+        if queue["collaboration_not_proven_count"]:
+            reasons.append("owned_collaboration_NOT_PROVEN_requires_exact_source")
+        if state["ready_internal_actions"]:
+            reasons.append("owned_goal_requires_current_next_action")
+        if state["watched_tasks"]:
+            reasons.append("owned_actual_sent_task_requires_wait_or_collection")
+    targets = [t for batch in state["event_wait_batches"] for t in batch]
+    target_status = {t["threadId"]: [r.get("status") for r in live.get("threads", []) if r.get("id") == t["threadId"]]
+                     for t in targets}
+    active = all(len(rows) == 1 and (rows[0].get("type") if isinstance(rows[0], dict) else rows[0]) == "active"
+                 for rows in target_status.values())
+    next_mode = ("DELEGATED_ASSISTANTS_OWN_CONTINUATION" if coordinator_role == "operations" else
+                 "NATIVE_EVENT_WAIT" if targets and active and not state["ready_internal_actions"]
+                 and not state["validation_errors"] and not queue["total_actionable_count"] and not live_errors
+                 and not queue["collaboration_pending_count"]
+                 and not queue["collaboration_not_proven_count"]
+                 and all(r["identity_verified"] for r in roles)
+                 else "COLLECT_OR_RECONCILE" if reasons else "NO_EXECUTABLE_CONTROL_ITEM")
+    continuation = {"ordinary_stop_allowed": not reasons, "next_mode": next_mode, "reasons": reasons,
+                    "event_wait_batches": state["event_wait_batches"], "event_wait_targets": targets,
+                    "wait_timeout_is_completion": False, "project_queue_wakes_ended_controller": False,
+                    "business_goal_closed": False}
+    return {"schema_version": "2.0", "coordination_model": "goal_delivery_assistant_v1",
+            "coordinator_role": coordinator_role, "generated_at_myt": now.astimezone(dt.timezone(dt.timedelta(hours=8))).isoformat(),
+            "source": state["source"], "checkpoint_sources": state["checkpoint_sources"],
+            "observation_time_is_not_native_freshness": True, "responsibility_inventory": inventory,
+            "validation_errors": state["validation_errors"], "live_identity_errors": live_errors,
+            "current_native_observation_required": state["current_native_observation_required"],
+            "department_count": len(roles), "roles": roles,
+            "control_counts": {key: queue[key] for key in ("pending_count", "followthrough_pending_count", "total_actionable_count", "collaboration_pending_count", "collaboration_not_proven_count", 'professional_pending_count', 'HQ_knowledge_pending_count', 'named_due_dependency_count', 'legacy_unmapped_count', 'notification_delivery_pending_count')},
+            'HQ_knowledge_pending': queue['HQ_knowledge_pending'], 'legacy_unmapped': queue['legacy_unmapped'],
+            'notification_delivery_pending': queue['notification_delivery_pending'],
+            'native_resume_plan': state['native_resume_plan'],
+            "control_rows_are_not_distinct_business_tasks": True,
+            "distinct_control_task_count": len({r["task_id"] for r in queue["results"] + queue["followthrough_results"]}),
+            "unfinished_control_rows": queue["results"] + queue["followthrough_results"],
+            "collaboration_pending": queue["collaboration_pending"],
+            "collaboration_not_proven": queue["collaboration_not_proven"],
+            "legacy_QA_mode": "retired_history", "QA_waiting_dispatch": [], "prepared_QA_packets": [],
+            "QA_dispatched_wait_result": [], "business_backlog_rows": [], "business_unfinished_scopes": inventory,
+            "business_actionable_or_reconciliation_count": sum(r["requires_action"] for r in inventory),
+            "formally_closed_scope_count": sum(r["formally_closed_scope"] for r in inventory),
+            "continuation": continuation, "natural_daily_unique_IP": "DATA_MISSING", "AI_effect": "NOT_MEASURED",
+            "messages_sent": 0, "business_ledger_modified": False, "permissions_or_external_writes": 0}
+
+
+def inspect(root: Path, live: dict, now: dt.datetime | None = None, coordinator_role: str = "operations") -> dict:
     now = now or dt.datetime.now(dt.timezone.utc)
     registry = workflow.department_registry(root)
     if root.resolve() != Path(registry["operations"]["chat_binding"]["cwd"]).resolve():
         raise ValueError("controller project cwd mismatch")
+    from goal_delivery_runtime import enabled
+    if enabled(root):
+        return _modern_inspect(root.resolve(), registry, live, now, coordinator_role)
+    if coordinator_role != "operations":
+        raise ValueError("assistant continuation requires enabled goal runtime")
     policy = json.loads((root / "data/content/organic-execution-policy.json").read_text())
     cp = policy["keyword_content_coverage_acceptance"]["controller_checkpoint"]
     checkpoint = json.loads(workflow.safe_path(root, cp).read_text())
-    from routine_authority import partition_queue
-    queue = partition_queue(root, workflow.result_handoff_pending(root))
+    queue = workflow.result_handoff_pending(root)
     qa = priority.inspect(root)
-    from routine_authority import classify_ready_tasks
-    qa["waiting_dispatch"] = classify_ready_tasks(root, qa.get("waiting_dispatch", []))
-    checkpoint = {**checkpoint, "prepared_waiting_qa": classify_ready_tasks(root, checkpoint.get("prepared_waiting_qa", []))}
     roles, errors = inspect_live(registry, live, now)
     latest = latest_results(root)
     for role in roles:
@@ -240,6 +317,28 @@ def cell(value) -> str:
 
 
 def render(status: dict) -> str:
+    if status.get("coordination_model") == "goal_delivery_assistant_v1":
+        lines = ["# 当前责任与未完成范围", "", "读取时间：" + status["generated_at_myt"],
+                 "当前协调角色：" + status["coordinator_role"], "",
+                 "来源为当前负责助理的目标与记录过的真实事件等待；读取时间不代表现场观测已刷新。",
+                 "", "| 原任务 | 当前负责助理 | 实际阶段 | 下一动作 | 解除条件 / 复查 |", "| --- | --- | --- | --- | --- |"]
+        for row in status["responsibility_inventory"]:
+            lines.append("| " + " | ".join(map(cell, [row["task_id"], row["next_owner"], row["status"], row["next_action"],
+                         str(row["unblock_condition"]) + " / " + str(row.get("next_check_at") or "原任务事件/当前恢复")])) + " |")
+        lines += ["", "正式收口的准确范围：" + str(status["formally_closed_scope_count"]),
+                  "结果收取/验收待办：" + str(status["control_counts"]["pending_count"]),
+                  "决策后真实下一动作待办：" + str(status["control_counts"]["followthrough_pending_count"]),
+                  "协作结果正式收取/验收/真实接续待办：" + str(status["control_counts"]["collaboration_pending_count"]),
+                  '专业待验收 / HQ待知悉 / 具名到期依赖 / 旧账待映射：' + ' / '.join(str(status['control_counts'][key]) for key in ('professional_pending_count', 'HQ_knowledge_pending_count', 'named_due_dependency_count', 'legacy_unmapped_count')),
+                  '通知待送达：' + str(status['control_counts']['notification_delivery_pending_count']) + '（持久入队不等于实际发送）',
+                  "协作证据 NOT_PROVEN（逐项恢复原来源）：" + str(status["control_counts"]["collaboration_not_proven_count"]),
+                  "", "普通收工允许：" + str(status["continuation"]["ordinary_stop_allowed"]),
+                  "下一模式：" + status["continuation"]["next_mode"],
+                  "原因：" + ", ".join(status["continuation"]["reasons"]),
+                  "", "旧 QA 仅保留历史读取，不形成新验收队列。ACK/prepared/idle/空待办均不是完成证明。",
+                  "原生事件等待每批至多8个聊天、单次至多60秒，必须记录实际 cursor；队列不能唤醒已结束聊天。",
+                  "子范围收口不自动关闭父目标，也不表示整个业务目标或生产上线已经完成。", ""]
+        return "\n".join(lines)
     lines = ["# 公司工作进度与未完成清单", "", "更新时间：" + status["generated_at_myt"],
              "", "此表只汇总真实控制记录与现场状态；候选、QA和历史 verified 均不自动表示生产上线。",
              "", "## 现在各部门在哪里", "",
@@ -316,11 +415,12 @@ def main() -> int:
     parser.add_argument("--live-proof", required=True)
     parser.add_argument("--json-output")
     parser.add_argument("--report-output")
+    parser.add_argument("--coordinator-role", default="operations")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     try:
         live = json.loads(workflow.safe_path(root, args.live_proof).read_text())
-        result = inspect(root, live)
+        result = inspect(root, live, coordinator_role=args.coordinator_role)
         for name, content in ((args.json_output, json.dumps(result, ensure_ascii=False, indent=2) + "\n"),
                               (args.report_output, render(result))):
             if name:

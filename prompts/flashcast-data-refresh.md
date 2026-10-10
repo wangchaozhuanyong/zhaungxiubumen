@@ -1,35 +1,9 @@
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+# 合法数据刷新完整批次
 
-# FLASH CAST 增长数据刷新提示词
+总部只给准确数据目标/日期窗/来源与唯一主负责人，专业制作归paid-growth-data；读取最新合法Ads/GA4与脱敏销售，先核账户/时间/币种/时区/来源新鲜度，对齐点击→咨询动作→真实询盘→有效→报价→成交。缺失不写0，历史快照不作当前；搜索词/出价只在原准确授权内行动。既有已登录/只读权限缺失列真实账号保管人，不取秘密或绕验证。
 
-请使用 `FLASH CAST Growth Controller`，按 `audit` 只读模式执行一次增长数据刷新。
+结果由未制作、具data能力的唯一负责助理验收与常规接续，总部不代做分析或二审。
 
-读取：
+部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。
 
-- `AGENTS.md`、`README.md` 和全部公司资料；
-- `accounts/ACCOUNT-INDEX.md`、`accounts/DEPARTMENT-ACCESS-MAP.md`；
-- `playbooks/flashcast-growth-data-and-backend-operations.md`；
-- `data/google-ads/` 最新 CSV；
-- `data/analytics/` 最新 GA4 导出（如有）；
-- `data/leads/` 脱敏线索质量表（如有）；
-- 最近一份 `reports/` 和 `history/skill-zhuangxiuseogeo/` 中与本次时间窗有关的历史资料。
-
-任务：
-
-1. 先列出账户、网站、时间范围、货币、时区和数据新鲜度；
-2. 对齐 Google Ads、GA4、网站表单、电话、WhatsApp 和销售/CRM 的定义；
-3. 分别报告点击、咨询动作、确认询盘、有效线索、报价、签单和成本；
-4. 搜索词分析只提出否定词草案，不修改账户；
-5. 对照设备、地区、广告组、广告文案和落地页；
-6. 发现数据缺失时明确写“缺失/未验证”，不把缺失当成 0；
-7. 生成结论、证据、动作、负责人、优先级、风险、待批准事项和下一步；
-8. 将报告保存到 `reports/YYYY-MM-DD-<topic>.md`。
-
-如果需要登录 Google Ads、GA4、GTM 或网站后台：
-
-- 只能使用负责人已有的登录态或只读授权；
-- 不读取或保存密码、Token、Cookie、OTP、Passkey、银行卡或客户个人资料；
-- 遇到验证码、Passkey、权限、账单或安全验证时，暂停并请负责人本人处理；
-- 只看不改，不点击 Apply、Save、Enable、Publish 或 Send。
-
-最终必须说明读取了哪些资料、使用了哪些 Agent、发现了什么、生成了哪些文件，以及哪些动作仍需人工批准。
+状态分别为执行中、待助理验收、返工中、已完成范围、下一任务真实已安排、具体依赖等待、暂时无可执行工作。验收PASS必须关联实际下一动作或准确范围关闭；prepared不算sent，passed不算adopted，子任务结束不关闭父目标。缺输入只暂停依赖它的动作，其他独立合法工作继续。停止时列已完成、未完成、唯一负责人、下一动作、解除条件和复查时间；自然去重IP口径缺失记DATA_MISSING，AI效果未实测记NOT_MEASURED。

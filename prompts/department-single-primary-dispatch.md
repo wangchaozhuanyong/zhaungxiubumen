@@ -1,27 +1,17 @@
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
+# 完整目标一次派工与唯一助理接续
 
-# 固定部门明确主任务派工模板
+先读现行AGENTS、注册表与task-contract，以实际固定项目/聊天/标题/cwd/分组/健康及目标scope完成精确预检。计划不等于消息已发；实际成功才记dispatch_sent，非空真实ACK才接单。老板直接任务以真实human_authorization纳管，不补造HQ派工。
 
-发送前依次核对：原计划中的目标固定部门、真实项目/聊天/标题/cwd/分组、有效回复健康、目标非 active、同原任务/版本/动作/哈希历史回执和精确 policy-check。新生产或跨项目权力不由本模板授予。
+任务输入 `goal_delivery`：objective、completion_criteria、primary_owner、responsible_assistant、existing_results、authorized_scope、dependencies、producer_departments、acceptance_capability；子任务附parent_task_id。human_authorization包含source_thread_id/message_id/executor/scope/evidence_path，仅为真实来源引用，不能扩权。
 
-主任务：`<原 task_id>`；本轮候选：`<准确 candidate_version>`；动作：`<准确 action_id>`。
-唯一任务包：`<项目内准确绝对路径与 SHA>`。
-本轮目标、已接受且不得重做的来源、允许范围、交付标准、未做范围及下一负责人：按冻结任务包填写。
+现行模式为 `goal_delivery_assistant_v1`：总部给完整目标，专业主负责人沿同一任务执行到底，唯一负责助理独立验收并落实已授权常规后续，总部读结论、定新目标。角色/能力/绑定由注册表动态读取；QA1/QA2保留历史证据并退出新派工。禁止生产者自审，跨助理仅显式转给相同验收能力者。候选、自检、验收、采用、实际Save/部署、公开复核和业务结果分别记录。
 
-请先确认这个准确主任务，不以通用优先队列或旧 closed 状态忽略本轮明确新候选。读取 `playbooks/single-primary-task-dispatch-and-undone-report.md` 与 `playbooks/result-notification-key-and-recovery.md`。
+部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。
 
-本轮有界主任务的结果、最终V2、一次入队回读和学习回执完成后结束本轮，将新增机会和未完项交总控决策。不要在末尾自行追加整套日检或另一主任务，长期占用固定窗口使下一准确返工无法进入。每日专业检查继续沿已有日检任务；总控可在本轮结束后立即派下一项，不设每日数量配额。
+总部完成真实派工和负责助理责任交接后可以结束协调。负责助理在本批在途期间用 wait_threads 聚合完成事件，每次最多60秒、按固定聊天去重、保存cursor；结果到达后逐项收取、验收并落实下一实际动作。部门active时普通消息排队。队列不能唤醒已结束聊天；中断保留原task/turn/cursor，先核实际回执再恢复。保留已有每日兜底，不新建高频轮询、监控窗口或后台循环。
 
-按 AGENTS 的“同一任务中已确认且未变化的信息不反复检查”执行：本固定聊天已实际读取、原任务不变且哈希未变的基础资料可引用已读证明；未读、已变、过期或本轮相关的新资料必须读取。现场身份/健康仍新鲜核对。准确最小返工只复验本轮变化与必要检查，不重新输出整份历史资料、重做已接受测试或全站审计；说明实际复验范围和未检边界。
+真实生产动作仍须准确授权来源、执行者、范围、事实/必要自检、备份与可执行回滚以及既有合法通道；CMS保存交publishing，代码/构建/部署交指定开发，Ads操作归付费部。助理验收不授账号权限，不绕401、issuer、单次许可或通道。老板已给付费任务的直接执行授权保持有效，不重新加入旧QA/HQ阻断链；只按原精确授权处理，不能扩大到其他Ads、费用或项目。秘密、Cookie、Token和完整客户PII不存不读出。仅系统改造任务 fc-20261010-goal-delivery-assistant-runtime-v1、fc-20261010-continuation-proof-rework-and-cms-entry-v1、fc-20261010-department-flow-audit-repair-v1 的开发交付限制为候选与迁移包，且不含网站/CMS/Ads/Maps实际写入、推送部署或平台自动化变更；该限制不扩展到其他已有准确授权的业务。平台提示词迁移由总部或已获准确授权的助理经原生工具完成，不手改automation.toml。
 
-完成、部分完成、返工、失败、权限或事实阻断，都在本固定聊天报告已做/未做/未发布、验证结果、证据路径、唯一下一负责人和解除条件。冻结最终 V2 并校验后，用只读短键 helper 一次登记结果；不要向工作中的总控插消息。重复唤醒先按原身份和哈希回读，不重复候选或发送。
+状态分别为执行中、待助理验收、返工中、已完成范围、下一任务真实已安排、具体依赖等待、暂时无可执行工作。验收PASS必须关联实际下一动作或准确范围关闭；prepared不算sent，passed不算adopted，子任务结束不关闭父目标。缺输入只暂停依赖它的动作，其他独立合法工作继续。停止时列已完成、未完成、唯一负责人、下一动作、解除条件和复查时间；自然去重IP口径缺失记DATA_MISSING，AI效果未实测记NOT_MEASURED。
 
-新 V2 结束前必须核对当前入队合同的顶层字段：`task_id`、`department`、`candidate_version`、终态 `status`、`fixed_chat_task_id`（注册固定聊天 ID），以及 `chat_reply.nonempty=true` 和 `chat_reply.in_current_fixed_department_chat=true`。这两个回复标记只能依据本轮真实非空固定聊天回复填写；在证据中保存原轮次、回复 ID/哈希和观察时间。仅有嵌套 `fixed_chat` 描述，或短键生成成功，都不代表可入队。
-
-先读回当轮真实 `dispatch_sent`、其后的非空 `chat_ack` 和派工后生成的最终 V2，再校验哈希和登记一次 `notification_queued`。拒绝时保留具体错误和原冻结文件；只修回执字段、以新后缀保存补正版并使用新哈希，不重做专业候选、不补造历史发送、不重放已保存/发布动作。成功后读回准确入队记录；没有该记录就明确回报“未入队”、负责人和恢复条件，不写“已通知总控”。
-
-所有新 JSON 证据在冻结前必须实际解析成功，使用项目现有 JSON 写入方法；文件存在或哈希有效不能替代 JSON 可读。不得把字面 `\\n` 附在 JSON 对象之后。序列化失败保留原文件，以独立补正版说明准确修复，不改变已验收候选内容或原结果。
-
-总控收取后必须作准确决策并关联实际动作或具名等待；在途和未派发包在固定进度表保留。R0/QA/发送成功/入队不是发布或业务完成。
-
-入队后允许总控并发收取和决策。读取 playbooks/result-queue-concurrent-intake-readback.md，按原任务/部门/候选/最终哈希选唯一结果并核唯一 notification_queued 回执；不要要求 controller_received=false 或 decision=pending，不用 results[0] 或 pending_count。可用 tools/result_handoff_readback.py 只读核对；已被收取或决策也是入队成功，禁止因此重排队、撤销或重做候选。
+开始前用 `python3 tools/flashcast_ops.py department-learning-effective --department <注册部门ID>` 读取当前模式的只读有效学习视图。原学习JSON、继承通知和旧next_action只作历史证据；当前派工操作以现行规则和本任务真实授权为准。专业结果交唯一助理，已验收的助理总结交总部知悉，通知待发送另计；不得把总部知悉变成助理自审。

@@ -3,11 +3,10 @@ name: flashcast-sales-leads
 description: "FLASH CAST 销售与线索专业 Skill；用于装修询盘脱敏分级、来源归因、需求摘要、报价前问题、跟进话术和广告质量反馈。"
 ---
 
-现行协作入口：`playbooks/department-system-current.md`。按注册表核本角色专业职责与批准子Skill，普通在途不持有总部协调轮次；本候选须独立QA和总部采用。
 
 # FLASH CAST 销售与线索专业 Skill
 
-2026-09-30每日专业闭环优先规则：读取 `playbooks/department-daily-professional-loop.md`，每天先续原任务与返工，再按本部门完整职责主动查漏、研究新机会、推进依赖齐全事项；在本固定聊天报告已做/未做/原因/证据/唯一下一动作并校验V2 outbox。有新结果或需总控决策时登记项目持久结果队列，不向总控聊天直接发送消息；总控负责收取、决策和下一有界派工。单轮完成、文件或QA审阅不等于业务目标完成；安全权限边界不变。本段覆盖下文旧通知方式及每日一项节流。
+专业日常按现行department-daily-professional-loop读取原完整目标、已有成果和未完，原负责人继续执行，负责助理唯一验收与常规接续；不逐段报审、不用报告或入队代替真实动作。
 
 ## 固定专业子 Skill
 

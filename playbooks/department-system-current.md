@@ -1,19 +1,17 @@
-# 部门系统当前规则（V13 隔离候选，未采用）
+# 完整目标交付现行运行规则
 
-角色、数量、固定聊天、关联项目、主 Skill 和批准子 Skill 唯一来源是 `data/department-registry.json`。启动、日检、学习、模板和导出逐行读取注册表，不另设固定部门数量。关联开发部保留实际项目、cwd、标题及明确代码根，不被改造成同项目窗口，不继承其他账户或生产权限。
+现行模式为 `goal_delivery_assistant_v1`：总部给完整目标，专业主负责人沿同一任务执行到底，唯一负责助理独立验收并落实已授权常规后续，总部读结论、定新目标。角色/能力/绑定由注册表动态读取；QA1/QA2保留历史证据并退出新派工。禁止生产者自审，跨助理仅显式转给相同验收能力者。候选、自检、验收、采用、实际Save/部署、公开复核和业务结果分别记录。
 
-规则与依赖按 ADOPTION-SCOPE 一起 CAS 采用；候选注册表不能整表覆盖活动身份/健康。现行付费推广 `playbooks/paid-promotion-preflight-and-lessons.md` 与付费/视觉直接授权规则保留。旧规则在 history 只读，不参与启动。角色文件、候选文件、测试和队列不是准入。
+任务输入以goal_delivery及真实human_authorization/approved_dispatch为准。目标/标准/范围/主负责人/负责助理/成果复用/依赖/能力一次明确；主负责人收回开发与发布结果，父任务不因子任务PASS关闭。
 
-总部负责重大方向、授权变化、R3 和例外。三个助理共享总部协调方法及队列，按准确采用记录和短租约 grant 实际收取、普通派工、送独立 QA、最小返工、准确范围关闭与 R1/R2 常规 AUTO_RELEASE 安排。生产者与助理不自审；CMS 执行许可和保存留在 publishing，代码构建/CI/部署交关联开发部。未知风险、改变候选、过期、扩大范围、账号和费用交总部。
+部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。
 
-单一领取键是原 task/生产部门/候选版本/outbox SHA，最多一个活跃租约。不确定发送先读回，不能重发；可证明原生 append 的中断由原获准助理按有效租约恢复。ACK 后释放短租约，保留业务协调人、下一执行者和回报责任。坏行留在原账并隔离该任务，健康独立任务继续；不静默修坏账或由旧历史推造接单。
+总部完成真实派工和负责助理责任交接后可以结束协调。负责助理在本批在途期间用 wait_threads 聚合完成事件，每次最多60秒、按固定聊天去重、保存cursor；结果到达后逐项收取、验收并落实下一实际动作。部门active时普通消息排队。队列不能唤醒已结束聊天；中断保留原task/turn/cursor，先核实际回执再恢复。保留已有每日兜底，不新建高频轮询、监控窗口或后台循环。
 
-专业部门的 R0 workpack 明确 step_id、scope、输入 hash/size、独立 output_dir、依赖、批准子 Skill 与到期时间。`department_next_work.inspect` 校验原生 sectionId、准确派工/非空 ACK 或 owner_direct 来源；`department_continuity.consume` 在准确采用后调用本固定聊天专业执行者和真实回复观察者，实际执行→冻结→唯一入队→选择下一步。无下一步或到期结束本轮；中断未封存输出先恢复，不自动重做。普通在途不堵总部或其他结果。
+状态分别为执行中、待助理验收、返工中、已完成范围、下一任务真实已安排、具体依赖等待、暂时无可执行工作。验收PASS必须关联实际下一动作或准确范围关闭；prepared不算sent，passed不算adopted，子任务结束不关闭父目标。缺输入只暂停依赖它的动作，其他独立合法工作继续。停止时列已完成、未完成、唯一负责人、下一动作、解除条件和复查时间；自然去重IP口径缺失记DATA_MISSING，AI效果未实测记NOT_MEASURED。
 
-老板在固定聊天直接下达的任务由 owner_direct_intake 保留原生人类消息元数据、原 task/scope/time/执行者；不造总部 dispatch/ACK。正式关联开发部也走此入口。所有注册执行部门的日检使用 registered_daily_intake 和准确 native_run pin，保留真实 automation/turn/thread/outbox 元数据，不改变实际自动化。
+真实生产动作仍须准确授权来源、执行者、范围、事实/必要自检、备份与可执行回滚以及既有合法通道；CMS保存交publishing，代码/构建/部署交指定开发，Ads操作归付费部。助理验收不授账号权限，不绕401、issuer、单次许可或通道。老板已给付费任务的直接执行授权保持有效，不重新加入旧QA/HQ阻断链；只按原精确授权处理，不能扩大到其他Ads、费用或项目。秘密、Cookie、Token和完整客户PII不存不读出。仅系统改造任务 fc-20261010-goal-delivery-assistant-runtime-v1、fc-20261010-continuation-proof-rework-and-cms-entry-v1、fc-20261010-department-flow-audit-repair-v1 的开发交付限制为候选与迁移包，且不含网站/CMS/Ads/Maps实际写入、推送部署或平台自动化变更；该限制不扩展到其他已有准确授权的业务。平台提示词迁移由总部或已获准确授权的助理经原生工具完成，不手改automation.toml。
 
-`.codex/hooks.json` 当前 hooks 为空，Stop 未启用。队列不能唤醒已结束聊天，不启动 Stop 忙循环、五分钟轮询或守护进程；自然接续及现有每日 18:00 兜底保留。暂停/取消优先，只有明确人类恢复命令恢复。
+本轮修复前规则准确字节在 `logs/handoffs/2026-10-10-department-flow-audit-repair-v1/developer/baseline/`，同包 `lanes/rules/obsolete-current-rule-map.json` 说明退出入口。旧账缺goal按原版本可读，不能为新任务恢复QA1/QA2或预核/HQ等待。正式切换须独立新候选验收、CAS采用、真实内部完成事件与下一动作试点。
 
-清理依赖实际任务结束、当前引用集合、hash 和可恢复隔离，不按年龄单独决定。正式交付、事实、主账、QA/许可/发布/回滚/权利证据、在用文件、Git/WIP 和项目外路径保护。计算式 JS 无法静态证明时保护，不执行应用 JS。周日 20:00 清理提示仅为待独立 QA/准确采用提案，未启用真实删除。
-
-汇报区分代码完成、本地检查、独立 QA、采用、真实试点、保存/部署、推送和业务结果。学习报告不可覆盖，准确重复输入幂等；历史缺失 1321 字节写 DATA_MISSING，不补造。只关闭准确已验收范围，不关闭全站或增长目标。
+开始前用 `python3 tools/flashcast_ops.py department-learning-effective --department <注册部门ID>` 读取当前模式的只读有效学习视图。原学习JSON、继承通知和旧next_action只作历史证据；当前派工操作以现行规则和本任务真实授权为准。专业结果交唯一助理，已验收的助理总结交总部知悉，通知待发送另计；不得把总部知悉变成助理自审。
