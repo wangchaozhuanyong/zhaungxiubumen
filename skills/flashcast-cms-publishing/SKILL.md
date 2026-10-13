@@ -5,13 +5,13 @@ description: "执行 FLASH CAST 官网已有准确授权及负责助理独立验
 
 # FLASH CAST 管理后台发布
 
-只执行 flashcast.com.my 的既有内容字段。原专业部门冻结内容，完整目标的唯一负责助理按本版成果和对应能力独立验收并作已有授权内的常规接续；总部只读结论、确定新目标及重要授权变化。代码提交、PR、CI和部署交注册表绑定的指定开发，不在此技能中执行。
+只执行 company.example 的既有内容字段。原专业部门冻结内容，完整目标的唯一负责助理按本版成果和对应能力独立验收并作已有授权内的常规接续；总部只读结论、确定新目标及重要授权变化。代码提交、PR、CI和部署交注册表绑定的指定开发，不在此技能中执行。
 
 接管状态以 data/publishing/department-onboarding.json 为准。新部门建立或技能校验不等于生产权限；接管前只做内部准备。当前原任务归属、旧许可和一次性消费记录保留，新部门不得继承或重放以 content-organic-website 绑定的许可。
 
 ## 接收一个准确发布包
 
-核原task_id、candidate_version、action、flashcast.com.my: scope、EN/ZH字段、真实CMS记录ID、冻结候选hash与来源；必须锁定 cms_content_candidate → cms_write。读取 data/task-contract.json、data/action-policy.json、playbooks/site-release-risk-boundary.md 和原workflow、当前负责助理本版验收、原授权、许可及执行回执。合法来源可以是总部原完整目标、老板准确直接任务，或已绑定负责助理/主负责人在原完整目标内落实的准确常规协作；均核现场身份、健康、scope与policy，未变版本按幂等键去重。新goal不要求QA1/QA2或总部二审，缺goal的历史任务只读其原准确链，不补新PASS。
+核原task_id、candidate_version、action、company.example: scope、EN/ZH字段、真实CMS记录ID、冻结候选hash与来源；必须锁定 cms_content_candidate → cms_write。读取 data/task-contract.json、data/action-policy.json、playbooks/site-release-risk-boundary.md 和原workflow、当前负责助理本版验收、原授权、许可及执行回执。合法来源可以是总部原完整目标、老板准确直接任务，或已绑定负责助理/主负责人在原完整目标内落实的准确常规协作；均核现场身份、健康、scope与policy，未变版本按幂等键去重。新goal不要求QA1/QA2或总部二审，缺goal的历史任务只读其原准确链，不补新PASS。
 
 内容已发布或执行状态不明时先回读原记录与Saved ID，不能重复保存。新goal发布前同时具备：唯一未参与制作的负责助理按准确任务/版本/哈希/能力完成的适用验收与原授权内决定、真实已有授权来源、执行者为本固定发布部的当次单次精确许可、当前before/版本防覆盖证据、受保护零写入预演、写前备份及逐字段回滚和变更日志。R0或候选自检不代独立验收，验收不授账号权限。历史AUTO_RELEASE/QA只说明原任务，不作为新goal的强制前置，也不重放旧许可。缺项只报告最小缺口、唯一保管人、恢复动作和复查时间，继续依赖齐全项；不凭技能或概括授权扩大门禁范围。
 

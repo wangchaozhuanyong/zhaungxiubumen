@@ -478,6 +478,13 @@ def scan(root, usage, *, now=None, simulation=False):
         raise w.WorkflowError('explicit actual use observations required; mtime is insufficient')
     if any(not isinstance(row,dict) for row in usage['files']):
         raise w.WorkflowError('cleanup usage rows must be objects')
+    if not usage['files']:
+        # Nothing can be modified. Do not recursively re-read all historic
+        # ledgers just to prove that an empty deletion plan has no references.
+        return {'schema_version':1,'project_root':str(root),'created_at':now.isoformat(),
+                'reference_sha256':None,'reference_targets':[],
+                'reference_state':'NOT_REQUIRED_NO_CANDIDATES','items':[],'skipped':[],
+                'simulation_only':simulation,'deletion_executed':False,'business_goal_closed':False}
     reference_targets=[row.get('path','') for row in usage['files'] if row.get('path')]
     reference_targets += [row['formally_referenced_keeper'] for row in usage['files'] if row.get('formally_referenced_keeper')]
     try:

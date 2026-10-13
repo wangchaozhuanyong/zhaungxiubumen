@@ -230,7 +230,7 @@ class ManagedCmsPermitIssuerTests(unittest.TestCase):
                                        self.target, "publish", "a" * 64, "qa-123", self.now)
         issuer.validate_policy(self.policy, self.target, "publish", "a" * 64, self.operations, self.now)
         with self.assertRaises(issuer.PermitEvidenceError):
-            issuer.validate_operations({**self.operations, "scope": "flashcast.com.my:other"},
+            issuer.validate_operations({**self.operations, "scope": "company.example:other"},
                                        self.target, "publish", "a" * 64, "qa-123", self.now)
         with self.assertRaises(issuer.PermitEvidenceError):
             issuer.validate_operations({**self.operations, "payload_sha256": "b" * 64},
@@ -259,7 +259,7 @@ class ManagedCmsPermitIssuerTests(unittest.TestCase):
         self.assertEqual(len({issuer.TARGETS[name]["record_id"] for name in names}), 4)
         for name in names:
             target = issuer.TARGETS[name]
-            self.assertTrue(target["scope"].startswith("flashcast.com.my:"))
+            self.assertTrue(target["scope"].startswith("company.example:"))
             self.assertTrue(target["qa_candidate_only"])
             for field in ("candidate", "rollback", "qa_outbox"):
                 self.assertTrue(issuer.exact_file(issuer.ROOT, target[field]).is_file())
@@ -458,7 +458,7 @@ class ManagedCmsPermitIssuerTests(unittest.TestCase):
             self.assertTrue(issuer.exact_file(issuer.ROOT, target["rollback"]).is_file())
             wrong_changes = [
                 {"cms_row_id": "other-row"}, {"action_id": "body-only-action"},
-                {"candidate_version": "other-version"}, {"scope": "flashcast.com.my:other"},
+                {"candidate_version": "other-version"}, {"scope": "company.example:other"},
                 {"external_write_executed": True}, {"cms_saved_id": "saved"},
                 {"body_and_links_unchanged": False},
                 {"allowed_fields": [*candidate["allowed_fields"], "content_zh"]},
@@ -481,7 +481,7 @@ class ManagedCmsPermitIssuerTests(unittest.TestCase):
                    "action_id": target["action_id"], "candidate_version": target["candidate_version"],
                    "candidate_sha256": target["candidate"][1], "scope": target["scope"], "blockers": []}
             self.assertTrue(issuer.structured_qa_outbox_matches(row, target))
-            for changes in ({"scope": "flashcast.com.my:other"},
+            for changes in ({"scope": "company.example:other"},
                             {"candidate_sha256": "0" * 64},
                             {"blockers": [{"priority": "P1"}]}):
                 self.assertFalse(issuer.structured_qa_outbox_matches({**row, **changes}, target))
@@ -497,7 +497,7 @@ class ManagedCmsPermitIssuerTests(unittest.TestCase):
             self.assertTrue(issuer.structured_qa_outbox_matches(row, target))
             for changes in ({"risk_level": "R1"}, {"approval_required": False},
                             {"gate_status": "PASS_FOR_AUTO_RELEASE"},
-                            {"scope": "flashcast.com.my:other"},
+                            {"scope": "company.example:other"},
                             {"candidate_sha256": "0" * 64},
                             {"qa_verdict": "blocked"}, {"blockers": [{"priority": "P1"}]}):
                 with self.subTest(name=name, changes=changes):
@@ -513,7 +513,7 @@ class ManagedCmsPermitIssuerTests(unittest.TestCase):
             now = issuer.datetime(2026, 9, 26, 8, 22, tzinfo=issuer.timezone.utc)
             self.assertEqual(issuer.validate_policy(policy, target, "publish", "a" * 64,
                                                     operations, now), policy)
-            for changes in ({"approval_status": "active"}, {"scope": "flashcast.com.my:other"}):
+            for changes in ({"approval_status": "active"}, {"scope": "company.example:other"}):
                 with self.assertRaises(issuer.PermitEvidenceError):
                     issuer.validate_policy({**policy, **changes}, target, "publish", "a" * 64,
                                            operations, now)
@@ -549,7 +549,7 @@ class ManagedCmsPermitIssuerTests(unittest.TestCase):
             candidate = json.loads(issuer.exact_file(issuer.ROOT, target["candidate"]).read_text())
             for change in ({"task_id": "other-project-task"}, {"action_id": "other-action"},
                            {"candidate_version": "other-version"}, {"record_id": "other-row"},
-                           {"scope": "flashcast.com.my:other"}, {"production_write_executed": True},
+                           {"scope": "company.example:other"}, {"production_write_executed": True},
                            {"changed_fields": [*target["changed_fields"], "status"]},
                            {"desired_fields_sha256": "0" * 64}):
                 with self.subTest(name=name, change=change), self.assertRaises(issuer.PermitEvidenceError):
@@ -601,7 +601,7 @@ class ManagedCmsPermitIssuerTests(unittest.TestCase):
                    "action_id": target["action_id"], "candidate_version": target["candidate_version"],
                    "candidate_sha256": target["candidate"][1], "scope": target["scope"], "blockers": []}
             self.assertTrue(issuer.structured_qa_outbox_matches(row, target))
-            for change in ({"scope": "flashcast.com.my:other"}, {"action_id": "other"},
+            for change in ({"scope": "company.example:other"}, {"action_id": "other"},
                            {"candidate_version": "other"}, {"candidate_sha256": "0" * 64},
                            {"qa_verdict": "blocked"}, {"blockers": [{"priority": "P1"}]}):
                 with self.subTest(name=name, change=change):
@@ -655,7 +655,7 @@ class ManagedCmsPermitIssuerTests(unittest.TestCase):
                 wrong = {**candidate, "record_key": {**candidate["record_key"], "id": "other-row"}}
             else:
                 wrong = {**candidate, "items": [
-                    {**item, "scope": "flashcast.com.my:other-row"} if item["cms_row_id"] == target["record_id"] else item
+                    {**item, "scope": "company.example:other-row"} if item["cms_row_id"] == target["record_id"] else item
                     for item in candidate["items"]
                 ]}
             with self.assertRaisesRegex(issuer.PermitEvidenceError, "candidate"):

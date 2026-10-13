@@ -55,7 +55,7 @@ def load_remaining186_blog_registration(root: Path) -> dict:
         record_id, slug, action_id, version = IDENTITIES[module]
         expected = {
             "task_id": TASK_ID, "action_id": action_id, "candidate_version": version,
-            "scope": f"flashcast.com.my:blog_posts:{record_id}:content_zh,content_en",
+            "scope": f"company.example:blog_posts:{record_id}:content_zh,content_en",
             "record_id": record_id, "slug": slug, "table": "blog_posts",
             "changed_fields": list(FIELDS),
         }

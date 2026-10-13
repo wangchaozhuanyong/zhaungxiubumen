@@ -55,7 +55,7 @@ def validate_entry(root: Path, entry: dict) -> dict:
             and binding.get("permit") is None, "Binding channel, origin or stage differs")
     require(set(binding.get("changed_fields", [])) == FIELDS
             and len(binding["changed_fields"]) == 2
-            and binding.get("scope", "").startswith("flashcast.com.my:")
+            and binding.get("scope", "").startswith("company.example:")
             and (entry["table"], entry["content_type"]) in
             {("services", "service"), ("blog_posts", "blog")}, "Non-body field or type")
     require(binding["original_frozen_source_path"] == entry["source"]["path"]

@@ -47,7 +47,7 @@ def validate_entry(root, row):
     changed = ['content_en', 'content_zh'] + (['faqs_en', 'faqs_zh'] if expected_table == 'service_areas' else [])
     require(row['table'] == expected_table and row['content_type'] == expected_type, 'table/type binding')
     require(row['changed_fields'] == req['changed_fields'] == candidate['changed_fields'] == changed, 'exact fields only')
-    require(row['scope'] == 'flashcast.com.my:' + expected_table + '/' + row['record_id'] + ':' + ','.join(changed) + ':' + row['candidate_version'], 'scope cannot broaden')
+    require(row['scope'] == 'company.example:' + expected_table + '/' + row['record_id'] + ':' + ','.join(changed) + ':' + row['candidate_version'], 'scope cannot broaden')
     schema = AREA_FIELDS if expected_table == 'service_areas' else SERVICE_FIELDS
     require(set(before) == set(after) == schema and len(schema) == row['complete_source_field_count'], 'complete native row schema')
     require(before['id'] == after['id'] == row['record_id'] and before['slug'] == after['slug'] == row['slug'], 'row identity')

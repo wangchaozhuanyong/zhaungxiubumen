@@ -68,6 +68,7 @@ class ParentInitialChildReviewTests(unittest.TestCase):
         verdict = self.fixture.consumer.assistant_verdict(self.plan, self.producer_pin,
             parent_initial_child_review=self.proof)
         self.assertEqual(verdict["workflow_state"], "closed")
+        self.assertEqual(g.completion_obligations(self.root, self.snapshot())["missing"], [])
         self.assertEqual(w._validate_receipt_chain(self.root, self.child)[1], [])
         self.assertEqual(w.validate_workflow_events(self.root, self.child), [])
         rows = s._receipts(self.root, self.child)

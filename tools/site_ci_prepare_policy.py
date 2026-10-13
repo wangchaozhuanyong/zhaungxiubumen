@@ -69,7 +69,7 @@ def evaluate_context(request: dict[str, Any], binding: dict[str, Any],
             or observed.get("changed_files") != code.get("changed_files")):
         reasons.append("ci_prepare_fresh_source_ref_or_pr_state_invalid")
     hosting = observed.get("hosting", {})
-    if (hosting.get("site") != "flashcast.com.my" or not hosting.get("project_id")
+    if (hosting.get("site") != "company.example" or not hosting.get("project_id")
             or not hosting.get("lawful_keeper") or not hosting.get("redacted_source_path")
             or hosting.get("source_repository") != GITHUB_REPOSITORY
             or hosting.get("source_type") not in {"git", "direct_upload"}

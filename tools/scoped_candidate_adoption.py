@@ -148,8 +148,8 @@ def _report(root, pin, journal, manifest_pin, stage):
     return report
 
 
-def validate_adoption(root, parent, proof):
-    """Consume bounded candidate QA + actual exact CAS, without final goal PASS."""
+def validate_adoption(root, parent, proof, *, sent_source=None):
+    """Verify exact CAS; only a proven original send permits historical reading."""
     import qa_review_plan as q
     import goal_delivery_runtime as g
     root = Path(root).resolve()
@@ -162,6 +162,12 @@ def validate_adoption(root, parent, proof):
     if (not isinstance(proof, dict) or set(proof) != {"mode", *PIN_FIELDS}
             or proof.get("mode") != "scoped_candidate_actual_adoption"):
         _fail("bounded candidate acceptance/adoption proof required before first trial")
+    historical_dispatch = None
+    if sent_source is not None:
+        import parent_initial_dispatch as initial
+        if not isinstance(sent_source, dict) or sent_source.get("adoption") != proof:
+            _fail("original sent source must freeze this exact adoption proof")
+        historical_dispatch = initial._historical_sent_source(root, parent, sent_source)
     documents = {key: _doc(root, proof[key]) for key in PIN_FIELDS}
     review, box, manifest, producer, plan, journal = [documents[key] for key in PIN_FIELDS[:6]]
     expected = {"task_id": TASK, "candidate_version": VERSION, "scope": SCOPE}
@@ -235,10 +241,13 @@ def validate_adoption(root, parent, proof):
     current = []
     for entry, operation in zip(changes, operations):
         candidate = _pin(root, entry.get("candidate")); _pin(root, entry.get("diff"))
-        actual = w.file_digest(root, entry["path"])
-        if (actual["sha256"] != candidate["sha256"] or actual["size"] != candidate["size"]
-                or operation.get("after_sha256") != candidate["sha256"]):
-            _fail("actual current source differs from reviewed adopted bytes")
+        if operation.get("after_sha256") != candidate["sha256"]:
+            _fail("journal after bytes differ from reviewed adopted bytes")
+        installed = {"path": entry["path"], "sha256": candidate["sha256"], "size": candidate["size"]}
+        if historical_dispatch is None:
+            actual = w.file_digest(root, entry["path"])
+            if actual != installed:
+                _fail("actual current source differs from reviewed adopted bytes")
         expected_source = entry.get("expected_source")
         before = b""
         if expected_source == "ABSENT":
@@ -257,7 +266,7 @@ def validate_adoption(root, parent, proof):
             tofile="b/" + entry["path"])).encode("utf-8")
         if w.safe_path(root, entry["diff"]["path"]).read_bytes() != expected_diff:
             _fail("exact reversible source diff must cover reviewed before/after bytes")
-        current.append(actual)
+        current.append(installed)
     field_operations = []
     for migration_pin in manifest.get("field_changes", []):
         migration = _doc(root, migration_pin)
@@ -269,7 +278,7 @@ def validate_adoption(root, parent, proof):
             if (change.get("department_id") != "operations-assistant-3"
                     or change.get("field") not in {"approved_subskills", "approved_subskill_paths", "coordination_authority"}
                     or _hash(change.get("expected")) != change.get("expected_sha256")
-                    or registry.get(change["department_id"], {}).get(change["field"]) != change.get("replacement")):
+                    or (historical_dispatch is None and registry.get(change["department_id"], {}).get(change["field"]) != change.get("replacement"))):
                 _fail("actual current exact reviewed field differs")
             field_operations.append({"department_id": change["department_id"], "field": change["field"],
                 "before": change["expected"], "after": change["replacement"]})
@@ -289,10 +298,13 @@ def validate_adoption(root, parent, proof):
             _fail("adoption changed fields outside exact reviewed field CAS")
     _report(root, proof["postapply"], journal, proof["candidate_manifest"], "postapply")
     _report(root, proof["rollback_preflight"], journal, proof["candidate_manifest"], "rollback_preflight")
-    return {"control_qa": proof["candidate_review_outbox"], "control_applied_proof": proof["adoption_journal"],
+    result = {"control_qa": proof["candidate_review_outbox"], "control_applied_proof": proof["adoption_journal"],
         "control_candidate_version": VERSION, "adoption_stage": "scoped_candidate_actual_adoption",
         "required_evidence": [proof[name] for name in PIN_FIELDS], "applied_files": current,
         "final_goal_pass": False, "external_authority_granted": False, "business_goal_closed": False}
+    if historical_dispatch is not None and historical_dispatch.get("parent_initial_dispatch", {}).get("adoption") != result:
+        _fail("original sent metadata must retain the exact independently adopted historical bytes")
+    return result
 
 
 def _committed(root, record):
@@ -317,7 +329,6 @@ def validate_final_goal_pass(root, parent, box):
     if not isinstance(completion, dict):
         _fail("actual native trial completion proof required for full-goal PASS")
     adoption = completion.get("scoped_adoption")
-    validate_adoption(root, parent, adoption)
     rows = w._result_handoff_rows(root, TASK)
     matches = [row for row in rows if row.get("record_id") == completion.get("pilot_followthrough_record_id")
                and row.get("event") == "controller_followthrough"]

@@ -11,7 +11,7 @@ from pathlib import Path
 
 TASK = 'fc-20260928-keyword-page-answer-implementation-v1'
 ACTION = 'read-artistic-coating-v7p2-exact-native-source-v2-20261006'
-SCOPE = 'flashcast.com.my:cms-native-read:services:artistic-coating:v7p2:two-step-descriptions'
+SCOPE = 'company.example:cms-native-read:services:artistic-coating:v7p2:two-step-descriptions'
 QA_TASK = 'fc-20261006-v7p2-cms-native-read-control-v1'
 QA_ACTION = 'qa-artistic-coating-exact-native-read-control-20261006'
 QA_SCOPE = 'project:artistic-coating:cms-native-read-control-only:20261006'

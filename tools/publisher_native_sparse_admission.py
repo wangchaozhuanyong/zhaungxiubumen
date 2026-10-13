@@ -164,7 +164,7 @@ def validate_execution_candidate(candidate: dict[str, Any], entry: dict[str, Any
     cv = entry['candidate_version']
     require(isinstance(cv, str) and cv == EXECUTION_VERSIONS[entry['item']] and cv not in OLD_VERSIONS
             and entry['action_id'] == 'publish-' + cv, 'new exact candidate/action required; old versions remain registration-only')
-    scope = 'flashcast.com.my:' + table + ':' + record_id + ':' + ','.join(fields)
+    scope = 'company.example:' + table + ':' + record_id + ':' + ','.join(fields)
     exact = {'task_id': BUSINESS_TASK, 'action_id': entry['action_id'], 'candidate_version': cv, 'scope': scope,
              'table': table, 'record_id': record_id, 'slug': slug, 'changed_fields': fields,
              'execution_owner': 'publishing', 'execution_thread_id': PUBLISHER,

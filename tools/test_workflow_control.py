@@ -2455,7 +2455,7 @@ class WorkflowControlTests(unittest.TestCase):
 
     def test_cache_execution_stage_ack_requires_prior_exact_qa_approval_and_route(self) -> None:
         stamp = "2026-09-26T07:33:38+00:00"
-        scope = "flashcast.com.my:cache:exact-frozen-set"
+        scope = "company.example:cache:exact-frozen-set"
         for fault in ("", "qa_blocked", "wrong_approval", "wrong_scope", "wrong_route"):
             with self.subTest(fault=fault):
                 task_id = "cache-stage-" + (fault or "valid")
@@ -2832,7 +2832,7 @@ class WorkflowControlTests(unittest.TestCase):
         path = self.root / "logs/department-outbox/exact-row.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         fields = {"task_id": self.task_id, "department": "qa", "action_id": "row-action",
-                  "action_class": "cms_content_candidate", "scope": "flashcast.com.my:row:content_en"}
+                  "action_class": "cms_content_candidate", "scope": "company.example:row:content_en"}
         path.write_text(json.dumps({**fields, "risk_level": "R1"}))
         qa = {**fields, "receipt_type": "qa_verdict", "verdict": "pass",
               "chat_task_id": "fixed-qa", "evidence": [workflow.file_digest(self.root, "logs/department-outbox/exact-row.json")]}
@@ -2841,7 +2841,7 @@ class WorkflowControlTests(unittest.TestCase):
         policy = workflow.read_json(policy_path)
         policy["standing_authorizations"] = [{"authorization_id": "test-standing", "status": "active",
              "source_message_ref": "test-owner", "department": "content-organic-website",
-             "action_classes": ["cms_write"], "allowed_scope_prefixes": ["flashcast.com.my:"]}]
+             "action_classes": ["cms_write"], "allowed_scope_prefixes": ["company.example:"]}]
         policy_path.write_text(json.dumps(policy))
         def check(receipts: list[dict], invalid: list[str] | None = None, **overrides: str) -> dict:
             arguments = dict(task_id=self.task_id, department="content-organic-website",
@@ -2856,7 +2856,7 @@ class WorkflowControlTests(unittest.TestCase):
         self.assertEqual(check([sibling])["status"], "deny")
         self.assertEqual(check([qa, {**qa, "verdict": "blocked"}, sibling])["status"], "deny")
         self.assertEqual(check([qa, sibling], ["receipt_hash_mismatch"])["status"], "deny")
-        self.assertEqual(check([qa, sibling], scope="flashcast.com.my:wrong-row:content_en")["status"], "deny")
+        self.assertEqual(check([qa, sibling], scope="company.example:wrong-row:content_en")["status"], "deny")
         self.assertEqual(check([qa, sibling], action_class="site_publish")["status"], "deny")
         path.write_text(json.dumps({**fields, "risk_level": "R3"}))
         qa["evidence"] = [workflow.file_digest(self.root, "logs/department-outbox/exact-row.json")]
@@ -2881,7 +2881,7 @@ class WorkflowControlTests(unittest.TestCase):
             verdict="pass",
             evidence="reports/qa-site-code-release.md",
             action_class="site_code_rework_candidate",
-            scope="flashcast.com.my:blog-link-runtime-fix",
+            scope="company.example:blog-link-runtime-fix",
         )
         reopened, _ = workflow.workflow_status(self.root, self.task_id)
         self.assertEqual(reopened["current_state"], "qa_passed")
@@ -2897,7 +2897,7 @@ class WorkflowControlTests(unittest.TestCase):
                 "source_message_ref": "owner-test-message",
                 "department": "content-organic-website",
                 "action_classes": ["site_publish", "cms_write"],
-                "allowed_scope_prefixes": ["flashcast.com.my:"],
+                "allowed_scope_prefixes": ["company.example:"],
             }
         ]
         policy_path.write_text(json.dumps(policy), encoding="utf-8")
@@ -2908,7 +2908,7 @@ class WorkflowControlTests(unittest.TestCase):
             department="content-organic-website",
             action_id="publish-runtime-fix",
             action_class="cms_write",
-            scope="flashcast.com.my:blog-link-runtime-fix:commit",
+            scope="company.example:blog-link-runtime-fix:commit",
             consume_approval=True,
         )
         self.assertEqual(wrong_route["status"], "deny")
@@ -2920,7 +2920,7 @@ class WorkflowControlTests(unittest.TestCase):
             department="content-organic-website",
             action_id="publish-runtime-fix",
             action_class="site_publish",
-            scope="flashcast.com.my:blog-link-runtime-fix:commit",
+            scope="company.example:blog-link-runtime-fix:commit",
             consume_approval=True,
         )
         self.assertEqual(decision["status"], "allow")
@@ -2935,7 +2935,7 @@ class WorkflowControlTests(unittest.TestCase):
             evidence="reports/site-code-execution.md",
             action_id="publish-runtime-fix",
             action_class="site_publish",
-            scope="flashcast.com.my:blog-link-runtime-fix:commit",
+            scope="company.example:blog-link-runtime-fix:commit",
             approval_id=str(decision["approval_id"]),
             policy_decision_id=str(decision["decision_id"]),
         )
@@ -2959,8 +2959,8 @@ class WorkflowControlTests(unittest.TestCase):
         qa_report.write_text("Two independent CMS rows passed QA.\n", encoding="utf-8")
         kitchen_action = "publish-kitchen-cms-row"
         design_action = "publish-design-cms-row"
-        kitchen_scope = "flashcast.com.my:services/kitchen-row"
-        design_scope = "flashcast.com.my:services/design-row"
+        kitchen_scope = "company.example:services/kitchen-row"
+        design_scope = "company.example:services/design-row"
         for action, scope in ((kitchen_action, kitchen_scope), (design_action, design_scope)):
             self.receipt(
                 "qa_verdict", "qa", f"qa-{action}", verdict="pass",
@@ -3004,7 +3004,7 @@ class WorkflowControlTests(unittest.TestCase):
         report = self.root / "reports/qa-postcheck-projection.md"
         report.write_text("Candidate passed; production still needs acceptance.\n", encoding="utf-8")
         action = "publish-exact-page"
-        scope = "flashcast.com.my:services/exact-page"
+        scope = "company.example:services/exact-page"
         self.receipt(
             "qa_verdict", "qa", "qa-postcheck-projection", verdict="pass",
             evidence="reports/qa-postcheck-projection.md", action_id=action,
@@ -3049,7 +3049,7 @@ class WorkflowControlTests(unittest.TestCase):
         qa_report = self.root / "reports/qa-legacy-postcheck.md"
         qa_report.write_text("CMS action passed QA.\n", encoding="utf-8")
         action_id = "publish-bathroom-cms-row"
-        scope = "flashcast.com.my:services/bathroom-row:faqs_en,faqs_zh"
+        scope = "company.example:services/bathroom-row:faqs_en,faqs_zh"
         self.receipt(
             "qa_verdict", "qa", "qa-legacy-postcheck", verdict="pass",
             evidence="reports/qa-legacy-postcheck.md", action_id=action_id,
@@ -3100,7 +3100,7 @@ class WorkflowControlTests(unittest.TestCase):
         evidence = self.root / "reports/qa-corrected-release.md"
         evidence.write_text("QA PASS: exact site code action\n", encoding="utf-8")
         action_id = "repair-managed-cms-targets"
-        scope = "flashcast.com.my:managed-cms-targets:sha:no-cms-write"
+        scope = "company.example:managed-cms-targets:sha:no-cms-write"
         with mock.patch.object(workflow, "utc_timestamp", return_value="2099-01-01T00:00:01+00:00"):
             with mock.patch.object(workflow, "reconcile_workflow", return_value=({"current_state": "closed"}, [])):
                 self.receipt(
@@ -3305,10 +3305,10 @@ class WorkflowControlTests(unittest.TestCase):
 
     def test_cache_repair_requires_frozen_urls_qa_and_single_use_exact_approval(self) -> None:
         action = "exact-cache-repair-test"
-        scope = "flashcast.com.my:cache:old-house-exact-test"
+        scope = "company.example:cache:old-house-exact-test"
         request_path = self.root / "reports/cache-request.json"
         request_path.parent.mkdir(exist_ok=True)
-        url = "https://flashcast.com.my/images/before-after/old-terrace/kitchen-after.webp"
+        url = "https://company.example/images/before-after/old-terrace/kitchen-after.webp"
         request_path.write_text(json.dumps({
             "allowed_urls": [url], "expected_sha256_by_url": {url: "a" * 64},
         }), encoding="utf-8")
@@ -3343,7 +3343,7 @@ class WorkflowControlTests(unittest.TestCase):
         approval_id = str(approval["approval_id"])
         allowed, _ = workflow.policy_check(self.root, **common, approval_id=approval_id)
         self.assertEqual(allowed["status"], "allow")
-        for overrides in ({"scope": "flashcast.com.my:cache:purge-everything"},
+        for overrides in ({"scope": "company.example:cache:purge-everything"},
                           {"department": "operations"}, {"action_class": "site_publish"}):
             with self.subTest(overrides=overrides):
                 result, _ = workflow.policy_check(self.root, **(common | overrides), approval_id=approval_id)
@@ -3354,8 +3354,8 @@ class WorkflowControlTests(unittest.TestCase):
         self.assertEqual(changed["status"], "deny")
         self.assertIn("cache_exact_frozen_request_required", changed["reason"])
         request_path.write_bytes(original)
-        for bad_url in ("https://other.example/images/image.webp", "https://flashcast.com.my/images/../image.webp",
-                        "https://flashcast.com.my/images/image.webp?bypass=1"):
+        for bad_url in ("https://other.example/images/image.webp", "https://company.example/images/../image.webp",
+                        "https://company.example/images/image.webp?bypass=1"):
             with self.subTest(url=bad_url):
                 request_path.write_text(json.dumps({"allowed_urls": [bad_url],
                                                    "expected_sha256_by_url": {bad_url: "a" * 64}}), encoding="utf-8")
@@ -3378,8 +3378,8 @@ class WorkflowControlTests(unittest.TestCase):
                 fixture = WorkflowControlTests("test_cache_repair_requires_frozen_urls_qa_and_single_use_exact_approval")
                 fixture.setUp()
                 try:
-                    action, scope = "cache-exact-regression", "flashcast.com.my:cache:exact-regression"
-                    url = "https://flashcast.com.my/images/old-house-safe.webp"
+                    action, scope = "cache-exact-regression", "company.example:cache:exact-regression"
+                    url = "https://company.example/images/old-house-safe.webp"
                     request = fixture.root / "reports/request.json"
                     request.parent.mkdir(exist_ok=True)
                     request.write_text(json.dumps({"allowed_urls": [url],
@@ -3396,7 +3396,7 @@ class WorkflowControlTests(unittest.TestCase):
                     prepared = fixture.prepare_qa()
                     payload = json.loads(prepared.read_text(encoding="utf-8"))
                     qa_action = "different-reviewed-action" if case == "wrong_action" else action
-                    qa_scope = "flashcast.com.my:cache:different-reviewed-scope" if case == "wrong_scope" else scope
+                    qa_scope = "company.example:cache:different-reviewed-scope" if case == "wrong_scope" else scope
                     payload.update(action_id=qa_action, action_class="site_cache_candidate", scope=qa_scope, risk_level="R3")
                     if case == "outbox_identity_mismatch":
                         payload["action_id"] = "wrong-outbox-identity"
@@ -3433,7 +3433,7 @@ class WorkflowControlTests(unittest.TestCase):
                 "source_message_ref": "owner-test-message",
                 "department": "content-organic-website",
                 "action_classes": ["site_publish", "cms_write"],
-                "allowed_scope_prefixes": ["flashcast.com.my:"],
+                "allowed_scope_prefixes": ["company.example:"],
             }
         ]
         policy_path.write_text(json.dumps(policy), encoding="utf-8")
@@ -3445,7 +3445,7 @@ class WorkflowControlTests(unittest.TestCase):
             department="content-organic-website",
             action_id="publish-bilingual-kitchen",
             action_class="site_publish",
-            scope="flashcast.com.my:/zh/services/kitchen|/en/services/kitchen",
+            scope="company.example:/zh/services/kitchen|/en/services/kitchen",
             consume_approval=True,
         )
         self.assertEqual(decision["status"], "allow")
@@ -3462,7 +3462,7 @@ class WorkflowControlTests(unittest.TestCase):
             evidence="reports/standing-execution.md",
             action_id="publish-bilingual-kitchen",
             action_class="site_publish",
-            scope="flashcast.com.my:/zh/services/kitchen|/en/services/kitchen",
+            scope="company.example:/zh/services/kitchen|/en/services/kitchen",
             approval_id=str(decision["approval_id"]),
             policy_decision_id=str(decision["decision_id"]),
         )
@@ -3478,7 +3478,7 @@ class WorkflowControlTests(unittest.TestCase):
                 "source_message_ref": "older-r2-owner-message",
                 "department": "content-organic-website",
                 "action_classes": ["site_publish"],
-                "allowed_scope_prefixes": ["flashcast.com.my:"],
+                "allowed_scope_prefixes": ["company.example:"],
             }
         ]
         policy_path.write_text(json.dumps(policy), encoding="utf-8")
@@ -3499,7 +3499,7 @@ class WorkflowControlTests(unittest.TestCase):
                 "department": "qa",
                 "action_id": "r3-permit-release",
                 "action_class": "site_code_candidate",
-                "scope": "flashcast.com.my:r3-permit-release",
+                "scope": "company.example:r3-permit-release",
                 "risk_level": "R3",
             }),
             encoding="utf-8",
@@ -3512,7 +3512,7 @@ class WorkflowControlTests(unittest.TestCase):
             verdict="pass",
             action_id="r3-permit-release",
             action_class="site_code_candidate",
-            scope="flashcast.com.my:r3-permit-release",
+            scope="company.example:r3-permit-release",
             evidence=workflow.rel_path(self.root, qa_outbox),
         )
         snapshot, _ = workflow.reconcile_workflow(self.root, task_id=self.task_id)
@@ -3530,7 +3530,7 @@ class WorkflowControlTests(unittest.TestCase):
             department="content-organic-website",
             action_id="r3-permit-release",
             action_class="site_publish",
-            scope="flashcast.com.my:r3-permit-release",
+            scope="company.example:r3-permit-release",
         )
         self.assertEqual(denied["status"], "deny")
         self.assertIn("r3_exact_owner_approval_required", denied["reason"])
@@ -3541,7 +3541,7 @@ class WorkflowControlTests(unittest.TestCase):
             task_id=self.task_id,
             action_id="r3-permit-release",
             action_class="site_publish",
-            scope="flashcast.com.my:r3-permit-release",
+            scope="company.example:r3-permit-release",
             source_thread_id="fixed-operations",
             source_message_ref="owner-explicit-r3-message",
         )
@@ -3551,7 +3551,7 @@ class WorkflowControlTests(unittest.TestCase):
             department="content-organic-website",
             action_id="r3-permit-release",
             action_class="site_publish",
-            scope="flashcast.com.my:r3-permit-release",
+            scope="company.example:r3-permit-release",
             approval_id=str(approval["approval_id"]),
             consume_approval=True,
         )
@@ -3568,7 +3568,7 @@ class WorkflowControlTests(unittest.TestCase):
                 "status": "active",
                 "department": "content-organic-website",
                 "action_classes": ["site_publish"],
-                "allowed_scope_prefixes": ["flashcast.com.my:"],
+                "allowed_scope_prefixes": ["company.example:"],
             }
         ]
         policy_path.write_text(json.dumps(policy), encoding="utf-8")
@@ -3849,7 +3849,7 @@ class WorkflowControlTests(unittest.TestCase):
                 task = f"retry-replay-{variant}"
                 fields = dict(task_id=task, department="content-organic-website",
                               action_id="publish-reviewed", action_class="site_publish",
-                              scope="flashcast.com.my:/reviewed", approval_id="apr-exact")
+                              scope="company.example:/reviewed", approval_id="apr-exact")
                 failed = dict(fields, receipt_type="execution_result", receipt_id="failed",
                               verdict="blocked", created_at="2026-01-01T00:00:01+00:00")
                 successful = dict(fields, receipt_type="execution_result", receipt_id="success",
@@ -3866,7 +3866,7 @@ class WorkflowControlTests(unittest.TestCase):
                                   approval_status="consumed", approval_basis="blocked_execution_retry",
                                   retry_source_receipt_id="failed", checked_at="2026-01-01T00:00:02+00:00")
                     if variant == "wrong_scope":
-                        policy["scope"] = "flashcast.com.my:/another"
+                        policy["scope"] = "company.example:/another"
                     workflow.append_jsonl_locked(self.root / "logs/policy-decisions.jsonl", policy)
                 with mock.patch.object(workflow, "utc_timestamp", return_value="2026-01-01T00:00:01+00:00"):
                     workflow.append_workflow_event(self.root, task, "planned")

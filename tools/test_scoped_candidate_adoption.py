@@ -208,7 +208,11 @@ class ScopedAdoptionTests(unittest.TestCase):
         self.child = "fc-v3-read-only-trial-child"
         contract = copy.deepcopy(parent["goal_delivery"])
         contract.update(parent_task_id=s.TASK, initial_dispatch_mode="read_only",
-                        objective="Isolated read-only trial", completion_criteria=["read-only return"])
+                        objective="Isolated read-only trial", completion_criteria=["read-only return"],
+                        completion_kind="internal_delivery", completion_requirements=[{
+                            "requirement_id": "readonly-accepted-return", "criterion_index": 0,
+                            "scope": s.SCOPE, "requirement_type": "accepted_delivery",
+                            "subject": {"mode": "latest_exact_accepted_result", "producer_department": s.PRODUCER}}])
         contract.pop("approved_actions", None)
         child_pin = self.write_pin("drafts/operations/child-v3.json", contract)
         g.initialize_goal(self.root, self.child, child_pin["path"])

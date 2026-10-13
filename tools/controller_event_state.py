@@ -22,160 +22,219 @@ def _future_wait(row: dict, now: dt.datetime) -> bool:
 
 
 def _owned_goals(root: Path, role: str, plan: dict, queue: dict, now: dt.datetime) -> list[dict]:
-    """Read exact current responsibility; never reconcile or close a workflow."""
-    from goal_delivery_runtime import restore_goal, enabled
+    """Isolate bad tasks; the runtime's exact proofs remain the only closure gate."""
+    from goal_delivery_runtime import restore_goal, enabled, completion_obligations, _task_block, _current_goal_owners
     inventory = []
+    current_owners = _current_goal_owners(root)
     for path in sorted((root / workflow.WORKFLOW_DIR).glob("*.json")):
-        raw = workflow.read_json(path)
-        if raw.get("goal_delivery", {}).get("responsible_assistant") != role:
-            continue
-        snapshot = restore_goal(root, raw)
-        if not enabled(root, snapshot) or snapshot["goal_delivery"]["responsible_assistant"] != role:
-            continue
-        task = snapshot["task_id"]
-        receipts, invalid = workflow._validate_receipt_chain(root, task)
-        if invalid or workflow.validate_workflow_events(root, task):
-            raise workflow.WorkflowError("owned goal current event/receipt chain requires recovery: " + task)
-        goal = snapshot["goal_delivery"]
-        # The runtime owns exact transport/identity/UTF-8 proof. Raw receipt
-        # status cannot promote a historical action to current sent/returned.
-        records = {r.get("action_id") or "unresolved:" + str(r.get("original_receipt")): r
-                   for r in plan.get("collaboration_state", [])
-                   if r.get("task_id") == task}
-        not_proven = [r for r in queue.get("collaboration_not_proven", []) if r.get("task_id") == task]
-        records.update({r.get("action_id") or "unresolved:" + str(r.get("original_receipt")): r for r in not_proven})
-        not_proven = [r for r in records.values() if r.get("proof_state") == "NOT_PROVEN"]
-        sent_actions = {r.get("action_id") for r in receipts if r.get("receipt_type") == "dispatch_sent"}
-        prepared = [a["action_id"] for a in goal.get("approved_actions", [])
-                    if a.get("action_class") == "thread_message" and a.get("required_for_completion", True)
-                    and a.get("action_id") not in records and a.get("action_id") not in sent_actions]
-        rows = workflow._result_handoff_rows(root, task)
-        latest = {}
-        for row in rows:
-            latest.setdefault(workflow._result_identity(row), {}).update(row)
-        external = [r for r in latest.values() if _future_wait(r, now)]
-        task_queue = [r for r in queue["results"] + queue["followthrough_results"] if r.get("task_id") == task]
-        collaboration_pending = [r for r in queue.get("collaboration_pending", []) if r.get("task_id") == task]
-        waiting = [r for r in plan["tasks"] if r.get("task_id") == task]
-        returned = [key for key, value in records.items()
-                    if value.get("proof_state") == "PROVEN" and value["status"] == "result_received"]
-        state = snapshot.get("current_state")
-        closed = state == "closed" and workflow._derive_state(root, snapshot, receipts).get("state") == "closed"
-        if state == "closed" and not closed:
-            raise workflow.WorkflowError("closed snapshot lacks exact complete acceptance: " + task)
-        deferred = bool(external and len(external) == len(latest) and not waiting and not prepared
-                        and not task_queue and not collaboration_pending and not not_proven)
-        if task_queue:
-            stage, action = "result_decision_or_followthrough_pending", "收取准确结果，验收并登记真实下一动作"
-        elif closed:
-            stage, action = "formally_closed_scope", "本准确范围已正式收口；后续任务另列，不自动关闭父目标"
-        elif state in {"failed", "cancelled"}:
-            stage, action = "terminal_without_completion", "保留失败/取消原因，恢复需新明确授权；不称完成"
-        elif not_proven:
-            stage, action = "collaboration_NOT_PROVEN_requires_exact_source", "恢复本准确协作的原生原文件 pin、thread/turn/message 身份及原文 bytes；NOT_PROVEN 不算已返回或完成，不重复派工"
-        elif waiting:
-            stage, action = "inflight_event_wait", "等待本冻结批次真实事件并保存实际 cursor，返回后收取结果"
-        elif deferred:
-            stage, action = "named_external_wait", external[-1]["next_action"]
-        elif state == "qa_passed":
-            stage, action = "acceptance_record_requires_execution_or_dependency", "核本整项验收记录，沿原许可落实声明的实际执行/后检或具名依赖；通过验收不替代真实后续"
-        elif returned or state == "evidence_received":
-            stage, action = "returned_result_requires_acceptance_or_execution", "唯一负责助理验收整项标准并落实许可内执行/后检；结果返回不等于完成"
-        elif prepared:
-            stage, action = "prepared_not_sent", "核准确许可与现场身份后执行已批准动作；prepared 不算派发"
-        elif state == "qa_blocked":
-            stage, action = "rework_required", "沿原任务修复准确未通过范围并提交新版本"
-        else:
-            stage, action = "responsibility_requires_reconciliation", "恢复当前原任务真实进展与最小下一动作；ACK/idle/空队列不算完成"
-        inventory.append({"task_id": task, "department": role, "next_owner": role,
-                          "primary_owner": goal["primary_owner"], "parent_task_id": goal.get("parent_task_id"),
-                          "snapshot": workflow.file_digest(root, str(path.relative_to(root))),
-                          "native_workflow_state": state, "status": stage, "next_action": action,
-                          "completion_criteria": goal["completion_criteria"], "formally_closed_scope": closed,
-                          "business_goal_closed": False, "prepared_action_ids": prepared,
-                          "returned_action_ids": returned, "collaboration_records": records,
-                          "collaboration_pending": collaboration_pending,
-                          "collaboration_not_proven": not_proven,
-                          "collaboration_proof_state": "NOT_PROVEN" if not_proven else "PROVEN" if records else "NOT_APPLICABLE",
-                          "external_waits": external, "requires_action": not (closed or deferred or state in {"failed", "cancelled"}),
-                          "unblock_condition": external[-1].get("unblock_condition") if deferred else "当前准确结果、整项验收及声明的执行/后检",
-                          "next_check_at": external[-1].get("next_check_at") if deferred else None})
+        exact_owner = 'ownership_unresolved'
+        try:
+            raw = workflow.read_json(path)
+            if raw.get('task_id') != path.stem:
+                raise workflow.WorkflowError("current task snapshot identity differs from its exact path")
+            if current_owners.get(path.stem, raw.get("goal_delivery", {}).get("responsible_assistant")) != role:
+                continue
+            exact_owner = role
+            snapshot = restore_goal(root, raw)
+            if not enabled(root, snapshot) or snapshot["goal_delivery"]["responsible_assistant"] != role:
+                continue
+            task = snapshot["task_id"]
+            receipts, invalid = workflow._validate_receipt_chain(root, task)
+            if invalid or workflow.validate_workflow_events(root, task):
+                raise workflow.WorkflowError("owned goal current event/receipt chain requires recovery: " + task)
+            goal = snapshot["goal_delivery"]
+            completion = queue.get('completion_status', {}).get(task)
+            if completion is None:
+                completion = completion_obligations(root, snapshot, receipts)
+            records = {r.get("action_id") or "unresolved:" + str(r.get("original_receipt")): r
+                       for r in plan.get("collaboration_state", []) if r.get("task_id") == task}
+            records.update({r.get("action_id") or "unresolved:" + str(r.get("original_receipt")): r
+                            for r in queue.get("collaboration_not_proven", []) if r.get("task_id") == task})
+            not_proven = [r for r in records.values() if r.get("proof_state") == "NOT_PROVEN"]
+            sent_actions = {r.get("action_id") for r in receipts if r.get("receipt_type") == "dispatch_sent"}
+            prepared = [a["action_id"] for a in goal.get("approved_actions", [])
+                        if a.get("action_class") == "thread_message" and a.get("required_for_completion", True)
+                        and a.get("action_id") not in records and a.get("action_id") not in sent_actions]
+            latest = {}
+            for row in workflow._result_handoff_rows(root, task):
+                latest.setdefault(workflow._result_identity(row), {}).update(row)
+            external = [r for r in latest.values() if _future_wait(r, now)]
+            task_queue = [r for r in queue.get("results", []) + queue.get("followthrough_results", []) if r.get("task_id") == task]
+            collaboration_pending = [r for r in queue.get("collaboration_pending", []) if r.get("task_id") == task]
+            remaining = [r for r in queue.get('completion_followthrough', []) if r.get('task_id') == task]
+            waiting = [r for r in plan.get("tasks", []) if r.get("task_id") == task]
+            returned = [key for key, value in records.items() if value.get("proof_state") == "PROVEN" and value["status"] == "result_received"]
+            state = snapshot.get("current_state")
+            closed = state == 'closed' and (completion.get('state') == 'legacy_exact_scope'
+                                           or not completion['missing'] and not completion['blockers'])
+            if state == 'closed' and not closed:
+                raise workflow.WorkflowError("closed snapshot lacks exact complete acceptance: " + task)
+            completion_waits = [row['wait_dependency'] for row in remaining
+                                if row.get('status') == 'named_completion_dependency_wait']
+            deferred = bool((external
+                             or completion_waits and len(completion_waits) == len(remaining)) and not waiting and not prepared
+                            and not task_queue and not collaboration_pending and not not_proven
+                            and not any(row.get('actionable') for row in remaining))
+            if task_queue:
+                stage, action = "result_decision_or_followthrough_pending", "收取准确结果，验收并登记真实下一动作"
+            elif closed:
+                stage, action = "formally_closed_scope", "本准确范围已正式收口；后续任务另列，不自动关闭父目标"
+            elif state in {"failed", "cancelled"}:
+                stage, action = "terminal_without_completion", "保留失败/取消原因，恢复需新明确授权；不称完成"
+            elif not_proven:
+                stage, action = "collaboration_NOT_PROVEN_requires_exact_source", "恢复本准确协作原生来源、thread/turn/message 身份和原文字节；不重复派工"
+            elif collaboration_pending:
+                stage, action = "collaboration_followthrough_required", "收取原协作结果并落实准确下一动作或关闭已验范围"
+            elif prepared:
+                stage, action = "prepared_not_sent", "核准确许可与现场身份后执行已批准动作；prepared 不算派发"
+            elif any(row.get('actionable') for row in remaining):
+                stage, action = "remaining_completion_followthrough", "沿原目标落实全部残余完成标准；已关闭小范围不关闭整目标"
+            elif deferred:
+                stage, action = "named_external_wait", (completion_waits[-1]['next_action'] if completion_waits else external[-1]['next_action'])
+            elif state == "qa_passed":
+                stage, action = "acceptance_record_requires_execution_or_dependency", "沿原许可落实当前版本实际执行、后检、采用、试点或具名依赖"
+            elif returned or state == "evidence_received":
+                stage, action = "returned_result_requires_acceptance_or_execution", "唯一负责助理验收整项标准并落实许可内接续"
+            elif state == "qa_blocked":
+                stage, action = "rework_required", "沿原任务修复准确未通过范围并提交新版本"
+            elif waiting:
+                stage, action = "inflight_event_wait", "其他可执行事项处理后，等待本冻结批次真实事件并保存实际 cursor"
+            else:
+                stage, action = "responsibility_requires_reconciliation", "恢复原任务真实进展与最小下一动作；ACK、idle、空队列不算完成"
+            inventory.append({"task_id": task, "department": role, "next_owner": role,
+                              "primary_owner": goal["primary_owner"], "parent_task_id": goal.get("parent_task_id"),
+                              "snapshot": workflow.file_digest(root, str(path.relative_to(root))),
+                              "native_workflow_state": state, "status": stage, "next_action": action,
+                              "completion_criteria": goal["completion_criteria"], "completion_contract_state": completion['contract_state'],
+                              "completion_obligations": completion, "remaining_followthrough": remaining,
+                              "formally_closed_scope": closed, "business_goal_closed": False,
+                              "prepared_action_ids": prepared, "returned_action_ids": returned, "collaboration_records": records,
+                              "collaboration_pending": collaboration_pending, "collaboration_not_proven": not_proven,
+                              "collaboration_proof_state": "NOT_PROVEN" if not_proven else "PROVEN" if records else "NOT_APPLICABLE",
+                              "external_waits": external, "requires_action": not (closed or deferred or state in {"failed", "cancelled"}),
+                              "unblock_condition": (completion_waits[-1]['unblock_condition'] if completion_waits else external[-1].get('unblock_condition')) if deferred else "当前准确结果、全部冻结标准及实际接续证明",
+                              "next_check_at": (completion_waits[-1]['next_check_at'] if completion_waits else external[-1].get('next_check_at')) if deferred else None})
+        except (workflow.WorkflowError, ValueError, OSError, KeyError, TypeError, AttributeError) as exc:
+            inventory.append({**_task_block(path.stem, exact_owner, exc), 'department': exact_owner,
+                              'status': 'blocked_evidence_invalid', 'requires_action': False, 'formally_closed_scope': False})
     return inventory
 
 
+def _legacy_unmapped(root):
+    """Read legacy tasks separately, so one obsolete pin cannot hide modern work."""
+    from result_coordination import result_lane, goal_delivery
+    from goal_delivery_runtime import _task_block, deduplicate_records
+    tasks = {p.stem for directory, suffix in ((workflow.WORKFLOW_DIR, '*.json'), (workflow.RESULT_HANDOFF_DIR, '*.jsonl'))
+             for p in (root / directory).glob(suffix)}
+    old, errors = [], []
+    for task in sorted(tasks):
+        try:
+            if goal_delivery(root, task) is not None:
+                continue
+            local = workflow.result_handoff_pending(root, [task])
+            old.extend(row for row in local.get('results', []) + local.get('followthrough_results', [])
+                       if result_lane(root, row)['lane'] == 'legacy_unmapped')
+        except (workflow.WorkflowError, ValueError, OSError, KeyError, TypeError, AttributeError) as exc:
+            errors.append(_task_block(task, 'operations', exc))
+    return deduplicate_records(old), errors
+
+
 def _modern_derive(root: Path, registry: dict, role: str, now: dt.datetime) -> tuple[dict, dict]:
-    from goal_delivery_runtime import wait_plan, pending as assistant_pending
+    from goal_delivery_runtime import wait_plan, pending as assistant_pending, deduplicate_records
     binding = registry.get(role, {}).get("chat_binding", {})
-    if (not binding.get("task_id") or not binding.get("project_id")
-            or Path(binding.get("cwd", "")).resolve() != root
+    if (not binding.get("task_id") or not binding.get("project_id") or Path(binding.get("cwd", "")).resolve() != root
             or (role != "operations" and registry.get(role, {}).get("coordination_authority", {}).get("routine_decisions") is not True)):
         raise ValueError("current registered coordinator identity required")
-    roles = ([r for r, item in registry.items() if r != "operations"
-              and item.get("coordination_authority", {}).get("routine_decisions") is True]
+    roles = ([r for r, item in registry.items() if r != "operations" and item.get("coordination_authority", {}).get("routine_decisions") is True]
              if role == "operations" else [role])
-    queue = {"results": [], "followthrough_results": [], "collaboration_pending": [], "collaboration_not_proven": [],
-             'HQ_knowledge_pending': [], 'named_due_dependencies': [], 'notification_delivery_pending': [],
-             "pending_count": 0, "followthrough_pending_count": 0, "collaboration_pending_count": 0,
-             "collaboration_not_proven_count": 0}
+    queue = {key: [] for key in ("results", "followthrough_results", "collaboration_pending", "collaboration_not_proven",
+                                'HQ_knowledge_pending', 'named_due_dependencies', 'named_waiting_dependencies',
+                                'notification_delivery_pending', 'completion_followthrough', 'task_errors')}
     plans, inventory, errors, checkpoint_sources = {}, [], [], []
     for owner in roles:
+        # A corrupt wait cursor affects waiting only; arrived work still projects.
+        cursor_path = root / "logs/goal-delivery-waits" / (owner + ".json")
         try:
-            cursor_path = root / "logs/goal-delivery-waits" / (owner + ".json")
             cache = workflow.read_json(cursor_path)
+            cursors = cache.get("cursors", {})
             if cache and cache.get("coordinator_role") != owner:
                 raise ValueError("current assistant cursor identity mismatch")
-            cursors = cache.get("cursors", {})
             if not isinstance(cursors, dict) or any(not isinstance(v, str) or not v.strip() for v in cursors.values()):
                 raise ValueError("actual saved native cursors required")
-            item = assistant_pending(root, owner)
-            scoped = {"results": item["pending"], "followthrough_results": item["followthrough_pending"],
-                      "collaboration_pending": item.get("collaboration_pending", []),
-                      "collaboration_not_proven": item.get("collaboration_not_proven", [])}
-            plan = wait_plan(root, owner, cursors=cursors)
-            plans[owner] = plan
-            queue["results"].extend(scoped["results"])
-            queue["followthrough_results"].extend(scoped["followthrough_results"])
-            queue["collaboration_pending"].extend(scoped["collaboration_pending"])
-            queue["collaboration_not_proven"].extend(scoped["collaboration_not_proven"])
-            queue['HQ_knowledge_pending'].extend(item.get('HQ_knowledge_pending', []))
-            queue['named_due_dependencies'].extend(item.get('named_due_dependencies', []))
-            queue['notification_delivery_pending'].extend(item.get('notification_delivery_pending', []))
-            inventory.extend(_owned_goals(root, owner, plan, scoped, now))
-            checkpoint_sources.append({"coordinator_role": owner, "cursor_record": workflow.file_digest(root, str(cursor_path.relative_to(root))) if cache else None,
-                                       "native_observed_at": cache.get("observed_at"), "source": "owned_goal_snapshots_and_recorded_native_wait"})
+            cursor_error = None
+        except (workflow.WorkflowError, ValueError, OSError, KeyError, TypeError, AttributeError) as exc:
+            cache, cursors, cursor_error = {}, {}, {'coordinator_role': owner, 'reason': str(exc), 'stage': 'wait_cursor_recovery'}
+            errors.append(cursor_error)
+        item = assistant_pending(root, owner)
+        scoped = {'results': item['pending'], 'followthrough_results': item['followthrough_pending'],
+                  **{key: item.get(key, []) for key in ('collaboration_pending', 'collaboration_not_proven', 'completion_followthrough')},
+                  'completion_status': item.get('completion_status', {})}
+        plan = wait_plan(root, owner, cursors=cursors, queue=item)
+        if cursor_error:
+            plan.update(batches=[], cursor_recovery_required=True)
+        plans[owner] = plan
+        for key in queue:
+            source = 'pending' if key == 'results' else 'followthrough_pending' if key == 'followthrough_results' else key
+            queue[key].extend(item.get(source, []))
+        queue['task_errors'].extend(plan.get('task_errors', []))
+        inventory.extend(_owned_goals(root, owner, plan, scoped, now))
+        checkpoint_sources.append({"coordinator_role": owner,
+                                   "cursor_record": workflow.file_digest(root, str(cursor_path.relative_to(root))) if cache else None,
+                                   "native_observed_at": cache.get("observed_at"), "source": "owned_goal_snapshots_and_recorded_native_wait"})
+    for key in queue:
+        queue[key] = deduplicate_records(queue[key], delivery=key == 'notification_delivery_pending')
+    inventory = deduplicate_records(inventory)
+    errors.extend(queue['task_errors'])
+    errors.extend(row for row in inventory if row.get('status') == 'blocked_evidence_invalid')
+    if role == "operations":
+        from direct_system_repair import inventory as direct_inventory
+        try:
+            inventory.extend(direct_inventory(root))
         except (workflow.WorkflowError, ValueError, OSError, KeyError, TypeError) as exc:
-            errors.append({"coordinator_role": owner, "reason": str(exc)})
-    queue["pending_count"] = len(queue["results"])
-    queue["followthrough_pending_count"] = len(queue["followthrough_results"])
-    queue["collaboration_pending_count"] = len(queue["collaboration_pending"])
-    queue["collaboration_not_proven_count"] = len(queue["collaboration_not_proven"])
-    queue["total_actionable_count"] = queue["pending_count"] + queue["followthrough_pending_count"]
-    from result_coordination import result_lane, goal_delivery
-    legacy = workflow.result_handoff_pending(root)
-    old = [row for row in legacy.get('results', []) + legacy.get('followthrough_results', [])
-           if goal_delivery(root, row.get('task_id')) is None and result_lane(root, row)['lane'] == 'legacy_unmapped']
-    queue.update(professional_pending_count=queue['pending_count'],
-                 HQ_knowledge_pending_count=len(queue['HQ_knowledge_pending']),
-                 named_due_dependency_count=len(queue['named_due_dependencies']),
-                 notification_delivery_pending_count=len(queue['notification_delivery_pending']),
-                 legacy_unmapped=old, legacy_unmapped_count=len(old),
-                 legacy_control_records_are_business_jobs=False)
-    watched = [dict(task, coordinator_role=owner) for owner, plan in plans.items() for task in plan["tasks"]]
-    actionable = [row for row in inventory if row["requires_action"] and row["status"] != "inflight_event_wait"]
+            from direct_system_repair import TASK
+            from goal_delivery_runtime import _task_block
+            errors.append(_task_block(TASK, "operations", exc))
+    old, old_errors = _legacy_unmapped(root)
+    errors.extend(old_errors)
+    queue.update(legacy_unmapped=old, legacy_unmapped_count=len(old), legacy_control_records_are_business_jobs=False,
+                 pending_count=len(queue['results']), professional_pending_count=len(queue['results']),
+                 followthrough_pending_count=len(queue['followthrough_results']), collaboration_pending_count=len(queue['collaboration_pending']),
+                 collaboration_not_proven_count=len(queue['collaboration_not_proven']), HQ_knowledge_pending_count=len(queue['HQ_knowledge_pending']),
+                 named_due_dependency_count=len(queue['named_due_dependencies']), named_waiting_dependency_count=len(queue['named_waiting_dependencies']),
+                 notification_delivery_pending_count=len(queue['notification_delivery_pending']), completion_followthrough_count=len(queue['completion_followthrough']))
+    actionable = [row for row in inventory if row['requires_action'] and row['status'] != 'inflight_event_wait']
+    ready_results = deduplicate_records(queue['results'] + queue['followthrough_results'] + queue['collaboration_pending']
+                    + queue['collaboration_not_proven'] + [row for row in queue['completion_followthrough'] if row.get('actionable')]
+                    + queue['named_due_dependencies'])
+    ready_deliveries = [row for row in queue['notification_delivery_pending'] if row.get('actionable')]
+    ready_knowledge = queue['HQ_knowledge_pending'] if role == 'operations' else []
+    represented = {row.get('task_id') for row in ready_results}
+    standalone_internal = [row for row in actionable if row['task_id'] not in represented]
+    queue['ready_internal_action_count'] = len(actionable)
+    queue['total_actionable_count'] = len(ready_results) + len(ready_deliveries) + len(ready_knowledge) + len(standalone_internal)
+    queue['actionable_business_task_count'] = len({row.get('task_id', row.get('identity', {}).get('task_id'))
+        for row in ready_results + ready_deliveries + ready_knowledge + actionable})
+    queue['control_records_are_business_jobs'] = False
+    watched = [dict(task, coordinator_role=owner) for owner, plan in plans.items() for task in plan['tasks']]
+    ready_before_wait = bool(ready_results or ready_deliveries or ready_knowledge or actionable)
+    batches = [] if ready_before_wait else [batch for plan in plans.values() for batch in plan['batches']]
     return {"schema_version": "3.0", "coordinator_role": role, "project_id": binding["project_id"],
             "controller_thread_id": binding["task_id"], "cwd": str(root), "updated_at": now.isoformat(),
             "coordination_model": "goal_delivery_assistant_v1", "HQ_may_end_coordination": role == "operations",
             "source": "current_responsible_assistant_goal_runtime", "checkpoint_sources": checkpoint_sources,
             "observation_time_is_not_native_freshness": True, "delegated_assistant_batches": plans,
             "responsibility_inventory": inventory, "watched_tasks": [] if role == "operations" else watched,
-            "ready_internal_actions": [] if role == "operations" else actionable, "validation_errors": errors,
-            "event_wait_batches": [batch for plan in plans.values() for batch in plan["batches"]],
+            "ready_internal_actions": [row for row in actionable if row.get('actual_executor') == 'operations']
+                                      if role == "operations" else actionable,
+            "ready_result_actions": ready_results, "ready_knowledge_intake": ready_knowledge,
+            "ready_notification_actions": ready_deliveries, "validation_errors": deduplicate_records(errors),
+            "wait_deferred_for_ready_work": ready_before_wait, "event_wait_batches": batches,
             "max_wait_ms_per_call": 60000, "cursor_record_required": True,
-            "current_native_observation_required": any("afterCursor" not in target for plan in plans.values() for batch in plan["batches"] for target in batch),
+            "current_native_observation_required": any('afterCursor' not in target for batch in batches for target in batch),
             "native_wakeup_available": False, "no_high_frequency_polling": True,
             'result_categories': {key: queue[key] for key in ('professional_pending_count', 'HQ_knowledge_pending_count',
                       'named_due_dependency_count', 'legacy_unmapped_count', 'notification_delivery_pending_count')},
-            'native_resume_plan': {'entry': 'running responsible assistant: wait-begin -> wait-call-start -> native wait_threads -> wait-record; interruption: wait-recover',
+            'native_resume_plan': {'entry': 'running responsible assistant: pending -> ready actions -> wait-begin -> native wait_threads -> wait-record; interruption: wait-recover',
                                    'ended_chat': 'authorized original daily automation or explicit native follow-up only; queue cannot wake it',
                                    'owner': role, 'native_wakeup_proven': False},
             "result_queue_auto_wakes_ended_controller": False, "messages_sent": 0, "permissions_issued": 0,

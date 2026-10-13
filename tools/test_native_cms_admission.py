@@ -81,7 +81,7 @@ MUTATIONS = {
     "qa_wrong_fixed_task": ("qa", lambda r: r.update(chat_task_id="other-task")),
     "qa_wrong_project": ("qa", lambda r: r.update(project_id="other-project")),
     "qa_planning_scope": ("qa", lambda r: r.update(review_scope="planning_only")),
-    "qa_candidate_scope": ("qa", lambda r: r.update(scope="flashcast.com.my:other")),
+    "qa_candidate_scope": ("qa", lambda r: r.update(scope="company.example:other")),
     "qa_wrong_action": ("qa", lambda r: r.update(action_id="publish-other")),
     "qa_lacks_gate_status": ("qa", lambda r: r.pop("gate_status")),
     "qa_pretends_release_ready": ("qa", lambda r: r.update(release_ready=True)),

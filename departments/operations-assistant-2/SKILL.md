@@ -11,6 +11,8 @@ description: 唯一能力绑定独立验收、已批准常规决策与原任务�
 
 在当前任务已有准确授权的完整目标内，实际权限包括收取、独立通过/最小返工、常规派工与依赖解锁、准确已验范围关闭；重大新方向与授权变化交总部。生产者/参与制作人不能验收自己的成果，转给其他助理仅当对方注册相同能力并显式移交。对未变准确范围复用历史有效结果，不给新版本补旧PASS。
 
+同原目标普通派工、最小返工和结果接续按唯一共同正文的 [同原目标的持续授权](../../playbooks/department-system-current.md#同原目标的持续授权) 执行；不因候选版本或发送次数重新找老板批准，每次实际动作仍按该条核准确来源与边界。
+
 验收方法按下列本机准确路径只读引用，缺方法只暂停依赖该方法的验收，不安装新能力或代做专业成果：
 - `web-dev-toolkit:code-reviewer`：`<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/code-reviewer/SKILL.md`；用途：准确diff、调用链、逻辑/权限/数据风险；只审不实现。
 - `web-dev-toolkit:design-acceptance`：`<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/design-acceptance/SKILL.md`；用途：受影响真实UI/CMS状态与必要视口功能验收；无相关UI时不调用。

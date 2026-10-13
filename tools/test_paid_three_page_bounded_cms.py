@@ -49,7 +49,7 @@ def package_root(source=__file__):
     for parent in source.parents:
         if source.parent == parent / "candidate/tools" and (parent / "candidate/tools/paid_three_page_bounded_cms.py").is_file():
             return parent
-    return project_root(source) / "logs/handoffs/2026-10-10-paid-three-page-original-followthrough-v1/system-consumer-repair/rework-real-v4-v2"
+    return project_root(source) / "logs/handoffs/2026-10-11-paid-three-page-v5-source-and-effect-compatibility-v1/developer-v2"
 
 
 PACKAGE = package_root()
@@ -1396,6 +1396,1012 @@ class ActualV4ConsumerTests(ActualV4Fixture):
             b.validate_machine(self.root, item, accepted)
         self.assertEqual((self.root / record["machine"]["run_snapshot"]["path"]).read_bytes(), original_run)
         self.assertEqual((self.root / record["machine"]["locked_preview"]["path"]).read_bytes(), original_receipt)
+
+
+
+class V5EffectFixture(BoundedCMSFixture):
+    """Isolated services only: synthetic receipts never become real evidence."""
+    def setUp(self):
+        super().setUp()
+        # This fixture exercises the historical mixed state. The new incremental
+        # native Saved notice is covered by a separate actual read-only test.
+        notice_service = mock.patch.object(b, "_apply_saved_notices", side_effect=lambda root, rows: rows)
+        notice_service.start(); self.addCleanup(notice_service.stop)
+        self.effects = {"task_id": b.TASK, "read_only": True, "new_Save_by_this_publisher": 0, "records": []}
+        self.facts_v5 = {"task_id": b.TASK, "candidate_version": b.VERSION,
+            "original_source_candidate_version": b.WEBSITE_SOURCE_VERSION,
+            "new_permits_issued": 0, "new_CMS_Save": 0, "actual_time_not_overwritten": True}
+        for key in b.V5_EVIDENCE[1:]:
+            self.current["evidence"][key] = self.write("evidence/"+key+".json", {"isolated_service": True})
+        for index, (fresh, row) in enumerate(zip(self.checks["records"], self.rows)):
+            native = copy.deepcopy(b.doc(self.root, row["candidate"] if index < 2 else row["backup"]))
+            if index < 2:
+                native["updated_at"] = (self.now-dt.timedelta(seconds=90-index)).isoformat(timespec="microseconds")
+                native["version"] = 1
+                receipt = {"ok": index == 0, "operation": "optimize", "target": row["action_id"],
+                    "published": {"ok": True, "dry_run": False, "content_type": "service", "action": "publish",
+                        "slug": row["slug"], "status": "published", "existing_id": row["record_id"],
+                        "saved_id": row["record_id"], "saved_updated_at": native["updated_at"], "auth_mode": "cron"},
+                    "postcheck": {"ok": index == 0}}
+                rp = self.write("evidence/"+row["slug"]+"-saved.json", receipt)
+                self.effects["records"].append({"slug": row["slug"], "actual_existing_SavedID": row["record_id"],
+                    "saved_raw_updated_at": native["updated_at"], "original_run_id": 38066380587+index,
+                    "actual_publish_receipt": rp})
+                self.artifacts.append(rp)
+                fresh["typed_preview"] = self.write("rows/"+row["slug"]+"-typed-saved.json", {"request": None})
+                self.artifacts.append(fresh["typed_preview"])
+            fresh["backup"] = self.write("rows/"+row["slug"]+"-current.json", native)
+            fresh.update(after_readback=fresh["backup"], raw_updated_at=native["updated_at"], native_version=native["version"])
+            self.artifacts.append(fresh["after_readback"])
+        self.sync_v5()
+
+    def sync_v5(self):
+        e = self.current["evidence"]
+        e["actual_existing_Saved_ID_receipts"] = self.write("evidence/v5-effects.json", self.effects)
+        e["actual_machine_identity_and_preview_facts"] = self.write("evidence/v5-facts.json", self.facts_v5)
+        e["fresh_CAS_input_checks"] = self.write("evidence/current-checks.json", self.checks)
+        manifest = {"task_id": b.TASK, "candidate_version": b.VERSION, "source_candidate_version": b.WEBSITE_SOURCE_VERSION,
+            "records": self.checks["records"], "artifacts": self.artifacts, "backups": [r["backup"] for r in self.checks["records"]]}
+        self.manifest_pin = self.write("evidence/current-manifest.json", manifest)
+        e["manifest"] = self.manifest_pin
+        self.current_pin = self.write("evidence/current-producer.json", self.current)
+        self.receipts[0]["evidence"] = [self.current_pin]
+        self.rows, self.bindings_pin, _ = b._rows(self.root, self.current)
+        self.target_map = b.targets(self.root)
+
+    def replace_pin(self, old, new):
+        self.artifacts = [new if item == old else item for item in self.artifacts]
+
+    def mutate_receipt(self, key, value, index=1):
+        entry = self.effects["records"][index]; old = entry["actual_publish_receipt"]
+        receipt = b.doc(self.root, old)
+        if key in ("target", "operation"): receipt[key] = value
+        else: receipt["published"][key] = value
+        entry["actual_publish_receipt"] = self.write(old["path"], receipt)
+        self.replace_pin(old, entry["actual_publish_receipt"]); self.sync_v5()
+
+    def mutate_row(self, key, value, index=1):
+        fresh = self.checks["records"][index]; old = fresh["backup"]
+        native = b.doc(self.root, old); native[key] = value
+        fresh["backup"] = self.write(old["path"], native)
+        fresh.update(after_readback=fresh["backup"], raw_updated_at=native["updated_at"], native_version=native["version"])
+        self.replace_pin(old, fresh["backup"]); self.sync_v5()
+
+    def new_effect_review(self):
+        expected = {"authority": self.authority_pin, "goal_contract": self.contract_pin, "review_plan": self.plan_pin,
+            "current_producer": self.current_pin, "bindings": self.bindings_pin, "source_manifest": self.manifest_pin, "original_machine_source": self.machine_origin_pin}
+        remaining = [r["action_id"] for r in self.rows if r["publication_state"] == "pending_save"]
+        effect = {"schema": b.EFFECT_SCHEMA, "task_id": b.TASK, "candidate_version": b.VERSION, "reviewer": b.ROLE,
+            "producer": b.PRODUCER, **expected, "rows": copy.deepcopy(self.rows), "remaining_publish_rows": remaining,
+            **{key: False for key in b.FLAGS}}
+        ep = self.write("evidence/new-effect-review.json", effect)
+        proof = {"effect_reconciliation": ep, "remaining_publish_rows": remaining, "execution_preflights":
+            [{"action_id": self.rows[2]["action_id"], "scope": self.rows[2]["scope"], "operation": "publish"}] if remaining else []}
+        return expected, effect, proof, {"evidence": [ep]}
+
+
+class V5EffectConsumerTests(V5EffectFixture):
+    def test_saved_outer_postcheck_failure_and_version_one_do_not_hide_save(self):
+        self.assertEqual([r["publication_state"] for r in self.rows],
+            ["saved_effect_observed_no_replay", "saved_effect_observed_no_replay", "pending_save"])
+        self.assertEqual([r["publish_allowed"] for r in self.rows], [False, False, True])
+        self.assertEqual(self.rows[1]["current_native_version"], 1)
+        self.assertFalse(self.rows[1]["original_postcheck_ok"])
+        self.assertNotEqual(self.rows[1]["raw_updated_at"], self.rows[1]["saved_raw_updated_at"])
+        expected, effect, proof, box = self.new_effect_review()
+        self.assertEqual(b._effect_review(self.root, proof, expected, self.rows, box), proof["effect_reconciliation"])
+        self.assertEqual(len(self.target_map), 3)
+
+    def test_saved_rows_deny_acceptance_preflight_issuer_and_machine(self):
+        issuer = candidate_issuer_functions()
+        for index in (0, 1):
+            with self.subTest(index=index):
+                target = self.target(index)
+                accepted = {"acceptance_model": b.MODEL, "operation": "publish", "row": self.rows[index]}
+                with self.assertRaises(w.WorkflowError): b.acceptance(self.root, self.snapshot, target)
+                with self.assertRaises(w.WorkflowError): b.preflight(self.root, self.snapshot, target["action_id"], "cms_write", target["scope"], b.PRODUCER)
+                with self.assertRaises(issuer.PermitEvidenceError): issuer.validate_new_permit_target(target, assistant_acceptance=accepted)
+                with self.assertRaises(w.WorkflowError): b.validate_issuer_machine(self.root, target, accepted, {}, {}, 0, {}, {})
+
+    def test_wrong_saved_receipt_identity_cas_tuple_and_write_fail_closed(self):
+        entry = self.effects["records"][1]
+        original = copy.deepcopy(b.doc(self.root, entry["actual_publish_receipt"]))
+        for key, value in (("saved_id", "other-id"), ("saved_updated_at", "2026-10-10T16:00:00.000001Z"),
+                          ("target", self.rows[2]["action_id"]), ("operation", "rollback"), ("dry_run", True), ("ok", False)):
+            with self.subTest(key=key):
+                old = entry["actual_publish_receipt"]
+                entry["actual_publish_receipt"] = self.write(old["path"], original)
+                self.replace_pin(old, entry["actual_publish_receipt"])
+                # Each mutation still has valid hashes; identity, not stale pins, must reject it.
+                self.mutate_receipt(key, value)
+                self.assertEqual(self.rows[1]["publication_state"], "effect_unresolved")
+                self.assertFalse(self.rows[1]["publish_allowed"])
+
+    def test_retained_drift_parallel_save_and_missing_readback_cannot_replay(self):
+        self.mutate_row("title_en", "retained-sixth-field-drift")
+        self.assertEqual(self.rows[1]["publication_state"], "effect_unresolved")
+        self.mutate_row("updated_at", "2026-10-11T00:00:00.000001+00:00", index=0)
+        self.assertEqual(self.rows[0]["publication_state"], "effect_unresolved")
+        self.checks["records"][0]["after_readback"] = None; self.sync_v5()
+        self.assertEqual(self.rows[0]["publication_state"], "effect_unresolved")
+
+    def test_unknown_third_effect_empty_remaining_and_duplicate_receipt_deny_new_save(self):
+        self.mutate_row("updated_at", "2026-10-11T00:00:00.000001+00:00", index=2)
+        self.assertEqual(self.rows[2]["publication_state"], "effect_unresolved")
+        expected, effect, proof, box = self.new_effect_review()
+        self.assertEqual(proof["remaining_publish_rows"], [])
+        self.assertEqual(b._effect_review(self.root, proof, expected, self.rows, box), proof["effect_reconciliation"])
+        with self.assertRaises(w.WorkflowError): b.acceptance(self.root, self.snapshot, self.target(2))
+        self.effects["records"].append(copy.deepcopy(self.effects["records"][1])); self.sync_v5()
+        self.assertEqual(self.rows[1]["publication_state"], "effect_unresolved")
+
+    def test_effect_review_requires_parent_before_reconciled_and_no_saved_preflights(self):
+        expected, effect, proof, box = self.new_effect_review()
+        proof["execution_preflights"].append({"action_id": self.rows[0]["action_id"], "scope": self.rows[0]["scope"], "operation": "publish"})
+        with self.assertRaises(w.WorkflowError): b._effect_review(self.root, proof, expected, self.rows, box)
+        expected, effect, proof, box = self.new_effect_review(); effect["rows"][0]["publication_state"] = "effect_reconciled"
+        proof["effect_reconciliation"] = self.write(proof["effect_reconciliation"]["path"], effect)
+        box["evidence"] = [proof["effect_reconciliation"]]
+        with self.assertRaises(w.WorkflowError): b._effect_review(self.root, proof, expected, self.rows, box)
+
+    def test_ambiguous_v5_old_aliases_fake_new_save_and_timestamp_refresh_rejected(self):
+        for key, value in (("native_frontend_loaded_sha", "1"*40), ("new_CMS_Save", 1), ("actual_time_not_overwritten", False)):
+            with self.subTest(key=key):
+                self.current["evidence"]["actual_machine_identity_and_preview_facts"] = self.write("evidence/bad-facts.json", {**self.facts_v5, key: value})
+                with self.assertRaises(w.WorkflowError): b._rows(self.root, self.current)
+        self.current["evidence"]["actual_machine_identity_and_preview_facts"] = self.write("evidence/v5-facts.json", self.facts_v5)
+        self.current["evidence"]["source_and_original_backups"] = self.authority_pin
+        with self.assertRaises(w.WorkflowError): b._rows(self.root, self.current)
+
+
+class RealV5ReadOnlyEffectTests(unittest.TestCase):
+    def test_historical_frozen_actual_rows_recompute_without_claiming_current_execution(self):
+        current = json.loads((SOURCE/"outbox-production-forward-preview-v5.json").read_bytes())
+        rows, _, _ = b._rows(REAL, current)
+        self.assertEqual([r["publication_state"] for r in rows],
+            ["saved_effect_observed_no_replay", "saved_effect_observed_no_replay", "pending_save"])
+        self.assertEqual([r.get("current_native_version") for r in rows], [1, 1, 1])
+        self.assertEqual(rows[0]["saved_raw_updated_at"], "2026-10-10T16:08:22.003433+00:00")
+        self.assertEqual(rows[1]["saved_raw_updated_at"], "2026-10-10T16:51:33.869215+00:00")
+        self.assertFalse(rows[1]["original_postcheck_ok"])
+        self.assertFalse(any(r.get("production_write_allowed") for r in rows))
+        actual_current = b._apply_saved_notices(REAL, rows)
+        self.assertEqual([r["publish_allowed"] for r in actual_current], [False, False, False])
+        self.assertEqual(actual_current[2]["saved_raw_updated_at"], "2026-10-10T17:45:51.559189+00:00")
+        self.assertFalse(actual_current[2]["current_full_Saved_readback_verified"])
+        self.assertEqual([r["action_id"] for r in actual_current if r["publish_allowed"]], [])
+        with self.assertRaises(w.WorkflowError):
+            b._saved_parent(REAL, actual_current[2], {}, {}, {})
+
+
+    def test_third_completed_status_is_real_but_does_not_upgrade_partial_saved_row(self):
+        path = REAL / "logs/handoffs/2026-10-10-paid-three-page-original-followthrough-v1/assistant2-owned/A2-T3-third-actual-Saved-original-issuer-readonly-completed-permit-status-v1.json"
+        raw = path.read_bytes()
+        self.assertEqual(hashlib.sha256(raw).hexdigest(), "9dc8d68e1cc20e16b301f22a2a7934c63ebdfecf017bc647afc490a557cb201e")
+        self.assertEqual(len(raw), 1085)
+        status = json.loads(raw)["actual_safe_response"]
+        issuer = candidate_issuer_functions()
+        issuer.validate_completed_parent_status(status, {"task_id": b.TASK, "action_id": "paid-three-page-renovation-exact-fields-v1", "candidate_version": b.VERSION, "record_id": b.ROWS[2][1]}, status["permitId"], 38073003426)
+        current = b._apply_saved_notices(REAL, b._rows(REAL, json.loads((REAL/b.BASE/"outbox-production-forward-preview-v5.json").read_bytes()))[0])
+        self.assertFalse(current[2]["current_full_Saved_readback_verified"])
+        with self.assertRaisesRegex(w.WorkflowError, "partial Saved notice"):
+            b._saved_parent(REAL, current[2], {}, {}, {})
+
+
+class V5NativeRecoveryTests(V5EffectFixture):
+    """A genuine isolated parent permits version=1; absence never authorizes replay."""
+    def setUp(self):
+        super().setUp()
+        self.native_issuer = candidate_issuer_functions()
+        issuer_service = mock.patch.dict(sys.modules, {"managed_cms_permit_issuer": self.native_issuer})
+        issuer_service.start(); self.addCleanup(issuer_service.stop)
+
+    def native_parent(self, index=1):
+        row = self.rows[index]
+        origin = b.doc(self.root, self.machine_origin_pin)["actual_original_machine_channel_metadata"]
+        commit = "3"*40
+        identity = {"repositoryId": 1248188229, "actorId": origin["existing_actor_id"],
+            "workflowRef": origin["repository"]+"/"+origin["workflow_path"]+"@refs/heads/main",
+            "runId": row["historical_run_id"], "runAttempt": 1, "workflowSha": commit}
+        status = {"ok": True, "permitId": "fixture-parent-original-permit", "status": "completed", "operation": "publish",
+            "taskId": b.TASK, "actionId": row["action_id"], "candidateVersion": b.VERSION,
+            "githubRunId": row["historical_run_id"], "githubRunAttempt": 1, "savedId": row["record_id"],
+            "savedUpdatedAt": row["saved_raw_updated_at"]}
+        run = {"id": row["historical_run_id"], "run_attempt": 1, "actor": {"id": origin["existing_actor_id"]},
+            "repository": {"id": 1248188229, "full_name": origin["repository"]}, "workflow_id": origin["workflow_id"],
+            "path": origin["workflow_path"], "event": "workflow_dispatch", "head_branch": "main", "head_sha": commit,
+            "status": "completed", "conclusion": "failure"}
+        payload = {"task_id": b.TASK, "candidate_version": b.VERSION, "operation": "publish",
+            "payload_sha256": "5"*64, "expected_updated_at": row["raw_updated_at"]}
+        parent = {"schema": b.EFFECT_SCHEMA+"_completed_parent", "task_id": b.TASK, "candidate_version": b.VERSION,
+            "action_id": row["action_id"], "scope": row["scope"], "record_id": row["record_id"],
+            "original_authority": self.authority_pin, "native_batch_permission_inherited": False,
+            "historical_company_PASS_invented": False, "parent_run_id": run["id"], "parent_permit_id": status["permitId"],
+            "completed_status": self.write("recovery/status.json", status),
+            "full_original_gh_run": self.write("recovery/run.json", run),
+            "identity_probe": self.write("recovery/probe.json", {"ok": True, "dry_run": True, "performed_write": False, "identity": identity}),
+            "payload_digest": self.write("recovery/payload.json", payload), "original_machine_source": self.machine_origin_pin,
+            "issued_evidence": self.write("recovery/issued.json", {"issued": {"permitId": status["permitId"], "operation": "publish"},
+                "evidence": {"target": row["action_id"], "identity": identity, "actualPayloadSha256": payload["payload_sha256"],
+                    "authorizationId": "fixture-original-authority", "operationsDecisionId": "fixture-original-operations",
+                    "policyDecisionId": "fixture-original-policy"}})}
+        actual = json.loads((A2_SOURCES/"T3-v5-workflow-93716-runtime-5237-source-equivalence-preliminary-v1.json").read_bytes())
+        original = b._website_json(actual["actual_deployment_source_proof"])
+        manifest = b._website_json(actual["actual_deployed_runtime_manifest"])
+        runtime_files, git_files = [], {}
+        for entry in manifest["files"]:
+            wp = {"path": str(Path(original["actual_readback"]["root"])/entry["path"]), "sha256": entry["sha256"], "size": entry["bytes"]}
+            path = "supabase/functions/"+entry["path"]
+            runtime_files.append({"source_path": path, "deployed_snapshot": wp})
+            git_files[path] = b._website_bytes(wp)
+        cli = []
+        for path in b.WORKFLOW_CLI[1:]:
+            entry = next(p for p in original["source_pins"] if p["path"] == path)
+            cli.append({"source_path": path, "sha256": entry["sha256"], "size": entry["bytes"]})
+            git_files[path] = b._git_source("5237d068b49a20a9ce6dc395f8c6a45d7f961d8b", path)
+        workflow = (SOURCE/"production-forward-preview-v5/actual-machine-content-publish-workflow-v5.yml").read_bytes()
+        git_files[b.WORKFLOW_CLI[0]] = workflow
+        review = {"schema": b.EFFECT_SCHEMA+"_historical_source_review", "reviewer": b.ROLE,
+            "task_id": b.TASK, "action_id": row["action_id"], "scope": row["scope"], "saved_receipt": row["saved_receipt"],
+            "original_authority": self.authority_pin, "source_branch": "exact_original_target_branch_verified",
+            "producer_summary_is_permission": False, "workflow_source": self.raw("recovery/workflow.yml", workflow),
+            "runtime_manifest": actual["actual_deployed_runtime_manifest"], "deployment_source_proof": actual["actual_deployment_source_proof"],
+            "runtime_files": runtime_files, "cli_files": cli,
+            **{key: parent[key] for key in ("full_original_gh_run", "payload_digest", "completed_status", "issued_evidence")}}
+        parent["historical_source_review"] = self.write("recovery/source-review.json", review)
+        git_service = mock.patch.object(b, "_git_source", side_effect=lambda sha, path: git_files[path] if sha in {commit, "5237d068b49a20a9ce6dc395f8c6a45d7f961d8b"} else b.require(False, "fixture immutable commit unavailable"))
+        git_service.start(); self.addCleanup(git_service.stop)
+        return row, parent, self.write("recovery/parent-mapping.json", parent), status
+
+    def test_version_one_exact_parent_all_runtime_and_cli_bytes_accept_without_prior_company_pass(self):
+        row, parent, value, status = self.native_parent()
+        self.assertEqual(row["current_native_version"], 1)
+        parsed, original_status = b._saved_parent(self.root, row, value, self.authority_pin, self.machine_origin_pin)
+        self.assertEqual(parsed, parent); self.assertEqual(original_status, status)
+        self.assertNotIn("publish_review_outbox", parent)
+        self.assertNotIn("publish_continue_record_id", parent)
+
+    def test_native_parent_status_payload_actor_and_source_substitution_fail_closed(self):
+        row, parent, value, status = self.native_parent()
+        originals = {key: copy.deepcopy(b.doc(self.root, parent[key])) for key in ("completed_status", "payload_digest", "full_original_gh_run", "issued_evidence")}
+        for key, field, wrong in (("completed_status", "actionId", self.rows[2]["action_id"]),
+                                  ("completed_status", "status", "unused"), ("completed_status", "savedUpdatedAt", row["raw_updated_at"]),
+                                  ("payload_digest", "payload_sha256", "6"*64), ("full_original_gh_run", "run_attempt", 2)):
+            with self.subTest(key=key, field=field):
+                changed = {**originals[key], field: wrong}
+                mutated = copy.deepcopy(parent); mutated[key] = self.write("recovery/altered-input.json", changed)
+                pin = self.write("recovery/altered-mapping.json", mutated)
+                with self.assertRaises((w.WorkflowError, self.native_issuer.PermitEvidenceError)):
+                    b._saved_parent(self.root, row, pin, self.authority_pin, self.machine_origin_pin)
+        mutated = {**parent, "historical_company_PASS_invented": True}
+        with self.assertRaises(w.WorkflowError): b._saved_parent(self.root, row, self.write("recovery/fake-prior-pass.json", mutated), self.authority_pin, self.machine_origin_pin)
+
+    def test_historical_parent_cannot_substitute_even_self_consistent_original_machine_channel(self):
+        row, parent, value, _ = self.native_parent()
+        parent = b.doc(self.root, value)
+        foreign = b.doc(self.root, self.machine_origin_pin)
+        foreign["actual_original_machine_channel_metadata"]["existing_actor_id"] += 1
+        parent["original_machine_source"] = self.write("recovery/foreign-original-machine.json", foreign)
+        with self.assertRaisesRegex(w.WorkflowError, "independently frozen original machine"):
+            b._saved_parent(self.root, row, self.write("recovery/foreign-parent.json", parent), self.authority_pin, self.machine_origin_pin)
+
+    def test_missing_original_completed_parent_cannot_upgrade_saved_effect_to_recovery(self):
+        row = self.rows[1]
+        self.assertFalse(row["publish_allowed"])
+        with self.assertRaises(w.WorkflowError): b._saved_parent(self.root, row, {}, self.authority_pin, self.machine_origin_pin)
+        self.assertFalse(row["publish_allowed"])
+
+    def test_version_one_native_recovery_requires_new_review_continue_preview_and_no_fake_prior_pass(self):
+        row, mapping, mapping_pin, status = self.native_parent()
+        self.prepare_rollback(1)
+        state = self.rollback_state
+        state["saved"] = b.doc(self.root, row["current_record"])
+        state["parent"] = status
+        before = b.doc(self.root, row["backup"])
+        state["restore"] = {**state["saved"], **{key: before[key] for key in row["changed_fields"]}}
+        state["typed"]["request"].update(expectedUpdatedAt=state["saved"]["updated_at"], record=state["restore"])
+        recovery_row = {**row, "action_id": "rollback-"+b.VERSION, "raw_updated_at": state["saved"]["updated_at"],
+            "native_version": 1, "baseline_sha256": b.digest(state["saved"]), "desired_sha256": b.digest(state["restore"]),
+            "candidate": self.write(state["path"]+"-restore.json", state["restore"]),
+            "typed_preview": self.write(state["path"]+"-typed.json", state["typed"])}
+        self.preflight_docs = [self.make_preflight(recovery_row, "rollback", b.ROLLBACK_VERSION)]
+        self.sync_rollback()
+        proof = self.box["cms_rollback_acceptance"]
+        mapping["completed_status"] = proof["completed_parent"]
+        source_review = b.doc(self.root, mapping["historical_source_review"])
+        source_review["completed_status"] = mapping["completed_status"]
+        mapping["historical_source_review"] = self.write(mapping["historical_source_review"]["path"], source_review)
+        mapping_pin = self.write(mapping_pin["path"], mapping)
+        proof.update(recovery_effect_schema=b.EFFECT_SCHEMA, saved_effect_completed_parent=mapping_pin,
+            publish_review_outbox=None, publish_continue_record_id=None, saved_record=row["current_record"],
+            parent_run_id=status["githubRunId"], parent_permit_id=status["permitId"])
+        # Re-freeze the new successful rollback preview, not the discarded old fixture preview.
+        preview = self.preflight_docs[0]
+        preview["rollback"].update(completed_parent=proof["completed_parent"], saved_record=proof["saved_record"])
+        preview["item"]["rollback"] = self.write(preview["item"]["rollback"]["path"], preview["rollback"])
+        proof["execution_preflights"] = [preview["item"]]
+        self.box["evidence"] += [mapping_pin, row["current_record"]]
+        self.box_pin = self.write("evidence/new-native-rollback-review.json", self.box)
+        self.continuation.update(evidence=[self.box_pin], previous_hash="")
+        self.continuation.pop("record_hash", None)
+        self.continuation["record_hash"] = w.sha256_value(self.continuation)
+        # A single new rollback decision exists. No old company publish review or
+        # continue is invented to describe the original native Save.
+        self.raw(str(w.result_handoff_path(self.root,b.TASK).relative_to(self.root)), (json.dumps(self.continuation)+"\n").encode())
+        with mock.patch.object(b, "_machine_sources", return_value={"original_machine_source": self.machine_origin_pin}):
+            accepted = b.rollback_acceptance(self.root, self.snapshot, self.target(1))
+            self.assertEqual(accepted["row"]["native_version"], 1)
+            self.assertFalse(accepted["production_write_allowed"])
+            checked = b.preflight(self.root, self.snapshot, "rollback-"+b.VERSION, "cms_write", row["scope"], b.PRODUCER)
+            self.assertEqual(checked["operation"], "rollback")
+            self.assertEqual(checked["facts"], self.preflight_docs[0]["item"]["facts"])
+            self.preflight_docs[0]["self_check"]["single_use_state"] = "consumed"
+            self.preflight_docs[0]["item"]["self_check"] = self.write(self.preflight_docs[0]["item"]["self_check"]["path"], self.preflight_docs[0]["self_check"])
+            proof["execution_preflights"] = [self.preflight_docs[0]["item"]]
+            self.box_pin = self.write(self.box_pin["path"], self.box)
+            self.continuation["evidence"] = [self.box_pin]; self.sync_continuation()
+            with self.assertRaises(w.WorkflowError):
+                b.preflight(self.root, self.snapshot, "rollback-"+b.VERSION, "cms_write", row["scope"], b.PRODUCER)
+
+
+
+# V5 whole workflow, full runtime and independent source adoption checks.
+import ast
+import copy
+import datetime as dt
+import difflib
+import functools
+import hashlib
+import json
+from pathlib import Path
+import re
+import sys
+import tempfile
+import types
+import unittest
+from unittest import mock
+
+V5_SOURCE_STAGE = PACKAGE
+V5_SOURCE_PROJECT = REAL
+V5_SOURCE_PRELIMINARY = V5_SOURCE_PROJECT / 'logs/handoffs/2026-10-10-paid-three-page-original-followthrough-v1/assistant2-owned/T3-v5-workflow-93716-runtime-5237-source-equivalence-preliminary-v1.json'
+V5_CURRENT_WORKFLOW = V5_SOURCE_PROJECT / 'drafts/publishing/fc-20261010-paid-three-page-exact-publication-followthrough-v1/production-forward-preview-v5/actual-machine-content-publish-workflow-v5.yml'
+V5_SOURCE_TMP = V5_SOURCE_STAGE / 'checks/.source-machine-v5-tmp'
+V5_NEW_HEAD = 'c4adb0bf4cd97eb6e3c76e619380783ec24372bb'
+V5_OLD_HEAD = '93716aaed5ef30ca209aa4a89db5230d47bd19fd'
+
+
+def v5_source_under_test():
+    # Exercise the complete imported candidate (or adopted) source, not the
+    # independently authored patch. No import or live consumer occurs here.
+    return Path(b.__file__).read_text(encoding="utf-8")
+
+
+def v5_baseline_workflow(current):
+    """Invert the frozen complete diff only for a local exact-byte fixture."""
+    delta = json.loads(V5_SOURCE_PRELIMINARY.read_bytes())['source_differences'][0]['unified_diff'].splitlines(keepends=True)
+    current = current.decode().splitlines(keepends=True)
+    output, cursor, index = [], 0, 2
+    while index < len(delta):
+        match = re.match(r'@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@', delta[index])
+        assert match
+        start = int(match.group(1)) - 1
+        output += current[cursor:start]
+        cursor, index = start, index + 1
+        while index < len(delta) and not delta[index].startswith('@@ '):
+            tag, value = delta[index][0], delta[index][1:]
+            if tag in ' +':
+                assert current[cursor] == value
+                cursor += 1
+            if tag in ' -':
+                output.append(value)
+            index += 1
+    return ''.join(output + current[cursor:]).encode()
+
+
+class V5SourceMachineFixture(unittest.TestCase):
+    def setUp(self):
+        V5_SOURCE_TMP.mkdir(exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(prefix='local-fixture-', dir=V5_SOURCE_TMP)
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.committed = []
+        class WorkflowError(Exception):
+            pass
+        self.w = types.SimpleNamespace(WorkflowError=WorkflowError, safe_path=self.safe,
+            file_digest=lambda root, path: self.fpin(path), _parse_observed_at=self.parse_time,
+            snapshot_path=lambda root, task: self.root / 'goal.json',
+            read_json=lambda path: json.loads(Path(path).read_bytes()),
+            validate_outbox=lambda *args: None, validate_workflow_events=lambda *args: [],
+            _result_handoff_rows=lambda *args: self.handoffs)
+        names = {'require', 'digest', 'strict', 'pin', 'doc', '_content_pair', '_machine_sources',
+            '_git_source', '_website_bytes', '_website_json', '_native', 'validate_machine', 'source_coherence'}
+        tree = ast.parse(v5_source_under_test())
+        body = [node for node in tree.body if isinstance(node, ast.Assign) or
+            isinstance(node, ast.FunctionDef) and (node.name in names or node.name.startswith('_v5_'))]
+        self.b = types.SimpleNamespace()
+        self.ns = dict(dt=dt, difflib=difflib, functools=functools, hashlib=hashlib, json=json,
+            re=re, Path=Path, w=self.w)
+        exec(compile(ast.Module(body=body, type_ignores=[]), 'isolated-authored-source-helpers', 'exec'), self.ns)
+        self.b.__dict__.update(self.ns)
+        # Helper global bindings remain self.ns; changes use patch.dict on it.
+        self.after = V5_CURRENT_WORKFLOW.read_bytes()
+        self.before = v5_baseline_workflow(self.after)
+        self.assertEqual(self.pair(self.before), self.b.V5_WORKFLOW_BEFORE)
+        self.assertEqual(self.pair(self.after), self.b.V5_WORKFLOW_AFTER)
+        self.workflow_before = self.raw('evidence/workflow-before.yml', self.before)
+        self.workflow_after = self.raw('evidence/workflow-after.yml', self.after)
+        self.proof = self.header(V5_NEW_HEAD)
+        self.refresh_delta()
+        original_v2 = self.doc('evidence/original-v2.json', {'task_id': self.b.TASK})
+        self.origin = self.doc('evidence/original-machine.json', {'actual_original_machine_channel_metadata': {
+            'existing_actor_id': 276684684, 'repository': 'wangchaozhuanyong/zhuangxiuwangzhan',
+            'workflow_id': 351424533, 'workflow_path': self.b.WORKFLOW_CLI[0]}})
+        original_v3 = self.doc('evidence/original-v3.json', {'task_id': self.b.TASK,
+            'candidate_version': self.b.VERSION, 'evidence': {'original_V2': original_v2,
+                'original_authority_review_machine_channel': self.origin}})
+        self.frontend = {'deploymentVersion': V5_NEW_HEAD, 'contentVersion': 'LOCAL_FIXTURE'}
+        self.facts = {'task_id': self.b.TASK, 'candidate_version': self.b.VERSION,
+            'machine_workflow_sha': V5_NEW_HEAD, 'native_frontend_actual_version': V5_NEW_HEAD,
+            'original_source_candidate_version': self.b.WEBSITE_SOURCE_VERSION,
+            'actual_time_not_overwritten': True, 'new_permits_issued': 0, 'new_CMS_Save': 0,
+            'records': [{'slug': slug, 'writes': 0, 'old_run_or_permission_reused': False,
+                'actual_machine_requests_completed': True} for slug, _, _ in self.b.ROWS]}
+        self.frontend_pin = self.doc('evidence/frontend.json', self.frontend)
+        self.facts_pin = self.doc('evidence/facts.json', self.facts)
+        self.comparison_pin = self.doc('evidence/comparison.json', {'task_id': self.b.TASK})
+        self.current = {'task_id': self.b.TASK, 'candidate_version': self.b.VERSION, 'evidence': {
+            'original_V2': original_v2, 'original_V3': original_v3,
+            'actual_machine_identity_and_preview_facts': self.facts_pin,
+            'actual_current_workflow_source': self.workflow_after,
+            'actual_current_frontend_version': self.frontend_pin,
+            'actual_main_and_deployed_source_comparison': self.comparison_pin}}
+        self.sync_machine()
+
+    def safe(self, root, path):
+        destination = Path(root) / path
+        if not destination.resolve().is_relative_to(self.root.resolve()):
+            raise self.w.WorkflowError('fixture path escaped')
+        return destination
+
+    @staticmethod
+    def parse_time(value):
+        try:
+            parsed = dt.datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+            return parsed if parsed.tzinfo else None
+        except ValueError:
+            return None
+
+    @staticmethod
+    def pair(raw):
+        return {'sha256': hashlib.sha256(raw).hexdigest(), 'size': len(raw)}
+
+    def fpin(self, path):
+        return {'path': str(path), **self.pair(self.safe(self.root, path).read_bytes())}
+
+    def raw(self, path, raw):
+        destination = self.safe(self.root, path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(raw)
+        return self.fpin(path)
+
+    def doc(self, path, value):
+        return self.raw(path, (json.dumps(value, ensure_ascii=False, indent=2) + '\n').encode())
+
+    def header(self, current):
+        return {'schema': self.b.V5_SOURCE_SCHEMA, 'task_id': self.b.TASK, 'candidate_version': self.b.VERSION,
+            'source_task_id': self.b.V5_SOURCE_TASK, 'source_candidate_version': self.b.V5_SOURCE_VERSION,
+            'source_scope': self.b.V5_SOURCE_SCOPE, 'operation': 'publish', 'scoped_result': 'exact_original_target_branch_verified',
+            'whole_workflow_bytes_equal': False, 'formal_T3_PASS': False,
+            'baseline_commit': self.b.V5_BASELINE_COMMIT, 'current_commit': current,
+            'actual_machine_main_sha': current, 'actual_machine_workflow_sha': current,
+            'actual_deployed_runtime_sha': self.b.V5_BASELINE_COMMIT,
+            'actual_function_version': 77, 'actual_deployment_run': 38061480070,
+            'workflow_baseline': self.workflow_before, 'workflow_current': self.workflow_after,
+            **{key: False for key in self.b.V5_REVIEW_FLAGS}}
+
+    def refresh_delta(self):
+        delta = ''.join(difflib.unified_diff(self.before.decode().splitlines(keepends=True),
+            self.after.decode().splitlines(keepends=True),
+            fromfile=self.b.V5_BASELINE_COMMIT + ':' + self.b.WORKFLOW_CLI[0],
+            tofile=self.proof['current_commit'] + ':' + self.b.WORKFLOW_CLI[0])).encode()
+        self.proof['full_workflow_diff'] = self.raw('evidence/workflow-full.diff', delta)
+
+    def git(self, commit, path):
+        self.assertEqual(path, self.b.WORKFLOW_CLI[0])
+        return self.before if commit == self.b.V5_BASELINE_COMMIT else self.after
+
+    def sync_machine(self):
+        self.facts_pin = self.doc('evidence/facts.json', self.facts)
+        self.frontend_pin = self.doc('evidence/frontend.json', self.frontend)
+        self.current['evidence'].update(actual_machine_identity_and_preview_facts=self.facts_pin,
+            actual_current_frontend_version=self.frontend_pin)
+        self.proof.update(actual_machine_source=self.facts_pin, frontend_version=self.frontend_pin,
+            source_comparison=self.comparison_pin,
+            current_producer=self.doc('evidence/current-producer.json', self.current))
+        self.bridge = self.doc('evidence/source-bridge.json', self.proof)
+
+    def denied(self, call):
+        with self.assertRaises(self.w.WorkflowError):
+            call()
+
+
+class V5SourceMachineFocusedTests(V5SourceMachineFixture):
+    def test_full_known_workflow_pair_and_all_diff_bytes_pass(self):
+        with mock.patch.dict(self.ns, {'_git_source': self.git}):
+            self.b._v5_workflow_bridge_bytes(self.root, self.proof)
+
+    def test_same_workflow_bytes_new_head_and_real_frontend_version_pass(self):
+        self.b._v5_bridge_header(self.proof)
+        result = self.b._machine_sources(self.root, self.current, self.bridge)
+        self.assertEqual(result['source_bridge'], self.bridge)
+        self.assertEqual(result['original_machine_source'], self.origin)
+        with mock.patch.dict(self.ns, {'_git_source': self.git}):
+            self.b._v5_workflow_bridge_bytes(self.root, self.proof)
+
+    def test_93716_historical_pair_is_still_explicitly_supported(self):
+        self.proof.update(current_commit=V5_OLD_HEAD, actual_machine_main_sha=V5_OLD_HEAD, actual_machine_workflow_sha=V5_OLD_HEAD)
+        self.facts['machine_workflow_sha'] = self.facts['native_frontend_actual_version'] = V5_OLD_HEAD
+        self.frontend['deploymentVersion'] = V5_OLD_HEAD
+        self.refresh_delta(); self.sync_machine()
+        self.b._machine_sources(self.root, self.current, self.bridge)
+        with mock.patch.dict(self.ns, {'_git_source': self.git}):
+            self.b._v5_workflow_bridge_bytes(self.root, self.proof)
+
+    def test_frontend_can_remain_distinct_from_workflow_and_runtime(self):
+        self.facts['native_frontend_actual_version'] = V5_OLD_HEAD
+        self.frontend['deploymentVersion'] = V5_OLD_HEAD
+        self.sync_machine()
+        self.b._machine_sources(self.root, self.current, self.bridge)
+
+    def test_missing_actual_online_version_is_not_inferred_from_main(self):
+        self.frontend = {'http_status': 403}
+        self.sync_machine()
+        self.denied(lambda: self.b._machine_sources(self.root, self.current, self.bridge))
+
+    def test_frontend_version_replacement_is_rejected(self):
+        self.frontend['deploymentVersion'] = 'a' * 40; self.sync_machine()
+        self.denied(lambda: self.b._machine_sources(self.root, self.current, self.bridge))
+
+    def test_unknown_hunk_even_with_rehashed_current_and_diff_is_rejected(self):
+        self.after += b'\n# unexpected guard edit\n'
+        self.proof['workflow_current'] = self.raw('evidence/changed-workflow.yml', self.after)
+        self.refresh_delta()
+        with mock.patch.dict(self.ns, {'_git_source': self.git}):
+            self.denied(lambda: self.b._v5_workflow_bridge_bytes(self.root, self.proof))
+
+    def test_full_diff_missing_hunk_is_rejected(self):
+        raw = self.safe(self.root, self.proof['full_workflow_diff']['path']).read_bytes()
+        self.proof['full_workflow_diff'] = self.raw('evidence/missing-hunk.diff', raw[:-50])
+        with mock.patch.dict(self.ns, {'_git_source': self.git}):
+            self.denied(lambda: self.b._v5_workflow_bridge_bytes(self.root, self.proof))
+
+    def test_git_object_mismatch_is_rejected(self):
+        with mock.patch.dict(self.ns, {'_git_source': lambda *args: b'changed object'}):
+            self.denied(lambda: self.b._v5_workflow_bridge_bytes(self.root, self.proof))
+
+    def test_wrong_current_commit_header_is_rejected(self):
+        self.proof['actual_machine_workflow_sha'] = 'b' * 40
+        self.denied(lambda: self.b._v5_bridge_header(self.proof))
+
+    def test_prepared_source_proof_is_rejected(self):
+        self.proof['prepared_only'] = True
+        self.denied(lambda: self.b._v5_bridge_header(self.proof))
+
+    def test_full_workflow_equivalence_claim_is_rejected(self):
+        self.proof['whole_workflow_bytes_equal'] = True
+        self.denied(lambda: self.b._v5_bridge_header(self.proof))
+
+    def test_wrong_source_task_and_version_are_rejected(self):
+        for key in ('source_task_id', 'source_candidate_version', 'source_scope'):
+            changed = {**self.proof, key: 'wrong'}
+            self.denied(lambda: self.b._v5_bridge_header(changed))
+
+    def test_v4_aliases_in_v5_facts_are_rejected(self):
+        self.facts['native_frontend_loaded_sha'] = self.b.V5_BASELINE_COMMIT; self.sync_machine()
+        self.denied(lambda: self.b._machine_sources(self.root, self.current, self.bridge))
+
+    def test_v5_is_not_silently_admitted_through_old_v4_path(self):
+        self.denied(lambda: self.b._machine_sources(self.root, self.current))
+
+    def test_new_permission_or_save_fact_is_rejected(self):
+        for key in ('new_permits_issued', 'new_CMS_Save'):
+            self.facts[key] = 1; self.sync_machine()
+            self.denied(lambda: self.b._machine_sources(self.root, self.current, self.bridge))
+            self.facts[key] = 0
+
+    def test_original_v2_provenance_substitution_is_rejected(self):
+        self.current['evidence']['original_V2'] = self.doc('evidence/wrong-v2.json', {'task_id': 'wrong'})
+        self.sync_machine()
+        self.denied(lambda: self.b._machine_sources(self.root, self.current, self.bridge))
+
+
+class V5MachineBindingFocusedTests(V5SourceMachineFixture):
+    def setUp(self):
+        super().setUp()
+        now = dt.datetime.now(dt.timezone.utc)
+        self.issuer = self.raw('tools/managed_cms_permit_issuer.py', b'LOCAL_FIXTURE issuer')
+        slug, record, fields = self.b.ROWS[2]
+        self.row = {'slug': slug, 'record_id': record, 'raw_updated_at': '2026-10-10T00:00:00+00:00'}
+        self.item = {'candidate_version': self.b.VERSION, 'action_id': 'paid-three-page-renovation-exact-fields-v1',
+            'scope': f'company.example:services/{record}:{",".join(fields)}', 'payload_sha256': 'a' * 64}
+        self.run = {'id': 38000000001, 'run_attempt': 1, 'actor': {'id': 276684684},
+            'workflow_id': 351424533, 'path': self.b.WORKFLOW_CLI[0], 'head_sha': V5_NEW_HEAD,
+            'head_branch': 'main', 'event': 'workflow_dispatch', 'status': 'completed', 'conclusion': 'success',
+            'updated_at': (now - dt.timedelta(minutes=1)).isoformat(),
+            'repository': {'id': 1248188229, 'full_name': 'wangchaozhuanyong/zhuangxiuwangzhan'}}
+        workflow_ref = 'wangchaozhuanyong/zhuangxiuwangzhan/.github/workflows/content-publish-approved.yml@refs/heads/main'
+        self.identity = {'runId': self.run['id'], 'runAttempt': 1, 'actorId': 276684684,
+            'repositoryId': 1248188229, 'workflowRef': workflow_ref, 'workflowSha': V5_NEW_HEAD}
+        self.probe = {'ok': True, 'dry_run': True, 'performed_write': False, 'identity': self.identity}
+        self.receipt = {'task_id': self.b.TASK, 'candidate_version': self.b.VERSION,
+            'action_id': self.item['action_id'], 'scope': self.item['scope'], 'operation': 'publish',
+            'http_status': 200, 'dry_run': True, 'performed_write': False, 'external_writes': 0,
+            'row_unchanged_after_dry_run': True, 'checked_at': (now-dt.timedelta(minutes=1, seconds=1)).isoformat()}
+        self.payload = {'task_id': self.b.TASK, 'operation': 'publish', 'payload_sha256': self.item['payload_sha256'],
+            'expected_updated_at': self.row['raw_updated_at']}
+        self.machine = {'schema': 'actual_t3_protected_machine_binding_v1', 'original_machine_source': self.origin,
+            'issuer_source': self.issuer, 'task_id': self.b.TASK, 'candidate_version': self.b.VERSION,
+            'department': self.b.PRODUCER, 'action_id': self.item['action_id'], 'scope': self.item['scope'],
+            'action_class': 'cms_write', 'record_id': record, 'payload_sha256': self.item['payload_sha256'],
+            'github_actor_id': 276684684, 'repository': 'wangchaozhuanyong/zhuangxiuwangzhan',
+            'workflow_id': 351424533, 'workflow_path': self.b.WORKFLOW_CLI[0], 'repository_id': 1248188229,
+            'workflow_ref': workflow_ref, 'run_id': self.run['id'], 'run_attempt': 1,
+            'workflow_sha': V5_NEW_HEAD, 'main_sha': V5_NEW_HEAD}
+        self.sync_actual_machine()
+
+    def sync_actual_machine(self):
+        for key, value in (('run_snapshot', self.run), ('identity_probe', self.probe),
+                           ('locked_preview', self.receipt), ('payload_digest', self.payload)):
+            self.machine[key] = self.doc('machine/' + key + '.json', value)
+        self.facts['records'][2].update(identity=self.identity, identity_probe=self.machine['identity_probe'],
+            protected_forward_receipt=self.receipt, actual_payload_sha256=self.item['payload_sha256'],
+            run_id=self.run['id'], run_attempt=self.run['run_attempt'], conclusion='success',
+            full_original_gh_run=self.machine['run_snapshot'], run_updated_at=self.run['updated_at'],
+            checked_at=self.receipt['checked_at'], guard_rejected_changed_original_CAS=False)
+        self.proof['raw_machine_run'] = self.machine['run_snapshot']
+        self.sync_machine()
+        self.machine.update(actual_machine_source=self.facts_pin, source_bridge=self.bridge)
+        self.item['machine_identity'] = self.doc('machine/binding.json', self.machine)
+        self.accepted = {'original_machine_source': self.origin, 'consumer_sources': [self.issuer],
+            'actual_machine_source': self.facts_pin, 'source_bridge': self.bridge, 'row': self.row, 'operation': self.proof['operation']}
+
+    def run_machine(self):
+        return self.b.validate_machine(self.root, self.item, self.accepted)
+
+    def test_new_head_full_original_machine_binding_passes(self):
+        self.assertEqual(self.run_machine()['main_sha'], V5_NEW_HEAD)
+
+    def test_full_original_run_pin_cannot_be_replaced(self):
+        self.machine['run_snapshot'] = self.doc('machine/replaced-run.json', {**self.run, 'id': 38000000002})
+        self.item['machine_identity'] = self.doc('machine/binding.json', self.machine)
+        self.denied(self.run_machine)
+
+    def test_completed_repository_identity_remains_required(self):
+        self.run['repository']['id'] = 2; self.sync_actual_machine(); self.denied(self.run_machine)
+        self.run['repository']['id'] = 1248188229; self.run['status'] = 'in_progress'
+        self.sync_actual_machine(); self.denied(self.run_machine)
+
+    def test_original_actor_and_server_oidc_probe_cannot_change(self):
+        self.machine['github_actor_id'] = 2
+        self.item['machine_identity'] = self.doc('machine/binding.json', self.machine)
+        self.denied(self.run_machine)
+
+    def test_expired_original_preview_is_not_refreshed_by_run_metadata(self):
+        self.receipt['checked_at'] = (dt.datetime.now(dt.timezone.utc)-dt.timedelta(hours=1)).isoformat()
+        self.sync_actual_machine(); self.denied(self.run_machine)
+
+    def test_stale_and_future_runs_remain_rejected(self):
+        for delta in (-dt.timedelta(hours=1), dt.timedelta(minutes=1)):
+            self.run['updated_at'] = (dt.datetime.now(dt.timezone.utc)+delta).isoformat()
+            self.sync_actual_machine(); self.denied(self.run_machine)
+
+    def test_wrong_source_bridge_pin_cannot_replace_frozen_acceptance(self):
+        self.machine['source_bridge'] = self.doc('machine/changed-bridge.json', {**self.proof, 'prepared_only': True})
+        self.item['machine_identity'] = self.doc('machine/binding.json', self.machine)
+        self.denied(self.run_machine)
+
+    def test_payload_or_original_raw_cas_change_is_rejected(self):
+        self.payload['expected_updated_at'] = 'different'; self.sync_actual_machine(); self.denied(self.run_machine)
+
+    def rollback_machine(self):
+        self.proof['operation'] = 'rollback'
+        action = 'rollback-' + self.b.VERSION
+        self.item.update(candidate_version=self.b.ROLLBACK_VERSION, action_id=action, operation='rollback')
+        self.machine.update(candidate_version=self.b.ROLLBACK_VERSION, action_id=action)
+        self.run['id'] += 2
+        self.machine['run_id'] = self.identity['runId'] = self.run['id']
+        self.receipt.update(candidate_version=self.b.ROLLBACK_VERSION, action_id=action, operation='rollback')
+        self.payload['operation'] = 'rollback'
+        self.row['raw_updated_at'] = '2026-10-10T17:45:51.559189+00:00'
+        self.payload['expected_updated_at'] = self.row['raw_updated_at']
+        self.sync_actual_machine()
+
+    def test_rollback_has_new_run_probe_receipt_and_exact_rollback_tuple(self):
+        self.rollback_machine()
+        result = self.run_machine()
+        self.assertEqual(result['candidate_version'], self.b.ROLLBACK_VERSION)
+        self.assertEqual(self.proof['operation'], 'rollback')
+
+    def test_rollback_cannot_reuse_forward_tuple_or_forward_source_bridge(self):
+        self.item.update(candidate_version=self.b.ROLLBACK_VERSION,
+            action_id='rollback-' + self.b.VERSION, operation='rollback')
+        self.denied(self.run_machine)
+        self.rollback_machine()
+        self.proof['operation'] = 'publish'; self.sync_actual_machine()
+        self.denied(self.run_machine)
+
+
+class V5CompleteSourceBridgeFocusedTests(V5MachineBindingFocusedTests):
+    # Inherit the machine fixture only; inherited test methods are disabled below.
+    def setUp(self):
+        super().setUp()
+        paths = ['content-publish/service.ts', '_shared/managed-targets.ts'] + [
+            f'content-publish/fixture_{index}.ts' for index in range(19)]
+        self.runtime = {path: ('LOCAL_FIXTURE runtime ' + path).encode() for path in paths}
+        entries = [{'path': path, 'sha256': self.pair(raw)['sha256'], 'bytes': len(raw)}
+            for path, raw in self.runtime.items()]
+        self.runtime_manifest = {'schema': 'content-publish-runtime-source/v1',
+            'entrypoint': 'content-publish/index.ts', 'files': entries}
+        manifest_pin = self.doc('website-fixture/runtime-manifest.json', self.runtime_manifest)
+        self.proof.update(actual_deployed_runtime_manifest=manifest_pin,
+            actual_runtime_source_closure_file_count=21,
+            actual_runtime_source_closure_digest=hashlib.sha256(json.dumps(entries,
+                ensure_ascii=False, separators=(',', ':')).encode()).hexdigest(),
+            runtime_file_map=[{'runtime_path': entry['path'], 'git_path': 'supabase/functions/' + entry['path'],
+                'workflow_commit': V5_NEW_HEAD, 'workflow_commit_sha256': entry['sha256'],
+                'workflow_commit_bytes': entry['bytes'], 'actual_deployed_v77_sha256': entry['sha256'],
+                'actual_deployed_v77_bytes': entry['bytes']} for entry in entries])
+        self.cli = {path: ('LOCAL_FIXTURE unchanged CLI ' + path).encode() for path in self.b.WORKFLOW_CLI[1:]}
+        self.proof['workflow_and_CLI_source_map'] = [{'path': path, 'workflow_commit': V5_NEW_HEAD,
+            'workflow_commit_sha256': self.pair(raw)['sha256'], 'approved_5237_source_sha256': self.pair(raw)['sha256'],
+            'workflow_commit_bytes': len(raw), 'approved_5237_source_bytes': len(raw)} for path, raw in self.cli.items()]
+        source_pins = [{'path': path, 'sha256': self.pair(raw)['sha256'], 'bytes': len(raw)} for path, raw in self.cli.items()]
+        deployment_run = self.doc('website-fixture/deployment-run.json', {'run': {'id': 38061480070,
+            'head_sha': self.b.V5_BASELINE_COMMIT, 'status': 'completed', 'conclusion': 'success', 'event': 'workflow_dispatch'}})
+        function = [{'name': 'content-publish', 'version': 77, 'status': 'ACTIVE'}]
+        metadata = [self.doc('website-fixture/' + name, function) for name in ('functions-after.json', 'functions-after-download.json')]
+        readback = self.b.WEBSITE / self.b.DEPLOYMENT_EVIDENCE / 'production-r3-run-38061480070-artifacts/readback/edge-after/supabase/functions'
+        original = {'task_id': self.b.TASK, 'content_candidate_version': self.b.VERSION,
+            'source_candidate_version': self.b.WEBSITE_SOURCE_VERSION,
+            'status': 'PASS_ACTUAL_PRODUCTION_EDGE_SOURCE_AND_RECOVERY_BACKUP',
+            'production_website_sha': self.b.V5_BASELINE_COMMIT, 'run_id': 38061480070,
+            'actual_function': {'name': 'content-publish', 'status': 'ACTIVE', 'after_version': 77, 'after_download_version': 77},
+            'actual_readback': {'manifest': manifest_pin, 'root': str(readback),
+                'source_sha256': self.proof['actual_runtime_source_closure_digest']},
+            'run_proof': deployment_run, 'artifact_metadata_pins': metadata, 'source_pins': source_pins}
+        self.proof['actual_deployment_source_proof'] = self.doc('website-fixture/deployment-source.json', original)
+        snapshots = [self.raw('recovery/' + Path(path).name, self.runtime[path]) for path in paths[:2]]
+        self.source = {'production_sha': self.b.V5_BASELINE_COMMIT, 'function_version': 77,
+            'source_snapshots': snapshots}
+        self.deployment = {'function_version': 77, 'deployment_run_id': 38061480070,
+            'original_deployment_source_proof': self.proof['actual_deployment_source_proof']}
+        self.source_adoption = mock.Mock()
+        boundary = mock.patch.dict(self.ns, {'_website_json': lambda value: json.loads(self.safe(self.root, value['path']).read_bytes()),
+            '_website_bytes': lambda value: self.runtime[Path(value['path']).relative_to(readback).as_posix()],
+            '_git_source': self.source_git, '_v5_source_adoption': self.source_adoption})
+        boundary.start(); self.addCleanup(boundary.stop)
+        self.sync_complete_bridge()
+
+    def source_git(self, commit, path):
+        if path == self.b.WORKFLOW_CLI[0]: return self.git(commit, path)
+        if path in self.cli: return self.cli[path]
+        return self.runtime[path.removeprefix('supabase/functions/')]
+
+    def sync_complete_bridge(self):
+        self.sync_machine()
+        self.machine['source_bridge'] = self.bridge
+        self.accepted.update(source_bridge=self.bridge, current_producer=self.proof['current_producer'], operation='publish')
+        self.source['source_coherence'] = self.bridge
+
+    def run_bridge(self):
+        return self.b.source_coherence(self.root, self.source, self.deployment, self.machine, self.accepted)
+
+    def test_complete_v5_branch_compares_all_21_runtime_and_two_cli(self):
+        self.assertEqual(self.run_bridge(), self.bridge)
+        self.source_adoption.assert_called_once()
+
+    def test_complete_v5_branch_refuses_missing_runtime_and_third_cli(self):
+        self.proof['runtime_file_map'].pop(); self.sync_complete_bridge(); self.denied(self.run_bridge)
+        # Restore the complete runtime mapping, then add a third CLI entry.
+        entry = self.runtime_manifest['files'][-1]
+        self.proof['runtime_file_map'].append({'runtime_path': entry['path'], 'git_path': 'supabase/functions/' + entry['path'],
+            'workflow_commit': V5_NEW_HEAD, 'workflow_commit_sha256': entry['sha256'], 'workflow_commit_bytes': entry['bytes'],
+            'actual_deployed_v77_sha256': entry['sha256'], 'actual_deployed_v77_bytes': entry['bytes']})
+        self.proof['workflow_and_CLI_source_map'].append(copy.deepcopy(self.proof['workflow_and_CLI_source_map'][0]))
+        self.sync_complete_bridge(); self.denied(self.run_bridge)
+
+
+# This lane reports unique tests; do not re-count inherited machine cases.
+for name in dir(V5MachineBindingFocusedTests):
+    if name.startswith('test_'):
+        setattr(V5CompleteSourceBridgeFocusedTests, name, None)
+
+
+class V5SourceAdoptionFocusedTests(V5SourceMachineFixture):
+    def setUp(self):
+        super().setUp()
+        self.package = 'source-package'
+        self.files, self.operations, self.current_sources = [], [], []
+        for path in sorted(self.b.V5_CHANGED_SOURCES):
+            before = ('LOCAL_FIXTURE before ' + path + '\n').encode()
+            after = ('LOCAL_FIXTURE after ' + path + '\n').encode()
+            baseline = self.raw(self.package + '/baseline/' + path, before)
+            candidate = self.raw(self.package + '/candidate/' + path, after)
+            self.raw(path, after)
+            backup = self.raw('backups/' + self.b.V5_SOURCE_TASK + '/FP/forward/' + path, before)
+            row = {'path': path, 'before': self.pair(before), 'after': self.pair(after),
+                'expected_source': self.pair(before), 'candidate_content': self.pair(after),
+                'baseline': baseline, 'candidate': candidate, 'candidate_relative_path': 'candidate/' + path}
+            for direction, first, last in [('forward', before, after), ('reverse', after, before)]:
+                raw = ''.join(difflib.unified_diff(first.decode().splitlines(keepends=True),
+                    last.decode().splitlines(keepends=True), fromfile='a/' + path, tofile='b/' + path)).encode()
+                relative = 'diffs/' + path.replace('/', '_') + '.' + direction + '.diff'
+                frozen = self.raw(self.package + '/' + relative, raw)
+                row[direction + '_diff_relative_path'] = relative
+                row[direction + '_diff_content'] = {key: frozen[key] for key in ('sha256', 'size')}
+                if direction == 'forward': row['diff'] = frozen
+            self.files.append(row)
+            self.operations.append({'path': path, 'before': row['before'], 'after_expected': row['after'],
+                'after_actual': row['after'], 'backup': backup, 'before_mode': 0o644,
+                'write_attempted': True, 'verified_after': True})
+        for path in self.b.SOURCES:
+            if path not in self.b.V5_CHANGED_SOURCES: self.raw(path, ('LOCAL_FIXTURE protected ' + path).encode())
+            self.current_sources.append(self.fpin(path))
+        self.proof.update(goal_contract=self.doc('evidence/goal-contract.json', {'task_id': self.b.V5_SOURCE_TASK}),
+            human_authorization=self.doc('evidence/human.json', {'source': 'LOCAL_FIXTURE_ONLY'}),
+            current_consumer_sources=self.current_sources)
+        self.manifest = {'schema': 'flashcast-exact-source-candidate/v1', 'task_id': self.b.V5_SOURCE_TASK,
+            'candidate_version': self.b.V5_SOURCE_VERSION, 'scope': self.b.V5_SOURCE_SCOPE,
+            'goal_contract': self.proof['goal_contract'], 'human_authorization': self.proof['human_authorization'],
+            'current_source_context': {'workflow_commit': V5_NEW_HEAD, 'workflow_source': self.workflow_after, 'frontend_version': self.frontend_pin},
+            'files': self.files, 'protected_sources': [p for p in self.current_sources if p['path'] in self.b.V5_PROTECTED_SOURCES]}
+        fingerprint = self.b.digest(self.manifest); self.manifest['candidate_fingerprint'] = fingerprint
+        self.manifest_pin = self.doc(self.package + '/candidate-manifest.json', self.manifest)
+        # Freeze backups under the exact local fixture fingerprint, never live backups.
+        for operation in self.operations:
+            operation['backup'] = self.raw(operation['backup']['path'].replace('/FP/', '/' + fingerprint + '/'),
+                self.safe(self.root, operation['backup']['path']).read_bytes())
+        self.proof['candidate_manifest'] = self.manifest_pin
+        self.producer = {'task_id': self.b.V5_SOURCE_TASK, 'department': 'system-development',
+            'candidate_version': self.b.V5_SOURCE_VERSION, 'candidate_fingerprint': fingerprint,
+            'evidence': {'candidate_manifest': self.manifest_pin}}
+        self.producer_pin = self.doc('evidence/source-producer.json', self.producer)
+        self.plan = {'candidate_version': self.b.V5_SOURCE_VERSION, 'scope': self.b.V5_SOURCE_SCOPE,
+            'reviewer_department': self.b.ROLE, 'producer_department': 'system-development'}
+        self.plan_pin = self.doc('evidence/source-plan.json', self.plan)
+        self.proof.update(producer_outbox=self.producer_pin, review_plan=self.plan_pin)
+        self.now = dt.datetime.now(dt.timezone.utc)
+        self.box = {'schema_version': '2.0', 'task_id': self.b.V5_SOURCE_TASK, 'department': self.b.ROLE,
+            'candidate_version': self.b.V5_SOURCE_VERSION, 'scope': self.b.V5_SOURCE_SCOPE, 'status': 'partial',
+            'evidence': [self.manifest_pin], **{key: False for key in self.b.V5_REVIEW_FLAGS},
+            'reply_observed_at': (self.now-dt.timedelta(minutes=4)).isoformat(),
+            'created_at': (self.now-dt.timedelta(minutes=3)).isoformat(),
+            'candidate_review': {'actor': self.b.ROLE, 'verdict': 'PASS_SOURCE_CANDIDATE_ONLY',
+                'phase': 'candidate_source_only', 'direction': 'forward', 'candidate_manifest': self.manifest_pin,
+                'candidate_fingerprint': fingerprint, 'review_plan': self.plan_pin,
+                'producer_outbox': self.producer_pin, 'goal_contract': self.proof['goal_contract'],
+                'human_authorization': self.proof['human_authorization'], 'workflow_commit': V5_NEW_HEAD,
+                'workflow_source': self.workflow_after, 'frontend_version': self.frontend_pin,
+                **{key: False for key in self.b.V5_REVIEW_FLAGS}}}
+        self.review_pin = self.doc('evidence/source-qa.json', self.box)
+        self.proof['source_qa'] = self.review_pin
+        self.journal = {'task_id': self.b.V5_SOURCE_TASK, 'candidate_version': self.b.V5_SOURCE_VERSION,
+            'candidate_fingerprint': fingerprint, 'direction': 'forward', 'status': 'complete', 'actor': self.b.ROLE,
+            'review_outbox': self.review_pin, 'external_writes': 0, 'execution_id': 'LOCAL_FIXTURE_EXECUTION',
+            'decision_record_id': 'LOCAL_FIXTURE_DECISION', 'source_operations': self.operations,
+            'applied': [p['path'] for p in self.operations],
+            'started_at': (self.now-dt.timedelta(minutes=2)).isoformat(),
+            'completed_at': (self.now-dt.timedelta(minutes=1)).isoformat()}
+        self.journal_pin = self.doc('evidence/source-adoption.json', self.journal)
+        self.proof.update(source_adoption=self.journal_pin, adoption_followthrough_record_id='LOCAL_FIXTURE_FOLLOW')
+        common = {'task_id': self.b.V5_SOURCE_TASK, 'coordinator_role': self.b.ROLE, 'decision_actor': self.b.ROLE,
+            'responsible_assistant': self.b.ROLE, 'candidate_version': self.b.V5_SOURCE_VERSION,
+            'sender_department': 'system-development', 'outbox': self.producer_pin,
+            'business_goal_closed': False, 'coordinator_owner': 'LOCAL_FIXTURE_A2_OWNER', 'coordination_fence': 42}
+        self.decision = {**common, 'record_id': 'LOCAL_FIXTURE_DECISION', 'event': 'controller_decision',
+            'decision': 'continue', 'next_owner': self.b.ROLE, 'evidence': [self.review_pin]}
+        self.follow = {**common, 'record_id': 'LOCAL_FIXTURE_FOLLOW', 'event': 'controller_followthrough',
+            'followthrough_status': 'blocked_with_owner',
+            'unblock_condition': 'source-adopted:' + self.journal['execution_id'] + ';remaining:original-T3-current-Saved-readback-and-public-postcheck',
+            'next_check_at': (self.now+dt.timedelta(minutes=30)).isoformat(),
+            'evidence': [self.journal_pin], 'created_at': self.now.isoformat()}
+        self.handoffs = [self.decision, self.follow]
+        goal = {'parent_task_id': self.b.TASK, 'primary_owner': 'system-development',
+            'producer_departments': ['system-development'], 'authorized_scope': [self.b.V5_SOURCE_SCOPE],
+            'acceptance_capability': 'development', 'authorization_pin': self.proof['human_authorization']}
+        self.doc('goal.json', {'task_id': self.b.V5_SOURCE_TASK, 'goal_contract': self.proof['goal_contract'],
+            'goal_delivery': goal, 'qa_review_plan': {'pin': self.plan_pin}})
+        g = types.ModuleType('goal_delivery_runtime');g.restore_goal=lambda root,snapshot:snapshot;g.validate_goal=lambda *args:None
+        q = types.ModuleType('qa_review_plan');q._goal_reviewer=lambda *args:self.b.ROLE
+        q._binding=lambda root,snapshot:snapshot['qa_review_plan'];q.validate_plan=lambda *args:None
+        q._assigned_review_round=lambda *args:{'LOCAL_FIXTURE':'assigned'}
+        q._producer_candidate_bound=lambda *args:True;q._evidence_pins=lambda value:iter(value)
+        c = types.ModuleType('scoped_candidate_adoption');c._committed=lambda root,row:self.committed.append(row['record_id'])
+        c._receipts=lambda *args:[]
+        modules = mock.patch.dict(sys.modules, {'goal_delivery_runtime':g,'qa_review_plan':q,'scoped_candidate_adoption':c})
+        modules.start();self.addCleanup(modules.stop)
+        self.native = mock.Mock()
+        boundary = mock.patch.dict(self.ns, {'_native':self.native,
+            '_v5_source_responsibility':mock.Mock(return_value={'structural_fixture_only':True}),
+            '_v5_source_decision_fence':mock.Mock(return_value={'reserved_at':self.now.timestamp(),'committed_at':self.now.timestamp()})});boundary.start();self.addCleanup(boundary.stop)
+        self.accepted = {'consumer_sources':self.current_sources}
+
+    def run_adoption(self):
+        return self.b._v5_source_adoption(self.root,self.proof,self.accepted)
+
+    def sync_review(self):
+        self.review_pin=self.doc('evidence/source-qa.json',self.box);self.proof['source_qa']=self.review_pin
+        self.journal['review_outbox']=self.review_pin;self.decision['evidence']=[self.review_pin]
+        self.sync_journal()
+
+    def sync_journal(self):
+        self.journal_pin=self.doc('evidence/source-adoption.json',self.journal)
+        self.proof['source_adoption']=self.journal_pin;self.follow['evidence']=[self.journal_pin]
+
+    def test_new_head_source_only_qa_and_exact_cas_journal_pass(self):
+        self.run_adoption()
+        self.assertEqual(self.committed,['LOCAL_FIXTURE_DECISION','LOCAL_FIXTURE_FOLLOW'])
+        self.assertIn(V5_NEW_HEAD,self.native.call_args.args[2])
+
+    def test_manifest_source_context_cannot_be_relabelled_after_exact_review(self):
+        self.manifest["current_source_context"]["workflow_commit"] = V5_OLD_HEAD
+        self.manifest["candidate_fingerprint"] = self.b.digest({k:v for k,v in self.manifest.items() if k!="candidate_fingerprint"})
+        self.proof["candidate_manifest"] = self.doc(self.package+"/candidate-manifest.json",self.manifest)
+        self.denied(self.run_adoption)
+
+    def test_new_head_requires_new_qa_commit_binding(self):
+        self.box['candidate_review']['workflow_commit']=V5_OLD_HEAD;self.sync_review()
+        self.denied(self.run_adoption)
+
+    def test_missing_independent_source_qa_fails_closed(self):
+        self.proof['source_qa']=None;self.denied(self.run_adoption)
+
+    def test_prepared_or_old_task_qa_cannot_migrate(self):
+        self.box['prepared_only']=True;self.sync_review();self.denied(self.run_adoption)
+        self.box.pop('prepared_only');self.box['task_id']='fc-20261010-paid-three-page-candidate-consumer-source-repair-v1'
+        self.sync_review();self.denied(self.run_adoption)
+
+    def test_self_review_actor_is_rejected(self):
+        self.box['candidate_review']['actor']='system-development';self.sync_review();self.denied(self.run_adoption)
+
+    def test_full_goal_pass_or_platform_permission_claim_is_rejected(self):
+        self.box['candidate_review']['production_write_allowed']=True;self.sync_review();self.denied(self.run_adoption)
+
+    def test_journal_without_actual_committed_followthrough_is_rejected(self):
+        self.handoffs.pop();self.denied(self.run_adoption)
+
+    def test_wrong_execution_id_or_fence_is_rejected(self):
+        original=self.follow['unblock_condition'];self.follow['unblock_condition']='wrong';self.denied(self.run_adoption)
+        self.follow['unblock_condition']=original;self.follow['coordination_fence']=43
+        self.denied(self.run_adoption)
+
+    def test_uncommitted_source_effect_is_rejected(self):
+        def deny_commit(root,row):
+            if row['record_id']=='LOCAL_FIXTURE_FOLLOW':raise self.w.WorkflowError('fixture uncommitted')
+        with mock.patch.object(sys.modules['scoped_candidate_adoption'],'_committed',deny_commit):
+            self.denied(self.run_adoption)
+
+    def test_current_source_wip_drift_is_rejected(self):
+        self.raw('tools/paid_three_page_bounded_cms.py',b'LOCAL_FIXTURE concurrent WIP')
+        self.denied(self.run_adoption)
+
+    def test_original_backup_drift_is_rejected(self):
+        self.raw(self.operations[0]['backup']['path'],b'changed backup');self.denied(self.run_adoption)
+
+    def test_partial_or_duplicate_operations_are_rejected(self):
+        self.journal['status']='partial_complete';self.sync_journal();self.denied(self.run_adoption)
+        self.journal['status']='complete';self.journal['source_operations'][-1]=self.journal['source_operations'][0]
+        self.sync_journal();self.denied(self.run_adoption)
+
+    def test_fingerprint_or_reverse_diff_change_is_rejected(self):
+        self.manifest['candidate_fingerprint']='0'*64
+        self.proof['candidate_manifest']=self.doc(self.package+'/candidate-manifest.json',self.manifest)
+        self.denied(self.run_adoption)
+
+    def test_missing_native_review_is_rejected(self):
+        self.native.side_effect=self.w.WorkflowError('fixture no actual native review');self.denied(self.run_adoption)
+
+
 
 
 if __name__ == "__main__":

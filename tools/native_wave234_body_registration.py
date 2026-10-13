@@ -58,7 +58,7 @@ def validate_registration(root: Path, manifest: dict) -> dict:
             "task_id": TASK, "action_id": f"publish-{version}",
             "candidate_version": version, "table": "services",
             "record_id": EXPECTED[slug], "slug": slug,
-            "scope": f"flashcast.com.my:services/{EXPECTED[slug]}:content_en,content_zh:{version}",
+            "scope": f"company.example:services/{EXPECTED[slug]}:content_en,content_zh:{version}",
         }
         require(identity == expected and version not in targets, "Wave234 identity differs or duplicates")
         pins = row.get("sources", {})

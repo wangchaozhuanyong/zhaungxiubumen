@@ -11,7 +11,7 @@ from pathlib import Path
 
 TASK = 'fc-20260928-keyword-page-answer-implementation-v1'
 ACTION = 'read-bathroom-v6-exact-native-projection-20261006'
-SCOPE = 'flashcast.com.my:cms-native-read:services:bathroom:v6:exact-28-field-source-projection'
+SCOPE = 'company.example:cms-native-read:services:bathroom:v6:exact-28-field-source-projection'
 QA_TASK = 'fc-20261006-bathroom-v6-source-control-qa-v1'
 QA_ACTION = 'qa-bathroom-v6-exact-native-source-control-20261006'
 QA_SCOPE = 'project:publishing:bathroom-v6:exact-source-read-control:20261006'

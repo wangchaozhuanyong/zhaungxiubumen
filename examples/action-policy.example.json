@@ -113,8 +113,8 @@
       ],
       "allowed_scope_prefixes": [
         "google-ads:example-ads-account:readonly:",
-        "ga4:540413787:readonly:fc-20260928-organic-50-measurement-readonly-v2:connected-organic-source-read-v5-20261003",
-        "gsc:sc-domain:flashcast.com.my:readonly:fc-20260928-organic-50-measurement-readonly-v2:connected-organic-source-read-v5-20261003"
+        "ga4:000239054:readonly:fc-20260928-organic-50-measurement-readonly-v2:connected-organic-source-read-v5-20261003",
+        "gsc:sc-domain:company.example:readonly:fc-20260928-organic-50-measurement-readonly-v2:connected-organic-source-read-v5-20261003"
       ],
       "forbidden_side_effects": [
         "ads_write",

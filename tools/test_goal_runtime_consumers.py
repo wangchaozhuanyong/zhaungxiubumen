@@ -86,7 +86,7 @@ class GoalRuntimeConsumerTests(unittest.TestCase):
                                     policy_decision_id=decision["decision_id"], action_id=request["action_id"],
                                     action_class="thread_message", scope=request["scope"])
 
-    def preflight(self, scope="flashcast.com.my:synthetic-exact-result"):
+    def preflight(self, scope="company.example:synthetic-exact-result"):
         identity = {"action_id": "synthetic-exact-publish", "action_class": "site_publish",
                     "scope": scope, "department": PRODUCER}
         item = {**identity, "risk_level": "R2"}
@@ -142,7 +142,7 @@ class GoalRuntimeConsumerTests(unittest.TestCase):
         binding = self.snapshot()["qa_review_plan"]
         box = self.result_box(ASSISTANT, plan["candidate_version"], plan["candidate"])
         goal = self.snapshot()["goal_delivery"]
-        box.update(evidence=[binding["pin"], plan["candidate"]], qa_verdict=verdict,
+        box.update(sender_department=ASSISTANT, scope=plan["scope"], evidence=[binding["pin"], plan["candidate"]], qa_verdict=verdict,
                    review_identity={key: plan[key] for key in review.IDENTITY},
                    goal_acceptance={**{key: goal[key] for key in ("completion_criteria", "primary_owner", "responsible_assistant")},
                                     "accepted_scope": goal["authorized_scope"] if verdict == "pass" else [],
@@ -179,7 +179,8 @@ class GoalRuntimeConsumerTests(unittest.TestCase):
     def test_initial_goal_assignment_ack_producer_result_assistant_bind_and_final_accept(self):
         plan, producer_pin = self.prepare_initial_review()
         verdict = self.assistant_verdict(plan, producer_pin)
-        self.assertEqual(verdict["workflow_state"], "closed")
+        self.assertEqual(verdict["workflow_state"], "qa_passed")
+        self.assertIn("needs_completion_declaration", runtime.completion_obligations(self.root, self.snapshot())["missing"])
         receipts, invalid = w._validate_receipt_chain(self.root, self.task_id)
         self.assertEqual(invalid, [])
         review_dispatches = [row for row in receipts if row["department"] == ASSISTANT and row["receipt_type"] == "dispatch_sent"]
@@ -222,7 +223,8 @@ class GoalRuntimeConsumerTests(unittest.TestCase):
         self.assertIn(old, self.snapshot()["qa_review_plan_history"])
         final = self.assistant_verdict(plan, producer_pin, revalidation={"changed_scope": plan["changed_scope"],
                                                                        "methods": plan["revalidation_methods"]})
-        self.assertEqual(final["workflow_state"], "closed")
+        self.assertEqual(final["workflow_state"], "qa_passed")
+        self.assertIn("needs_completion_declaration", runtime.completion_obligations(self.root, self.snapshot())["missing"])
         receipts, invalid = w._validate_receipt_chain(self.root, self.task_id)
         self.assertEqual(invalid, [])
         self.assertEqual([row["verdict"] for row in receipts if row["receipt_type"] == "qa_verdict"], ["blocked", "pass"])
@@ -236,7 +238,7 @@ class GoalRuntimeConsumerTests(unittest.TestCase):
         w.snapshot_path(self.root, self.task_id).unlink()
         self.assertEqual(w._validate_receipt_chain(self.root, self.task_id)[1], [])
         rebuilt, _ = w.reconcile_workflow(self.root, task_id=self.task_id)
-        self.assertEqual(rebuilt["current_state"], "closed")
+        self.assertEqual(rebuilt["current_state"], "qa_passed")
         self.assertEqual(rebuilt["goal_delivery"]["responsible_assistant"], ASSISTANT)
 
     def test_rework_requires_exact_latest_blocked_diff_scope_new_version_and_methods(self):
@@ -415,7 +417,9 @@ class GoalRuntimeConsumerTests(unittest.TestCase):
         self.assertEqual(pending["pending"][0]["task_id"], self.task_id)
         self.assertEqual(runtime.wait_plan(self.root, ASSISTANT)["batches"], [])
         w.result_handoff_path(self.root, self.task_id).write_text("invalid owned fixture ledger\n")
-        with self.assertRaises((ValueError, w.WorkflowError)): runtime.pending(self.root, ASSISTANT)
+        broken = runtime.pending(self.root, ASSISTANT)
+        self.assertTrue(any(row["task_id"] == self.task_id for row in broken["task_errors"]))
+        self.assertEqual(broken["pending_count"], 0)
 
     def test_retired_registered_role_cannot_receive_new_dispatch_but_old_receipt_is_readable(self):
         self.initialize(); self.dispatch()
@@ -480,7 +484,7 @@ class GoalRuntimeConsumerTests(unittest.TestCase):
         policy = w.read_json(self.root / "data/action-policy.json")
         policy["standing_authorizations"] = [{"authorization_id": "synthetic-standing", "status": "active",
              "source_message_ref": "synthetic-only", "department": PRODUCER,
-             "action_classes": ["site_publish"], "allowed_scope_prefixes": ["flashcast.com.my:"]}]
+             "action_classes": ["site_publish"], "allowed_scope_prefixes": ["company.example:"]}]
         w.atomic_write_json(self.root / "data/action-policy.json", policy)
         permitted, _ = w.policy_check(self.root, task_id=self.task_id, consume_approval=True, **fields)
         self.assertEqual(permitted["status"], "allow", permitted["reason"])
@@ -563,15 +567,16 @@ class GoalRuntimeConsumerTests(unittest.TestCase):
         self.initialize(authorized_scope=[item["scope"]], required_execution_actions=[declared])
         state = w._derive_state(self.root, self.snapshot(), self.completion_receipts())
         self.assertEqual(state["state"], "qa_passed")
-        self.assertEqual(state["missing"], ["production_preflight:" + item["action_id"]])
+        self.assertEqual(state["missing"], ["needs_completion_declaration"])
         path = self.write("reports/synthetic-production-preflight.json", item)
         runtime.record_preflight(self.root, self.task_id, path)
         receipts = self.completion_receipts()
-        self.assertEqual(w._derive_state(self.root, self.snapshot(), receipts)["missing"], ["exact_execution_and_postcheck:" + item["action_id"]])
+        self.assertEqual(w._derive_state(self.root, self.snapshot(), receipts)["missing"], ["needs_completion_declaration"])
         receipts.append({**declared, "fixture_only": True, "receipt_type": "execution_result", "verdict": "pass"})
         self.assertNotEqual(w._derive_state(self.root, self.snapshot(), receipts)["state"], "closed")
         receipts.append({**declared, "fixture_only": True, "receipt_type": "postcheck", "verdict": "pass"})
-        self.assertEqual(w._derive_state(self.root, self.snapshot(), receipts)["state"], "closed")
+        self.assertNotEqual(w._derive_state(self.root, self.snapshot(), receipts)["state"], "closed")
+        self.assertIn("needs_completion_declaration", w._derive_state(self.root, self.snapshot(), receipts)["missing"])
 
     def test_external_dependency_waits_for_exact_owner_input_and_does_not_replace_acceptance(self):
         scope = "project:test:dependency"

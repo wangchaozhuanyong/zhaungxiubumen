@@ -11,7 +11,7 @@ from pathlib import Path
 
 TASK = 'fc-20261006-office-answer-cms-source-binding-v1'
 ACTION = 'read-office-Suitable-For-exact-current-source-20261006'
-SCOPE = 'flashcast.com.my:cms-native-read:services:office-renovation:two-Suitable-For-arrays-and-row-CAS'
+SCOPE = 'company.example:cms-native-read:services:office-renovation:two-Suitable-For-arrays-and-row-CAS'
 QA_TASK = 'fc-20261006-office-exact-native-source-read-control-qa-v2'
 QA_ACTION = 'qa-office-exact-native-source-read-control-20261006'
 QA_SCOPE = 'project:publishing:office-renovation:exact-current-source-read-control:20261006'

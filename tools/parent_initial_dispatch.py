@@ -60,6 +60,89 @@ def _snapshot(root, task_id):
     return snapshot
 
 
+def _historical_send_time_order(times, now, policy_timestamp):
+    if any(value is None or value > now for value in times):
+        _fail("historical decision/policy/send time order required")
+    decision_at, policy_at, sent_at = times
+    # Only the original whole-second policy can lose subsecond ordering.
+    # Decision and native send keep their exact recorded precision.
+    whole_second = policy_at.microsecond == 0 and policy_timestamp == policy_at.isoformat(timespec="seconds")
+    lower = decision_at.replace(microsecond=0) if whole_second else decision_at
+    if not lower <= policy_at <= sent_at or decision_at > sent_at:
+        _fail("historical decision/policy/send time order required")
+
+
+def _historical_sent_source(root, parent, proof):
+    """Prove the original consumed send without recursing through later QA.
+
+    No recorded send means the ordinary current-installation check still
+    applies. A phase or closed snapshot alone never creates this boundary.
+    """
+    import parent_initial_child_review as child_review
+    import scoped_candidate_adoption as s
+    if (parent.get("task_id") != s.TASK or not isinstance(proof, dict)
+            or set(proof) != {"schema_version", "mode", "child_contract", "action",
+                            "adoption", "attempt_path", "native_send_receipt_path"}
+            or type(proof.get("schema_version")) is not int or proof["schema_version"] != 1
+            or proof.get("mode") != "read_only" or not isinstance(proof.get("action"), dict)
+            or set(proof["action"]) != set(ACTION_FIELDS)):
+        _fail("one exact original historical first-send source required")
+    action = proof["action"]
+    child_id = w.validate_task_id(str(action.get("task_id") or ""))
+    rows = s._receipts(root, child_id)
+    rounds = [row for row in rows if row.get("department") == s.PRODUCER
+              and row.get("receipt_type") in {"dispatch_sent", "dispatch_failed"}]
+    if not rounds:
+        return None
+    if len(rounds) != 1 or rounds[0].get("receipt_type") != "dispatch_sent":
+        _fail("one actual original historical producer send required")
+    dispatch = rounds[0]
+    parent = child_review._snapshot(root, parent)
+    child = child_review._snapshot(root, w.read_json(w.snapshot_path(root, child_id)))
+    goal, child_goal = parent["goal_delivery"], child["goal_delivery"]
+    if (child_id == s.TASK or child.get("goal_contract") != proof["child_contract"]
+            or action.get("parent_task_id") != s.TASK or child_goal.get("parent_task_id") != s.TASK
+            or child_goal.get("initial_dispatch_mode") != "read_only"
+            or child_goal.get("source_mode") != "approved_dispatch"
+            or child_goal.get("required_execution_actions") or child_goal.get("collaboration_scopes")
+            or any(child_goal.get(name) != goal.get(name) for name in (
+                "primary_owner", "producer_departments", "responsible_assistant", "acceptance_capability",
+                "human_authorization", "authorization_pin"))
+            or child_goal.get("authorized_scope") != [s.SCOPE]
+            or any(child_goal.get(name, False) is not False for name in (
+                "production_write_allowed", "production_release_eligible", "external_permission_issued"))):
+        _fail("historical send must retain original child/parent/human/read-only contract")
+    approved = [row for row in child_goal.get("approved_actions", [])
+                if row.get("action_id") == action.get("action_id")]
+    if (len(approved) != 1 or approved[0].get("parent_initial_dispatch") != proof
+            or any(approved[0].get(name) != action.get(name) for name in ACTION_FIELDS)):
+        _fail("historical send must retain its exact frozen approved action")
+    frozen = approved[0]
+    decision = _fenced_decision(root, parent, frozen, "sent")
+    registry = w.department_registry(root)
+    fixed = registry[s.PRODUCER]["chat_binding"]["task_id"]
+    expected = {"task_id": child_id, "action_id": action["action_id"], "action_class": "thread_message",
+                "department": s.PRODUCER, "chat_task_id": fixed, "scope": s.SCOPE}
+    if (any(dispatch.get(name) != value for name, value in expected.items())
+            or action.get("sender_department") != s.ROLE or action.get("target_department") != s.PRODUCER
+            or action.get("target_thread_id") != fixed):
+        _fail("historical send receipt must identify the exact original action and fixed producer")
+    metadata = dispatch.get("parent_initial_dispatch", {})
+    expected_metadata = {"parent_task_id": s.TASK, "decision_record_id": decision["record_id"],
+        "coordinator_role": s.ROLE, "coordinator_owner": decision["coordinator_owner"],
+        "coordination_fence": decision["coordination_fence"], "child_contract": child["goal_contract"],
+        "parent_contract": parent["goal_contract"], "human_authorization": goal["authorization_pin"],
+        "external_permission_issued": False, "actual_message_sent": True, "new_permissions": 0}
+    if any(metadata.get(name) != value for name, value in expected_metadata.items()):
+        _fail("historical send must retain exact original committed decision/claim/fence metadata")
+    policy = _policy(root, action, dispatch.get("policy_decision_id"))
+    child_review._native_effect(root, action, dispatch, metadata, proof)
+    times = [w._parse_observed_at(row.get(name)) for row, name in (
+        (decision, "created_at"), (policy, "checked_at"), (dispatch, "created_at"))]
+    _historical_send_time_order(times, dt.datetime.now(dt.timezone.utc), policy.get("checked_at"))
+    return dispatch
+
+
 def _context(root, parent, proof, phase="prepare"):
     """Validate frozen child input even before its real initialization."""
     import goal_delivery_runtime as g
@@ -131,7 +214,10 @@ def _context(root, parent, proof, phase="prepare"):
     adoption = proof.get("adoption")
     from scoped_candidate_adoption import TASK, validate_adoption
     if parent["task_id"] == TASK:
-        adopted = validate_adoption(root, parent, adoption)
+        adopted = validate_adoption(root, parent, adoption, sent_source=proof if phase == "sent" else None)
+    elif (parent["task_id"] == "fc-20261011-goal-publication-notice-followthrough-repair-v1"
+            and isinstance(adoption, dict) and adoption.get("mode") == "tnew_source_only_adopted"):
+        adopted = w.tnew_adopted_completion_context(root, parent, adoption)
     else:
         if not isinstance(adoption, dict) or set(adoption) != set(ADOPTION_FIELDS):
             _fail("exact independently adopted original control proof required")
@@ -155,7 +241,7 @@ def freeze_next(root, snapshot, request, evidence):
         _fail("all exact next-task fields must be declared together")
     parent = _snapshot(root, snapshot["task_id"])
     context = _context(root, parent, request["initial_dispatch"])
-    _candidate_result(parent, request, request["initial_dispatch"])
+    _candidate_result(parent, request, request["initial_dispatch"], root=root)
     action = context["action"]
     if (request.get("event") != "controller_decision"
             or request.get("decision") not in {"continue", "accept"}
@@ -174,8 +260,22 @@ def freeze_next(root, snapshot, request, evidence):
     return {name: request[name] for name in NEXT_FIELDS}
 
 
-def _candidate_result(parent, record, proof):
+def _candidate_result(parent, record, proof, *, root=None):
     from scoped_candidate_adoption import TASK, VERSION, PRODUCER
+    if parent["task_id"] == "fc-20261011-goal-publication-notice-followthrough-repair-v1":
+        pin = proof.get("adoption", {}).get("producer_outbox")
+        if root is None:
+            _fail("actual project-local TNEW producer source required")
+        exact = _pin(root, pin)
+        producer = w.read_json(w.safe_path(root, exact["path"]))
+        if (not isinstance(pin, dict) or record.get("sender_department") != "system-development"
+                or producer.get("task_id") != parent["task_id"] or producer.get("department") != "system-development"
+                or record.get("candidate_version") != producer.get("candidate_version")
+                or record.get("result_sha256") != pin.get("sha256")
+                or record.get("outbox_path", record.get("outbox", {}).get("path")) != pin.get("path")
+                or ("outbox" in record and record["outbox"] != pin)):
+            _fail("original TNEW decision must retain the exact independently adopted producer outbox")
+        return
     if parent["task_id"] != TASK:
         return
     pin = proof.get("adoption", {}).get("producer_outbox")
@@ -195,7 +295,7 @@ def _fenced_decision(root, parent, action, phase):
     if len(matches) != 1:
         _fail("one actual frozen parent decision required")
     record = matches[0]
-    _candidate_result(parent, record, action.get("parent_initial_dispatch", {}))
+    _candidate_result(parent, record, action.get("parent_initial_dispatch", {}), root=root)
     decisions = [row for row in rows if row.get("event") == "controller_decision"]
     if phase != "sent" and (not decisions or decisions[-1] != record):
         _fail("latest parent decision required; superseded decisions cannot send")
@@ -295,6 +395,147 @@ def _fenced_decision(root, parent, action, phase):
     return record
 
 
+
+def _responsibility_approval_document(root, pin):
+    """Preserve native container flags before and after approval decoding.
+
+    Only native evidence containers are checked recursively; message text and
+    ordinary business fields never become transport failure markers.
+    """
+    import qa_review_plan as q
+    try:
+        value = q._review_source_document(root, pin)
+        q._review_native_containers(value)
+        if "content" in value and not value.get("thread"):
+            value = q._review_raw_native_result(value)
+        q._review_native_containers(value)
+    except (ValueError, TypeError, OSError):
+        _fail("successful complete unambiguous native HQ approval required")
+    return value
+
+
+def validate_responsibility_action(root, snapshot, action, phase="prepare"):
+    """First routine producer send under the actually assigned whole goal.
+
+    Parent is a relation, not a fabricated source workflow or prior decision.
+    """
+    import goal_delivery_runtime as g
+    import qa_review_plan as q
+    if phase not in {"prepare", "policy", "sent"}:
+        _fail("known responsibility validation phase required")
+    child = _snapshot(root, snapshot["task_id"])
+    goal = child["goal_delivery"]; role = goal["responsible_assistant"]
+    proof = action.get("goal_responsibility_dispatch")
+    if (not isinstance(proof, dict) or proof.get("schema_version") != "goal-responsibility-initial-dispatch-v1"
+            or proof.get("goal_contract") != child["goal_contract"]
+            or proof.get("authorization_pin") != goal["authorization_pin"]
+            or action.get("task_id") != child["task_id"]
+            or action.get("parent_task_id") not in {None, goal.get("parent_task_id")}
+            or action.get("sender_department") != role
+            or action.get("target_department") not in goal["producer_departments"]
+            or action.get("target_department") in {"operations", role}
+            or action.get("action_class") != "thread_message"
+            or action.get("scope") not in goal["authorized_scope"] or not action.get("action_id")):
+        _fail("exact frozen whole goal, actual responsible assistant, producer and scope required")
+    _pin(root, child["goal_contract"]); _pin(root, goal["authorization_pin"])
+    registry = w.department_registry(root)
+    authority = registry[role].get("coordination_authority", {})
+    if (authority.get("routine_decisions") is not True or authority.get("dispatch_approved_next") is not True
+            or registry[role].get("new_dispatch_enabled") is False
+            or registry[action["target_department"]].get("new_dispatch_enabled") is False):
+        _fail("current routine authority and producer required")
+    rows, invalid = w._validate_receipt_chain(root, child["task_id"])
+    if invalid:
+        _fail("intact original receipt chain required")
+    refs = []
+    for kind, key in (("dispatch_sent", "responsibility_dispatch"), ("chat_ack", "responsibility_ack")):
+        ref = proof.get(key, {})
+        selected = [(index, row) for index, row in enumerate(rows)
+                    if row.get("receipt_id") == ref.get("receipt_id")
+                    and row.get("receipt_hash") == ref.get("receipt_hash") and row.get("receipt_type") == kind
+                    and row.get("department") == role
+                    and row.get("chat_task_id") == registry[role]["chat_binding"]["task_id"]]
+        if len(selected) != 1:
+            _fail("exact real HQ responsibility dispatch and ACK required")
+        refs.append(selected[0])
+    (di, dispatch), (ai, ack) = refs
+    if (di >= ai or not q._initial_assignment(root, child, dispatch)
+            or ack.get("ack_nonempty") is not True
+            or any(row.get("department") == role and row.get("receipt_type") in {"dispatch_sent", "dispatch_failed"}
+                   for row in rows[ai+1:])):
+        _fail("original complete responsibility assignment and non-superseded ACK required")
+    # Reuse V6's actual initial-envelope validation, including canonical raw
+    # ACK parsing and original time boundaries. No parent/child history added.
+    if not q._initial_assignment_envelope(
+            root, child, dispatch, child["goal_contract"]):
+        _fail("real intact native initial assignment transport required")
+    approval = _responsibility_approval_document(root, proof.get("actual_native_approval"))
+    if approval.get("thread", {}).get("id") != registry[role]["chat_binding"]["task_id"]:
+        _fail("approval must arrive in this actual responsible assistant chat")
+    turn = [row for row in approval.get("turns", []) if row.get("id") == proof.get("approval_turn_id")]
+    items = [item for row in turn for item in row.get("items", [])
+             if item.get("id") == proof.get("approval_item_id") and item.get("type") == "functionCallOutput"]
+    if len(turn) != 1 or len(items) != 1:
+        _fail("one actual native HQ approval turn/item required")
+    try:
+        q._review_native_containers(turn[0])
+        q._review_native_containers(items[0])
+    except (ValueError, TypeError):
+        _fail("successful complete selected native HQ approval source required")
+    output = items[0].get("output", {})
+    text = output.get("text") if isinstance(output, dict) else output
+    from re import fullmatch, escape
+    match = fullmatch(r"\s*<codex_delegation>\s*<source_thread_id>(" +
+        escape(registry["operations"]["chat_binding"]["task_id"]) +
+        r")</source_thread_id>\s*<input>([\s\S]+)</input>\s*</codex_delegation>\s*", text or "")
+    if not match or (isinstance(output, dict) and output.get("truncated") is not False):
+        _fail("actual nontruncated current HQ delegation required")
+    body = match[2]
+    import hashlib
+    exact_contract_body = hashlib.sha256(body.encode("utf-8")).hexdigest()==child["goal_contract"]["sha256"]
+    if (any(value not in body for value in (child["task_id"],action["scope"]))
+            or (not exact_contract_body and child["goal_contract"]["sha256"] not in body)):
+        _fail("HQ approval must pin this exact whole task/scope/contract")
+    payload = _pin(root, action.get("payload"))
+    if payload["sha256"] != action.get("payload_sha256"):
+        _fail("exact current prepared payload required")
+    if payload != child["goal_contract"] and any(value not in body for value in (
+            payload["sha256"], action["action_id"], action["target_thread_id"])):
+        _fail("non-contract payload needs exact native HQ action/target/payload approval")
+    # Live evidence is action-specific and required for the actual opportunity.
+    live = _pin(root, action.get("live_identity"))
+    observed = w.read_json(w.safe_path(root, live["path"]))
+    now = dt.datetime.now(dt.timezone.utc)
+    at = w._parse_observed_at(observed.get("observed_at"))
+    if (at is None or at>now or (phase!="sent" and (now-at).total_seconds()>300)):
+        _fail("fresh actual idle identity before send required")
+    for who, status in ((role, None), (action["target_department"], "idle")):
+        fixed = registry[who]["chat_binding"]
+        entries = [row for row in observed.get("threads", []) if row.get("id") == fixed["task_id"]]
+        if len(entries) != 1 or any(entries[0].get(k) != fixed[v] for k,v in (
+                ("projectId","project_id"),("title","title"),("cwd","cwd"))):
+            _fail("actual same project/title/cwd/fixed identity required")
+        if status and entries[0].get("status") != status:
+            _fail("active target stays queued; idle opportunity required")
+        groups = [row for row in observed.get("sections", []) if row.get("sectionId") == fixed["sidebar_section_id"]]
+        if len(groups) != 1 or "codex:thread:local:" + fixed["task_id"] not in groups[0].get("itemKeys", []):
+            _fail("actual fixed sidebar group required")
+    if any(row.get("department") == action["target_department"]
+            and row.get("receipt_type") in {"dispatch_sent","dispatch_failed"} for row in rows):
+        _fail("initial producer round already sent or uncertain; read back before retry")
+    markers = w.safe_path(root, "logs/goal-initial-dispatch/" + child["task_id"])
+    if phase != "sent" and markers.exists() and (markers.is_symlink() or any(markers.rglob("*"))):
+        _fail("first attempt exists or is uncertain; no resend")
+    for name in ("attempt_path","native_send_receipt_path"):
+        w.safe_path(root, proof.get(name, ""))
+        if not str(proof.get(name, "")).startswith("logs/goal-initial-dispatch/" + child["task_id"] + "/"):
+            _fail("owned first-send attempt paths required")
+    return {"goal_contract": child["goal_contract"], "human_authorization": goal["authorization_pin"],
+            "responsibility_dispatch": proof["responsibility_dispatch"], "responsibility_ack": proof["responsibility_ack"],
+            "actual_native_approval": proof["actual_native_approval"], "coordinator_role": role,
+            "external_permission_issued": False, "new_permissions": 0}
+
+
 def validate_action(root, snapshot, action, phase="prepare"):
     if phase not in {"prepare", "policy", "sent"}:
         _fail("known validation phase required")
@@ -345,12 +586,13 @@ def begin(root, input_path):
         snapshot = _snapshot(root, str(request.get("task_id") or ""))
         rows = [row for row in snapshot["goal_delivery"].get("approved_actions", [])
                 if row.get("action_id") == request.get("action_id")]
-        if len(rows) != 1 or not rows[0].get("parent_task_id"):
-            _fail("one frozen parent-linked approved child action required")
+        if len(rows) != 1 or not (rows[0].get("parent_initial_dispatch") or rows[0].get("goal_responsibility_dispatch")):
+            _fail("one frozen original approved initial action required")
         action = rows[0]
-        metadata = validate_action(root, snapshot, action, "prepare")
+        metadata = (validate_responsibility_action(root, snapshot, action, "prepare")
+                    if action.get("goal_responsibility_dispatch") else validate_action(root, snapshot, action, "prepare"))
         decision = _policy(root, action, request.get("policy_decision_id"))
-        proof = action["parent_initial_dispatch"]
+        proof = action.get("goal_responsibility_dispatch", action.get("parent_initial_dispatch"))
         arguments = {"threadId": action["target_thread_id"],
                      "prompt": w.safe_path(root, action["payload"]["path"]).read_bytes().decode("utf-8")}
         attempt = {"schema_version": 1, "attempt_id": str(uuid.uuid4()), "state": "called_no_response",
@@ -379,7 +621,7 @@ def validate_sent(root, snapshot, receipt, routing_decision):
     snapshot = g.restore_goal(root, snapshot)
     rows = [row for row in snapshot.get("goal_delivery", {}).get("approved_actions", [])
             if row.get("action_id") == routing_decision.get("action_id")]
-    if not rows or not any(row.get("parent_task_id") for row in rows):
+    if not rows or not any(row.get("parent_initial_dispatch") or row.get("goal_responsibility_dispatch") for row in rows):
         return {}
     if len(rows) != 1:
         _fail("one exact original parent-linked first-send action required")
@@ -389,9 +631,10 @@ def validate_sent(root, snapshot, receipt, routing_decision):
             "scope": action["scope"], "department": action["target_department"],
             "chat_task_id": action["target_thread_id"], "policy_decision_id": routing_decision["decision_id"]}.items()):
         _fail("dispatch receipt must identify original exact action; missing fields cannot bypass proof")
-    metadata = validate_action(root, snapshot, action, "sent")
+    metadata = (validate_responsibility_action(root, snapshot, action, "sent")
+                if action.get("goal_responsibility_dispatch") else validate_action(root, snapshot, action, "sent"))
     _policy(root, action, receipt["policy_decision_id"])
-    proof = action["parent_initial_dispatch"]
+    proof = action.get("goal_responsibility_dispatch", action.get("parent_initial_dispatch"))
     pins = receipt.get("evidence", [])
     attempt_pin = w.file_digest(root, proof["attempt_path"])
     native_pin = w.file_digest(root, proof["native_send_receipt_path"])

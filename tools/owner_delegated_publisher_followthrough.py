@@ -93,7 +93,7 @@ def _request(root: Path, policy: dict[str, Any], task_id: str) -> dict[str, Any]
         identity = candidate.get("proposed_managed_identity", {})
         _require(identity == {"taskId": BUSINESS_TASK_ID, "actionId": "publish-" + candidate["candidate_version"],
                  "candidateVersion": candidate["candidate_version"], "operation": "publish",
-                 "scope": "flashcast.com.my:" + expected["table"] + ":" + expected["record_id"] + ":" + ",".join(expected["changed_fields"])}
+                 "scope": "company.example:" + expected["table"] + ":" + expected["record_id"] + ":" + ",".join(expected["changed_fields"])}
                  and candidate.get("baseline_projection_fields") == native.get("projection"), "managed_identity_or_validation_projection_changed")
         _require(candidate.get("before_fields") == {k: row[k] for k in expected["changed_fields"]}
                  and target.get("expected_updated_at_raw") == row.get("updated_at")

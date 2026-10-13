@@ -2565,7 +2565,10 @@ def department_learning_effective(root: Path, department: str) -> tuple[dict[str
         raw = path.read_bytes()
         rule_sources.append({"path": safe_rel(root, path), "sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw)})
     raw = memory_path.read_bytes()
+    from result_coordination import current_assignment_for_role
+    actual_current_assignment = current_assignment_for_role(root, department)
     payload = {"status": "department_learning_effective_read_only", "department": department,
+               "actual_current_assignment": actual_current_assignment,
                "operating_mode": mode, "role_retired": role_retired,
                "current_rule_sources": rule_sources, "current_lessons": current,
                "knowledge_reference": reference, "historical_references": history,
@@ -3177,7 +3180,18 @@ def department_health_record(root: Path, args: argparse.Namespace) -> tuple[dict
         if not reply_ref:
             raise OpsError("健康恢复必须提供 --reply-ref")
     checked_at = timestamp()
-    reply_observed_at = str(getattr(args, "reply_observed_at", "") or checked_at)
+    reply_observed_at = str(getattr(args, "reply_observed_at", "") or "")
+    actual_reply = {}
+    if run_status == "success":
+        evidence_path = str(getattr(args, "native_reply_evidence", "") or "")
+        if not evidence_path or not reply_observed_at:
+            raise OpsError("健康恢复须提供真实原生回复证据及其原始完成时间")
+        try:
+            native_pin = workflow.file_digest(root,evidence_path)
+            actual_reply = workflow.validate_health_reply(root,department=department,native_pin=native_pin,
+                    reply_ref=reply_ref,reply_sha256=reply_sha256,reply_observed_at=reply_observed_at)
+        except workflow.WorkflowError as error:
+            raise OpsError(str(error)) from error
     observed_time = workflow._parse_observed_at(reply_observed_at)
     if run_status == "success":
         ttl = int((registry.get("health_policy", {}) or {}).get("verification_ttl_hours", 26))
@@ -3203,6 +3217,8 @@ def department_health_record(root: Path, args: argparse.Namespace) -> tuple[dict
         "checked_at": checked_at,
         "chat_body_stored": False,
     }
+    if actual_reply:
+        event.update(actual_reply)
     event["event_hash"] = workflow.sha256_value(event)
     with workflow.workflow_lock(root):
         current = read_json(registry_path)
@@ -3243,7 +3259,7 @@ def department_health_record(root: Path, args: argparse.Namespace) -> tuple[dict
                     "dispatch_eligible": True,
                     "consecutive_empty_reply_turns": 0,
                     "consecutive_failures": 0,
-                    "last_success_at": checked_at,
+                    "last_success_at": reply_observed_at,
                 }
             )
         else:
@@ -4380,6 +4396,7 @@ def build_parser() -> argparse.ArgumentParser:
     health_parser.add_argument("--reply-sha256", default="")
     health_parser.add_argument("--reply-nonempty", action="store_true")
     health_parser.add_argument("--reply-observed-at", default="", help="原始回复时间；不得把旧回复刷新成今天")
+    health_parser.add_argument("--native-reply-evidence", default="", help="原始成功read_thread回复证据；时间和UTF-8哈希必须对应实际消息")
     health_parser.add_argument("--live-status", default="unknown")
     health_parser.add_argument("--last-run-status", default="success", choices=["success", "failed", "interrupted", "unknown"])
     health_parser.add_argument("--failure-class", default="")
@@ -4438,7 +4455,7 @@ def build_parser() -> argparse.ArgumentParser:
     qa_parser.set_defaults(handler=lambda root, args: content_qa(root, args.draft_path, not args.no_bilingual))
 
     seo_parser = sub.add_parser("seo-index-audit", help="执行只读 SEO 技术和索引对账")
-    seo_parser.add_argument("--site", default="https://flashcast.com.my")
+    seo_parser.add_argument("--site", default="https://company.example")
     seo_parser.add_argument("--remote", action="store_true", help="读取公开 sitemap 并抓取页面，只读")
     seo_parser.add_argument("--max-urls", type=int, default=80)
     seo_parser.set_defaults(handler=lambda root, args: seo_index_audit(root, args.site, args.remote, max(1, args.max_urls)))

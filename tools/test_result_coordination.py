@@ -125,7 +125,7 @@ class ResultCoordinationIntegrationTests(unittest.TestCase):
             self.a.readback(self.identity)
 
     def test_assistant_cannot_final_without_claim(self):
-        with self.assertRaisesRegex(w.WorkflowError, "assistant precheck"):
+        with self.assertRaisesRegex(w.WorkflowError, "assistant precheck|original A3"):
             w.record_result_handoff(self.root, self.receive(coordinator_role="operations-assistant"))
 
     def test_active_assistant_blocks_legacy_controller(self):
@@ -136,7 +136,7 @@ class ResultCoordinationIntegrationTests(unittest.TestCase):
     def test_assistant_claim_cannot_record_any_final_event(self):
         lease = self.claim()
         for event in sorted(coordination.FINAL_EVENTS):
-            with self.subTest(event=event), self.assertRaisesRegex(w.WorkflowError, "assistant precheck"):
+            with self.subTest(event=event), self.assertRaisesRegex(w.WorkflowError, "assistant precheck|original A3"):
                 w.record_result_handoff(self.root, self.claimed_request(lease, event=event))
 
     def test_ops_owned_claim_requires_exact_owner_token_fence(self):

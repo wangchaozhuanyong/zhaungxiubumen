@@ -33,7 +33,7 @@ class ExactCompletionTests(unittest.TestCase):
         self.auth = {"source_thread_id": gate.SOURCE, "source_method": "mcp__codex_app__read_thread",
                      "messages": [{"id": gate.AUTH, "type": "userMessage", "content": [{"text": "允许\n"}]},
                                   {"id": gate.FUNDS_AUTH, "type": "userMessage", "content": [{"text": "对，FPX由本人结算"}]}],
-                     "preceding_question": {"id": "msg_04e57c709d781d12016ac70327c8bc87d0b41943ba051fdba5",
+                     "preceding_question": {"id": "msg_a9077e429e28f706d2a116ecb62e422ad61c7cb337dec89cdec640371b40f8b0",
                                             "text": "固定质检部仅复核这次FPX确认；两套新广告启用＋本聊天四小时监控"}}
         self.packet = {"original_task_id": gate.TASK, "candidate_version": "paid-owner-completion-v42",
                        "account_id": "example-ads-account", "campaign_ids": gate.CAMPAIGNS,

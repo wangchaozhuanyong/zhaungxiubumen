@@ -40,6 +40,23 @@ ACCEPTANCE_RECEIPTS = {
     "forms": ("English-two-form-production-acceptance.json", "0de953b3e7e6e97537d466f5228ed8525d1dac623bc776bad5d441887834758d"),
     "enable": ("English-six-groups-enable-native-readback.json", "503848430693f142bab7be6794f0e85615907f9a567ff2654711eeab805ee2dc"),
 }
+CURRENT_TASK = "fc-20260920-google-ads-rm100-budget-plan"
+PAID_THREAD = "<LOCAL_TASK_ID>"
+CURRENT_CAMPAIGN_IDS = ["00057225103", "00063878462"]
+SCHEDULE24_RECEIPT = "logs/handoffs/2026-10-10-owner-direct-paid/schedule24h-20261011-native-readback.json"
+SCHEDULE24_RECEIPT_SHA256 = "87d995b0bb3ee0a3230b6784b37c573c5962deca8692a898d77fee1b884439ba"
+SCHEDULE24_AUTHORITY = "logs/handoffs/2026-10-10-owner-direct-paid/schedule24h-20261011-authority-before.json"
+SCHEDULE24_AUTHORITY_SHA256 = "e7486ea17ed67146a6799846b78c1fede478407d874589dde4b7cc7a4828a1ff"
+MONITOR2H_RECEIPT = "logs/handoffs/2026-10-10-owner-direct-paid/monitor2h-20261011-native-readback.json"
+MONITOR2H_RECEIPT_SHA256 = "afe38390058e0159a08624da723ccfad55c89bccf8f01f4353b17bd66249f82b"
+MONITOR2H_AUTHORITY = "logs/handoffs/2026-10-10-owner-direct-paid/monitor2h-20261011-authority-before.json"
+MONITOR2H_AUTHORITY_SHA256 = "ace23292d26cc7b895416ad067eb902f23a941dc32524c1877daf7dfe357c8e5"
+NIGHT_MONITOR_HOURS = [0, 2, 4, 6, 8, 10, 14, 18, 22]
+NIGHT_MONITOR_RRULE = "RRULE:FREQ=DAILY;BYHOUR=0,2,4,6,8,10,14,18,22;BYMINUTE=0;BYSECOND=0"
+OLD_TWO_REMOVAL_RECEIPT = "logs/handoffs/2026-10-10-owner-direct-paid/old-two-campaigns-removal-native-readback.json"
+OLD_TWO_REMOVAL_SHA256 = "96bd4c13b5556573a933c574b17697921c72f6f77d0b18607c1cbaa7fa4f42d2"
+RULE_CLEANUP_RECEIPT = "logs/handoffs/2026-10-10-owner-direct-paid/rules-cleanup-20261011-native-readback.json"
+RULE_CLEANUP_RECEIPT_SHA256 = "f13c336ed04d101c377a314b68253e82fbf66e4c9992ac61ab1abcdfccb017ac"
 
 
 def require(condition: bool, message: str) -> None:
@@ -56,6 +73,203 @@ def project_file(root: Path, relative: str) -> Path:
 
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def verified_receipt(root: Path, relative: str, expected_sha256: str) -> dict:
+    """Read exact archived bytes; this is not live platform authentication."""
+    path = project_file(root, relative)
+    require(digest(path) == expected_sha256, f"overlay evidence bytes drift: {relative}")
+    return json.loads(path.read_text())
+
+
+def validate_current_schedule_overlay(root: Path, current: dict, historical_hours: str) -> bool:
+    """Only the recorded two-campaign 24h save can supersede Oct10 hours."""
+    latest = current.get("latest_schedule_change")
+    if latest is None:
+        require(current["ad_hours_myt"] == historical_hours, "schedule changed without current native overlay")
+        return False
+    require(current["ad_hours_myt"] == "MON-SUN00:00-24:00"
+            and latest["candidate_version"] == "paid-schedule24h-20261011-v1"
+            and latest["status"] == "SAVED_RELOADED_NATIVE_ALL_DAY_VERIFIED"
+            and latest["campaign_ids"] == CURRENT_CAMPAIGN_IDS, "exact current schedule overlay required")
+    require(latest["native_receipt"] == SCHEDULE24_RECEIPT
+            and latest["native_receipt_sha256"] == SCHEDULE24_RECEIPT_SHA256,
+            "current schedule receipt binding drift")
+    receipt = verified_receipt(root, SCHEDULE24_RECEIPT, SCHEDULE24_RECEIPT_SHA256)
+    authority = verified_receipt(root, SCHEDULE24_AUTHORITY, SCHEDULE24_AUTHORITY_SHA256)
+    require(receipt["task_id"] == authority["task_id"] == current["task_id"] == CURRENT_TASK
+            and receipt["account_id"] == authority["account"] == current["account_id"] == "example-ads-account"
+            and receipt["authority"] == SCHEDULE24_AUTHORITY
+            and authority["source_thread_id"] == PAID_THREAD
+            and authority["message_id"] == latest["owner_message_id"] == "example-native-db0dd193c14f2467"
+            and authority["owner_request"] == "帮我改成全天24小时都跑推广不要限制时间",
+            "exact schedule owner/account/task source drift")
+    require([c["id"] for c in receipt["campaigns"]] == CURRENT_CAMPAIGN_IDS
+            and authority["campaigns"] == [{"id": c["id"], "name": c["name"]} for c in current["campaigns"]],
+            "schedule overlay cannot change campaign objects")
+    for native, campaign in zip(receipt["campaigns"], current["campaigns"]):
+        require(native["name"] == campaign["name"]
+                and native["saved_schedule"] == latest["native_schedule"] == "ALL_DAY_DEFAULT_NO_CUSTOM_RESTRICTIONS"
+                and native["seven_days"] is True and native["hours_per_day"] == 24
+                and native["total_budget_myr"] == campaign["total_ad_fee_myr"] == 1350
+                and native["dates"] == current["dates_myt"] == ["2026-10-08", "2026-10-14"]
+                and native["bidding"] == "Manual CPC", "schedule overlay altered protected campaign settings")
+    require(receipt["native_after_reload_message"] == latest["native_after_reload"] == "您的广告可以每周 7 天、每天 24 小时展示"
+            and receipt["custom_schedule_rows_after_reload"] == 0
+            and receipt["save_success_native"] == "您的更改已保存。"
+            and receipt["save_actions"] == 3, "actual final all-day Save/reload evidence required")
+    protected = receipt["protected"]
+    require(protected["each_total_budget_myr"] == 1350 and protected["ad_fee_cap_myr"] == 2700
+            and protected["gross_business_cap_myr"] == current["budget"]["gross_business_cap_myr"] == 3000
+            and protected["end_date"] == latest["end_date_unchanged"] == "2026-10-14"
+            and protected["shop_hours"] == authority["shop_hours_unchanged"] == "10:00-19:00"
+            and current["shop_hours_myt"] == "MON-SUN10:00-19:00_KEEP_UNCHANGED"
+            and latest["budget_dates_bidding_unchanged_native"] is True
+            and latest["shop_hours_unchanged"] is True, "schedule overlay protection drift")
+    require(all(protected[k] == 0 for k in ("bid_writes", "keyword_writes", "ad_writes", "language_guard_writes",
+                "payment_actions", "permission_changes", "old_campaign_enable_actions"))
+            and authority["no_payment_or_topup"] is True, "schedule overlay introduced extra platform actions")
+    require(receipt["watch"]["overnight"] == latest["overnight_watch"] == "NOT_CONFIRMED"
+            and receipt["watch"]["realtime_auto_stop"] is False
+            and receipt["independent_qa"] is False and receipt["business_goal_closed"] is False,
+            "schedule evidence cannot grant QA, real-time stop, or night staffing")
+    require(digest(project_file(root, receipt["screenshot"]))
+            == "b30c5e8b8e522677a1756cafd31eaf0ec42fa4294e8083d9e436941b3b56c260", "schedule screenshot drift")
+    require(digest(project_file(root, latest["report"])) == latest["report_sha256"], "schedule report drift")
+    return True
+
+
+def validate_current_monitor_overlay(root: Path, current: dict, schedule24: bool) -> dict | None:
+    """Bind night cadence and bounded reductions, not a new executable permit."""
+    latest = current.get("latest_monitor_policy")
+    if latest is None:
+        require(current.get("latest_rule_cleanup") is None, "rule cleanup requires its original monitor overlay")
+        return None
+    require(schedule24 and latest["candidate_version"] == "paid-monitor2h-low-competition-20261011-v1"
+            and latest["status"] == "NATIVE_AUTOMATION_UPDATE_READBACK_VERIFIED"
+            and latest["automation_id"] == "flash-cast-3"
+            and latest["monitor_times_myt"] == NIGHT_MONITOR_HOURS
+            and latest["day_original_times_preserved"] == [14, 18]
+            and latest["timezone"] == "Asia/Kuala_Lumpur" and latest["weekends"] is True,
+            "exact night monitoring overlay required")
+    require(latest["native_readback"] == MONITOR2H_RECEIPT, "monitor overlay receipt binding drift")
+    receipt = verified_receipt(root, MONITOR2H_RECEIPT, MONITOR2H_RECEIPT_SHA256)
+    authority = verified_receipt(root, MONITOR2H_AUTHORITY, MONITOR2H_AUTHORITY_SHA256)
+    config = receipt["final_config"]
+    require(receipt["task_id"] == authority["task_id"] == CURRENT_TASK
+            and receipt["candidate_version"] == authority["candidate_version"] == latest["candidate_version"]
+            and authority["owner_message_id"] == latest["owner_message_id"] == "example-native-ea4f56c0722d28b4"
+            and authority["owner_clarification_message_id"] == latest["owner_clarification_message_id"] == "example-native-32f2b75849dfe2ff"
+            and authority["thread_id"] == PAID_THREAD
+            and authority["owner_clarification"] == "22:00到次日10:00每两小时检查一次；白天原14/18保留",
+            "night monitor owner clarification drift")
+    require(config["id"] == receipt["automation_id"] == "flash-cast-3"
+            and config["kind"] == "heartbeat" and config["status"] == "ACTIVE"
+            and config["rrule"] == NIGHT_MONITOR_RRULE
+            and config["target_thread_id"] == PAID_THREAD
+            and config["name"] == latest["automation_name"] == "FLASH CAST 夜间两小时监控与逐词降本研究"
+            and hashlib.sha256(config["prompt"].encode()).hexdigest()
+            == receipt["final_prompt_sha256"] == latest["native_prompt_sha256"],
+            "native monitor final config/prompt binding drift")
+    checks = receipt["checks"]
+    require(all(checks[k] is True for k in ("mode_update_success", "mode_view_success", "configured_native_readback_exact",
+                "same_id_kind_status_created_target", "ad24h_unchanged", "spend_cap_RM3000_unchanged"))
+            and checks["night_hours"] == [22, 0, 2, 4, 6, 8, 10]
+            and checks["preserved_day_hours"] == [14, 18], "monitor save/readback/cadence protection drift")
+    require(latest["bid_policy"] == "Evidence-led single-keyword down-only up to10% per24–48h; existingRM0.30 trialfloor not market/platformminimum; no increase"
+            and latest["minimum_sample_is_internal_not_Google"] is True
+            and latest["future_unbounded_writes_authorized"] is False
+            and latest["ad24h_and_budget3000_unchanged"] is True
+            and latest["overnight_human_watch"] == receipt["overnight_human_watch"] == "NOT_CONFIRMED"
+            and latest["business_goal_closed"] is False, "bounded down-only monitor policy drift")
+    require(latest["current_immediate_bid_candidates"] == latest["current_ads_bid_writes"]
+            == latest["current_ads_budget_writes"] == 0, "monitor setup is not an actual bid reduction")
+    counts = receipt["execution_counts"]
+    require(all(counts[k] == 0 for k in ("ads_bid_writes", "ads_budget_writes", "ads_schedule_writes", "payments", "cross_chat_messages")),
+            "monitor update cannot be represented as other platform execution")
+    return config
+
+
+def validate_old_two_removal_overlay(root: Path, current: dict, historical_removed: bool) -> bool:
+    """Preserve the irreversible original removal proof, never allow another deletion."""
+    if current["platform_deletion_executed"] == historical_removed:
+        require(current.get("old_two_removal_scope_closed") is not True, "closed removal cannot retain an unremoved index flag")
+        return False
+    require(historical_removed is False and current["platform_deletion_executed"] is True
+            and current["old_two_removal"] == "REMOVED_NATIVE_READBACK_20261010_1128_MYT"
+            and current["old_two_removal_receipt"] == OLD_TWO_REMOVAL_RECEIPT
+            and current["old_two_removal_scope_closed"] is True, "only original exact two-old-campaign removal overlay allowed")
+    receipt = verified_receipt(root, OLD_TWO_REMOVAL_RECEIPT, OLD_TWO_REMOVAL_SHA256)
+    require(receipt["task_id"] == CURRENT_TASK and receipt["account_id"] == "example-ads-account"
+            and receipt["candidate_version"] == "paid-old-two-remove-20261010-v1"
+            and receipt["completion"] == "COMPLETED_EXACT_OLD_TWO_REMOVAL_SCOPE", "exact old removal task/account/status drift")
+    owner = receipt["human_authorization"]
+    require(owner["thread_id"] == PAID_THREAD
+            and owner["message_id"] == "example-native-7047dede53b431bd"
+            and owner["text"] == "确认移除这两个旧系列”", "actual irreversible-removal owner confirmation required")
+    original = verified_receipt(root, "logs/handoffs/2026-10-08-owner-direct-preparation/v42-enable-native-execution-receipt.json",
+                                "5d35ae3dcf03ea75c3d65204aad7332f355aa69d3c03292891976c008f64d4aa")
+    require([(c["id"], c["name"]) for c in original["old_campaigns"]] == [
+        ("00074720157", "Search - Renovation Leads - KL Selangor"), ("00038566858", "马来西亚全案装修")], "original exact old campaign identity drift")
+    execution = receipt["execution"]
+    require(execution["native_confirmation"] == "要永久移除 2 个广告系列吗？"
+            and execution["native_success"] == "2 个广告系列已移除"
+            and [c["name"] for c in execution["removed"]] == [c["name"] for c in original["old_campaigns"]]
+            and all(c["before"] == "PAUSED" and c["after"] == "REMOVED" for c in execution["removed"]),
+            "actual exact two old row removal readback required")
+    require([c["id"] for c in execution["preserved"]] == CURRENT_CAMPAIGN_IDS
+            and all(c["status"] == "ENABLED" and c["budget_myr"] == 1350
+                    and [c["start_date"], c["end_date"]] == current["dates_myt"] for c in execution["preserved"]),
+            "old removal cannot alter current campaigns")
+    evidence = receipt["evidence"]
+    require(current["old_two_removal_backup"] == evidence["main_backup"]["path"], "removal backup binding drift")
+    for key in ("main_backup", "before_screenshot", "after_screenshot"):
+        require(digest(project_file(root, evidence[key]["path"])) == evidence[key]["sha256"], "removal recovery/evidence bytes drift")
+    require(receipt["campaign_removals"] == 2 and all(receipt[k] == 0 for k in ("campaign_enable_pause_actions",
+                "budget_writes", "keyword_writes", "bid_writes", "website_maps_writes", "payments_recharges",
+                "security_permission_changes", "cross_fixed_chat_messages"))
+            and receipt["independent_qa"] is False and receipt["business_goal_closed"] is False,
+            "old removal scope cannot grant other platform actions")
+    return True
+
+
+def validate_rule_cleanup_overlay(root: Path, current: dict, monitor_config: dict | None) -> bool:
+    """A prompt-only cleanup cannot change the original night/bid authority."""
+    latest = current.get("latest_rule_cleanup")
+    if latest is None:
+        return False
+    require(monitor_config is not None, "rule cleanup needs original monitor and actual exact native receipt")
+    require(latest["status"] == "RUNTIME_RULES_CLEANED_NATIVE_PROMPT_READBACK_VERIFIED"
+            and latest["candidate_version"] == "paid-rules-cleanup-20261011-v1"
+            and latest["native_receipt"] == RULE_CLEANUP_RECEIPT
+            and latest["native_receipt_sha256"] == RULE_CLEANUP_RECEIPT_SHA256,
+            "current rule cleanup native receipt binding drift")
+    receipt = verified_receipt(root, RULE_CLEANUP_RECEIPT, RULE_CLEANUP_RECEIPT_SHA256)
+    require(receipt["schema_version"] == "native-automation-rule-cleanup/1"
+            and receipt["task_id"] == current["task_id"] == CURRENT_TASK
+            and receipt["candidate_version"] == latest["candidate_version"]
+            and receipt["automation_id"] == "flash-cast-3"
+            and receipt["status"] == "NATIVE_PROMPT_CLEANUP_SAVED_READBACK_VERIFIED"
+            and receipt["owner_message_id"] == latest["owner_message_id"] == "example-native-5e7660b5f4cdd727"
+            and receipt["source_turn_id"] == latest["source_turn_id"] == "example-native-9007af5db80553af",
+            "rule cleanup owner/task/status source drift")
+    before, after = receipt["before_config"], receipt["after_config"]
+    require(before == monitor_config and set(after) == set(before), "cleanup must start from exact original night config")
+    protected = ["kind", "name", "status", "rrule", "target_thread_id", "created_at"]
+    require(receipt["protected_fields_unchanged"] == protected
+            and all(after[k] == before[k] for k in before if k not in {"prompt", "updated_at"})
+            and after["id"] == "flash-cast-3" and after["rrule"] == NIGHT_MONITOR_RRULE
+            and after["target_thread_id"] == PAID_THREAD and after["status"] == "ACTIVE",
+            "prompt cleanup changed cadence or other protected native config")
+    before_sha = hashlib.sha256(before["prompt"].encode()).hexdigest()
+    after_sha = hashlib.sha256(after["prompt"].encode()).hexdigest()
+    require(before_sha == latest["before_prompt_sha256"]
+            and after_sha == receipt["new_prompt_sha256"] == latest["after_prompt_sha256"],
+            "cleanup current prompt hash drift")
+    require(receipt["no_new_schedule_or_bid_authority"] is True
+            and receipt["ads_bid_writes"] == receipt["ads_budget_writes"] == receipt["account_writes"] == 0,
+            "rule cleanup cannot introduce paid write authority or account effects")
+    return True
 
 
 def keyword_rows(path: Path) -> list[dict[str, str]]:
@@ -409,12 +623,18 @@ def validate_English_enabled(root: Path, current: dict) -> dict:
     require(digest(snapshot) == BILINGUAL160_SNAPSHOT_SHA256, "historical bilingual160 bytes drift")
     baseline = json.loads(snapshot.read_text())
     historical_result = validate(root, index=baseline)
-    for key in ("task_id", "account_id", "department", "counts", "budget", "dates_myt", "ad_hours_myt",
+    for key in ("task_id", "account_id", "department", "counts", "budget", "dates_myt",
                 "shop_hours_myt", "reception", "spend_pause_operator", "payments", "recharges",
                 "ads_enabled", "frozen_inputs", "mutable_evidence_archives", "historical_launch_index",
                 "historical_Chinese120_index", "current_authority", "current_authority_record",
-                "platform_deletion_executed", "website_changed_or_deployed", "normal_canaries"):
+                "website_changed_or_deployed", "normal_canaries"):
         require(current[key] == baseline[key], f"English enable changed frozen boundary: {key}")
+    # Oct10 acceptance remains immutable. Later owner-authorized changes must
+    # pass their own exact native receipt instead of rewriting that snapshot.
+    schedule24 = validate_current_schedule_overlay(root, current, baseline["ad_hours_myt"])
+    monitor_overlay = validate_current_monitor_overlay(root, current, schedule24)
+    old_two_removed = validate_old_two_removal_overlay(root, current, baseline["platform_deletion_executed"])
+    rule_cleanup = validate_rule_cleanup_overlay(root, current, monitor_overlay)
     expected_rules = dict(baseline["current_plan_rules"])
     expected_rules.update(whole_launch_complete=True, expansion_complete=True,
                           native_execution_receipt="logs/handoffs/2026-10-10-owner-direct-paid/English-six-groups-enable-native-readback.json")
@@ -463,7 +683,7 @@ def validate_English_enabled(root: Path, current: dict) -> dict:
         kind = form["type"]
         expected_source = f"/__internal_test__/acceptance/en/{kind}/{expected_ids[kind]}"
         require(form["record_id"] == expected_ids[kind] and form["source_path"] == expected_source
-                and form["url"] == f"https://flashcast.com.my/en/{kind}" and form["submit_count"] == 1
+                and form["url"] == f"https://company.example/en/{kind}" and form["submit_count"] == 1
                 and form["owner_received"] is True, "exact single English internal submission binding required")
         export = project_file(root, form["export"]["path"])
         require(digest(export) == form["export"]["sha256"], "internal one-row export drift")
@@ -491,7 +711,7 @@ def validate_English_enabled(root: Path, current: dict) -> dict:
         require((state["campaign_id"], state["keyword_count"]) == expected_groups[state["group"]]
                 and state["status"] == state["rsa_status"] == "ENABLED"
                 and state["rsa_policy"] == "已批准" and state["native_eligibility"] == "符合条件"
-                and state["final_url"].startswith("https://flashcast.com.my/en/services/"), "native English group/RSA/URL drift")
+                and state["final_url"].startswith("https://company.example/en/services/"), "native English group/RSA/URL drift")
     require(enabled["payments"] is False and enabled["recharges"] is False
             and enabled["independent_qa"] is False and enabled["machine_enable_permit"] is False
             and enabled["new_global_permission"] is False and enabled["business_result"] == "NOT_MEASURED", "native financial/safety/result drift")
@@ -501,6 +721,8 @@ def validate_English_enabled(root: Path, current: dict) -> dict:
     monitor_file = project_file(root, monitor_path)
     require(digest(monitor_file) == "40be7d53bdafe0e85bb5c915525cfcd500ffd2da49d5ab207555ae4b8e9cf576", "current monitor evidence drift")
     monitor = json.loads(monitor_file.read_text())
+    # This frozen Oct10 receipt remains an accurate historical read-only run.
+    # A newer bounded monitor overlay does not rewrite its bytes or its verdict.
     require(current["daily_learning"]["current_monitor_save_receipt"] == monitor_path
             and monitor["target_thread_id"] == "<LOCAL_TASK_ID>"
             and monitor["times_myt"] == ["10:00", "14:00", "18:00", "22:00"]
@@ -516,7 +738,11 @@ def validate_English_enabled(root: Path, current: dict) -> dict:
             "English_RSA_approved": 6, "internal_English_submissions_owner_received": 2,
             "historical_bilingual160_integrity": historical_result["status"], "platform_live_check": False,
             "independent_qa": False, "machine_enable_permit": False, "new_write_permission": False,
-            "actual_English_customer_conversion": "NOT_OBSERVED", "business_result": "NOT_MEASURED"}
+            "actual_English_customer_conversion": "NOT_OBSERVED", "business_result": "NOT_MEASURED",
+            "current_schedule24_overlay_verified": schedule24,
+            "current_night_monitor_overlay_verified": monitor_overlay is not None,
+            "exact_old_two_removal_overlay_verified": old_two_removed,
+            "current_rule_cleanup_overlay_verified": rule_cleanup}
 
 
 def validate(root: Path, index: dict | None = None) -> dict:

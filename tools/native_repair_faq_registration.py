@@ -18,7 +18,7 @@ IDENTITY = {
     "task_id": "fc-20260927-repair-page-optimization-source-bound-v1",
     "action_id": "repair-faq-pair-update-v1",
     "candidate_version": "repair-faq-source-bound-v2",
-    "scope": "flashcast.com.my:services:surface-repair:faqs-en-zh:repair-faq-source-bound-v2",
+    "scope": "company.example:services:surface-repair:faqs-en-zh:repair-faq-source-bound-v2",
     "table": "services",
     "record_id": "7c9b9e23-025e-4fc9-85c8-de84a5449370",
     "slug": "surface-repair",

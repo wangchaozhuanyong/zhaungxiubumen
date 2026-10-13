@@ -95,7 +95,8 @@ class PilotConsumerTests(unittest.TestCase):
         for task in self.children:
             binding = binding if task == self.children[0] else self.child(task)
             result = self.finish(binding)
-            self.assertEqual(result['workflow_state'], 'closed')
+            self.assertEqual(result['workflow_state'], 'qa_passed')
+            self.assertIn('needs_completion_declaration', runtime.completion_obligations(self.root, self.t.snapshot())['missing'])
             self.assertEqual(self.bind(binding)['result'], 'duplicate_ignored')
             rows, invalid = w._validate_receipt_chain(self.root, task)
             self.assertEqual(invalid, [])

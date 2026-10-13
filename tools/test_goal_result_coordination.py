@@ -368,7 +368,7 @@ class GoalReviewPlanTests(unittest.TestCase):
                                           coordinator_role=ASSISTANTS[1])["result"], "recorded")
 
     def test_production_result_review_does_not_grant_new_permission(self):
-        self.plan.update(risk_level="R2", action_class="site_code_candidate", scope="flashcast.com.my:exact-result")
+        self.plan.update(risk_level="R2", action_class="site_code_candidate", scope="company.example:exact-result")
         self.snapshot["owner_approval_required"] = True
         review.validate_plan(self.root, self.snapshot, self.plan)
         for flag in ("production_write_allowed", "external_permission_issued"):
@@ -392,7 +392,7 @@ class GoalReviewPlanTests(unittest.TestCase):
             review.validate_verdict(self.root, self.snapshot, [], {"department": ASSISTANTS[1]})
 
     def review_receipts(self):
-        self.plan.update(risk_level="R2", action_class="site_code_candidate", scope="flashcast.com.my:exact-result")
+        self.plan.update(risk_level="R2", action_class="site_code_candidate", scope="company.example:exact-result")
         self.write(self.plan_path, self.plan)
         review.bind_plan(self.root, task_id=self.task_id, plan_path=self.plan_path, coordinator_role=ASSISTANTS[1])
         self.snapshot = w.read_json(w.snapshot_path(self.root, self.task_id))

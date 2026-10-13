@@ -18,15 +18,152 @@ MODEL = "goal_delivery_assistant_v1"
 REQUIRED = ("objective", "completion_criteria", "primary_owner", "responsible_assistant",
             "existing_results", "authorized_scope", "dependencies", "producer_departments",
             "acceptance_capability")
+COMPLETION_KINDS = {"internal_delivery", "production_release", "growth_batch"}
+COMPLETION_TYPES = {"accepted_delivery", "execution_postcheck", "source_adoption",
+                    "internal_pilot", "result_notification", "growth_batch_followthrough"}
+COMPLETION_IDENTITY = ("objective", "completion_criteria", "authorized_scope", "primary_owner",
+                       "responsible_assistant", "producer_departments")
+
+
+def completion_contract_state(goal, *, supplemental=None):
+    """Mechanically map every frozen criterion; never infer a kind from prose."""
+    contract = goal if supplemental is None else supplemental
+    if not isinstance(goal, dict) or not isinstance(contract, dict):
+        raise w.WorkflowError("explicit completion contract object required")
+    if not any(key in contract for key in ("completion_kind", "completion_requirements")):
+        return {"state": "needs_completion_declaration", "completion_kind": None, "requirements": []}
+    kind, rows = contract.get("completion_kind"), contract.get("completion_requirements")
+    if kind not in COMPLETION_KINDS or not isinstance(rows, list) or not 1 <= len(rows) <= 100:
+        raise w.WorkflowError("known completion kind and nonempty bounded frozen requirements required")
+    criteria, scopes, producers = (goal.get(name, []) for name in
+                                   ("completion_criteria", "authorized_scope", "producer_departments"))
+    if not criteria or any(not isinstance(text, str) or not text.strip() for text in criteria):
+        raise w.WorkflowError("nonempty original completion criteria required")
+    ids, covered, mapped_actions = set(), set(), set()
+    declared = {tuple(action.get(k) for k in ("action_id", "action_class", "scope", "department"))
+                for action in goal.get("required_execution_actions", [])}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise w.WorkflowError("typed exact completion requirement object required")
+        rid, index, requirement_type = row.get("requirement_id"), row.get("criterion_index"), row.get("requirement_type")
+        subject = row.get("subject")
+        if (not isinstance(rid, str) or not rid.strip() or rid in ids
+                or type(index) is not int or not 0 <= index < len(criteria)
+                or row.get("scope") not in scopes or requirement_type not in COMPLETION_TYPES
+                or not isinstance(subject, dict) or set(subject) != {"mode", "producer_department"}
+                or subject.get("mode") != "latest_exact_accepted_result"
+                or subject.get("producer_department") not in producers):
+            raise w.WorkflowError("unique requirement, original criterion/scope and exact accepted subject required")
+        if row.get("proof_type", requirement_type) != requirement_type:
+            raise w.WorkflowError("proof type cannot change a completion requirement")
+        if "proof_ref" in row and not isinstance(row["proof_ref"], dict):
+            raise w.WorkflowError("typed proof selector object required; booleans are not evidence")
+        if requirement_type == "execution_postcheck":
+            action = tuple(row.get(k) for k in ("action_id", "action_class", "scope", "department"))
+            if kind != "production_release" or action not in declared:
+                raise w.WorkflowError("production completion must map its original declared action exactly")
+            mapped_actions.add(action)
+        if requirement_type == "growth_batch_followthrough" and kind != "growth_batch":
+            raise w.WorkflowError("growth followthrough requires the frozen growth batch kind")
+        ids.add(rid); covered.add(index)
+    if covered != set(range(len(criteria))):
+        raise w.WorkflowError("all original completion criteria must retain a precise mapping")
+    if declared and (kind != "production_release" or mapped_actions != declared):
+        raise w.WorkflowError("declared production cannot escape or lose execution/postcheck requirements")
+    if kind == "production_release" and not declared:
+        raise w.WorkflowError("production release needs its original declared production actions")
+    if kind == "growth_batch" and not any(row["requirement_type"] == "growth_batch_followthrough" for row in rows):
+        raise w.WorkflowError("growth batch needs an actual batch followthrough requirement")
+    return {"state": "declared", "completion_kind": kind, "requirements": copy.deepcopy(rows)}
+
+
+def _completion_contract(root, snapshot):
+    goal = snapshot["goal_delivery"]
+    direct = completion_contract_state(goal)
+    events = [row for row in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS) if row.get('task_id') == snapshot['task_id']]
+    original = next((row['details']['goal_delivery'] for row in events
+                     if isinstance(row.get('details', {}).get('goal_delivery'), dict)), None)
+    pins = [row.get("details", {}).get("completion_contract_pin")
+            for row in events if row.get("details", {}).get("completion_contract_pin") is not None]
+    if direct["state"] == "declared":
+        if pins:
+            raise w.WorkflowError("an original declared contract cannot be replaced by a supplement")
+        return direct
+    config = w.read_json(Path(root) / "data/task-contract.json").get("goal_delivery_runtime", {})
+    configured = config.get("completion_contracts", {}).get(snapshot["task_id"])
+    if not pins:
+        return {**direct, "supplement_prepared": configured is not None}
+    if any(pin != pins[0] for pin in pins) or pins[0] != configured:
+        raise w.WorkflowError("one immutable committed completion supplement and matching configured pin required")
+    pin = pins[0]
+    if not isinstance(pin, dict) or w.file_digest(root, pin.get("path", "")) != pin:
+        raise w.WorkflowError("frozen completion supplement bytes changed")
+    document = w.read_json(w.safe_path(root, pin["path"]))
+    _validate_completion_supplement(snapshot, document, original_goal=original)
+    return {**completion_contract_state(goal, supplemental=document), "contract_pin": pin}
+
+
+def _validate_completion_supplement(snapshot, document, *, original_goal=None):
+    goal = snapshot["goal_delivery"]
+    if (not isinstance(original_goal, dict)
+            or not isinstance(document, dict) or document.get("schema_version") != "goal-completion-contract-v1"
+            or document.get("task_id") != snapshot["task_id"]
+            or document.get("authorization_pin") != goal.get("authorization_pin")
+            or original_goal.get('authorization_pin') != goal.get('authorization_pin')
+            or document.get("goal_identity_sha256") != w.sha256_value({key: original_goal.get(key) for key in COMPLETION_IDENTITY})):
+        raise w.WorkflowError("supplement must mechanically preserve the frozen original goal and authorization")
+    return completion_contract_state(goal, supplemental=document)
+
+
+def record_completion_contract(root, task_id, input_path, role):
+    """Freeze a prepared mechanical supplement once, without rewriting the goal."""
+    task_id = w.validate_task_id(task_id)
+    pin = w.file_digest(root, input_path)
+    document = w.read_json(w.safe_path(root, input_path))
+    with w.workflow_lock(root):
+        snapshot = restore_goal(root, w.read_json(w.snapshot_path(root, task_id)))
+        goal = snapshot.get("goal_delivery", {})
+        if (not enabled(root, snapshot) or role != goal.get("responsible_assistant")
+                or role in goal.get("producer_departments", [])
+                or w.department_registry(root).get(role, {}).get("coordination_authority", {}).get("routine_decisions") is not True):
+            raise w.WorkflowError("original independent responsible assistant must record the completion supplement")
+        if w.validate_workflow_events(root, task_id) or w._validate_receipt_chain(root, task_id)[1]:
+            raise w.WorkflowError("intact original event/receipt chains required for completion declaration")
+        if completion_contract_state(goal)["state"] == "declared":
+            raise w.WorkflowError("original completion requirements already frozen")
+        original = next((row['details']['goal_delivery'] for row in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS)
+                         if row.get('task_id') == task_id and isinstance(row.get('details', {}).get('goal_delivery'), dict)), None)
+        _validate_completion_supplement(snapshot, document, original_goal=original)
+        configured = w.read_json(Path(root) / "data/task-contract.json").get("goal_delivery_runtime", {}).get("completion_contracts", {}).get(task_id)
+        if configured != pin:
+            raise w.WorkflowError("exact prepared supplemental contract pin required")
+        current = _completion_contract(root, snapshot)
+        if current.get("contract_pin"):
+            if current["contract_pin"] != pin:
+                raise w.WorkflowError("completion requirements cannot change or shrink after commitment")
+            return {"result": "duplicate_ignored", "completion_contract_pin": pin, "goal_rewritten": False}
+        w.append_workflow_event(root, task_id, snapshot["current_state"],
+                                {"completion_contract_pin": pin, "completion_contract_recorder": role,
+                                 "original_authorization_pin": goal["authorization_pin"]})
+    return {"result": "recorded", "completion_contract_pin": pin, "goal_rewritten": False,
+            "external_permission_issued": False, "business_goal_closed": False}
 
 
 def enabled(root, snapshot=None):
-    config = w.read_json(Path(root) / "data/task-contract.json").get("goal_delivery_runtime", {})
+    try:
+        document = json.loads(w.validation_bytes(Path(root) / "data/task-contract.json"))
+    except (OSError, ValueError, TypeError) as exc:
+        raise w.WorkflowError("intact global task contract required") from exc
+    if not isinstance(document, dict):
+        raise w.WorkflowError("global task contract object required")
+    config = document.get("goal_delivery_runtime", {})
+    if not isinstance(config, dict):
+        raise w.WorkflowError("goal delivery runtime configuration object required")
     return (config.get("model") == MODEL and config.get("assistant_decisions_enabled") is True
             and (snapshot is None or isinstance(snapshot.get("goal_delivery"), dict)))
 
 
-def validate_goal(root, goal):
+def validate_goal(root, goal, *, task_id=None):
     if not enabled(root) or not isinstance(goal, dict) or any(k not in goal for k in REQUIRED):
         raise w.WorkflowError("enabled complete goal contract required")
     result = copy.deepcopy(goal)
@@ -45,7 +182,6 @@ def validate_goal(root, goal):
     assistant = registry.get(result["responsible_assistant"], {})
     authority = assistant.get("coordination_authority", {})
     if (authority.get("routine_decisions") is not True
-            or result["acceptance_capability"] not in authority.get("review_capabilities", [])
             or assistant.get("new_dispatch_enabled") is False):
         raise w.WorkflowError("assigned assistant lacks acceptance capability")
     producers = result["producer_departments"]
@@ -68,6 +204,7 @@ def validate_goal(root, goal):
         identities.append(tuple(action.get(k) for k in ("action_id", "action_class", "scope", "department")))
     if len(set(identities)) != len(identities):
         raise w.WorkflowError("unique production action identities required")
+    completion_contract_state(result)
     dependency_ids = []
     for dependency in result["dependencies"]:
         if not isinstance(dependency, dict):
@@ -115,16 +252,31 @@ def validate_goal(root, goal):
         if key in seen:
             raise w.WorkflowError('unique collaboration declaration required')
         seen.add(key)
+    if (result["acceptance_capability"] not in authority.get("review_capabilities", [])
+            or (result["responsible_assistant"] == "operations-assistant-3"
+                and result["acceptance_capability"] == "development"
+                and isinstance(authority.get("technical_review_backup"), dict))):
+        from technical_review_backup import qualified_initial_review
+        if not qualified_initial_review(root, result["responsible_assistant"], result,
+                                        task_id=task_id, require_responsibility=False):
+            raise w.WorkflowError("assigned assistant lacks acceptance capability or adopted exact initial review qualification")
     return result
 
 
 def restore_goal(root, snapshot):
     result = copy.deepcopy(snapshot)
+    frozen_completion = None
     for row in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS):
         if row.get("task_id") != snapshot.get("task_id"):
             continue
         detail = row.get("details", {})
         if isinstance(detail.get("goal_delivery"), dict):
+            candidate = detail["goal_delivery"]
+            completion = {key: candidate.get(key) for key in
+                          ("completion_criteria", "completion_kind", "completion_requirements")}
+            if frozen_completion is not None and completion != frozen_completion:
+                raise w.WorkflowError("original completion criteria, kind and requirements are immutable")
+            frozen_completion = completion
             result["goal_delivery"] = detail["goal_delivery"]
     if enabled(root, result):
         goal = result["goal_delivery"]
@@ -135,7 +287,7 @@ def restore_goal(root, snapshot):
 
 def bind_goal(root, task_id, goal):
     task_id = w.validate_task_id(task_id)
-    goal = validate_goal(root, goal)
+    goal = validate_goal(root, goal, task_id=task_id)
     if goal.get("parent_task_id") == task_id:
         raise w.WorkflowError("goal cannot be its own parent")
     with w.workflow_lock(root):
@@ -161,20 +313,16 @@ def bind_goal(root, task_id, goal):
 
 
 def _native_document(root, pin):
-    if not isinstance(pin, dict) or w.file_digest(root, pin.get("path", "")) != pin:
-        raise w.WorkflowError("frozen delegation evidence changed")
-    value = w.read_json(w.safe_path(root, pin["path"]))
-    if value.get("isError") is True:
-        raise w.WorkflowError("failed native delegation evidence")
-    if "content" in value and not value.get("thread"):
-        texts = [x.get("text", "") for x in value["content"] if x.get("type") == "text"]
-        if len(texts) != 1:
-            raise w.WorkflowError("one actual native delegation document required")
-        try:
-            value = json.loads(texts[0])
-        except (ValueError, TypeError):
-            raise w.WorkflowError("actual native delegation document required")
-    return value
+    from qa_review_plan import _review_source_document, _review_native_containers, _review_raw_native_result
+    try:
+        value = _review_source_document(root, pin)
+        _review_native_containers(value)
+        if "content" in value and not value.get("thread"):
+            value = _review_raw_native_result(value)
+        _review_native_containers(value)
+        return value
+    except (ValueError, TypeError, KeyError) as exc:
+        raise w.WorkflowError("successful complete native delegation evidence required: " + str(exc)) from exc
 
 
 def _delegation_context(root, snapshot, binding):
@@ -346,7 +494,10 @@ def approved_action(root, snapshot, requested):
     if (not isinstance(pin, dict) or w.file_digest(root, pin.get("path", "")) != pin
             or pin["sha256"] != requested["payload_sha256"]):
         return None
-    if row.get("parent_task_id"):
+    if row.get("goal_responsibility_dispatch"):
+        from parent_initial_dispatch import validate_responsibility_action
+        validate_responsibility_action(root, snapshot, row, phase="policy")
+    elif row.get("parent_task_id"):
         from parent_initial_dispatch import validate_action
         validate_action(root, snapshot, row, phase="policy")
     return row
@@ -541,6 +692,18 @@ def status(root, task_id):
     if not enabled(root, snapshot):
         raise w.WorkflowError("bound complete goal required")
     goal = snapshot["goal_delivery"]
+    from direct_system_repair import context as direct_context, completion_view
+    takeover = direct_context(root, task_id)
+    if takeover is not None:
+        complete = completion_view(root, snapshot, takeover)
+        return {"task_id": task_id, "state": "completed_scope" if complete["control_scope_completed"]
+                else "direct_execution_followthrough", "native_workflow_state": snapshot["current_state"],
+                "primary_owner": "operations", "actual_executor": "operations",
+                "responsible_assistant": None,
+                "historical_responsible_assistant": takeover["historical_responsible_assistant"],
+                "completion_criteria": goal["completion_criteria"], "completion_obligations": complete,
+                "source_adopted": True, "HQ_second_review_required": False,
+                "business_goal_closed": False, "control_scope_completed": complete["control_scope_completed"]}
     state = snapshot.get("current_state")
     names = {"evidence_received": "awaiting_assistant_acceptance", "qa_blocked": "rework",
              "closed": "completed_scope", "waiting_owner_approval": "specific_dependency_wait"}
@@ -564,101 +727,157 @@ def status(root, task_id):
             "organic_ip_goal": "DATA_MISSING", "AI_effect": "NOT_MEASURED"}
 
 
+def _current_goal_owners(root):
+    owners = {}
+    for row in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS):
+        goal = row.get('details', {}).get('goal_delivery')
+        if isinstance(goal, dict):
+            owners[row.get('task_id')] = goal.get('responsible_assistant')
+    from direct_system_repair import owners as direct_owners
+    owners.update(direct_owners(root))
+    return owners
+
+
 def pending(root, role):
     registry = w.department_registry(root)
     if registry.get(role, {}).get("coordination_authority", {}).get("routine_decisions") is not True:
         raise w.WorkflowError("registered assistant coordinator required")
-    owned = [p.stem for p in (Path(root) / w.WORKFLOW_DIR).glob("*.json")
-             if w.read_json(p).get("goal_delivery", {}).get("responsible_assistant") == role]
-    from result_coordination import result_lane
-    for path in (Path(root) / w.RESULT_HANDOFF_DIR).glob('*.jsonl'):
+    # Registry and global model failures are not downgraded to per-task errors.
+    enabled(root)
+    from result_coordination import result_lane, notification_plan
+    categories = {key: [] for key in ("pending", "followthrough_pending", "collaboration_pending",
+                    "collaboration_not_proven", "HQ_knowledge_pending", "named_due_dependencies",
+                    "named_waiting_dependencies", "historical_resolved_control_records", "completion_followthrough")}
+    owned, errors, completion_status = [], [], {}
+    current_owners = _current_goal_owners(root)
+    for path in sorted((Path(root) / w.WORKFLOW_DIR).glob("*.json")):
+        try:
+            raw = w.read_json(path)
+            if not isinstance(raw, dict):
+                raise w.WorkflowError("current task snapshot must be an object")
+            if raw.get('task_id') != path.stem:
+                raise w.WorkflowError("current task snapshot identity differs from its exact path")
+            if current_owners.get(path.stem, raw.get("goal_delivery", {}).get("responsible_assistant")) == role:
+                owned.append(path.stem)
+        except (w.WorkflowError, ValueError, OSError, KeyError, TypeError, AttributeError) as exc:
+            errors.append(_task_block(path.stem, "ownership_unresolved", exc))
+    for path in sorted((Path(root) / w.RESULT_HANDOFF_DIR).glob('*.jsonl')):
         if path.stem in owned:
             continue
-        # Only admitted daily sources can extend this assistant's scope.
-        # Unrelated historical ledgers never become a gate for current work.
-        admitted = [w.scheduled_result_source(root, path.stem, department) for department in registry]
-        if not any(source and source.get('responsible_assistant') == role for source in admitted):
-            continue
-        for row in w._result_handoff_rows(root, path.stem):
-            if row.get('event') != 'notification_queued':
+        try:
+            admitted = [w.scheduled_result_source(root, path.stem, department) for department in registry]
+            if not any(source and source.get('responsible_assistant') == role for source in admitted):
                 continue
-            lane = result_lane(root, row)
-            if lane.get('source_mode') == 'scheduled_run' and lane.get('target_department') == role:
-                owned.append(path.stem)
-                break
-    waiting, followthrough, collaboration_pending, collaboration_not_proven = [], [], [], []
-    knowledge, notifications, named_due, named_waiting, historical_resolved = [], [], [], [], []
-    from result_coordination import result_lane, notification_plan
-    for task_id in owned:
-        grouped = {}
-        for row in w._result_handoff_rows(root, task_id):
-            key = w._result_identity(row)
-            entry = grouped.setdefault(key, {"task_id": task_id, "sender_department": key[0],
-                        "candidate_version": key[1], "result_sha256": key[2], "received": False,
-                        "decided": False, "queued": False, "controller_followthrough": "pending"})
-            if row["event"] == "notification_queued": entry["queued"] = True
-            elif row["event"] == "controller_received": entry["received"] = True
-            elif row["event"] == "controller_decision":
-                entry.update(decided=True, controller_decision=row.get("decision"), next_owner=row.get("next_owner"), next_action=row.get("next_action"), unblock_condition=row.get("unblock_condition"))
-            elif row["event"] == "controller_followthrough":
-                entry.update(controller_followthrough=row.get("followthrough_status"), next_check_at=row.get("next_check_at"), unblock_condition=row.get("unblock_condition", entry.get("unblock_condition")))
-        for entry in grouped.values():
-            lane = result_lane(root, entry)
-            entry.update(result_lane=lane['lane'], target_department=lane.get('target_department'))
-            if lane.get('source_mode') == 'collaboration':
-                # A finite scope close consumes only its stored, still-valid
-                # original independent acceptance; it has no next action.
-                if entry['decided'] and entry.get('controller_decision') == 'close_scope':
-                    from collaboration_scope_close import readback_collaboration_scope_close
-                    exact_rows = w._result_handoff_rows(root, task_id)
-                    decision = next(row for row in reversed(exact_rows)
-                                    if row.get('event') == 'controller_decision'
-                                    and w._result_identity(row) == w._result_identity(entry))
-                    closed = readback_collaboration_scope_close(root, decision, exact_rows)
-                    historical_resolved.append({**entry, 'closed_collaboration_scope': closed['acceptance_scope'],
-                                                'business_goal_closed': False})
-                continue
-            if lane['lane'] == 'HQ_knowledge':
-                entry['acceptance_proven'] = lane.get('acceptance_proven', False)
-                if not entry['received']:
-                    knowledge.append(entry)
-                continue
-            if lane['lane'] != 'professional_acceptance':
-                continue
-            if not entry['decided'] and (entry['queued'] or entry['received']):
-                waiting.append(entry)
-            if entry['decided'] and w._followthrough_due(entry):
-                followthrough.append(entry)
-                if entry.get('controller_decision') == 'wait_external':
-                    named_due.append(entry)
-            if entry['decided'] and w._followthrough_waiting(entry):
-                named_waiting.append(entry)
-            if entry['decided'] and (entry.get('controller_decision') == 'close_scope'
-                    or entry.get('controller_followthrough') not in {None, 'pending', 'external_wait_registered', 'blocked_with_owner'}):
-                historical_resolved.append(entry)
-        snapshot = restore_goal(root, w.read_json(w.snapshot_path(root, task_id)))
-        if enabled(root, snapshot) and snapshot["goal_delivery"]["responsible_assistant"] == role:
-            collaboration_pending.extend(_collaboration_pending(root, snapshot, role))
-            if snapshot.get("current_state") not in w.TERMINAL_STATES:
-                collaboration_not_proven.extend(state for state in _collaboration_wait_states(root, snapshot)
-                                                if state["proof_state"] == "NOT_PROVEN")
-    return {"coordinator_role": role, "pending": waiting, "pending_count": len(waiting),
-            "control_records_are_business_jobs": False,
-            "named_waiting_dependencies": named_waiting, "named_waiting_dependency_count": len(named_waiting),
-            "historical_resolved_control_records": historical_resolved, "historical_resolved_control_count": len(historical_resolved),
-            "review_timing": {"active_review_seconds": "NOT_MEASURED", "dependency_wait_seconds": "NOT_MEASURED",
-                              "administrative_seconds": "NOT_MEASURED", "wall_clock_is_active_review": False,
-                              "reason": "no recorded actual activity intervals; queue age is not review time"},
-            "followthrough_pending": followthrough, "followthrough_pending_count": len(followthrough),
-            "collaboration_pending": collaboration_pending, "collaboration_pending_count": len(collaboration_pending),
-            "collaboration_not_proven": collaboration_not_proven,
-            "collaboration_not_proven_count": len(collaboration_not_proven),
-            "professional_pending_count": len(waiting), "HQ_knowledge_pending": knowledge,
-            "HQ_knowledge_pending_count": len(knowledge), "named_due_dependencies": named_due,
-            "named_due_dependency_count": len(named_due),
-            "notification_delivery_pending": notification_plan(root, role)['notifications'],
-            "notification_delivery_pending_count": notification_plan(root, role)['pending_count'],
-            "durable_inbox_does_not_wake_ended_chat": True}
+            for row in w._result_handoff_rows(root, path.stem):
+                if row.get('event') != 'notification_queued':
+                    continue
+                lane = result_lane(root, row)
+                if lane.get('source_mode') == 'scheduled_run' and lane.get('target_department') == role:
+                    owned.append(path.stem)
+                    break
+        except (w.WorkflowError, ValueError, OSError, KeyError, TypeError, AttributeError) as exc:
+            errors.append(_task_block(path.stem, role, exc))
+    for task_id in sorted(set(owned)):
+        local = {key: [] for key in categories}
+        try:
+            rows = w._result_handoff_rows(root, task_id)
+            grouped = {}
+            for row in rows:
+                key = w._result_identity(row)
+                entry = grouped.setdefault(key, {"task_id": task_id, "sender_department": key[0],
+                            "candidate_version": key[1], "result_sha256": key[2], "received": False,
+                            "decided": False, "queued": False, "controller_followthrough": "pending"})
+                if row["event"] == "notification_queued": entry["queued"] = True
+                elif row["event"] == "controller_received": entry["received"] = True
+                elif row["event"] == "controller_decision":
+                    entry.update(decided=True, controller_decision=row.get("decision"), next_owner=row.get("next_owner"),
+                                 next_action=row.get("next_action"), unblock_condition=row.get("unblock_condition"),
+                                 remaining_scope=row.get("remaining_scope", []), accepted_scope=row.get("accepted_scope", []))
+                elif row["event"] == "controller_followthrough":
+                    entry.update(controller_followthrough=row.get("followthrough_status"), next_check_at=row.get("next_check_at"),
+                                 unblock_condition=row.get("unblock_condition", entry.get("unblock_condition")))
+            for entry in grouped.values():
+                lane = result_lane(root, entry)
+                entry.update(result_lane=lane['lane'], target_department=lane.get('target_department'))
+                if lane.get('source_mode') == 'collaboration':
+                    if entry['decided'] and entry.get('controller_decision') == 'close_scope':
+                        from collaboration_scope_close import readback_collaboration_scope_close
+                        decision = next(row for row in reversed(rows) if row.get('event') == 'controller_decision'
+                                        and w._result_identity(row) == w._result_identity(entry))
+                        closed = readback_collaboration_scope_close(root, decision, rows)
+                        local['historical_resolved_control_records'].append({**entry, 'closed_collaboration_scope': closed['acceptance_scope'],
+                                                                           'business_goal_closed': False})
+                    continue
+                if lane['lane'] == 'HQ_knowledge':
+                    entry['acceptance_proven'] = lane.get('acceptance_proven', False)
+                    if not entry['received']:
+                        local['HQ_knowledge_pending'].append(entry)
+                    continue
+                if lane['lane'] != 'professional_acceptance' or lane.get('target_department') != role:
+                    continue
+                if not entry['decided'] and (entry['queued'] or entry['received']):
+                    local['pending'].append(entry)
+                if entry['decided'] and w._followthrough_due(entry):
+                    local['followthrough_pending'].append(entry)
+                    if entry.get('controller_decision') == 'wait_external':
+                        local['named_due_dependencies'].append(entry)
+                if entry['decided'] and w._followthrough_waiting(entry):
+                    local['named_waiting_dependencies'].append(entry)
+                if entry['decided'] and (entry.get('controller_decision') == 'close_scope'
+                        or entry.get('controller_followthrough') not in {None, 'pending', 'external_wait_registered', 'blocked_with_owner'}):
+                    local['historical_resolved_control_records'].append({**entry, 'business_goal_closed': False})
+            raw = w.read_json(w.snapshot_path(root, task_id))
+            if raw:
+                if raw.get('task_id') != task_id:
+                    raise w.WorkflowError("current task snapshot identity differs from its exact path")
+                snapshot = restore_goal(root, raw)
+                if enabled(root, snapshot) and snapshot['goal_delivery']['responsible_assistant'] == role:
+                    receipts, invalid = w._validate_receipt_chain(root, task_id)
+                    if invalid or w.validate_workflow_events(root, task_id):
+                        raise w.WorkflowError("owned goal exact current receipt/event chain requires recovery")
+                    local['collaboration_pending'].extend(_collaboration_pending(root, snapshot, role))
+                    if snapshot.get('current_state') not in w.TERMINAL_STATES:
+                        local['collaboration_not_proven'].extend(state for state in _collaboration_wait_states(root, snapshot)
+                                                                 if state['proof_state'] == 'NOT_PROVEN')
+                    completion = completion_obligations(root, snapshot, receipts)
+                    local['completion_followthrough'].extend(remaining_followthrough(root, snapshot, receipts, completion=completion))
+            # Publish a task's projection only after all its readers pass.
+            for key in categories:
+                categories[key].extend(local[key])
+            if raw and enabled(root, snapshot) and snapshot['goal_delivery']['responsible_assistant'] == role:
+                completion_status[task_id] = completion
+        except (w.WorkflowError, ValueError, OSError, KeyError, TypeError, AttributeError) as exc:
+            errors.append(_task_block(task_id, role, exc))
+    deliveries = notification_plan(root, None)
+    notifications = [row for row in deliveries['notifications']
+                     if row.get('delivery_owner') == role or row.get('delivery_identity', row.get('identity', {})).get('target_department') == role
+                     or row.get('route', {}).get('target_department') == role]
+    delivery_errors = [error for error in deliveries.get('errors', [])
+                       if error.get('owner') in {None, role} or error.get('delivery_owner') == role
+                       or error.get('task_id') in owned]
+    errors.extend(delivery_errors)
+    result = {key: deduplicate_records(rows) for key, rows in categories.items()}
+    for key in categories:
+        result[key + '_count'] = len(result[key])
+    result.update(coordinator_role=role, control_records_are_business_jobs=False,
+                  professional_pending_count=len(result['pending']),
+                  historical_resolved_control_count=len(result['historical_resolved_control_records']),
+                  named_waiting_dependency_count=len(result['named_waiting_dependencies']),
+                  named_due_dependency_count=len(result['named_due_dependencies']),
+                  notification_delivery_pending=deduplicate_records(notifications, delivery=True),
+                  notification_errors=deduplicate_records(delivery_errors),
+                  task_errors=deduplicate_records(errors), completion_status=completion_status,
+                  durable_inbox_does_not_wake_ended_chat=True,
+                  review_timing={"active_review_seconds": "NOT_MEASURED", "dependency_wait_seconds": "NOT_MEASURED",
+                                 "administrative_seconds": "NOT_MEASURED", "wall_clock_is_active_review": False,
+                                 "reason": "no recorded actual activity intervals; queue age is not review time"})
+    result['notification_delivery_pending_count'] = len(result['notification_delivery_pending'])
+    result['followthrough_pending_count'] = len(result['followthrough_pending'])
+    result['total_actionable_count'] = len(deduplicate_records(result['pending'] + result['followthrough_pending']
+              + result['collaboration_pending'] + result['collaboration_not_proven']
+              + [row for row in result['completion_followthrough'] if row.get('actionable')])) + len(
+                  [row for row in result['notification_delivery_pending'] if row.get('actionable')])
+    return result
 
 
 def record_preflight(root, task_id, input_path):
@@ -693,8 +912,12 @@ def record_approved_action(root, task_id, input_path):
         if not enabled(root, snapshot):
             raise w.WorkflowError("complete original goal required")
         goal = snapshot["goal_delivery"]
+        responsibility_initial = bool(action.get("goal_responsibility_dispatch"))
         parent_linked_initial = bool(action.get("parent_task_id"))
-        if parent_linked_initial:
+        if responsibility_initial:
+            from parent_initial_dispatch import validate_responsibility_action
+            validate_responsibility_action(root, snapshot, action, phase="prepare")
+        elif parent_linked_initial:
             from parent_initial_dispatch import validate_action
             validate_action(root, snapshot, action, phase="prepare")
         declarations = [d for d in goal.get('collaboration_scopes', []) if isinstance(d, dict)
@@ -704,7 +927,7 @@ def record_approved_action(root, task_id, input_path):
         declared = len(declarations) == 1
         decisions = [row for row in w._result_handoff_rows(root, task_id)
                      if row.get("event") == "controller_decision" and row.get("record_id") == action.get("decision_record_id")]
-        if not declared and not parent_linked_initial and (len(decisions) != 1 or decisions[0].get("decision") not in {"rework", "continue", "accept"}
+        if not declared and not parent_linked_initial and not responsibility_initial and (len(decisions) != 1 or decisions[0].get("decision") not in {"rework", "continue", "accept"}
                 or decisions[0].get("coordinator_role") != goal["responsible_assistant"]
                 or action.get("sender_department") != goal["responsible_assistant"]
                 or action.get("target_department") != decisions[0].get("next_owner")
@@ -800,6 +1023,253 @@ def completion_dependencies(root, snapshot):
     return missing
 
 
+def _completion_subject_proven(root, snapshot, requirement, accepted):
+    """Accept only the trusted current receipt reader's fully bound subject."""
+    identity = accepted.get("identity", {}) if isinstance(accepted, dict) else {}
+    fingerprint = accepted.get("source_fingerprint") if isinstance(accepted, dict) else None
+    fingerprint_valid = (isinstance(fingerprint, str) and w.SHA256_PATTERN.fullmatch(fingerprint)
+                         or isinstance(fingerprint, dict) and w.file_digest(root, fingerprint.get("path", "")) == fingerprint)
+    if (not isinstance(accepted, dict) or accepted.get("state") != "PROVEN"
+            or identity.get("task_id") != snapshot["task_id"]
+            or identity.get("sender_department") != requirement["subject"]["producer_department"]
+            or not isinstance(identity.get("candidate_version"), str) or not identity["candidate_version"].strip()
+            or not w.SHA256_PATTERN.fullmatch(str(identity.get("result_sha256", "")))
+            or not fingerprint_valid or not accepted.get("source_turn_id")
+            or not accepted.get("acceptance_receipt") or accepted.get("scope") != requirement["scope"]):
+        return False
+    evidence = accepted.get("evidence")
+    return (isinstance(evidence, list) and bool(evidence)
+            and all(isinstance(pin, dict) and w.file_digest(root, pin.get("path", "")) == pin for pin in evidence))
+
+
+def tnew_internal_pilot_requirements(root, snapshot):
+    """Select only the original source-adoption and read-only-pilot obligations."""
+    task = "fc-20261011-goal-publication-notice-followthrough-repair-v1"
+    scope = "project:flashcast:goal-publication-notice-followthrough-repair:v1"
+    goal = validate_goal(root, snapshot.get("goal_delivery"), task_id=task)
+    original = snapshot.get("goal_contract")
+    prefix = "logs/handoffs/2026-10-11-goal-publication-notice-followthrough-repair-v1/HQ-prepared/"
+    if (snapshot.get("task_id") != task or not isinstance(original, dict)
+            or original.get("path") != prefix + "goal-input-PREPARED-v1.json"
+            or original.get("sha256") != "c1ef5c9395c36b5838f945a9d57f579a2bea6654c09135b58188509a6ec8c194"
+            or original.get("size") != 10977 or w.file_digest(root, original.get("path", "")) != original
+            or goal.get("authorization_pin", {}).get("sha256") != "6492c4032ab17a65cab6dda864a159a0cb8957d842d70bb283acb1eb5ceb217f"
+            or goal.get("authorization_pin", {}).get("path") != prefix + "human-authorization-native.json"
+            or goal.get("authorization_pin", {}).get("size") != 1010
+            or snapshot.get("goal_delivery", {}).get("authorization_pin") != goal.get("authorization_pin")
+            or goal.get("primary_owner") != "system-development"
+            or goal.get("producer_departments") != ["system-development"]
+            or goal.get("responsible_assistant") != "operations-assistant-2"
+            or goal.get("acceptance_capability") != "development"
+            or goal.get("authorized_scope") != [scope] or goal.get("required_execution_actions")):
+        raise w.WorkflowError("only the original authorized internal TNEW pilot parent is allowed")
+    contract = _completion_contract(root, snapshot)
+    requirements = contract.get("requirements", [])
+    source = [row for row in requirements if row.get("requirement_id") == "original-criterion-11"
+              and row.get("criterion_index") == 10 and row.get("requirement_type") == "source_adoption"
+              and row.get("scope") == scope]
+    pilot = [row for row in requirements if row.get("requirement_id") == "original-criterion-12"
+             and row.get("criterion_index") == 11 and row.get("requirement_type") == "internal_pilot"
+             and row.get("scope") == scope]
+    if (contract.get("state") != "declared" or len(requirements) != 13
+            or len(source) != 1 or len(pilot) != 1
+            or any(row.get("subject", {}).get("producer_department") != "system-development" for row in source + pilot)):
+        raise w.WorkflowError("unchanged original thirteen standards and exact proof11/pilot selectors required")
+    return {"source_adoption": source[0], "internal_pilot": pilot[0],
+            "business_goal_closed": False, "external_permission_issued": False}
+
+
+def completion_obligations(root, snapshot, receipts=None, accepted=None):
+    """Project frozen standards through actual readers; never write or grant authority."""
+    snapshot = restore_goal(root, snapshot)
+    task_id = snapshot["task_id"]
+    from direct_system_repair import completion_view
+    direct = completion_view(root, snapshot)
+    if direct is not None:
+        return direct
+    if receipts is None:
+        receipts, invalid = w._validate_receipt_chain(root, task_id)
+        if invalid:
+            raise w.WorkflowError("completion requires the intact actual receipt chain")
+    if w.validate_workflow_events(root, task_id):
+        raise w.WorkflowError("completion requires the intact actual workflow event chain")
+    contract = _completion_contract(root, snapshot)
+    output = {"contract_state": contract["state"], "state": contract["state"],
+              "completion_kind": contract["completion_kind"], "contract_pin": contract.get("contract_pin"),
+              "supplement_prepared": contract.get("supplement_prepared", False),
+              "requirements": [], "missing": [], "blockers": [], "closed_scope_only": False,
+              "business_goal_closed": False}
+    if contract["state"] != "declared":
+        legacy = getattr(w, "goal_legacy_scope_completion", None)
+        proof = legacy(root, snapshot, receipts) if legacy and snapshot.get("current_state") == "closed" else {}
+        if proof.get("state") == "PROVEN":
+            output.update(contract_state="legacy_exact_scope", state="legacy_exact_scope", closed_scope_only=True,
+                          legacy_scope_proof=proof)
+        else:
+            output["missing"].append("needs_completion_declaration")
+        return output
+    output["missing"].extend(completion_dependencies(root, snapshot))
+    subject_reader = getattr(w, "goal_completion_subject", None)
+    subjects = {}
+    for requirement in contract["requirements"]:
+        item = {"requirement_id": requirement["requirement_id"], "criterion_index": requirement["criterion_index"],
+                "scope": requirement["scope"], "requirement_type": requirement["requirement_type"],
+                "next_owner": requirement["subject"]["producer_department"], "state": "MISSING", "evidence": []}
+        selector = (requirement["subject"]["producer_department"], requirement["scope"])
+        if selector not in subjects:
+            subjects[selector] = (subject_reader(root, snapshot, receipts, {**requirement["subject"], "scope": requirement["scope"]})
+                                  if subject_reader else {"state": "BLOCKED", "reason": "actual_completion_subject_reader_unavailable"})
+        current = subjects[selector]
+        if not _completion_subject_proven(root, snapshot, requirement, current):
+            item.update(state=current.get("state") if current.get("state") in {"MISSING", "BLOCKED"} else "BLOCKED",
+                        reason=current.get("reason", "latest_exact_independent_acceptance_missing"))
+        else:
+            kind = requirement["requirement_type"]
+            if kind == "accepted_delivery":
+                proof = current
+            elif kind == "execution_postcheck":
+                reader = getattr(w, "goal_execution_completion", None)
+                action = {key: requirement[key] for key in ("action_id", "action_class", "scope", "department")}
+                proof = (reader(root, snapshot, receipts, action, accepted=current) if reader else
+                         {"state": "BLOCKED", "reason": "actual_execution_completion_reader_unavailable"})
+            else:
+                reader = getattr(w, "goal_typed_completion_proof", None)
+                proof = (reader(root, snapshot, receipts, requirement, current) if reader else
+                         {"state": "BLOCKED", "reason": "actual_typed_completion_reader_unavailable"})
+            if not isinstance(proof, dict) or proof.get("state") not in {"PROVEN", "MISSING", "BLOCKED"}:
+                raise w.WorkflowError("trusted typed completion reader must return a precise proof state")
+            if proof.get("state") == "PROVEN" and (proof.get("identity") != current["identity"]
+                    or proof.get("source_fingerprint") != current["source_fingerprint"]
+                    or proof.get("source_turn_id") != current["source_turn_id"]
+                    or proof.get("scope") != requirement["scope"] or not proof.get("evidence")):
+                raise w.WorkflowError("typed completion proof must retain the exact accepted source identity")
+            item.update(state=proof["state"], reason=proof.get("reason"), evidence=proof.get("evidence", []),
+                        wait_dependency=proof.get("wait_dependency"),
+                        identity=current["identity"], source_fingerprint=current["source_fingerprint"],
+                        source_turn_id=current["source_turn_id"])
+        output["requirements"].append(item)
+        if item["state"] != "PROVEN":
+            output["blockers" if item["state"] == "BLOCKED" else "missing"].append(
+                "completion_requirement:" + item["requirement_id"] + ":" + str(item.get("reason") or item["state"]))
+    output["business_goal_closed"] = not output["missing"] and not output["blockers"]
+    return output
+
+
+def remaining_followthrough(root, snapshot, receipts=None, now=None, *, completion=None):
+    """Closing one accepted scope leaves all other declared obligations visible."""
+    proof = completion_obligations(root, snapshot, receipts) if completion is None else completion
+    goal = snapshot["goal_delivery"]; task_id = snapshot["task_id"]
+    rows = []
+    if proof["state"] == "needs_completion_declaration":
+        rows.append({"task_id": task_id, "requirement_id": "completion_declaration", "status": "needs_completion_declaration",
+                     "next_owner": goal["responsible_assistant"], "next_action": "冻结原标准的准确机械映射，不改写原目标或扩大许可",
+                     "unblock_condition": "原完成标准全部精确映射并首次提交 pinned 完成声明", "next_check_at": None,
+                     "declaration_state": "prepared_not_committed" if proof.get('supplement_prepared') else "waiting_declaration_input",
+                     "actionable": proof.get('supplement_prepared', False), "business_goal_closed": False})
+    for item in proof["requirements"]:
+        if item["state"] == "PROVEN":
+            continue
+        wait = item.get("wait_dependency")
+        revisit = w._parse_observed_at(wait.get("next_check_at")) if isinstance(wait, dict) else None
+        moment = now or dt.datetime.now(dt.timezone.utc)
+        if isinstance(wait, dict) and (wait.get("requirement_id") != item["requirement_id"]
+                or wait.get("scope") != item["scope"] or not all(wait.get(key) for key in
+                    ("owner", "next_action", "unblock_condition", "record_id")) or revisit is None):
+            raise w.WorkflowError("exact committed requirement dependency owner/condition/revisit required")
+        deferred = bool(revisit is not None and revisit > moment)
+        rows.append({**item, "task_id": task_id, "status": "named_completion_dependency_wait" if deferred else "completion_followthrough_required",
+                     "next_action": wait['next_action'] if isinstance(wait, dict) else "落实原范围的 " + item["requirement_type"] + " 准确实际证明",
+                     "unblock_condition": wait['unblock_condition'] if isinstance(wait, dict) else "本准确当前版本、来源指纹、原 turn 的真实执行/采用/试点/通知证明",
+                     "next_check_at": wait.get("next_check_at") if isinstance(wait, dict) else None,
+                     "next_owner": wait["owner"] if isinstance(wait, dict) else item['next_owner'],
+                     "actionable": not deferred and snapshot.get("current_state") in {"qa_passed", "closed", "qa_blocked"},
+                     "business_goal_closed": False})
+    for reason in proof["missing"] + proof["blockers"]:
+        if reason.startswith("completion_requirement:") or reason == "needs_completion_declaration":
+            continue
+        rows.append({"task_id": task_id, "requirement_id": reason, "status": "completion_dependency_required",
+                     "next_owner": goal["responsible_assistant"], "next_action": "沿原目标补齐 " + reason,
+                     "unblock_condition": reason, "next_check_at": None, "actionable": True,
+                     "business_goal_closed": False})
+    return rows
+
+
+def record_completion_evidence(root, task_id, input_path, role, requirement_id):
+    """Append a verified new actual proof; the frozen standard remains unchanged."""
+    task_id = w.validate_task_id(task_id)
+    pin = w.file_digest(root, input_path)
+    with w.workflow_lock(root):
+        snapshot = restore_goal(root, w.read_json(w.snapshot_path(root, task_id)))
+        goal = snapshot.get("goal_delivery", {})
+        if (not enabled(root, snapshot) or role != goal.get("responsible_assistant")
+                or role in goal.get("producer_departments", [])
+                or w.department_registry(root).get(role, {}).get("coordination_authority", {}).get("routine_decisions") is not True):
+            raise w.WorkflowError("original independent responsible assistant must record actual completion evidence")
+        receipts, invalid = w._validate_receipt_chain(root, task_id)
+        if invalid or w.validate_workflow_events(root, task_id):
+            raise w.WorkflowError("intact original chains required for completion evidence")
+        contract = _completion_contract(root, snapshot)
+        matches = [row for row in contract['requirements'] if row['requirement_id'] == requirement_id]
+        if contract['state'] != 'declared' or len(matches) != 1:
+            raise w.WorkflowError("one original frozen completion requirement required")
+        requirement = matches[0]
+        if (requirement.get('proof_ref') != {'mode': 'committed_completion_evidence', 'requirement_id': requirement_id}
+                or requirement['requirement_type'] in {'accepted_delivery', 'execution_postcheck'}):
+            raise w.WorkflowError("original typed committed-evidence selector required; no replacement of frozen proof refs")
+        subject_reader, proof_reader = (getattr(w, name, None) for name in
+                                       ('goal_completion_subject', 'goal_typed_completion_proof'))
+        if subject_reader is None or proof_reader is None:
+            raise w.WorkflowError("actual subject and typed completion readers required")
+        accepted = subject_reader(root, snapshot, receipts, {**requirement['subject'], 'scope': requirement['scope']})
+        if not _completion_subject_proven(root, snapshot, requirement, accepted):
+            raise w.WorkflowError("latest exact independent accepted source required before recording completion evidence")
+        proof = proof_reader(root, snapshot, receipts, requirement, accepted, proof_pin=pin)
+        if (not isinstance(proof, dict) or proof.get('state') != 'PROVEN'
+                or any(proof.get(key) != accepted.get(key) for key in
+                       ('identity', 'source_fingerprint', 'source_turn_id', 'scope'))
+                or not proof.get('evidence')
+                or not all(w.file_digest(root, item.get('path', '')) == item for item in proof['evidence'])):
+            raise w.WorkflowError("actual typed completion proof must match the current accepted source")
+        evidence = {'requirement_id': requirement_id, 'proof_pin': pin}
+        prior = [row.get('details', {}).get('completion_evidence') for row in
+                 w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS) if row.get('task_id') == task_id
+                 and row.get('details', {}).get('completion_evidence', {}).get('requirement_id') == requirement_id]
+        if evidence in prior:
+            return {'result': 'duplicate_ignored', 'completion_evidence': evidence, 'contract_rewritten': False}
+        w.append_workflow_event(root, task_id, snapshot['current_state'],
+                                {'completion_evidence': evidence, 'completion_evidence_recorder': role,
+                                 'original_authorization_pin': goal['authorization_pin']})
+    return {'result': 'recorded', 'completion_evidence': evidence, 'contract_rewritten': False,
+            'external_permission_issued': False, 'business_goal_closed': False}
+
+
+def deduplicate_records(rows, *, delivery=False):
+    """Count business/result identities, never the number of control journal rows."""
+    result, seen = [], set()
+    for row in rows:
+        identity = row.get("delivery_identity", row.get("identity", row)) if delivery else row
+        if delivery and isinstance(identity, dict) and all(identity.get(key) for key in
+                ("task_id", "sender_department", "candidate_version", "result_sha256", "target_department", "target_thread_id", "purpose")):
+            key = tuple(identity[name] for name in ("task_id", "sender_department", "candidate_version", "result_sha256",
+                                                   "target_department", "target_thread_id", "purpose"))
+        elif all(row.get(key) for key in ("task_id", "sender_department", "candidate_version", "result_sha256")):
+            key = tuple(row[name] for name in ("task_id", "sender_department", "candidate_version", "result_sha256"))
+        elif row.get("task_id") and (row.get("requirement_id") or row.get("action_id")):
+            key = (row["task_id"], row.get("requirement_id"), row.get("action_id"), row.get("scope"), row.get("target_department"))
+        else:
+            key = w.sha256_value(row)
+        if key not in seen:
+            seen.add(key); result.append(row)
+    return result
+
+
+def _task_block(task_id, role, reason):
+    return {"task_id": task_id, "owner": role, "next_owner": role, "state": "blocked_evidence_invalid",
+            "block_reason": str(reason), "next_action": "恢复本 task 的准确原来源和完整守卫，其他合法任务继续",
+            "unblock_condition": "本 task 来源指纹、事件链和原身份准确回读通过", "next_check_at": "next_existing_legal_opportunity",
+            "actionable": False, "business_goal_closed": False}
+
+
 def record_collaboration(root, task_id, input_path):
     """An audit of actual native transport; no fake registered department ACK."""
     pin = w.file_digest(root, input_path)
@@ -846,7 +1316,7 @@ def record_collaboration(root, task_id, input_path):
 
 def initialize_goal(root, task_id, input_path):
     import flashcast_ops
-    goal = validate_goal(root, w.read_json(w.safe_path(root, input_path)))
+    goal = validate_goal(root, w.read_json(w.safe_path(root, input_path)), task_id=task_id)
     args = argparse.Namespace(request=goal["objective"], task_id=task_id, goal_input=input_path)
     plan, _ = flashcast_ops.dispatch_plan(Path(root), args)
     return plan
@@ -915,7 +1385,7 @@ def _collaboration_native(root, pin):
                         raise w.WorkflowError("successful actual native poll evidence required")
 
     try:
-        original = json.loads(w.safe_path(root, pin["path"]).read_bytes(), object_pairs_hook=unique_fields)
+        original = json.loads(w.validation_bytes(w.safe_path(root, pin["path"])), object_pairs_hook=unique_fields)
     except (ValueError, TypeError):
         raise w.WorkflowError("unambiguous original collaboration document required")
     if not isinstance(original, dict):
@@ -1287,54 +1757,78 @@ def validate_collaboration_result_handoff(root, request):
     return source
 
 
-def wait_plan(root, role, cursors=None):
+def wait_plan(root, role, cursors=None, *, queue=None):
     registry = w.department_registry(root)
     if role != "operations" and registry.get(role, {}).get("coordination_authority", {}).get("routine_decisions") is not True:
         raise w.WorkflowError("registered coordinator required")
+    enabled(root)
     if cursors is None:
         cursors = w.read_json(Path(root) / "logs/goal-delivery-waits" / f"{role}.json").get("cursors", {})
-    targets, tasks, collaboration_states = {}, [], []
-    for path in (Path(root) / w.WORKFLOW_DIR).glob("*.json"):
-        raw = w.read_json(path)
-        if raw.get("goal_delivery", {}).get("responsible_assistant") != role:
-            continue
-        snapshot = restore_goal(root, raw)
-        if not enabled(root, snapshot) or snapshot.get("current_state") in w.TERMINAL_STATES:
-            continue
-        goal = snapshot["goal_delivery"]
-        if goal["responsible_assistant"] != role:
-            continue
-        rows, invalid = w._validate_receipt_chain(root, snapshot["task_id"])
-        if invalid:
-            raise w.WorkflowError("wait requires intact actual receipt chain")
-        results = w._result_handoff_rows(root, snapshot["task_id"])
-        for dep in goal["producer_departments"]:
-            sent = next((r for r in reversed(rows) if r.get("department") == dep and r.get("receipt_type") == "dispatch_sent"), None)
-            if not sent or any(r.get("sender_department") == dep and r.get("event") == "notification_queued"
-                               and r.get("created_at", "") >= sent["created_at"] for r in results):
+    if not isinstance(cursors, dict) or any(not isinstance(value, str) or not value.strip() for value in cursors.values()):
+        raise w.WorkflowError("exact recorded native cursor values required")
+    queue = pending(root, role) if queue is None and role != 'operations' else (queue or {})
+    ready = deduplicate_records(queue.get('pending', []) + queue.get('followthrough_pending', [])
+                    + queue.get('collaboration_pending', []) + queue.get('collaboration_not_proven', [])
+                    + [row for row in queue.get('completion_followthrough', []) if row.get('actionable')])
+    ready.extend(row for row in queue.get('notification_delivery_pending', []) if row.get('actionable'))
+    targets, tasks, collaboration_states, errors = {}, [], [], []
+    current_owners = _current_goal_owners(root)
+    for path in sorted((Path(root) / w.WORKFLOW_DIR).glob("*.json")):
+        exact_owner = 'ownership_unresolved'
+        try:
+            raw = w.read_json(path)
+            if raw.get('task_id') != path.stem:
+                raise w.WorkflowError("current task snapshot identity differs from its exact path")
+            if current_owners.get(path.stem, raw.get("goal_delivery", {}).get("responsible_assistant")) != role:
                 continue
-            tid = sent.get("chat_task_id")
-            if tid:
-                item = {"threadId": tid}
-                if (cursors or {}).get(tid):
-                    item["afterCursor"] = cursors[tid]
-                targets[tid] = item
-                tasks.append({"task_id": snapshot["task_id"], "department": dep, "threadId": tid,
-                              "dispatch": {k: sent[k] for k in ("receipt_id", "receipt_hash")}})
-        for state in _collaboration_wait_states(root, snapshot):
-            collaboration_states.append(state)
-            if state.get("proof_state") != "PROVEN" or state["status"] != "sent":
+            exact_owner = role
+            snapshot = restore_goal(root, raw)
+            if not enabled(root, snapshot) or snapshot.get("current_state") in w.TERMINAL_STATES:
                 continue
-            tid = state["threadId"]
-            targets[tid] = {"threadId": tid, **({"afterCursor": cursors[tid]} if cursors.get(tid) else {})}
-            tasks.append({**state, "wait_source": "collaboration"})
+            goal = snapshot["goal_delivery"]
+            if goal["responsible_assistant"] != role:
+                continue
+            rows, invalid = w._validate_receipt_chain(root, snapshot["task_id"])
+            if invalid or w.validate_workflow_events(root, snapshot['task_id']):
+                raise w.WorkflowError("wait requires intact actual receipt/event chains")
+            results = w._result_handoff_rows(root, snapshot["task_id"])
+            local_targets, local_tasks = {}, []
+            for dep in goal["producer_departments"]:
+                sent = next((r for r in reversed(rows) if r.get("department") == dep and r.get("receipt_type") == "dispatch_sent"), None)
+                if not sent or any(r.get("sender_department") == dep and r.get("event") == "notification_queued"
+                                   and r.get("created_at", "") >= sent["created_at"] for r in results):
+                    continue
+                tid = sent.get("chat_task_id")
+                if tid:
+                    local_targets[tid] = {"threadId": tid, **({"afterCursor": cursors[tid]} if cursors.get(tid) else {})}
+                    local_tasks.append({"task_id": snapshot["task_id"], "department": dep, "threadId": tid,
+                                        "dispatch": {k: sent[k] for k in ("receipt_id", "receipt_hash")}})
+            states = _collaboration_wait_states(root, snapshot)
+            for state in states:
+                if state.get("proof_state") != "PROVEN" or state["status"] != "sent":
+                    continue
+                tid = state["threadId"]
+                local_targets[tid] = {"threadId": tid, **({"afterCursor": cursors[tid]} if cursors.get(tid) else {})}
+                local_tasks.append({**state, "wait_source": "collaboration"})
+            sent_actions = {row.get('action_id') for row in rows if row.get('receipt_type') == 'dispatch_sent'}
+            for action in goal.get('approved_actions', []):
+                if (action.get('required_for_completion', True) and action.get('action_class') == 'thread_message'
+                        and action.get('action_id') not in sent_actions
+                        and not any(state.get('action_id') == action.get('action_id') for state in states)):
+                    ready.append({'task_id': snapshot['task_id'], 'action_id': action['action_id'],
+                                  'next_owner': role, 'status': 'prepared_not_sent', 'actionable': True})
+            targets.update(local_targets); tasks.extend(local_tasks); collaboration_states.extend(states)
+        except (w.WorkflowError, ValueError, OSError, KeyError, TypeError, AttributeError) as exc:
+            errors.append(_task_block(path.stem, exact_owner, exc))
     ordered = sorted(targets.values(), key=lambda x: x["threadId"])
     return {"coordinator_role": role, "tool": "mcp__codex_app__wait_threads", "timeoutMs": 60000,
-            "batches": [ordered[i:i+8] for i in range(0, len(ordered), 8)], "tasks": tasks,
-            "collaboration_state": collaboration_states,
-            "cursor_record_required": True, "HQ_may_end_coordination": True,
+            "batches": [] if ready else [ordered[i:i+8] for i in range(0, len(ordered), 8)],
+            "inflight_targets": ordered, "tasks": deduplicate_records(tasks),
+            "collaboration_state": deduplicate_records(collaboration_states), "task_errors": deduplicate_records(errors),
+            "ready_before_wait": deduplicate_records(ready), "wait_deferred_for_ready_work": bool(ready),
+            "cursor_record_required": True, "HQ_may_end_coordination": role == 'operations',
             "native_wakeup_guaranteed": False, "creates_automation": False,
-            "state": "inflight_event_wait" if ordered else "temporarily_no_executable_work"}
+            "state": "ready_work_before_wait" if ready else "inflight_event_wait" if ordered else "temporarily_no_executable_work"}
 
 
 def begin_wait(root, role, input_path):
@@ -1609,6 +2103,12 @@ def main():
     for name in ('wait-call-start', 'wait-recover'):
         command = sub.add_parser(name); command.add_argument('--role', required=True); command.add_argument('--input', required=True)
     initial = sub.add_parser("parent-initial-dispatch-begin"); initial.add_argument("--input", required=True)
+    initial_goal = sub.add_parser("goal-initial-dispatch-begin"); initial_goal.add_argument("--input", required=True)
+    completion = sub.add_parser("completion-contract-record")
+    completion.add_argument("--task-id", required=True); completion.add_argument("--input", required=True); completion.add_argument("--role", required=True)
+    evidence = sub.add_parser("completion-evidence-record")
+    evidence.add_argument("--task-id", required=True); evidence.add_argument("--input", required=True)
+    evidence.add_argument("--role", required=True); evidence.add_argument("--requirement-id", required=True)
     args = parser.parse_args(); root = Path(args.project_root).resolve()
     try:
         if args.command == "init": result = initialize_goal(root, args.task_id, args.input)
@@ -1626,7 +2126,11 @@ def main():
         elif args.command == "wait-record": result = record_wait(root, args.role, args.input)
         elif args.command == 'wait-call-start': result = wait_call_started(root, args.role, args.input)
         elif args.command == 'wait-recover': result = recover_wait(root, args.role, args.input)
-        elif args.command == 'parent-initial-dispatch-begin':
+        elif args.command == 'completion-contract-record':
+            result = record_completion_contract(root, args.task_id, args.input, args.role)
+        elif args.command == 'completion-evidence-record':
+            result = record_completion_evidence(root, args.task_id, args.input, args.role, args.requirement_id)
+        elif args.command in {'parent-initial-dispatch-begin', 'goal-initial-dispatch-begin'}:
             from parent_initial_dispatch import begin
             result = begin(root, args.input)
         else:

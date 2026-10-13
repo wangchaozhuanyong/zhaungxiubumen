@@ -12,7 +12,7 @@ TASK = 'fc-20260928-keyword-page-answer-implementation-v1'
 
 ACTION = 'read-artistic-v7p2-full-array-source-projection-20261007'
 
-SCOPE = 'flashcast.com.my:cms-native-read:services:artistic-coating:v7p2:exact-full-array-five-field-projection'
+SCOPE = 'company.example:cms-native-read:services:artistic-coating:v7p2:exact-full-array-five-field-projection'
 
 QA_TASK = 'fc-20261007-artistic-full-array-source-control-v1'
 

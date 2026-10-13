@@ -11,7 +11,7 @@ from pathlib import Path
 
 TASK = 'fc-20260928-keyword-page-answer-implementation-v1'
 ACTION = 'read-artistic-v7p2-raw-CAS-five-fields-20261006'
-SCOPE = 'flashcast.com.my:cms-native-read:services:artistic-coating:v7p2:exact-five-field-raw-CAS-source'
+SCOPE = 'company.example:cms-native-read:services:artistic-coating:v7p2:exact-five-field-raw-CAS-source'
 QA_TASK = 'fc-20261006-artistic-v7p2-raw-CAS-read-control-qa-v1'
 QA_ACTION = 'qa-artistic-v7p2-raw-CAS-read-control-20261006'
 QA_SCOPE = 'project:publishing:artistic-v7p2:exact-five-field-raw-CAS-read-control:20261006'

@@ -65,7 +65,7 @@ def load_publisher_exact_registration(root):
                 and native['status'] == 'published' and type(native['version']) is int,
                 'exact original task and native row required')
         require([f['native_storage_key'] for f in entry['changed_fields']] == list(keys), 'exact bilingual fields required')
-        scope = f'flashcast.com.my:{table}:{record_id}:{",".join(keys)}'
+        scope = f'company.example:{table}:{record_id}:{",".join(keys)}'
         cv = f'{label}-exact-publishing-native-v2-20261006'
         action = f'publish-{cv}'
         require(entry['future_precise_write_scope'] == scope

@@ -54,6 +54,8 @@ def public_numeric_identifiers(text):
                   lambda match: match[1] + "/" + synthetic(match[2]), text)
     text = re.sub(r"\b(campaigns?|assets?|google-business-profile)[:/-]([0-9]{10,22}(?:\+[0-9]{10,22})*)\b",
                   lambda match: match[1] + match[0][len(match[1])] + "+".join(synthetic(value) for value in match[2].split("+")), text)
+    text = re.sub(r"(?P<prefix>ga4[:/]|properties/)(?P<identifier>[0-9]{9,22})",
+                  lambda match: match['prefix'] + synthetic(match['identifier']), text)
     # Conversion-action CSV rows put the identifier immediately before AW-.
     text = re.sub(r"(?<=,)([0-9]{10,22})(?=,AW-[0-9]{10,22}\b)",
                   lambda match: synthetic(match[1]), text)
@@ -89,11 +91,14 @@ def public_text(text, root=None):
     text = text.replace("<WEBSITE_DEVELOPER_THREAD>", "<WEBSITE_DEVELOPER_THREAD>")
     text = text.replace("<LOCAL_PROJECT_ID>", "<WEBSITE_PROJECT_ID>")
     text = text.replace(str(Path.home()), "<USER_HOME>")
+    text = text.replace("company.example", "company.example")
     # Native message/turn/thread IDs and the local Ads account are never a
     # portable authority. Synthetic values cannot bind to a real chat.
-    text = re.sub(r"\b01a[0-9a-f]{5}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+    text = re.sub(r"(?<![0-9a-f])01a[0-9a-f]{5}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9a-f])",
                   lambda match: "example-native-" + hashlib.sha256(match[0].encode()).hexdigest()[:16], text)
-    text = re.sub(r"\b[0-9]{3}-[0-9]{3}-[0-9]{4}\b", "example-ads-account", text)
+    text = re.sub(r"(?<![A-Za-z0-9_])msg_[0-9a-f]{16,}(?![0-9a-f])",
+                  lambda match: "msg_" + hashlib.sha256(("public-example:"+match[0]).encode()).hexdigest(), text)
+    text = re.sub(r"(?<![0-9])[0-9]{3}-[0-9]{3}-[0-9]{4}(?![0-9])", "example-ads-account", text)
     # The same exact CMS record/source pin may occur in several method modules.
     # Replace those local identities consistently, without changing live files.
     followthrough = root / "tools/owner_delegated_publisher_followthrough.py"
@@ -115,6 +120,15 @@ def public_text(text, root=None):
 
 def public_source_text(rel, text):
     """Remove native owner evidence from the public preparation-only example."""
+    if rel == "playbooks/paid-keyword-bid-and-placement-daily.md":
+        # This live method also contains owner-specific prices/budgets/trials.
+        # Keep the method's role and inputs, never publish the company's ledger
+        # or migrate its account authority to a fresh installation.
+        return ("# 逐词出价与展示检查方法模板\n\n"
+                "先读唯一共同规则 department-system-current.md、本部门批准的专业Skill，以及本公司当前真实授权、账号、对象、预算、期限、原生证据和批次记录。公开模板不包含实际账号、价格、预算或试价批次，不授账户操作权。\n\n"
+                "先检查需求与资格，再检查语言、意图、页面和素材，然后判断真实排名或预算限制与原生出价瓶颈。资格、审核、低搜索量、页面问题与价格原因分开处理。记录准确对象ID、旧新价、证据窗、样本、延迟、变更时间和复查日期；不把截图、零展示或系列指标当成逐词事实。\n\n"
+                "仅在当前准确授权内做有界单变量试验，满足本公司的成熟样本、冷却、预算及重评约束后才执行。保存后准确回读，再用成熟可比窗口评估实际展示、费用与有效咨询；无数据记DATA_MISSING，不保证固定排名或最低成本。暂停、续投、扩词、改预算和付款另核原授权，不由本模板推导。\n\n"
+                "报告完整批次与具体剩余，由唯一负责助理沿当前结果入口接续。内部验证、真实保存、展示和业务效果分别记录。\n")
     if rel in {"tools/owner_paid_logo_policy.py", "tools/owner_paid_completion_policy.py", "tools/owner_paid_final_qa_route.py"}:
         tree = ast.parse(text)
         lines = text.splitlines(keepends=True)
@@ -198,11 +212,15 @@ def public_policy(value):
     result = {}
     for key, child in value.items():
         if (key.startswith("owner_") or key in {"collaboration_bindings", "chat_binding",
-                "health_evidence", "expansion_history", "system_rebuild_authorization"}
+                 "health_evidence", "expansion_history", "system_rebuild_authorization",
+                "completion_contracts", "health_probe_packets", "health_probe_live_identities", "completion_evidence",
+                "direct_execution_takeovers", "direct_message_packets"}
                 or "admission" in key or "handover" in key or key.endswith("_packet")):
             continue
         if key in {"standing_authorizations", "exact_requests"}:
             result[key] = []
+        elif key == "assistant_capabilities":
+            result["assistant_capabilities_source"] = "data/department-registry.json:coordination_authority.review_capabilities"
         else:
             result[key] = public_policy(child)
     return result

@@ -199,7 +199,7 @@ python3 tools/flashcast_ops.py policy-check \
   --consume-approval
 ```
 
-`paid_promotion_enabled=false` 是硬门禁；即使有普通批准，`ads_write` 也必须返回 `deny`。装修网站常规优化可使用 `data/action-policy.json` 中的有效常驻授权；scope 必须以 `flashcast.com.my:` 开头。QA 通过后，`policy-check --consume-approval` 会生成并消费一条与本次 `task_id + action_id + action_class + scope` 绑定的单次许可，并在结果中返回 `approval_basis=standing_authorization`、`standing_authorization_id` 和实际 `approval_id`，执行回执必须引用这些字段。购物网站或其他 scope 不会命中。当前控制层只是项目内审计和决策机制，不是密码学签名，也不是 Codex 全局工具中间件。
+`paid_promotion_enabled=false` 是硬门禁；即使有普通批准，`ads_write` 也必须返回 `deny`。装修网站常规优化可使用 `data/action-policy.json` 中的有效常驻授权；scope 必须以 `company.example:` 开头。QA 通过后，`policy-check --consume-approval` 会生成并消费一条与本次 `task_id + action_id + action_class + scope` 绑定的单次许可，并在结果中返回 `approval_basis=standing_authorization`、`standing_authorization_id` 和实际 `approval_id`，执行回执必须引用这些字段。购物网站或其他 scope 不会命中。当前控制层只是项目内审计和决策机制，不是密码学签名，也不是 Codex 全局工具中间件。
 
 同一精确发布动作部分完成、`execution_result` 已记录为 `blocked` 后，普通 `policy-check` 仍拒绝重复消费批准。确认上一运行的准确失败阶段、当前 SHA 和证据链后，恢复该**同一动作**可带 `--retry-blocked-execution-receipt-id <最新阻断执行回执 ID>`。仅当工作流保持 `blocked / execution_result_blocked`、原 QA 和已消费的精确批准/政策决定均匹配、回执证据完整时，才签发一次 `approval_basis=blocked_execution_retry` 的恢复许可；同一阻断回执不能签发第二次。它不适用于新 SHA、新 scope、新动作、缺证据或广告硬门禁，也不代替 GitHub 受保护环境审核。若再次失败，先记录新 `execution_result:blocked` 和真实失败证据，再判断下一步；不得盲目重试。
 
@@ -410,13 +410,13 @@ Content Studio 只生成结构化草稿、媒体计划和审核记录，不登�
 默认读取本地网站 URL 清单；如果当前项目还没有新清单，会只读使用 `history/` 中的历史 URL inventory，并在报告中标记为历史数据：
 
 ```bash
-python3 tools/flashcast_ops.py seo-index-audit --site https://flashcast.com.my --max-urls 80
+python3 tools/flashcast_ops.py seo-index-audit --site https://company.example --max-urls 80
 ```
 
 需要读取公开 sitemap 和页面 HTML 时，显式使用：
 
 ```bash
-python3 tools/flashcast_ops.py seo-index-audit --site https://flashcast.com.my --remote --max-urls 80
+python3 tools/flashcast_ops.py seo-index-audit --site https://company.example --remote --max-urls 80
 ```
 
 `--remote` 只读取公开 sitemap/网页，不提交 sitemap、不请求收录、不修改网站。

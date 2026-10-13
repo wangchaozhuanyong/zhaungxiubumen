@@ -367,7 +367,7 @@
       "keep_HQ_turn_open_for_current_dispatched_tasks": false,
       "no_direct_ordinary_result_message_to_active_chat": true
     },
-    "operations_rework_completion_rule": "Only rework with next_owner=operations may record internal_control_completed for already applied internal control. Require exact original-task independent QA PASS/internal_control_candidate receipt binding QA outbox bytes and version, applied proof with same task/version/QA bytes, successful actual postapply checks, zero external writes/permission, and unchanged runtime hashes limited to workflow_control.py/site_ci_prepare_policy.py/task-contract.json/action-policy.json. No selfdispatch, history rewriting, professional completion, publication permission or business-goal closure. Every present no_external_permission_issued/production_permission_issued flag must have its exact safe boolean value; require at least one explicit safe flag and reject conflicting or malformed flags.",
+    "operations_rework_completion_rule": "Complete goals use the uniquely assigned responsible assistant and the exact independently reviewed candidate manifest. The existing continue compatibility permits internal_control_completed; rework with next_owner=operations additionally invokes verification of already applied internal control: exact original-task independent QA PASS/internal_control_candidate receipt binding QA outbox bytes and version, applied proof with the same task/version/QA bytes, successful actual postapply checks, zero external writes/permission, and matching unchanged current runtime hashes. In full-goal mode, applied source paths must exactly cover the reviewed manifest changes, with matching task/fingerprint and manifest external_writes=false; legacy non-goal tasks retain the fixed workflow_control.py/site_ci_prepare_policy.py/task-contract.json/action-policy.json allowlist and the existing original-task-specific exceptions. Every internal_control_completed record requires next_owner=operations. Compatibility event/owner names do not turn the assistant into HQ or grant selfdispatch, history rewriting, professional completion, publication permission or business-goal closure. Every present no_external_permission_issued/production_permission_issued flag must have its exact safe boolean value; require at least one explicit safe flag and reject conflicting or malformed flags.",
     "idempotency_key_generation": {
       "max_length": 200,
       "recommended_format": "rh-<event>-<sha256 of compact UTF-8 JSON array [task_id,sender_department,candidate_version,result_sha256,event]>",
@@ -621,7 +621,7 @@
     "measurement_status_until_verified": "DATA_MISSING",
     "scoped_r0_continuation": {
       "version": "2026-10-06",
-      "playbook": "playbooks/department-decision-and-continuation.md",
+      "playbook": "playbooks/department-system-current.md",
       "check_command": "python3 tools/department_next_work.py --packet <original_frozen_packet> --live-proof <actual_project_local_live_identity>",
       "mode": "same_task_local_r0_only",
       "requires_frozen_plan_bound_to_actual_dispatch": true,
@@ -634,7 +634,7 @@
         "handoff_metadata_repair"
       ],
       "local_continuation_requires_new_controller_decision": false,
-      "business_continuation_definition": "Within approved complete goal, routine specialist handoff/repair/execution continuation belongs to responsible assistant; new direction or authorization expansion goes to HQ. Existing paid direct authority stays direct.",
+      "business_continuation_definition": "This entire block is legacy compatibility only for existing already-dispatched R0 workpacks, retaining their exact original step/hash/receipt bindings and bounded local continuation. New complete goals are rejected by this workpack reader and follow their original complete goal through the unique responsible assistant. Within approved complete goal, routine specialist handoff/repair/execution continuation belongs to responsible assistant; new direction or authorization expansion goes to HQ. Existing paid direct authority stays direct.",
       "queue_each_step_before_next": true,
       "blocked_dependency_only_stops_dependent_steps": true,
       "frozen_candidate_overwrite_allowed": false,
@@ -724,26 +724,6 @@
       "evidence_path"
     ],
     "human_authorization_is_permission_expansion": false,
-    "assistant_capabilities": {
-      "operations-assistant": [
-        "seo_geo",
-        "content_facts",
-        "brand",
-        "maps"
-      ],
-      "operations-assistant-2": [
-        "development",
-        "cms",
-        "functional",
-        "release_result"
-      ],
-      "operations-assistant-3": [
-        "paid",
-        "data",
-        "visual",
-        "sales"
-      ]
-    },
     "single_acceptance_owner": true,
     "producer_self_review_allowed": false,
     "cross_assistant_transfer_requires_same_capability": true,
@@ -765,7 +745,23 @@
       "source_thread_id": "<LOCAL_TASK_ID>",
       "message_id": "example-native-9cd231a5daaebe45",
       "evidence_path": "<PROJECT_ROOT>/logs/handoffs/2026-10-10-goal-delivery-assistant-runtime-v1/developer/human-authority.json"
-    }
+    },
+    "assistant_capabilities_source": "data/department-registry.json:coordination_authority.review_capabilities",
+    "new_goal_completion_fields": [
+      "completion_kind",
+      "completion_requirements"
+    ],
+    "completion_kinds": [
+      "internal_delivery",
+      "production_release",
+      "growth_batch"
+    ],
+    "completion_requirements_immutable": true,
+    "missing_completion_declaration": "named_open_requirement_or_exact_proven_historical_scope",
+    "notification_delivery_claim_independent": true,
+    "ready_actions_before_event_wait": true,
+    "max_wait_ms_per_call": 60000,
+    "task_read_failure_isolation": true
   },
   "public_template": true
 }

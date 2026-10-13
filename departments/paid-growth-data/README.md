@@ -1,50 +1,25 @@
 # 付费增长与转化数据部
 
-这是一个合并部门，统一承接原来的 Google Ads 投放部、数据与转化分析部、转化追踪部。
+统一负责Google Ads/PPC、数据与转化分析和追踪诊断。固定专业子Skill：`<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md`。
 
-固定专业子 Skill：`<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md`。涉及 Ads/PPC 时必须加载，不自行挑选其他 Skill。
+## 唯一入口
 
-## 2026-10-09 推广复盘必读入口
+- 共同职责与边界：`playbooks/department-system-current.md`、本部门Skill及当前注册表。
+- 专业规则：`playbooks/paid-promotion-preflight-and-lessons.md`。
+- 逐词降价：`playbooks/paid-keyword-bid-and-placement-daily.md`。
+- 每日研究：`playbooks/paid-efficient-daily-learning.md`。
+- 当前事实：`data/google-ads/current-preparation.json`；人读入口 `drafts/google-ads/fc-20260920-google-ads-rm100-budget-plan/CURRENT.md`。
 
-每次开工先读 `playbooks/paid-promotion-preflight-and-lessons.md`，按本轮实际范围完成检查，不以写了规则冒充已修复账户。老板已明确公司自行解决英文接待，不再询问英语能力或翻译流程，不放进广告。英文全链、上级素材继承、Logo关联、逐词出价依据和真实执行层级是必查项。
+配置、时间、价格和日期化结果不在本页复制。主账最新对应回执为准；历史40词、英文未建/暂停、旧系列暂停或旧时段不再作为指令。只读完整性检查：`python3 tools/validate_current_paid_preparation.py`；通过仅证明资料与回执一致，不是实时账户状态、独立验收或客户效果。
 
-本入口是方法规则，不替代下方唯一执行主账，不扩展外部写入或跨项目权限；历史被冻结的README字节继续从既有快照核验。
+## 负责与输出
 
-## 当前任务唯一入口（2026-10-08整理）
+审计系列/组/关键词/搜索词、素材、地域网络设备、展示花费及主要转化；对账合法脱敏Ads/GA4/网站和销售来源；研究降低浪费、改善相关性与有效咨询的方案。按准确授权执行合法原生Ads动作并回读；默认检查只读，当前有界逐词加/降价以主账latest_bid_market_policy与真实原授权为准，不再沿用已撤销的RM3硬上限或只准降价限制，不扩大未来无限写入权限。
 
-每次接续付费准备，先读 `drafts/google-ads/fc-20260920-google-ads-rm100-budget-plan/CURRENT.md` 与 `data/google-ads/current-preparation.json`；再核原任务和实际平台证据。只读完整性检查：`python3 tools/validate_current_paid_preparation.py`。检查通过只是资料一致，不是唯一负责助理独立验收、启用许可或实时账户状态。
+读取本项目 `data/google-ads/`、`data/analytics/`、`data/leads/` 和有效学习入口；写入本项目reports、日期化logs及V2 outbox。沿原任务接续，不复制任务，不以日检或子项closed结束父目标。
 
-2026-10-10最新实际状态：120中文＋40英文共160Exact、12组及12RSA已启用，6条英文RSA原生“符合条件/已批准”，英文网址回读正确。两新系列语言已保存简体中文＋英语；中文上级素材隔离、114中文/54英文子关联、Logo两系列关联、分词出价及英文否词保留。英文Q-20261010/C-20261010各提交一次成功、真实保存为内部来源，老板确认两条都收到；统计/追踪排除契约核验及77项定向测试通过，不当客户或Google成功转化。装修Presence以Oct1–10完整55批原生变更历史验收，不冒称直接读到当前单选。完整记录 reports/2026-10-10-paid-English-enabled-final-execution.md；唯一主账 data/google-ads/current-preparation.json。各TOTAL1350、合计广告费2700/业务上限3000、10月8–14日广告10–22/店铺10–19不变。flash-cast-3已同步六英文组启用状态，10/14/18/22含周末巡检；真实英文展示/咨询/Google转化、Logo实际展示和未来巡检效果另验。旧两系列早间暂停，11:28已实际移除；本批无新串行QA、无安全/权限放宽、无付款。
+## 边界
 
-未完成项按当前索引逐项接续；原工作流曾closed不等于开跑完成。现有flash-cast-3已实际保存为每日10/14/18/22四小时汇报、周末照常，10:00兼每日专业学习；各次真实运行仍看原生回执，不能当实时硬止损。V42前导航文件封存在项目paid-owner-completion-v42-navigation备份，V35旧字节另保留原paid-cleanup-v36-department-readme快照。2026-10-10 11:28旧两个系列均已实际移除，准确回执为 `logs/handoffs/2026-10-10-owner-direct-paid/old-two-campaigns-removal-native-readback.json`；不得再次移除或导入旧数据，不覆写旧审批/QA/执行。上段“旧两系列仍暂停”仅为早间历史快照，不能作为当前事实。
+不联系客户，不擅自改GA4/GTM或生产网站，不代付/充值/绑卡，不读取秘密。网站代码和CMS沿对应原执行者与唯一负责助理接续；付费自检不冒充独立验收。本批老板直授不再恢复旧串行QA/HQ审批；Google真实身份/合法入口仍需满足，不能改权限绕过。
 
-2026-10-10 17:40原生报表已显示当日排名损失数据，两新系列今日均为搜索展示份额<10%、因排名损失>90%、因预算损失0%；需逐词、同日期窗分析，不再拿早期全时段100%份额推断今日无排名瓶颈。该指标为估算，官方说明可能24–48小时更新；少量样本不得当固定第2/3名或立即全词涨价依据。公寓两词15:19、衣柜两词10:38–10:41已完成试价保存，本轮不重复调价；至少24小时后先核资格/需求/排名、花费及咨询再决定下一步。临时搜索会替换原campaign过滤；必须核行内series身份，排除已移除旧系列同名词。
-
-## 负责什么
-
-- Google Ads 系列、广告组、关键词、搜索词、素材、地域、设备和花费审计；
-- Ads、GA4、网站行为和脱敏销售线索的日期/口径/来源对账；
-- 表单、电话、WhatsApp、GA4 事件和 Google Ads 主要转化的映射诊断；
-- 搜索词浪费风险、预算建议、测试方案和数据日报/周报；
-- Search 系列结构、RSA/资产、AI Max/PMax 评估、实验审批包和上线后监控；
-- 把量化证据交给内容、SEO/网站增长、销售与对应负责助理。
-
-## 输入
-
-读取 `data/google-ads/`、`data/analytics/`、`data/leads/`、`data/learning/` 和总控指定报告。历史目录只读。
-
-## 输出
-
-写入 `reports/`、`logs/department-outbox/`、`data/action-queue.*` 和交接记录。默认只分析、起草和预演。
-
-## 2026-10-08 老板明确：每日研究降本与有效咨询
-
-每天先读 `playbooks/paid-efficient-daily-learning.md`，将网上学习、搜索意图、追踪可信度和真实线索质量纳入原日检，周末不休息。老板明确新增四小时报告后，V42已准确更新同一 `flash-cast-3` 为每日10/14/18/22，10:00保留完整专业日检与官方研究，不另建任务、不改账户权限。实际未来运行须原生回执，不能只凭此文件声称已执行。
-
-目标是同口径有效咨询成本、报价和成交质量，不是最低点击价、点击数、推荐分数或必须花完RM3000。新方法先核官方来源与适用性；缺数据不扩量，不自动开启AI Max/PMax、广泛匹配、客户数据上传或付费工具。准确账户写入、启用与付款仍分别按授权执行。
-
-本次正常验收的两个匿名ID见 `logs/handoffs/2026-10-08-owner-direct-preparation/normal-acceptance-exclusions-v35.json`，业务报告必须单列排除；不是自动修改网站统计或删除线索。
-
-## 不负责
-
-不代替发布/指定开发修改生产网站或网站代码，不擅自改GA4/GTM，不联系客户。Google Ads操作按现行AGENTS.md及本任务真实老板直接精确授权归付费部执行；默认只读和未来自动巡检不得借此扩大写入范围，不恢复已取消的本批串行QA/HQ链。网站文案与CMS保存仍由对应原任务的内容/发布执行者及唯一负责助理接续。
+旧导航原字节和冻结证据保留在本项目备份，不恢复为当前规则。业务结果、已保存配置、Google资格和实际展示分开记录。

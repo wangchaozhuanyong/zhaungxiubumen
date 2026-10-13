@@ -17,3 +17,7 @@
 开始前用 `python3 tools/flashcast_ops.py department-learning-effective --department <注册部门ID>` 读取当前模式的只读有效学习视图。原学习JSON、继承通知和旧next_action只作历史证据；当前派工操作以现行规则和本任务真实授权为准。专业结果交唯一助理，已验收的助理总结交总部知悉，通知待发送另计；不得把总部知悉变成助理自审。
 
 后续部门系统源码目标交system-development，唯一负责助理按development能力独立验收；装修官网源码继续交designated-development并核对该网站自己的准确授权。已派出的系统旧任务保留原task、执行者和授权，尤其fc-20261010-department-system-adopted-source-push-v18仍由原指定开发执行。本次开通任务只交候选与必要验证，不推送、部署或写外部平台；角色开通不继承其他任务许可。
+
+完成契约须显式冻结completion_kind和completion_requirements，逐项映射原标准、准确scope、当前候选指纹与实际动作证据；生产发布同时明确required_execution_actions。缺声明列待补，不把空数组或候选PASS当作完成。内部源码采用和真实试点分别证明；close_scope只关闭当前真实已验范围，父目标及残余事项继续列负责人、下一动作、解除条件与复查时间。
+
+通知投递由真实发送者以task/发送部门/版本/outbox SHA/接收部门/固定聊天/用途独立认领投递租约；专业验收仍使用唯一负责助理认领，两者不能互相替代。部分完成、返工或阻断结论也可通知总部知悉，总部不重复专业验收。先处理已到结果、到期动作与待发送责任，只有无可行动事项才按cursor聚合等待，每次最多60秒；单任务证据故障具名隔离。

@@ -74,7 +74,7 @@ def check(root: Path, policy: dict, departments: dict, request: dict, healthy) -
                 and messages[FUNDS_AUTH]["content"][0]["text"].strip() == pack["funds_owner_message"],
                 "native_owner_fpx_and_enable_required")
         question = auth["preceding_question"]
-        require(question["id"] == "msg_04e57c709d781d12016ac70327c8bc87d0b41943ba051fdba5"
+        require(question["id"] == "msg_a9077e429e28f706d2a116ecb62e422ad61c7cb337dec89cdec640371b40f8b0"
                 and "固定质检部仅复核这次FPX确认" in question["text"]
                 and "两套新广告启用＋本聊天四小时监控" in question["text"], "exact_permission_question_required")
         now = dt.datetime.now(dt.timezone.utc)
