@@ -326,6 +326,43 @@ class CMSAdmissionTests(unittest.TestCase):
         self.assertFalse(accepted['goal_completion_claimed']);self.assertTrue(accepted['final_assistant_acceptance_required'])
         self.assertFalse(w.read_jsonl(w.receipts_path(self.root,target['task_id'])))
 
+    def test_missing_legacy_goal_mode_uses_validated_default_without_rewriting_contract(self):
+        target,_=self.ordinary_goal();p=w.snapshot_path(self.root,target['task_id'])
+        snap=w.read_json(p);snap['goal_delivery'].pop('execution_mode')
+        w.append_workflow_event(self.root,target['task_id'],snap['current_state'],{'goal_delivery':snap['goal_delivery']})
+        w.atomic_write_json(p,snap);before=p.read_bytes()
+        with mock.patch.object(cms,'validate_candidate_binding'),mock.patch.object(w,'_chat_binding_healthy',return_value=True),\
+             mock.patch('qa_review_plan.validate_verdict',side_effect=AssertionError('missing default must not require old review')):
+            result=cms.validate_goal_cms_acceptance(self.root,target,'publish')
+        self.assertEqual(result['verdict'],'selfcheck_ready');self.assertEqual(before,p.read_bytes())
+
+    def test_original_EN2_desired_digest_is_consumed_without_modifying_target(self):
+        target,_=self.ordinary_goal();target['candidate_shape']='english_kitchen_en2_exact'
+        target['desired_fields_sha256']=target.pop('payload_sha256');before=copy.deepcopy(target)
+        with mock.patch.object(cms,'validate_candidate_binding'),mock.patch.object(w,'_chat_binding_healthy',return_value=True):
+            self.assertEqual(cms.validate_goal_cms_acceptance(self.root,target,'publish')['verdict'],'selfcheck_ready')
+        self.assertEqual(target,before)
+        target['payload_sha256']='b'*64
+        with mock.patch.object(cms,'validate_candidate_binding'),mock.patch.object(w,'_chat_binding_healthy',return_value=True),\
+             self.assertRaisesRegex(cms.PermitEvidenceError,'aliases cannot disagree'):
+            cms.validate_goal_cms_acceptance(self.root,target,'publish')
+
+    def test_EN2_missing_or_changed_digest_and_explicit_legacy_still_reject(self):
+        target,_=self.ordinary_goal();digest=target.pop('payload_sha256');target['candidate_shape']='english_kitchen_en2_exact'
+        for changed in (None,'b'*64):
+            target['desired_fields_sha256']=changed
+            with mock.patch.object(cms,'validate_candidate_binding'),mock.patch.object(w,'_chat_binding_healthy',return_value=True),\
+                 self.assertRaisesRegex(cms.PermitEvidenceError,'exact payload'):
+                cms.validate_goal_cms_acceptance(self.root,target,'publish')
+        target['desired_fields_sha256']=digest
+        snap=w.read_json(w.snapshot_path(self.root,target['task_id']));snap['goal_delivery']['execution_mode']='legacy_exact_gate'
+        w.append_workflow_event(self.root,target['task_id'],snap['current_state'],{'goal_delivery':snap['goal_delivery']})
+        w.atomic_write_json(w.snapshot_path(self.root,target['task_id']),snap)
+        with mock.patch.object(cms,'validate_candidate_binding'),mock.patch.object(w,'_chat_binding_healthy',return_value=True),\
+             mock.patch.object(cms,'_authorized_cms_selfcheck',side_effect=AssertionError('explicit legacy must remain old exact path')),\
+             self.assertRaisesRegex(cms.PermitEvidenceError,'review plan missing'):
+            cms.validate_goal_cms_acceptance(self.root,target,'publish')
+
     def test_sensitive_risk_and_changed_row_cannot_use_ordinary_admission(self):
         target,_=self.ordinary_goal('R3')
         with mock.patch.object(cms,'validate_candidate_binding'),mock.patch.object(w,'_chat_binding_healthy',return_value=True),\

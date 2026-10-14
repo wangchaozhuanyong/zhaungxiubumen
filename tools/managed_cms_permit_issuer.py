@@ -2827,8 +2827,15 @@ def _authorized_cms_selfcheck(root: Path, snapshot: dict, target: dict, operatio
     require(operation == "publish" and snapshot.get("current_state") not in wc.TERMINAL_STATES,
             "Active exact forward CMS goal required; history cannot grant a new write")
     preflight = execution_preflight(root, snapshot, target["action_id"], "cms_write", target["scope"], "publishing")
+    payload_digest = target.get("payload_sha256")
+    if target.get("candidate_shape") == "english_kitchen_en2_exact":
+        original_digest = target.get("desired_fields_sha256")
+        require(not payload_digest or payload_digest == original_digest,
+                "Exact EN2 payload digest aliases cannot disagree")
+        payload_digest = original_digest
     require(preflight.get("risk_level") in {"R1", "R2"}
-            and preflight.get("payload_sha256") == target.get("payload_sha256"),
+            and wc.SHA256_PATTERN.fullmatch(str(payload_digest or ""))
+            and preflight.get("payload_sha256") == payload_digest,
             "Ordinary selfcheck mode retains exact payload; sensitive R3 still uses its original gate")
     candidate_path = exact_file(Path(target.get("evidence_root",root)),target["candidate"])
     require(candidate_path.is_relative_to(root), "Exact project-owned native candidate required")
@@ -2851,7 +2858,7 @@ def _authorized_cms_selfcheck(root: Path, snapshot: dict, target: dict, operatio
     require(len(matches)==1,"One actual committed current execution selfcheck required")
     event,pin=matches[0]
     check=wc.read_json(wc.safe_path(root,preflight["self_check"]["path"]))
-    require(check.get("candidate") == candidate_pin and check.get("payload_sha256")==target["payload_sha256"]
+    require(check.get("candidate") == candidate_pin and check.get("payload_sha256")==payload_digest
             and check.get("expected_updated_at")==target["expected_updated_at"]
             and check.get("record_id")==target["record_id"]
             and check.get("changed_fields")==target["changed_fields"]
@@ -2908,7 +2915,7 @@ def validate_goal_cms_acceptance(root: Path, target: dict, operation: str,
             raise wc.WorkflowError('exact committed CMS selfcheck source changed')
         check=wc.read_json(wc.safe_path(root,preflights[0]['self_check']['path']))
         typed_selfcheck=all(k in check for k in ('candidate','executor_department','changed_fields','expected_updated_at'))
-    if (operation == 'publish' and goal.get("execution_mode") == "authorized_selfcheck_then_execute"
+    if (operation == 'publish' and checked_goal.get("execution_mode") == "authorized_selfcheck_then_execute"
             and target.get("candidate_shape") != CONDO_FAQ_V7_SHAPE
             and (target.get('candidate_shape')==BUILTIN_WARDROBE_SHAPE or typed_selfcheck)
             and (not preflights or preflights[0].get('risk_level') in {'R1','R2'})):
