@@ -71,6 +71,37 @@ class TrustedInputTests(unittest.TestCase):
         self.assertIsNone(guard.require_capture_review(report, b"unmarked bytes"))
         self.assertNotIn("HUMAN_DECLARED", report["capture_review"]["declaration"])
 
+    def hit_contract(self):
+        # In-memory declaration contract, not a real finding or lexicon import.
+        report = self.agent_contract()
+        report.update(status="risk_detected",findings=[{"term":"风险","field":"on_screen_copy"}],
+            observed_result="检查到敏感词 1 个")
+        report["capture_review"].update(status="agent_inspected_real_hit_batch",declaration="AGENT_VERIFIED_REAL_QINGDOU_HIT_BATCH")
+        return report
+
+    def test_actual_hit_agent_declaration_is_distinct_from_human_or_no_hit(self):
+        report=self.hit_contract()
+        self.assertIsNone(guard.require_capture_review(report,b"unmarked declaration-contract bytes"))
+        self.assertNotIn("HUMAN",report["capture_review"]["declaration"])
+
+    def test_hit_declaration_cannot_pass_empty_unchecked_or_no_hit(self):
+        report=self.hit_contract()
+        for change in [{"status":"PASS"},{"status":"NOT_PERFORMED"},{"findings":[]},
+                       {"observed_result":"未检查到敏感词"},{"observed_result":""}]:
+            with self.subTest(change=change),self.assertRaisesRegex(ValueError,"personal_review_required"):
+                guard.require_capture_review({**report,**change},b"unmarked declaration-contract bytes")
+
+    def test_hit_declaration_requires_exact_evidence_and_current_batch(self):
+        report=self.hit_contract()
+        for key in ["task_id","run_id","public_text_sha256","batch_sha256","evidence_sha256"]:
+            changed={**report["capture_review"],key:"mismatch"}
+            with self.subTest(key=key),self.assertRaisesRegex(ValueError,"binding_mismatch"):
+                guard.require_capture_review({**report,"capture_review":changed},b"unmarked declaration-contract bytes")
+
+    def test_hit_declaration_does_not_allow_synthetic_report(self):
+        with self.assertRaisesRegex(ValueError,"synthetic_input"):
+            guard.require_capture_review({**self.hit_contract(),"provenance":"SYNTHETIC_TEST_ONLY"},b"bytes")
+
     def test_agent_shortcut_rejects_risk_unchecked_or_missing_result(self):
         changes = [{"status": "risk_detected"}, {"status": "NOT_PERFORMED"},
                    {"findings": [{"term": "风险"}]}, {"findings": None},

@@ -1,0 +1,177 @@
+{
+  "schema": "ordinary-shared-review-methods/v1",
+  "production_permissions_inherited": false,
+  "producer_self_review_allowed": false,
+  "methods": {
+    "seo_geo": [
+      {
+        "path": "departments/operations-assistant/SKILL.md",
+        "sha256": "a7e4c6e75a4b34ad5342f0a8cbb8c13ca73e470c936e4d5e1cfd22192e05d644",
+        "size": 7472
+      }
+    ],
+    "content_facts": [
+      {
+        "path": "departments/operations-assistant/SKILL.md",
+        "sha256": "a7e4c6e75a4b34ad5342f0a8cbb8c13ca73e470c936e4d5e1cfd22192e05d644",
+        "size": 7472
+      }
+    ],
+    "brand": [
+      {
+        "path": "departments/operations-assistant/SKILL.md",
+        "sha256": "a7e4c6e75a4b34ad5342f0a8cbb8c13ca73e470c936e4d5e1cfd22192e05d644",
+        "size": 7472
+      }
+    ],
+    "maps": [
+      {
+        "path": "departments/operations-assistant/SKILL.md",
+        "sha256": "a7e4c6e75a4b34ad5342f0a8cbb8c13ca73e470c936e4d5e1cfd22192e05d644",
+        "size": 7472
+      }
+    ],
+    "development": [
+      {
+        "path": "departments/operations-assistant-2/SKILL.md",
+        "sha256": "8de234b619aef13e5809a4dd406ae043295440ee038610d5d8cd199c87bbcd2b",
+        "size": 3406
+      }
+    ],
+    "cms": [
+      {
+        "path": "departments/operations-assistant-2/SKILL.md",
+        "sha256": "8de234b619aef13e5809a4dd406ae043295440ee038610d5d8cd199c87bbcd2b",
+        "size": 3406
+      }
+    ],
+    "functional": [
+      {
+        "path": "departments/operations-assistant-2/SKILL.md",
+        "sha256": "8de234b619aef13e5809a4dd406ae043295440ee038610d5d8cd199c87bbcd2b",
+        "size": 3406
+      }
+    ],
+    "release_result": [
+      {
+        "path": "departments/operations-assistant-2/SKILL.md",
+        "sha256": "8de234b619aef13e5809a4dd406ae043295440ee038610d5d8cd199c87bbcd2b",
+        "size": 3406
+      }
+    ],
+    "paid": [
+      {
+        "path": "departments/operations-assistant-3/SKILL.md",
+        "sha256": "06b664a6da5a5d9e36e254ddf0eb956d3345f3da6f500149e31a106ad50b157b",
+        "size": 8171
+      }
+    ],
+    "data": [
+      {
+        "path": "departments/operations-assistant-3/SKILL.md",
+        "sha256": "06b664a6da5a5d9e36e254ddf0eb956d3345f3da6f500149e31a106ad50b157b",
+        "size": 8171
+      }
+    ],
+    "visual": [
+      {
+        "path": "departments/operations-assistant-3/SKILL.md",
+        "sha256": "06b664a6da5a5d9e36e254ddf0eb956d3345f3da6f500149e31a106ad50b157b",
+        "size": 8171
+      }
+    ],
+    "sales": [
+      {
+        "path": "departments/operations-assistant-3/SKILL.md",
+        "sha256": "06b664a6da5a5d9e36e254ddf0eb956d3345f3da6f500149e31a106ad50b157b",
+        "size": 8171
+      }
+    ]
+  },
+  "resources": {
+    "renovation-seo-geo": {
+      "path": "/Users/wangchao/.codex/skills/renovation-seo-geo/SKILL.md",
+      "sha256": "38aaff57b300b98f4edd87dbde422ef5b70d19dfbea32edfe7d53434b5a5ccbb",
+      "size": 2700
+    },
+    "web-dev-toolkit:code-reviewer": {
+      "path": "/Users/wangchao/.codex/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/code-reviewer/SKILL.md",
+      "sha256": "9f205c464352b88f36fad99ed7d65340a907aaff2c64c3964d41d80f45ecc61c",
+      "size": 2853
+    },
+    "web-dev-toolkit:design-acceptance": {
+      "path": "/Users/wangchao/.codex/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/design-acceptance/SKILL.md",
+      "sha256": "0f045b51310ddbac2ffee777cf8ff50d384c6e223ac2d0cdfe2f971368a405f0",
+      "size": 4264
+    },
+    "google-ads-renovation-ppc": {
+      "path": "/Users/wangchao/.codex/skills/google-ads-renovation-ppc/SKILL.md",
+      "sha256": "364774a91fca507ea2313becd0db604a514e1df0faa94fa750c84896ee085a84",
+      "size": 3228
+    },
+    "renovation-sales-ops": {
+      "path": "/Users/wangchao/.codex/skills/renovation-sales-ops/SKILL.md",
+      "sha256": "fae71b7418613b2b582ddac860e2cf1899a77802356106221c59a3f5d5f122e5",
+      "size": 2299
+    },
+    "full-house-custom-ad": {
+      "path": "/Users/wangchao/.codex/skills/full-house-custom-ad/SKILL.md",
+      "sha256": "6bbc02e0c07d8fa5eeea358d4a3269a3905e1dcbe8b72716f7e3525799a35507",
+      "size": 18023
+    },
+    "imagegen": {
+      "path": "/Users/wangchao/.codex/skills/.system/imagegen/SKILL.md",
+      "sha256": "681ddb4ad6d06a2acc78a3535b583f8d0c1ea800ecda3d56370d3310fd2cd4ba",
+      "size": 19201
+    },
+    "hyperframes": {
+      "path": "/Users/wangchao/.codex/skills/hyperframes/SKILL.md",
+      "sha256": "cae375ffe84cb58b73eb10c93351868c2a11004c651a2224f9fea0a346d2f40e",
+      "size": 17251
+    },
+    "media-use": {
+      "path": "/Users/wangchao/.codex/skills/media-use/SKILL.md",
+      "sha256": "139ac9d653450bab3652ec3b9ae43620fb60ff68237f4fd6953b1a578928e075",
+      "size": 5760
+    }
+  },
+  "method_skill_requirements": {
+    "seo_geo": [
+      "renovation-seo-geo"
+    ],
+    "content_facts": [
+      "renovation-seo-geo"
+    ],
+    "brand": [
+      "renovation-seo-geo"
+    ],
+    "maps": [
+      "renovation-seo-geo"
+    ],
+    "development": [
+      "web-dev-toolkit:code-reviewer"
+    ],
+    "cms": [
+      "web-dev-toolkit:code-reviewer"
+    ],
+    "release_result": [
+      "web-dev-toolkit:code-reviewer"
+    ],
+    "functional": [
+      "web-dev-toolkit:code-reviewer",
+      "web-dev-toolkit:design-acceptance"
+    ],
+    "paid": [
+      "google-ads-renovation-ppc"
+    ],
+    "data": [
+      "google-ads-renovation-ppc"
+    ],
+    "visual": [
+      "full-house-custom-ad"
+    ],
+    "sales": [
+      "renovation-sales-ops"
+    ]
+  }
+}

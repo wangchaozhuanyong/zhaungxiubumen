@@ -45,7 +45,7 @@ python3 departments/visual-design-video/scripts/public_copy_guard.py prepare \
 
 把输出的 `package_binding` 写回当前版本的发布包：`copy_policy_version`、`public_text_sha256`、`public_text_batch_path`、`copy_guard_report_path`。如出现本地命中，先改完所有文字，再生成新版本整包；只有无命中才能提交轻抖。不要覆盖旧批次文件。
 
-真实轻抖结果有命中时先准确人工转录 `findings`（`term`、`field`、`reason`、可选 `suggested_rewrite`），核对截图后入库：
+真实轻抖结果有命中时，由实际执行者准确转录 `findings`（`term`、`field`、`reason`、可选 `suggested_rewrite`），核对截图并绑定版本后自动入库。2026-10-14老板明确授权：执行者在右侧iab实见命中、保存真实截图、核全文/批次/证据哈希后，用本人身份登记 `status=agent_inspected_real_hit_batch`、`declaration=AGENT_VERIFIED_REAL_QINGDOU_HIT_BATCH`、`surface=codex_iab`，报告 `status=risk_detected|fail|failed`，`findings`非空且每项来自实际送检字段，`observed_result`如实填写页面结果。不得冒用人类复核、不把猜词或模拟图记为真实命中。该分支只授权记录与改写复检，不能放行有命中版本：
 
 ```bash
 python3 departments/visual-design-video/scripts/public_copy_guard.py record \

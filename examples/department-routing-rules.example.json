@@ -2,7 +2,7 @@
   "schema_version": "2.0",
   "updated_at": "2026-10-10",
   "routing_principles": [
-    "现行模式为 `goal_delivery_assistant_v1`：总部给完整目标，专业主负责人沿同一任务执行到底，唯一负责助理独立验收并落实已授权常规后续，总部读结论、定新目标。角色/能力/绑定由注册表动态读取；QA1/QA2保留历史证据并退出新派工。禁止生产者自审，跨助理仅显式转给相同验收能力者。候选、自检、验收、采用、实际Save/部署、公开复核和业务结果分别记录。",
+    "总部完整目标和准确权限；部门整批执行到发布；空闲合格助理一次验收并实际接续；总部只读结论。当前共同规则唯一为playbooks/department-system-current.md。",
     "只调用完整目标所需的最少专业角色，独立工作并行、前置依赖顺序，原主负责人收回开发/发布子结果。",
     "来源和目标按注册表+应用现场真实项目/固定聊天/标题/cwd/分组/健康核对，精确预检成功及工具真实发送才记sent。",
     "总部完成真实派工和负责助理责任交接后可以结束协调。负责助理在本批在途期间用 wait_threads 聚合完成事件，每次最多60秒、按固定聊天去重、保存cursor；结果到达后逐项收取、验收并落实下一实际动作。部门active时普通消息排队。队列不能唤醒已结束聊天；中断保留原task/turn/cursor，先核实际回执再恢复。保留已有每日兜底，不新建高频轮询、监控窗口或后台循环。",
@@ -16,7 +16,8 @@
     "message_success_required_for_sent_status": true,
     "dependency_mode": "explicit_graph_with_legacy_parallel_follow_up_fallback",
     "HQ_wait_required_after_handoff": false,
-    "reviewer_source": "snapshot.goal_delivery.responsible_assistant_and_registered_review_capability"
+    "reviewer_source": "committed_goal_responsibility_or_idle_qualified_preacceptance_selection",
+    "routine_steps_require_new_HQ_decision": false
   },
   "routes": [
     {

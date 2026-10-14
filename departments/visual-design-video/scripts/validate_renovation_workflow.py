@@ -162,6 +162,9 @@ def validate_route(
     storyboard: dict[str, Any],
     errors: list[str],
 ) -> None:
+    # Narration is an additive copy-led mode; old 30-second routes are unchanged.
+    from narration_contract import validate_narration
+    errors.extend(validate_narration(source, storyboard))
     input_mode = source.get("input_mode")
     video_need = source.get("video_need")
     presentation = source.get("presentation_mode")
@@ -510,6 +513,14 @@ def validate(root: Path, phase: str) -> dict[str, Any]:
     if phase in {"frames", "final"}:
         validate_frames(root, documents, run_id, errors)
     if phase == "final":
+        from narration_contract import enabled_narration, validate_narration_evidence
+        if enabled_narration(documents["source"]):
+            media = project_path(root, documents.get("handoff", {}).get("final_video"))
+            errors.extend(validate_narration_evidence(documents["source"], root, documents["storyboard"], final_media=media))
+            manual = documents.get("qa", {}).get("manual_review", {}).get("checks", {})
+            for key in ("voice_naturalness", "voice_pronunciation", "fixed_voice_stability", "narration_visual_sync", "voice_music_balance"):
+                if not passed(manual.get(key)):
+                    errors.append("narration_final_listening_review_missing:" + key)
         if profile == "preview":
             errors.append("preview_profile_cannot_use_final_phase")
         else:

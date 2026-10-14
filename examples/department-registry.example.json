@@ -390,10 +390,20 @@
       "role_config": ".codex/agents/operations-assistant.toml",
       "department_readme": "departments/operations-assistant/README.md",
       "approved_subskills": [
-        "renovation-seo-geo"
+        "renovation-seo-geo",
+        "web-dev-toolkit:code-reviewer",
+        "web-dev-toolkit:design-acceptance",
+        "google-ads-renovation-ppc",
+        "renovation-sales-ops",
+        "full-house-custom-ad"
       ],
       "approved_subskill_paths": [
-        "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md"
+        "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md",
+        "<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/code-reviewer/SKILL.md",
+        "<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/design-acceptance/SKILL.md",
+        "<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md",
+        "<CODEX_HOME>/skills/renovation-sales-ops/SKILL.md",
+        "<CODEX_HOME>/skills/full-house-custom-ad/SKILL.md"
       ],
       "input_paths": [
         "AGENTS.md",
@@ -420,7 +430,13 @@
         ],
         "acceptance_unique_owner": true,
         "HQ_second_review_required": false,
-        "production_write_allowed": false
+        "production_write_allowed": false,
+        "shared_review_methods": {
+          "path": "departments/operations-assistant/shared-review-methods.json",
+          "sha256": "ab35e5662efe6c9f16255edfd4414b60c94a460a33ae3be02ea54c2709021adf",
+          "size": 5498
+        },
+        "ordinary_result_selection": "idle_qualified_then_primary_match_queue_registry_order"
       },
       "chat_binding": {
         "status": "unbound",
@@ -478,11 +494,19 @@
       "department_readme": "departments/operations-assistant-2/README.md",
       "approved_subskills": [
         "web-dev-toolkit:code-reviewer",
-        "web-dev-toolkit:design-acceptance"
+        "web-dev-toolkit:design-acceptance",
+        "renovation-seo-geo",
+        "google-ads-renovation-ppc",
+        "renovation-sales-ops",
+        "full-house-custom-ad"
       ],
       "approved_subskill_paths": [
         "<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/code-reviewer/SKILL.md",
-        "<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/design-acceptance/SKILL.md"
+        "<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/design-acceptance/SKILL.md",
+        "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md",
+        "<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md",
+        "<CODEX_HOME>/skills/renovation-sales-ops/SKILL.md",
+        "<CODEX_HOME>/skills/full-house-custom-ad/SKILL.md"
       ],
       "input_paths": [
         "AGENTS.md",
@@ -510,7 +534,13 @@
         ],
         "acceptance_unique_owner": true,
         "HQ_second_review_required": false,
-        "production_write_allowed": false
+        "production_write_allowed": false,
+        "shared_review_methods": {
+          "path": "departments/operations-assistant/shared-review-methods.json",
+          "sha256": "ab35e5662efe6c9f16255edfd4414b60c94a460a33ae3be02ea54c2709021adf",
+          "size": 5498
+        },
+        "ordinary_result_selection": "idle_qualified_then_primary_match_queue_registry_order"
       },
       "chat_binding": {
         "status": "unbound",
@@ -539,7 +569,8 @@
         "media-use",
         "renovation-sales-ops",
         "web-dev-toolkit:code-reviewer",
-        "web-dev-toolkit:design-acceptance"
+        "web-dev-toolkit:design-acceptance",
+        "renovation-seo-geo"
       ],
       "approved_subskill_paths": [
         "<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md",
@@ -549,7 +580,8 @@
         "<CODEX_HOME>/skills/media-use/SKILL.md",
         "<CODEX_HOME>/skills/renovation-sales-ops/SKILL.md",
         "<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/code-reviewer/SKILL.md",
-        "<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/design-acceptance/SKILL.md"
+        "<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/design-acceptance/SKILL.md",
+        "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md"
       ],
       "input_paths": [
         "AGENTS.md",
@@ -601,7 +633,13 @@
             "sha256": "8a48fcca8eed78ceeffcf0ef065e92a48f4d071d132e31284519498614e13e7f",
             "size": 1301
           }
-        }
+        },
+        "shared_review_methods": {
+          "path": "departments/operations-assistant/shared-review-methods.json",
+          "sha256": "ab35e5662efe6c9f16255edfd4414b60c94a460a33ae3be02ea54c2709021adf",
+          "size": 5498
+        },
+        "ordinary_result_selection": "idle_qualified_then_primary_match_queue_registry_order"
       },
       "chat_binding": {
         "status": "unbound",

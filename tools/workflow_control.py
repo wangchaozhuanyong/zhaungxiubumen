@@ -173,6 +173,7 @@ class RequestValidationContext:
         self.parsed = {}
         self.proofs = {}
         self.read_counts = {}
+        self.strict_unchanged = False
 
     def bytes(self, path):
         path = Path(path).resolve()
@@ -181,6 +182,8 @@ class RequestValidationContext:
         version = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
         old = self.files.get(key)
         if old is None or old["version"] != version:
+            if old is not None and self.strict_unchanged:
+                raise WorkflowError("original condo approval validation dependency changed")
             raw = path.read_bytes()
             final = path.stat()
             if version != (final.st_dev, final.st_ino, final.st_size, final.st_mtime_ns, final.st_ctime_ns):
@@ -2131,7 +2134,141 @@ def effective_approvals(root: Path) -> dict[str, dict[str, Any]]:
     return approvals
 
 
-def record_approval(
+def _exact_condo_faq_original_publishing_approval(root, snapshot, task_id, action_id,
+                                                    action_class, scope, source_thread_id,
+                                                    source_message_ref, cas_validation=None):
+    """Map the actual human CMS instruction to one publisher action after real gates.
+
+    This never creates a standing authorization or a reviewer PASS. The normal
+    active single-use approval ledger and protected permit consumer remain.
+    """
+    if task_id != "fc-20261014-condo-faq-v7-cms-publishing-v1" or action_class != "cms_write":
+        return None
+    from managed_cms_permit_issuer import CONDO_FAQ_V7_TARGET, validate_goal_cms_policy
+    target = CONDO_FAQ_V7_TARGET
+    if (action_id != target["action_id"] or scope != target["scope"]
+            or source_thread_id != "<LOCAL_TASK_ID>"
+            or source_message_ref != "example-native-bb806d191c30327d"):
+        raise WorkflowError("original condo FAQ approval requires its exact action and human source")
+    goal = snapshot.get("goal_delivery", {})
+    authority = goal.get("authorization_pin", {})
+    if (goal.get("parent_task_id") != "fc-20261010-assistant1-remaining-business-continuation-v2"
+            or goal.get("primary_owner") != "content-organic-website"
+            or goal.get("responsible_assistant") != "operations-assistant"
+            or goal.get("producer_departments") != ["content-organic-website", "publishing"]
+            or goal.get("authorized_scope") != [scope]
+            or goal.get("source_mode") != "approved_dispatch"
+            or goal.get("required_execution_actions") != [{"action_id": action_id,
+                "action_class": action_class, "scope": scope, "department": "publishing"}]
+            or goal.get("target_reference", {}).get("record_id") != target["record_id"]
+            or goal.get("target_reference", {}).get("changed_fields") != target["changed_fields"]
+            or snapshot.get("goal_contract", {}).get("sha256") != "fa7aae6bd9791360386c9ffb6eb049ed1e868005993a50536dc2708553219967"
+            or authority.get("sha256") != "463bbf764c280221a55e16fb17023dcce94f2041ba3984001cf570a91abe405b"
+            or file_digest(root, authority.get("path", "")) != authority):
+        raise WorkflowError("original condo FAQ goal, exact publisher and authority bytes required")
+    human = read_json(safe_path(root, authority["path"]))
+    if (human.get("source_thread_id") != source_thread_id
+            or human.get("message", {}).get("id") != source_message_ref
+            or goal.get("human_authorization", {}).get("source_thread_id") != source_thread_id
+            or goal.get("human_authorization", {}).get("message_id") != source_message_ref
+            or goal.get("human_authorization", {}).get("executor") != "content-organic-website"
+            or goal.get("human_authorization", {}).get("scope") != scope
+            or goal.get("publication_authority_context", {}).get("standing_grantee") != "content-organic-website"
+            or goal.get("publication_authority_context", {}).get("new_account_or_spend_authority_added") is not False):
+        raise WorkflowError("original human CMS instruction cannot be transferred as standing publisher authority")
+    context = validate_goal_cms_policy(root, task_id, action_id, scope, "publishing",
+                                       target["payload_sha256"])
+    if (context.get("acceptance_model") != "condo_faq_v7_candidate_scope_only_v1"
+            or context.get("goal_completion_claimed") is not False
+            or context.get("preflight", {}).get("payload_sha256") != target["payload_sha256"]):
+        raise WorkflowError("real A1 candidate-only acceptance and publisher self-check required")
+    if cas_validation is None:
+        raise WorkflowError("original condo approval must start from a pre-validation byte baseline")
+    cas_pins = _exact_condo_approval_cas_pins(root, cas_validation, context)
+    return {"authorization_pin": authority, "candidate_acceptance_record_id": context["acceptance_receipt_id"],
+            "cas_pins": cas_pins}
+
+
+def _exact_condo_approval_cas_pins(root, validation, context=None):
+    """Use the same request byte cache before review, after review and in-lock."""
+    from managed_cms_permit_issuer import (CONDO_FAQ_PARENT_RESULT, CONDO_FAQ_PARENT_REVIEW,
+                                           CONDO_FAQ_PUBLISHER_RESULT, CONDO_FAQ_V7_TARGET,
+                                           CONDO_FAQ_V7_BASE)
+    task = "fc-20261014-condo-faq-v7-cms-publishing-v1"
+    parent = "fc-20261010-assistant1-remaining-business-continuation-v2"
+    paths = {snapshot_path(root,task), receipts_path(root,task), result_handoff_path(root,task),
+             snapshot_path(root,parent), receipts_path(root,parent), result_handoff_path(root,parent),
+             root/WORKFLOW_EVENTS, root/POLICY_DECISIONS, root/APPROVAL_LEDGER,
+             root/"data/department-registry.json", root/"data/action-policy.json",
+             root/"data/department-current-assignment.json",
+             *(root/"tools"/name for name in ("managed_cms_permit_issuer.py",
+                 "workflow_control.py", "goal_continuity.py", "qa_review_plan.py",
+                 "goal_delivery_runtime.py", "result_coordination.py"))}
+    paths.update(path for path in (root/CONDO_FAQ_V7_BASE).glob("*.json") if path.is_file())
+    for path in paths:
+        validation.bytes(path)
+
+    def source(pin):
+        if not isinstance(pin,dict) or not all(key in pin for key in ("path","sha256","size")):
+            raise WorkflowError("exact condo approval source pin required")
+        path = safe_path(root,pin["path"])
+        raw = validation.bytes(path)
+        if hashlib.sha256(raw).hexdigest()!=pin["sha256"] or len(raw)!=pin["size"]:
+            raise WorkflowError("exact condo approval source changed before validation")
+        return path
+
+    for pin in (CONDO_FAQ_PARENT_RESULT, CONDO_FAQ_PARENT_REVIEW, CONDO_FAQ_PUBLISHER_RESULT):
+        source(pin)
+    goal_snapshot = validation.json(snapshot_path(root,task))
+    authorization = goal_snapshot.get("goal_delivery",{}).get("authorization_pin")
+    source(authorization)
+    for value in (CONDO_FAQ_V7_TARGET["candidate"], CONDO_FAQ_V7_TARGET["rollback"]):
+        source({"path":value[0],"sha256":value[1],
+                "size":safe_path(root,value[0]).stat().st_size})
+    if context is None:
+        # Only the current genuine A1 receipt is expanded. Historical outboxes
+        # may contain old pins that are not this approval's validation inputs.
+        rows = validation.json(receipts_path(root,task),lines=True)
+        a1 = [row for row in rows if row.get("receipt_type")=="outbox_received"
+              and row.get("department")=="operations-assistant"]
+        if a1:
+            evidence = a1[-1].get("evidence",[])
+            for pin in evidence:
+                path = source(pin)
+                if path.suffix==".json":
+                    value = validation.json(path)
+                    def leaves(item):
+                        if isinstance(item,dict):
+                            if all(key in item for key in ("path","sha256","size")):
+                                source(item)
+                            for child in item.values():leaves(child)
+                        elif isinstance(item,list):
+                            for child in item:leaves(child)
+                    leaves(value)
+        # The publisher outbox itself is current, so capture its direct pins.
+        publisher = validation.json(safe_path(root,CONDO_FAQ_PUBLISHER_RESULT["path"]))
+        for item in publisher.get("evidence",{}).values() if isinstance(publisher.get("evidence"),dict) else []:
+            if isinstance(item,dict) and all(key in item for key in ("path","sha256","size")):
+                source(item)
+    else:
+        def required(item):
+            if isinstance(item,dict):
+                if all(key in item for key in ("path","sha256","size")):
+                    path = safe_path(root,item["path"])
+                    entry = validation.files.get(str(path.resolve()))
+                    if entry is None or entry["sha256"]!=item["sha256"] or len(entry["raw"])!=item["size"]:
+                        raise WorkflowError("approval validation used an unfrozen evidence leaf")
+                for child in item.values():required(child)
+            elif isinstance(item,list):
+                for child in item:required(child)
+        required(context)
+    validation.recheck()
+    if len(validation.files)>500:
+        raise WorkflowError("exact condo approval validation dependency set unexpectedly enlarged")
+    return [{"path":rel_path(root,Path(path)),"sha256":entry["sha256"],"size":len(entry["raw"])}
+            for path,entry in sorted(validation.files.items())]
+
+def _record_approval_impl(
     root: Path,
     *,
     task_id: str,
@@ -2142,6 +2279,7 @@ def record_approval(
     source_thread_id: str = "",
     source_message_ref: str = "",
     revoke: bool = False,
+    cas_validation=None,
 ) -> tuple[dict[str, Any], list[Path]]:
     task_id = validate_task_id(task_id)
     if not action_id.strip() or not action_class.strip() or not scope.strip():
@@ -2150,24 +2288,45 @@ def record_approval(
     if not workflow_snapshot:
         raise WorkflowError(f"工作流不存在：{task_id}")
     read_only_account_approval = action_class == "account_read"
+    exact_condo = None if revoke else _exact_condo_faq_original_publishing_approval(
+        root, workflow_snapshot, task_id, action_id, action_class, scope,
+        source_thread_id, source_message_ref, cas_validation)
     if (
         not revoke
         and not read_only_account_approval
+        and exact_condo is None
         and workflow_snapshot.get("current_state") != "waiting_owner_approval"
     ):
         raise WorkflowError("批准记录被阻止：工作流必须先通过 QA 并进入 waiting_owner_approval")
     generated_id = approval_id.strip() or "apr-" + sha256_value(
         [task_id, action_id, action_class, scope, source_thread_id, source_message_ref]
     )[:20]
+    if exact_condo is not None:
+        expected_id = "apr-" + sha256_value(
+            [task_id, action_id, action_class, scope, source_thread_id, source_message_ref]
+        )[:20]
+        if generated_id != expected_id:
+            raise WorkflowError("original condo FAQ approval ID must be the exact source-derived single use ID")
     with workflow_lock(root):
         current_snapshot = read_json(snapshot_path(root, task_id))
+        if exact_condo is not None:
+            if (current_snapshot != workflow_snapshot or cas_validation is None):
+                raise WorkflowError("original condo FAQ approval source changed before single-use CAS")
+            cas_validation.recheck()
         if (
             not revoke
             and not read_only_account_approval
+            and exact_condo is None
             and current_snapshot.get("current_state") != "waiting_owner_approval"
         ):
             raise WorkflowError("批准记录被阻止：工作流状态在写入前已变更")
         approvals = effective_approvals(root)
+        if exact_condo is not None and any(
+            row.get("task_id") == task_id and row.get("action_id") == action_id
+            and row.get("action_class") == action_class and row.get("scope") == scope
+            and row.get("approval_id") != generated_id for row in approvals.values()
+        ):
+            raise WorkflowError("original condo FAQ already has another single-use approval identity")
         existing = approvals.get(generated_id)
         if revoke:
             if not existing:
@@ -2204,9 +2363,32 @@ def record_approval(
                 "single_use": True,
                 "full_approval_message_stored": False,
             }
+            if exact_condo is not None:
+                record.update(approval_basis="original_exact_condo_publishing_v1",
+                              original_human_authorization_pin=exact_condo["authorization_pin"],
+                              candidate_acceptance_record_id=exact_condo["candidate_acceptance_record_id"])
         append_jsonl_locked(root / APPROVAL_LEDGER, record)
     result = {**record, "result": "revoked" if revoke else "recorded"}
     return result, [root / APPROVAL_LEDGER]
+
+
+def record_approval(
+    root: Path, *, task_id: str, action_id: str, action_class: str, scope: str,
+    approval_id: str = "", source_thread_id: str = "", source_message_ref: str = "",
+    revoke: bool = False,
+) -> tuple[dict[str, Any], list[Path]]:
+    """For the exact condo action, preserve one read baseline through commit."""
+    kwargs = dict(task_id=task_id, action_id=action_id, action_class=action_class,
+                  scope=scope, approval_id=approval_id,
+                  source_thread_id=source_thread_id,
+                  source_message_ref=source_message_ref, revoke=revoke)
+    if (not revoke and task_id == "fc-20261014-condo-faq-v7-cms-publishing-v1"
+            and action_class == "cms_write"):
+        with request_validation_context() as validation:
+            validation.strict_unchanged = True
+            _exact_condo_approval_cas_pins(root, validation)
+            return _record_approval_impl(root, **kwargs, cas_validation=validation)
+    return _record_approval_impl(root, **kwargs)
 
 
 def load_policy(root: Path) -> dict[str, Any]:
@@ -2797,9 +2979,12 @@ def _routing_precheck(
             return ["goal_dispatch_scope_outside_contract"], ["goal_delivery:exact_authorized_scope"]
         if action_id == "assign-goal-review:" + task_id:
             contract = goal_snapshot.get("goal_contract")
+            from goal_source_recovery import initial_responsibility_payload
+            exact_message = initial_responsibility_payload(root,goal_snapshot,sender_department,
+                                                          target_department,scope,payload_sha256)
             if (target_department != goal_snapshot["goal_delivery"]["responsible_assistant"]
                     or not isinstance(contract, dict) or file_digest(root, contract.get("path", "")) != contract
-                    or payload_sha256 != contract["sha256"]):
+                    or payload_sha256 != contract["sha256"] and not exact_message):
                 return ["goal_initial_assistant_assignment_exact_contract_required"], ["goal_delivery:frozen_responsibility_assignment"]
         collaboration = collaboration_route(root, goal_snapshot, {
             "sender_department": sender_department, "source_project_id": source_project_id,
@@ -3025,7 +3210,7 @@ def _routing_precheck(
             and departments.get(target_department, {}).get("coordination_authority", {}).get("routine_decisions") is True):
         allowed_message_modes.add("coordinator")
     if (goal_enabled(root, goal_snapshot) and action_class == "thread_message"
-            and sender_department == goal_snapshot["goal_delivery"]["responsible_assistant"]
+            and sender_department in {goal_snapshot["goal_delivery"]["responsible_assistant"], goal_snapshot["goal_delivery"]["primary_owner"]}
             and target_department in goal_snapshot["goal_delivery"]["producer_departments"]
             and target_department not in {"operations", sender_department}
             and target_department in {x.get("department") for x in goal_snapshot.get("departments", [])}):
@@ -3485,6 +3670,12 @@ def _ordinary_thread_dispatch_precheck(
         goal = snapshot["goal_delivery"]
         initial_review_assignment = (target_department == goal["responsible_assistant"]
                                      and action_id == "assign-goal-review:" + task_id and snapshot.get("goal_contract"))
+        assigned_responsibility_continuation = (sender_department=='operations'
+            and target_department==goal['responsible_assistant'] and scope in goal['authorized_scope']
+            and any(r.get('receipt_type')=='dispatch_sent' and r.get('department')==target_department
+                    and r.get('chat_task_id')==target_thread_id for r in receipts)
+            and any(r.get('receipt_type')=='chat_ack' and r.get('department')==target_department
+                    and r.get('chat_task_id')==target_thread_id and r.get('ack_nonempty') is True for r in receipts))
         responsibility_resume = (not invalid and _coordination_responsibility_resume_ready(
             root, snapshot, receipts, sender_department=sender_department,
             target_department=target_department, target_thread_id=target_thread_id,
@@ -3495,12 +3686,16 @@ def _ordinary_thread_dispatch_precheck(
             target_department=target_department, target_thread_id=target_thread_id,
             action_id=action_id, scope=scope, payload_sha256=payload_sha256,
         ))
-        if not initial_review_assignment:
+        if not initial_review_assignment and not assigned_responsibility_continuation:
             for dep in planned[0].get("depends_on", []):
                 if (responsibility_resume or original_weekly_clarification or _responsibility_initial_ready(
                         root, snapshot, sender_department, target_department, action_id, scope, payload_sha256)) and dep == "operations":
                     continue
-                if not any(r.get("receipt_type") == "outbox_received" and r.get("department") == dep for r in receipts):
+                delivered=any(r.get("receipt_type") == "outbox_received" and r.get("department") == dep for r in receipts)
+                if not delivered:
+                    from goal_continuity import frozen_dependency_available
+                    delivered=frozen_dependency_available(root,task_id,dep)
+                if not delivered:
                     reasons.append("goal_dispatch_dependency_missing:" + dep)
         unmet = completion_dependencies(root, snapshot)
         for dependency in goal["dependencies"]:
@@ -3655,7 +3850,9 @@ def policy_check(
             from managed_cms_permit_issuer import validate_goal_cms_policy, PermitEvidenceError
             try:
                 cms_goal_context = validate_goal_cms_policy(root, task_id, action_id, scope, department, payload_sha256)
-                required_receipts.extend(['assistant_acceptance:current_exact_CMS_candidate',
+                required_receipts.extend(['self_check:current_exact_CMS_candidate' if
+                                          cms_goal_context.get('acceptance_model')=='goal_authorized_cms_selfcheck_v1' else
+                                          'assistant_acceptance:current_exact_CMS_candidate',
                                           'protected_preview:exact_zero_write',
                                           'owner_authorization:original_exact_single_use'])
             except (WorkflowError, PermitEvidenceError, ValueError, OSError, KeyError, TypeError) as error:
@@ -3844,6 +4041,22 @@ def policy_check(
         allow = False
         reasons.append("workflow_not_found")
     from goal_delivery_runtime import enabled as goal_enabled
+    if (action_class=='thread_message' and goal_enabled(root,snapshot) and not prepared_result_notice
+            and not health_probe_mode and not scope.startswith('owner_project_handoff:')
+            and 'human_authorization:exact_direct_internal_repair' not in required_receipts):
+        from goal_delivery_runtime import authorization_precheck
+        required_receipts.append('authorization_precheck:consumed_original_goal_source')
+        try:
+            authority=authorization_precheck(root,task_id,{'task_id':task_id,'sender_department':department,
+                'action_class':action_class,'action_id':action_id,'scope':scope,
+                'target_department':target_department,'target_project_id':target_project_id,
+                'source_project_id':source_project_id,'target_thread_id':target_thread_id,
+                'target_thread_title':target_thread_title,'target_cwd':target_cwd,
+                'target_sidebar_section_id':target_sidebar_section_id,'payload_sha256':payload_sha256})
+            if authority['status']!='within_original_authorization':
+                allow=False;reasons.append('original_goal_authority:'+authority['status'])
+        except (WorkflowError,ValueError,KeyError,OSError) as error:
+            allow=False;reasons.append('original_goal_authority_invalid:'+str(error))
     # Existing exact health probes and the owner-directed single-message route
     # retain their own gates. A prefix does not waive those routing checks.
     if (action_class == "thread_message" and not health_probe_mode
@@ -3883,11 +4096,20 @@ def policy_check(
                            and all(cms_goal_context.get(k) == v for k, v in {
                                "task_id": task_id, "action_id": action_id, "scope": scope,
                                "department": department, "payload_sha256": payload_sha256}.items()))
-                goal_preflight = (cms_goal_context["preflight"] if bounded else
+                condo_candidate = (cms_goal_context is not None
+                    and cms_goal_context.get("acceptance_model") == "condo_faq_v7_candidate_scope_only_v1"
+                    and task_id == "fc-20261014-condo-faq-v7-cms-publishing-v1"
+                    and department == "publishing" and action_class == "cms_write"
+                    and cms_goal_context.get("action_id") == action_id
+                    and cms_goal_context.get("scope") == scope
+                    and cms_goal_context.get("payload_sha256") == payload_sha256
+                    and cms_goal_context.get("goal_completion_claimed") is False)
+                goal_preflight = (cms_goal_context["preflight"] if bounded or condo_candidate else
                                   execution_preflight(root, snapshot, action_id, action_class, scope, department))
                 qa_risk_level = goal_preflight["risk_level"]
                 required_receipts += ["self_check:exact_pass", "facts_backup_rollback:exact_pins",
                                       "assistant_acceptance:bounded_candidate_only" if bounded else
+                                      "assistant_acceptance:condo_faq_candidate_only" if condo_candidate else
                                       "assistant_acceptance:after_complete_delivery"]
             except WorkflowError as error:
                 allow = False
@@ -4188,6 +4410,15 @@ def policy_check(
         "project_layer_only": True,
         "checked_at": utc_timestamp(),
     }
+    if cms_goal_context is not None and cms_goal_context.get("acceptance_model") == "condo_faq_v7_candidate_scope_only_v1":
+        result["cms_candidate_acceptance"] = {
+            "acceptance_model": cms_goal_context["acceptance_model"],
+            "candidate_acceptance_record_id": cms_goal_context["acceptance_receipt_id"],
+            "candidate_acceptance_record_hash": cms_goal_context["candidate_acceptance_record_hash"],
+            "source_fingerprint": cms_goal_context["source_fingerprint"],
+            "bounded_report": cms_goal_context["bounded_report"],
+            "producer_outbox": cms_goal_context["producer_outbox"],
+            "goal_completion_claimed": False}
     if cms_goal_context is not None and cms_goal_context.get("acceptance_model") == "paid_three_page_bounded_cms_candidate_v1":
         result["cms_candidate_acceptance"] = {
             "acceptance_model": cms_goal_context["acceptance_model"],
@@ -4254,12 +4485,23 @@ def _validate_receipt_prerequisite(
                 direct_review = native_multi_goal_review_context(root, snapshot)
             if direct_review is None:
                 direct_review = owner_direct_review_context(root, snapshot)
+            if direct_review is None:
+                from qa_review_plan import original_condo_faq_child_review_context
+                direct_review = original_condo_faq_child_review_context(root, snapshot, receipts)
     control_producer = False
     if root is not None and department == "operations" and receipt_type == "outbox_received":
         from native_control_result import context
         context(root, snapshot)
         control_producer = True
-    if receipt_type == "outbox_received" and ("chat_ack", department) not in latest and not inherited and not direct_review and not control_producer:
+    recovered_delivery=False
+    if root is not None and receipt_type=='outbox_received' and ('chat_ack',department) not in latest:
+        from goal_source_recovery import recovered_producer_source
+        source=recovered_producer_source(root,snapshot,department)
+        recovered_delivery=bool(source and any(r.get('event')=='notification_queued'
+            and r.get('sender_department')==department and r.get('actual_native_completion')
+            and r.get('visible_reply') and r.get('source_reply_sha256')
+            for r in _result_handoff_rows(root,snapshot['task_id'])))
+    if receipt_type == "outbox_received" and ("chat_ack", department) not in latest and not inherited and not direct_review and not control_producer and not recovered_delivery:
         raise WorkflowError("非法越级：outbox_received 之前必须有同部门非空 chat_ack")
     workers = [
         str(item.get("department", ""))
@@ -4571,6 +4813,19 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
         if receipt_type == "qa_verdict":
             from qa_review_plan import validate_verdict
             validate_verdict(root, snapshot, receipts, receipt)
+        if (receipt_type == "outbox_received"
+                and task_id == "fc-20261014-condo-faq-v7-cms-publishing-v1"
+                and department == "operations-assistant"):
+            from qa_review_plan import load_plan
+            if read_json(snapshot_path(root, task_id)) != snapshot:
+                raise WorkflowError("bounded A1 receipt goal changed before append")
+            plan = load_plan(root, snapshot)
+            box = read_json(safe_path(root, evidence[0]["path"])) if evidence else {}
+            report_pin = box.get("bounded_candidate_acceptance")
+            if not isinstance(plan, dict) or not isinstance(report_pin, dict):
+                raise WorkflowError("bounded A1 receipt needs its original plan and report")
+            _condo_faq_bounded_ready_stage(root, snapshot, receipt, evidence[0],
+                                           box, report_pin, plan)
         if receipt_type == "dispatch_failed" and not handover_receipt:
             _, invalid = _validate_receipt_chain(root, task_id)
             if invalid:
@@ -4589,7 +4844,20 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
         receipt["receipt_hash"] = sha256_value(_receipt_payload_for_hash(receipt))
         append_jsonl_locked(path, receipt)
     reconcile, artifacts = reconcile_workflow(root, task_id=task_id, shadow=False)
-    return {**receipt, "result": "recorded", "workflow_state": reconcile.get("current_state")}, [path, *artifacts]
+    assignment_status = None
+    if receipt_type == 'dispatch_sent':
+        from goal_continuity import ASSIGNMENT_SCHEMA, record_assignment
+        for source in evidence:
+            if not source['path'].endswith('.json'):continue
+            item=read_json(safe_path(root,source['path']))
+            if item.get('schema') == ASSIGNMENT_SCHEMA:
+                # The actual dispatch is already appended. Failed registration
+                # is a recoverable missing projection, never a reason to resend.
+                try:assignment_status=record_assignment(root,item,source)
+                except (WorkflowError,ValueError,OSError,KeyError) as error:
+                    assignment_status={'result':'assignment_readback_required','next_action':'recover_existing_actual_dispatch_without_resend','reason':str(error)}
+    return {**receipt, "result": "recorded", "workflow_state": reconcile.get("current_state"),
+            **({'current_assignment':assignment_status} if assignment_status else {})}, [path, *artifacts]
 
 
 def _validate_receipt_chain(root: Path, task_id: str, *, through_receipt_id: str | None = None):
@@ -4898,7 +5166,12 @@ def _goal_bounded_candidate_subject(root, snapshot, receipts, plan, producer):
     fingerprint=candidate.get("candidate_fingerprint",candidate.get("source_fingerprint",plan["candidate_sha256"]))
     if report.get("source_fingerprint")!=fingerprint:
         raise WorkflowError("bounded reviewed source fingerprint differs")
-    _completion_native_stage(root,box,report_pin,role)
+    bounded_ready = None
+    if (snapshot["task_id"]=="fc-20261014-condo-faq-v7-cms-publishing-v1"
+            and role=="operations-assistant" and producer=="publishing"):
+        bounded_ready = _condo_faq_bounded_ready_stage(root,snapshot,row,pin,box,report_pin,plan)
+    else:
+        _completion_native_stage(root,box,report_pin,role)
     queued=[item for item in _result_handoff_rows(root,snapshot["task_id"])
             if item.get("event")=="notification_queued" and item.get("outbox")==producer_pin]
     if len(queued)!=1 or not queued[0].get("source_turn_id"):
@@ -4909,7 +5182,59 @@ def _goal_bounded_candidate_subject(root, snapshot, receipts, plan, producer):
             "scope":plan["scope"],"acceptance_receipt":row,"acceptance_outbox":pin,
             "producer_outbox":producer_pin,"candidate":plan["candidate"],"review_plan":snapshot["qa_review_plan"]["pin"],
             "evidence":[*row.get("evidence",[]),report_pin,producer_pin,plan["candidate"]],
+            "bounded_ready_source": bounded_ready,
             "acceptance_scope":"candidate_source_only","business_goal_closed":False}
+
+
+def _condo_faq_bounded_ready_stage(root,snapshot,receipt,outbox_pin,box,report_pin,plan):
+    """Consume an actual A1 READY sidecar attached to its genuine outbox receipt."""
+    from goal_continuity import ready_source, native
+    task="fc-20261014-condo-faq-v7-cms-publishing-v1"
+    role="operations-assistant"
+    fixed=department_registry(root)[role]["chat_binding"]["task_id"]
+    evidence=receipt.get("evidence",[])
+    if (receipt.get("department")!=role or len(evidence)!=2
+            or evidence[0]!=outbox_pin
+            or box.get("task_id")!=task or box.get("department")!=role
+            or box.get("candidate_version")!=plan["candidate_version"]):
+        raise WorkflowError("one real A1 candidate outbox and one READY source sidecar required")
+    sidecar_pin=evidence[1]
+    sidecar=_completion_pin(root,sidecar_pin)
+    expected={"schema":"condo-faq-v7-bounded-ready-source/v1","task_id":task,
+              "sender_department":role,"candidate_version":plan["candidate_version"],
+              "outbox":outbox_pin,"bounded_report":report_pin,
+              "candidate":plan["candidate"],"review_plan":snapshot["qa_review_plan"]["pin"]}
+    if (set(sidecar)!=set(expected)|{"source_request"}
+            or any(sidecar.get(key)!=value for key,value in expected.items())
+            or not isinstance(sidecar.get("source_request"),dict)):
+        raise WorkflowError("exact typed A1 READY sidecar and original review identity required")
+    request=sidecar["source_request"]
+    required={"task_id","sender_department","candidate_version","result_sha256",
+              "outbox_path","source_mode","result_source_phase","source_thread_id",
+              "source_turn_id","source_message_id","source_reply_sha256",
+              "reply_observed_at","actual_native_completion","visible_reply"}
+    if (set(request)!=required or any(request.get(key)!=value for key,value in
+            {"task_id":task,"sender_department":role,
+             "candidate_version":plan["candidate_version"],"result_sha256":outbox_pin["sha256"],
+             "outbox_path":outbox_pin["path"],"source_mode":"approved_dispatch",
+             "result_source_phase":"delivery_ready","source_thread_id":fixed}.items())):
+        raise WorkflowError("A1 READY sidecar does not bind the frozen bounded candidate")
+    proof=ready_source(root,request,fixed)
+    if proof.get("result_source_phase")!="delivery_ready" or proof.get("batch_delivery_frozen") is not True:
+        raise WorkflowError("A1 candidate READY declaration failed exact native verification")
+    page=native(root,request["actual_native_completion"])
+    messages=[item for turn in page.get("turns",[]) if turn.get("id")==request.get("source_turn_id")
+              for item in turn.get("items",[]) if item.get("type")=="agentMessage"
+              and item.get("id")==request.get("source_message_id")]
+    if (len(messages)!=1 or messages[0].get("phase") not in {"commentary","final_answer"}
+            or report_pin["path"] not in messages[0].get("text","")
+            or report_pin["sha256"] not in messages[0].get("text","")
+            or request.get("source_reply_sha256")!=request.get("visible_reply",{}).get("sha256")):
+        raise WorkflowError("actual A1 READY message must pin the exact bounded report")
+    return {"sidecar":sidecar_pin,"source_turn_id":request["source_turn_id"],
+            "source_message_id":request["source_message_id"],
+            "actual_native_completion":request["actual_native_completion"],
+            "visible_reply":request["visible_reply"]}
 
 
 def goal_completion_subject(root, snapshot, receipts, subject):
@@ -6626,6 +6951,10 @@ def _validate_scheduled_result(root: Path, request: dict[str, Any], outbox: dict
         capability = source.get("acceptance_capability")
         if capability and capability not in authority.get("review_capabilities", []):
             raise WorkflowError("daily receiver lacks the exact source acceptance capability")
+        if request.get('result_source_phase')=='delivery_ready':
+            from goal_continuity import ready_source
+            proof=ready_source(root,request,fixed_id,scheduled=True)
+            return {**source,'frozen_delivery_source':proof}
         from goal_delivery_runtime import _native_document, _collaboration_final_message
         completion = _native_document(root, request.get("actual_native_completion"))
         message = _collaboration_final_message(completion, fixed_id)
@@ -6712,6 +7041,9 @@ def _original_a3_partial_final(root: Path, request: dict[str, Any], native: dict
 def _validate_goal_completed_result(root: Path, request: dict[str, Any], fixed_id: str,
                                     *, through_receipt_id: str | None = None) -> dict[str, Any]:
     """Bind a new goal result to its actual completed final, never an ACK."""
+    if request.get('result_source_phase') == 'delivery_ready':
+        from goal_continuity import ready_source
+        return ready_source(root, request, fixed_id)
     if request.get("sender_department") == "operations":
         from native_control_result import completion
         return completion(root, request, fixed_id)
@@ -6719,7 +7051,16 @@ def _validate_goal_completed_result(root: Path, request: dict[str, Any], fixed_i
     completion_pin, reply_pin = request.get("actual_native_completion"), request.get("visible_reply")
     completion = _collaboration_native(root, completion_pin)
     original_a3 = _original_a3_partial_final(root, request, completion, fixed_id)
-    message = original_a3[0] if original_a3 is not None else _collaboration_final_message(completion, fixed_id)
+    exact_native_turn=None
+    if isinstance(completion.get('turns'),list):
+        turns=[t for t in completion['turns'] if t.get('id')==request.get('source_turn_id')]
+        if (completion.get('thread',{}).get('id')!=fixed_id or len(turns)!=1
+                or turns[0].get('status')!='completed' or turns[0].get('error')):
+            raise WorkflowError('one exact successfully completed source turn required')
+        finals=[m for m in turns[0].get('items',[]) if m.get('type')=='agentMessage' and m.get('phase')=='final_answer']
+        if len(finals)!=1:raise WorkflowError('one exact native final in the selected source turn required')
+        exact_native_turn=turns[0];message={**finals[0],'turnId':turns[0]['id']}
+    else:message = original_a3[0] if original_a3 is not None else _collaboration_final_message(completion, fixed_id)
     turn = request.get("source_turn_id")
     if (not isinstance(reply_pin, dict) or file_digest(root, reply_pin.get("path", "")) != reply_pin
             or not isinstance(turn, str) or not turn.strip()
@@ -6733,7 +7074,7 @@ def _validate_goal_completed_result(root: Path, request: dict[str, Any], fixed_i
             or observed is None or observed > dt.datetime.now(dt.timezone.utc)):
         raise WorkflowError("new goal result requires original exact UTF-8 final reply and actual observation time")
     # Completion time comes from the pinned provider document, not caller observation.
-    native_turn = completion
+    native_turn = exact_native_turn or completion
     document = completion.get("wait", completion)
     if isinstance(document.get("polls"), list):
         native_turn = next(row.get("latestTurn", {}) for row in document["polls"]
@@ -6770,8 +7111,33 @@ def _validate_goal_completed_result(root: Path, request: dict[str, Any], fixed_i
             raise WorkflowError("original A3 final requires its exact preceding dispatch and ACK")
         starts = [_parse_observed_at(row["created_at"]) for row in original_rows]
     else:
-        starts = [_parse_observed_at(row["created_at"]) for row in scoped
-                  if row.get("receipt_type") in {"dispatch_sent", "chat_ack"}]
+        starts=[]
+        for row in scoped:
+            if row.get('receipt_type') not in {'dispatch_sent','chat_ack'}:continue
+            recorded=_parse_observed_at(row['created_at'])
+            proven_late_ack=False
+            if row.get('receipt_type')=='chat_ack' and completed_at is not None and recorded>completed_at and exact_native_turn:
+                items=exact_native_turn.get('items',[]);final_index=next(i for i,m in enumerate(items) if m.get('id')==message.get('id'))
+                for pin in row.get('evidence',[]):
+                    ack=read_json(safe_path(root,pin['path']))
+                    selected=ack.get('message',{})
+                    if (file_digest(root,pin['path'])==pin and ack.get('source_thread_id',ack.get('thread',{}).get('id'))==fixed_id
+                            and ack.get('task_id')==task and ack.get('department')==request['sender_department']
+                            and ack.get('turn',{}).get('id')==exact_native_turn['id']
+                            and selected.get('phase')=='commentary' and selected.get('text','').strip()
+                            and task in selected['text'] and any(m.get('id')==selected.get('id')
+                               and m.get('text')==selected['text'] for m in items[:final_index])):
+                        proven_late_ack=True;break
+            # Original message order proves the ACK preceded this final; its
+            # later ledger timestamp is preserved, never backdated.
+            starts.append(completed_at if proven_late_ack else recorded)
+    if not starts and original_a3 is None:
+        from goal_source_recovery import recovered_producer_source
+        recovered=recovered_producer_source(root,read_json(snapshot_path(root,task)),request['sender_department'])
+        if recovered:
+            for proof in recovered['actual_sources']:
+                value=proof.get('source_turn_started_at')
+                if type(value) in {int,float}: starts.append(dt.datetime.fromtimestamp(value,dt.timezone.utc))
     if invalid or not starts or completed_at is None or not max(starts) <= completed_at <= observed:
         raise WorkflowError("actual native completedAt must follow exact task dispatch/ACK and precede observation")
     outbox_path = request.get("outbox_path") or request.get("outbox", {}).get("path", "")
@@ -6793,13 +7159,15 @@ def _validate_scheduled_acceptance(root: Path, request: dict[str, Any]) -> dict[
     source = scheduled_result_source(root, task_id, sender)
     if not source or source.get("legacy_contract"):
         raise WorkflowError("current admitted daily source required for assistant report acceptance")
-    role = source["responsible_assistant"]
+    from goal_continuity import daily_selected_assistant, shared_capable
+    role = daily_selected_assistant(root,{k:request[k] for k in ('task_id','sender_department','candidate_version','result_sha256')},source["responsible_assistant"])
     if role == sender or role == "operations" or request.get("coordinator_role") != role:
         raise WorkflowError("unique independent daily assistant required; no self review or HQ acceptance")
     registry = department_registry(root)
     authority = registry.get(role, {}).get("coordination_authority", {})
     if (authority.get("routine_decisions") is not True or registry.get(role, {}).get("new_dispatch_enabled") is False
-            or source.get("acceptance_capability") not in authority.get("review_capabilities", [])):
+            or (source.get("acceptance_capability") not in authority.get("review_capabilities", [])
+                and not shared_capable(root,role,{'producer_departments':[sender],'acceptance_capability':source.get('acceptance_capability')}))):
         raise WorkflowError("daily acceptance capability is not current")
     identity = tuple(request[k] for k in ("sender_department", "candidate_version", "result_sha256"))
     queued = [row for row in _result_handoff_rows(root, task_id)
@@ -7096,8 +7464,11 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any], *,
             scheduled_source = _validate_scheduled_result(root, request, outbox, fixed_id)
         elif is_owner_direct_queue:
             direct_rows, invalid = _validate_receipt_chain(root, task_id)
+            from goal_source_recovery import recovered_producer_source
+            recovered_source=recovered_producer_source(root,snapshot,sender)
             if (invalid or (sender != "operations" and not any(r.get("receipt_type") == "chat_ack" and r.get("department") == sender
-                                   and r.get("chat_task_id") == fixed_id and r.get("ack_nonempty") is True for r in direct_rows))
+                                   and r.get("chat_task_id") == fixed_id and r.get("ack_nonempty") is True for r in direct_rows)
+                                   and not (recovered_source and goal_completed_source))
                     or outbox.get("chat_reply", {}).get("nonempty") is not True
                     or outbox.get("chat_reply", {}).get("in_current_fixed_department_chat") is not True
                     or request.get("source_thread_id") != fixed_id
@@ -7239,6 +7610,7 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any], *,
             if not scheduled_source.get("legacy_contract"):
                 record.update(actual_native_completion=request["actual_native_completion"],
                               visible_reply=request["visible_reply"])
+                record.update(scheduled_source.get('frozen_delivery_source',{}))
         elif is_owner_direct_queue:
             record.update(source_mode="owner_direct", authorization_pin=snapshot["goal_delivery"]["authorization_pin"],
                           source_thread_id=fixed_id, source_reply_sha256=request["source_reply_sha256"],
@@ -7307,7 +7679,8 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any], *,
                                     and row.get("actual_native_completion") and row.get("source_mode") in {"owner_direct", "approved_dispatch"}), None)
         if knowledge_source is not None:
             original = knowledge_source["queued_source"]
-            if (intake_mode != "notification" or reply_sha != original.get("source_reply_sha256")
+            read_intake=knowledge_source.get('transport_binding')=='actual_recipient_native_read'
+            if (intake_mode != ('queue' if read_intake else 'notification') or reply_sha != original.get("source_reply_sha256")
                     or reply_thread != original.get("source_thread_id")
                     or _parse_observed_at(observed_at) < _parse_observed_at(original.get("reply_observed_at"))):
                 raise WorkflowError("HQ knowledge must retain exact original final reply and actual transport")
@@ -7316,12 +7689,19 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any], *,
             record.update(result_lane="HQ_knowledge", HQ_second_review_required=False,
                           acceptance_proof=knowledge_source.get("dependency_fingerprint"),
                           source_completion_observed_at=original.get("reply_observed_at"))
+            if read_intake:
+                record.update(actual_recipient_read=knowledge_source['actual_recipient_read'],
+                              native_notification_sent=False,native_conclusion_received=True)
         if original_goal_queue:
             source = (knowledge_source["queued_source"] if knowledge_source is not None
                       else _validate_goal_completed_result(root, original_goal_queue, fixed_id))
             if reply_sha != source["source_reply_sha256"]:
                 raise WorkflowError("goal intake must retain the original completed final, not a later ACK")
-            record.update(source)
+            # Copy provenance, never the queue's event, record ID, receipt time
+            # or idempotency key into this distinct intake event.
+            record.update({k:source[k] for k in ('source_turn_id','source_thread_id','source_message_id',
+                'source_reply_sha256','actual_native_completion','visible_reply','result_source_phase',
+                'batch_delivery_frozen','source_turn_completed') if k in source})
             record.update(reply_observed_at=observed_at, source_completion_observed_at=source["reply_observed_at"])
         if scheduled_queue:
             source = scheduled_result_source(root, task_id, sender)
@@ -7690,4 +8070,10 @@ def record_result_handoff(root: Path, request: dict[str, Any]) -> tuple[dict[str
         if request.get("event") == "notification_queued":
             notification_enqueue(root, request, _coordination_locked=True)
         admission.complete(record)
-        return record, artifacts
+    if request.get('event') == 'notification_queued' and request.get('assistant_selection_live'):
+        from goal_continuity import select_result
+        selection=select_result(root,{**request,'actor':request['sender_department'],
+                     'request_id':request['idempotency_key']+'-select',
+                     'live_identity':request['assistant_selection_live']})
+        record={**record,'resource_selection':selection}
+    return record, artifacts

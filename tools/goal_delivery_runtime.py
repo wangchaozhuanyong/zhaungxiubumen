@@ -163,6 +163,126 @@ def enabled(root, snapshot=None):
             and (snapshot is None or isinstance(snapshot.get("goal_delivery"), dict)))
 
 
+def authorization_precheck(root, task_id, request):
+    """Read existing whole-goal authority before asking again; never issue a permit.
+
+    Identity/health/payload/self-check repairs remain internal. Exact action policy,
+    consumed permits and real provider restrictions still govern actual execution.
+    A legacy goal without a bound source must recover it, not invent authority.
+    """
+    task_id = w.validate_task_id(task_id)
+    if (not isinstance(request, dict) or request.get("task_id") != task_id
+            or any(not isinstance(request.get(k), str) or not request[k].strip()
+                   for k in ("sender_department", "action_class", "scope"))):
+        raise w.WorkflowError("exact original task/sender/action/scope required")
+    sensitive = {"new_scope", "new_department", "new_project", "new_account",
+                 "permission_expansion", "new_fee", "budget_exceeded",
+                 "irreversible_delete", "major_security_change", "infrastructure_change"}
+    changes = request.get("authorization_changes", [])
+    repairs = request.get("internal_repairs", [])
+    repair_kinds = {"health", "binding", "source_binding", "payload", "receipt",
+                    "self_check", "backup", "rollback", "version_update"}
+    if (not isinstance(changes, list) or any(not isinstance(x, str) or x not in sensitive for x in changes)
+            or not isinstance(repairs, list) or any(not isinstance(x, str) or x not in repair_kinds for x in repairs)):
+        raise w.WorkflowError("known authorization changes or internal repairs required")
+    if request["action_class"] == "thread_message" and (
+            not isinstance(request.get("target_department"), str) or not request["target_department"].strip()):
+        raise w.WorkflowError("exact target department required")
+    if request["action_class"] in w.EXTERNAL_ACTION_CLASSES and any(
+            not isinstance(request.get(k), str) or not request[k].strip() for k in ("action_id", "department")):
+        raise w.WorkflowError("exact original production action and executor required")
+    result = {"schema": "goal-authorization-precheck/v1", "task_id": task_id,
+              "action_class": request["action_class"], "scope": request["scope"],
+              "writes_performed": False, "external_permission_issued": False,
+              "actual_action_allowed": False, "replaces_policy_check": False,
+              "required_internal_checks": ["exact_current_identity_and_health", "exact_policy_check",
+                                            "deduplicate_actual_effects", "existing_production_channel"]}
+
+    def outcome(state, reasons, confirmation=False):
+        return {**result, "status": state, "reasons": sorted(set(reasons)),
+                "needs_human_confirmation": confirmation,
+                "next_owner": "operations" if confirmation else request["sender_department"],
+                "next_action": "escalate_only_changed_scope" if confirmation
+                else "read_actual_completion_and_preserve_remaining_scope" if state == "completed_scope_readback_required"
+                else "repair_internal_binding_then_exact_preflight" if state != "within_original_authorization"
+                else "continue_original_goal_with_existing_action_gates"}
+
+    snapshot = w.read_json(w.snapshot_path(root, task_id))
+    if not snapshot or not enabled(root, snapshot):
+        return outcome("original_source_binding_required", ["recover_real_original_authority_without_new_dispatch"])
+    snapshot = restore_goal(root, snapshot)
+    goal = snapshot["goal_delivery"]
+    auth = goal.get("human_authorization", {})
+    pin = goal["authorization_pin"]
+    source = w.read_json(w.safe_path(root, pin["path"]))
+    message = source.get("message", {})
+    if (source.get("source_thread_id") != auth.get("source_thread_id")
+            or message.get("type") != "userMessage" or message.get("id") != auth.get("message_id")
+            or not any(c.get("type") == "text" and str(c.get("text", "")).strip()
+                       for c in message.get("content", []) if isinstance(c, dict))):
+        raise w.WorkflowError("unchanged original real human source required")
+    result["original_authorization"] = pin
+    registry = w.department_registry(root)
+    sender = request["sender_department"]
+    producers = goal.get("producer_departments", [])
+    if sender not in {"operations", goal["responsible_assistant"], *producers}:
+        raise w.WorkflowError("original goal participant required; no authority delegation by metadata")
+    is_notice = (request['action_class']=='thread_message'
+                 and request['scope']==f'department_result:{task_id}:{sender}'
+                 and request.get('action_id','').startswith('notify-result-'))
+    if is_notice:
+        from result_coordination import exact_identity, _validate_queued, result_lane
+        identity=exact_identity(request.get('result_identity',{}))
+        if identity['task_id']!=task_id or identity['sender_department']!=sender:
+            raise w.WorkflowError('notice must retain its actual original result identity')
+        _validate_queued(root,identity)
+        route=result_lane(root,identity)
+        if request.get('target_department')!=route.get('target_department'):
+            raise w.WorkflowError('notice must use its single current actual receiver')
+        if changes:
+            return outcome('authorization_change_required',changes,confirmation=True)
+        # Closing an accepted scope never drops a still-undelivered result.
+        return outcome('within_original_authorization',['existing_result_return_only_no_new_assignment'])
+    if request["scope"] not in goal["authorized_scope"]:
+        changes = changes + ["new_scope"]
+    if request["action_class"] == "thread_message":
+        target = request.get("target_department")
+        declarations = [x for x in goal.get("collaboration_scopes", [])
+                        if x.get("target_department") == target and x.get("scope") == request["scope"]
+                        and x.get("sender_department") == goal["primary_owner"]
+                        and sender in {goal['primary_owner'],goal['responsible_assistant']}]
+        exact_preapproved = approved_action(root,snapshot,request) if target not in registry else None
+        if target not in {*producers, goal["responsible_assistant"]} and not declarations and not exact_preapproved:
+            changes = changes + ["new_department"]
+        bindings = w.read_json(Path(root) / "data/department-registry.json").get("collaboration_bindings", {})
+        binding = (bindings.get(target, {}) if declarations or exact_preapproved
+                   else registry.get(target, {}).get("chat_binding", {}))
+        if request.get("target_project_id") and binding.get("project_id") != request["target_project_id"]:
+            return outcome("authorization_change_required", changes, confirmation=True) if changes else outcome(
+                "internal_repair_required", ["actual_registered_target_project_mismatch"])
+        if not binding or registry.get(target, {}).get("new_dispatch_enabled") is False:
+            repairs = repairs + ["binding"]
+    elif request["action_class"] in w.EXTERNAL_ACTION_CLASSES:
+        declared = [x for x in goal.get("required_execution_actions", [])
+                    if all(x.get(k) == request.get(k) for k in
+                           ("action_id", "action_class", "scope", "department"))]
+        if len(declared) != 1:
+            # Cannot infer a new production action from broad prose or a PASS.
+            return outcome("original_action_binding_required", ["recover_exact_authorized_production_action"] + changes,
+                           confirmation=bool(changes))
+        if request.get("department") not in producers:
+            raise w.WorkflowError("original declared production executor required")
+    elif request["action_class"] != "internal_control_candidate":
+        raise w.WorkflowError("known original action class required")
+    if changes:
+        return outcome("authorization_change_required", changes, confirmation=True)
+    if snapshot.get("current_state") in w.TERMINAL_STATES:
+        return outcome("completed_scope_readback_required", ["read_actual_completion_before_resuming_closed_scope"])
+    if repairs:
+        return outcome("internal_repair_required", repairs)
+    return outcome("within_original_authorization", ["same_goal_scope_and_collaborators"])
+
+
 def validate_goal(root, goal, *, task_id=None):
     if not enabled(root) or not isinstance(goal, dict) or any(k not in goal for k in REQUIRED):
         raise w.WorkflowError("enabled complete goal contract required")
@@ -191,6 +311,9 @@ def validate_goal(root, goal, *, task_id=None):
         raise w.WorkflowError("registered independent producers and reviewer required; no self review")
     if result.get("parent_task_id"):
         w.validate_task_id(result["parent_task_id"])
+    mode=result.setdefault('execution_mode','authorized_selfcheck_then_execute')
+    if mode not in {'authorized_selfcheck_then_execute','legacy_exact_gate'}:
+        raise w.WorkflowError('known execution mode required; goal metadata grants no new platform permission')
     actions = result.setdefault("required_execution_actions", [])
     if not isinstance(actions, list) or len(actions) > 100:
         raise w.WorkflowError("bounded declared production actions required")
@@ -204,6 +327,19 @@ def validate_goal(root, goal, *, task_id=None):
         identities.append(tuple(action.get(k) for k in ("action_id", "action_class", "scope", "department")))
     if len(set(identities)) != len(identities):
         raise w.WorkflowError("unique production action identities required")
+    next_actions=result.get('continuation_actions', [])
+    if not isinstance(next_actions,list) or len(next_actions)>100:
+        raise w.WorkflowError('bounded original authorized continuation actions required')
+    seen_next=set()
+    for action in next_actions:
+        if (not isinstance(action,dict) or not action.get('action_id') or action['action_id'] in seen_next
+                or action.get('action_class')!='thread_message'
+                or action.get('target_department') not in producers
+                or action.get('scope') not in result['authorized_scope']
+                or not isinstance(action.get('payload'),dict)
+                or w.file_digest(root,action['payload'].get('path',''))!=action['payload']):
+            raise w.WorkflowError('exact original permitted next action/producer/scope/message required')
+        seen_next.add(action['action_id'])
     completion_contract_state(result)
     dependency_ids = []
     for dependency in result["dependencies"]:
@@ -252,10 +388,12 @@ def validate_goal(root, goal, *, task_id=None):
         if key in seen:
             raise w.WorkflowError('unique collaboration declaration required')
         seen.add(key)
-    if (result["acceptance_capability"] not in authority.get("review_capabilities", [])
+    from goal_continuity import shared_capable
+    if (not shared_capable(root, result['responsible_assistant'], result)
+            and (result["acceptance_capability"] not in authority.get("review_capabilities", [])
             or (result["responsible_assistant"] == "operations-assistant-3"
                 and result["acceptance_capability"] == "development"
-                and isinstance(authority.get("technical_review_backup"), dict))):
+                and isinstance(authority.get("technical_review_backup"), dict)))):
         from technical_review_backup import qualified_initial_review
         if not qualified_initial_review(root, result["responsible_assistant"], result,
                                         task_id=task_id, require_responsibility=False):
@@ -477,9 +615,9 @@ def assigned_actor(root, snapshot, role, scope=None):
         return False
     goal = snapshot["goal_delivery"]
     authority = w.department_registry(root).get(role, {}).get("coordination_authority", {})
-    return (role in {"operations", goal["responsible_assistant"]}
-            and (role == "operations" or authority.get("dispatch_approved_next") is True)
-            and (scope is None or scope in goal["authorized_scope"]))
+    authorized_owner=(role==goal['primary_owner'] and any(a.get('scope')==scope for a in goal.get('continuation_actions',[])))
+    return (role in {"operations", goal["responsible_assistant"]} or authorized_owner) and (
+            (scope is None or scope in goal['authorized_scope'])) and (role=='operations' or authorized_owner or authority.get('dispatch_approved_next') is True)
 
 
 def approved_action(root, snapshot, requested):
@@ -500,6 +638,8 @@ def approved_action(root, snapshot, requested):
     elif row.get("parent_task_id"):
         from parent_initial_dispatch import validate_action
         validate_action(root, snapshot, row, phase="policy")
+    elif row.get("action_id") == CONDO_FAQ_V7_POST_CANDIDATE_ACTION:
+        _condo_faq_v7_post_candidate_action(root, snapshot, row)
     return row
 
 
@@ -537,7 +677,7 @@ def collaboration_route(root, snapshot, requested):
         if action is None:
             reasons.append("goal_collaboration_frozen_approved_message_required")
         else:
-            pin = action.get("live_identity")
+            pin = goal.get('current_route_observations',{}).get(action['action_id']) or action.get("live_identity")
             if not isinstance(pin, dict) or w.file_digest(root, pin.get("path", "")) != pin:
                 raise w.WorkflowError("exact live proof required")
             live = w.read_json(w.safe_path(root, pin["path"]))
@@ -856,7 +996,11 @@ def pending(root, role):
                        if error.get('owner') in {None, role} or error.get('delivery_owner') == role
                        or error.get('task_id') in owned]
     errors.extend(delivery_errors)
+    from goal_continuity import shared_pending
+    shared_pool=shared_pending(root,role)
     result = {key: deduplicate_records(rows) for key, rows in categories.items()}
+    result['shared_pool_pending']=shared_pool['results']
+    result['shared_pool_errors']=shared_pool['errors']
     for key in categories:
         result[key + '_count'] = len(result[key])
     result.update(coordinator_role=role, control_records_are_business_jobs=False,
@@ -871,11 +1015,12 @@ def pending(root, role):
                   review_timing={"active_review_seconds": "NOT_MEASURED", "dependency_wait_seconds": "NOT_MEASURED",
                                  "administrative_seconds": "NOT_MEASURED", "wall_clock_is_active_review": False,
                                  "reason": "no recorded actual activity intervals; queue age is not review time"})
+    result['shared_pool_pending_count']=len(result['shared_pool_pending'])
     result['notification_delivery_pending_count'] = len(result['notification_delivery_pending'])
     result['followthrough_pending_count'] = len(result['followthrough_pending'])
     result['total_actionable_count'] = len(deduplicate_records(result['pending'] + result['followthrough_pending']
               + result['collaboration_pending'] + result['collaboration_not_proven']
-              + [row for row in result['completion_followthrough'] if row.get('actionable')])) + len(
+              + [row for row in result['completion_followthrough'] if row.get('actionable')] + result['shared_pool_pending'])) + len(
                   [row for row in result['notification_delivery_pending'] if row.get('actionable')])
     return result
 
@@ -904,10 +1049,130 @@ def record_preflight(root, task_id, input_path):
     return {"result": "recorded", "external_permission_issued": False, "assistant_acceptance_after_delivery": True}
 
 
+CONDO_FAQ_V7_POST_CANDIDATE_ACTION = "A1-condo-faq-v7-post-candidate-publishing-selfcheck-20261014-v1"
+CONDO_FAQ_V7_POST_CANDIDATE_SCHEMA = "condo-faq-v7-post-candidate-publishing-resume/v1"
+
+
+def _condo_faq_v7_post_candidate_message(action, source, target):
+    """One finite message: ask publishing to run its original gates, grant nothing."""
+    return {"schema": CONDO_FAQ_V7_POST_CANDIDATE_SCHEMA,
+            "task_id": target["task_id"], "sender_department": "operations-assistant",
+            "target_department": "publishing", "original_cms_action_id": target["action_id"],
+            "scope": target["scope"], "candidate_version": target["candidate_version"],
+            "candidate_acceptance_record_id": source["receipt_id"],
+            "candidate_acceptance_record_hash": source["receipt_hash"],
+            "bounded_report": source["bounded_report"],
+            "candidate": source["candidate"],
+            "next_step": "original_publishing_selfcheck_then_existing_protected_execution_gates",
+            "production_write_allowed": False, "external_permission_issued": False,
+            "CMS_Save_claimed": False, "business_goal_closed": False}
+
+
+def _condo_faq_v7_post_candidate_action(root, snapshot, action):
+    """Authenticate the one adopted candidate-only receipt before a new message."""
+    from managed_cms_permit_issuer import (CONDO_FAQ_V7_TARGET, CONDO_FAQ_PARENT_TASK,
+                                           validate_goal_cms_acceptance)
+    root = Path(root).resolve()
+    target = CONDO_FAQ_V7_TARGET
+    goal = snapshot.get("goal_delivery", {})
+    source = action.get("condo_faq_v7_post_candidate_source")
+    if (snapshot.get("task_id") != target["task_id"]
+            or snapshot.get("current_state") in w.TERMINAL_STATES
+            or goal.get("parent_task_id") != CONDO_FAQ_PARENT_TASK
+            or goal.get("responsible_assistant") != "operations-assistant"
+            or goal.get("producer_departments") != ["content-organic-website", "publishing"]
+            or goal.get("authorized_scope") != [target["scope"]]
+            or action.get("task_id") != target["task_id"]
+            or action.get("action_id") != CONDO_FAQ_V7_POST_CANDIDATE_ACTION
+            or action.get("action_class") != "thread_message"
+            or action.get("scope") != target["scope"]
+            or action.get("sender_department") != "operations-assistant"
+            or action.get("target_department") != "publishing"
+            or action.get("decision_record_id")
+            or not isinstance(source, dict)
+            or set(source) != {"receipt_id", "receipt_hash", "review_outbox",
+                               "source_sidecar", "bounded_report", "candidate",
+                               "producer_outbox", "review_plan", "human_authorization"}):
+        raise w.WorkflowError("exact adopted condo FAQ post-candidate message identity required")
+    registry = w.department_registry(root)
+    sender = registry["operations-assistant"]["chat_binding"]
+    receiver = registry["publishing"]["chat_binding"]
+    if (action.get("source_project_id") != sender.get("project_id")
+            or any(action.get(k) != receiver.get(v) for k, v in
+                   {"target_project_id": "project_id", "target_thread_id": "task_id",
+                    "target_thread_title": "title", "target_cwd": "cwd",
+                    "target_sidebar_section_id": "sidebar_section_id"}.items())
+            or sender.get("cwd") != str(root) or receiver.get("cwd") != str(root)):
+        raise w.WorkflowError("original fixed A1 to publishing project binding required")
+    accepted = validate_goal_cms_acceptance(root, target, "publish")
+    rows, invalid = w._validate_receipt_chain(root, target["task_id"])
+    matches = [row for row in rows if row.get("receipt_id") == accepted.get("candidate_acceptance_record_id")]
+    if invalid or len(matches) != 1 or matches[0].get("receipt_hash") != accepted.get("candidate_acceptance_record_hash"):
+        raise w.WorkflowError("one authentic adopted A1 bounded receipt required")
+    receipt = matches[0]
+    evidence = receipt.get("evidence", [])
+    expected = {"receipt_id": receipt["receipt_id"], "receipt_hash": receipt["receipt_hash"],
+                "review_outbox": accepted["review_outbox"],
+                "source_sidecar": evidence[1] if len(evidence) == 2 else None,
+                "bounded_report": accepted["bounded_report"],
+                "candidate": accepted["candidate"],
+                "producer_outbox": accepted["producer_outbox"],
+                "review_plan": accepted["review_plan"],
+                "human_authorization": accepted["authorization_pin"]}
+    if (source != expected or evidence != [source["review_outbox"], source["source_sidecar"]]
+            or accepted.get("acceptance_model") != "condo_faq_v7_candidate_scope_only_v1"
+            or accepted.get("verdict") != "pass_candidate_only"
+            or accepted.get("goal_completion_claimed") is not False
+            or accepted.get("production_write_allowed") is not False):
+        raise w.WorkflowError("exact bounded receipt, source or candidate-only conclusion changed")
+    for item in (source["review_outbox"], source["source_sidecar"], source["bounded_report"],
+                 source["candidate"], source["producer_outbox"], source["review_plan"],
+                 source["human_authorization"]):
+        if w.file_digest(root, item["path"]) != item:
+            raise w.WorkflowError("original condo FAQ continuation source bytes changed")
+    payload = action.get("payload")
+    if (not isinstance(payload, dict) or w.file_digest(root, payload.get("path", "")) != payload
+            or payload.get("sha256") != action.get("payload_sha256")):
+        raise w.WorkflowError("exact post-candidate publishing message bytes required")
+    expected_message = _condo_faq_v7_post_candidate_message(action, source, target)
+    canonical = (json.dumps(expected_message, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    if w.safe_path(root, payload["path"]).read_bytes() != canonical:
+        raise w.WorkflowError("one bounded post-candidate publishing instruction required")
+    return accepted
+
+
+def _condo_faq_v7_post_candidate_preflight(root, task_id, input_path, action):
+    """Complete source proof outside the write lock; freeze validation-used bytes."""
+    from managed_cms_permit_issuer import CONDO_FAQ_V7_BASE, CONDO_FAQ_V7_TARGET
+    root = Path(root).resolve()
+    with w.request_validation_context() as validation:
+        validation.strict_unchanged = True
+        if validation.json(w.safe_path(root, input_path)) != action:
+            raise w.WorkflowError("post-candidate action changed before validation")
+        validation.bytes(w.snapshot_path(root, task_id))
+        for spec in (CONDO_FAQ_V7_TARGET["candidate"], CONDO_FAQ_V7_TARGET["rollback"]):
+            validation.bytes(w.safe_path(root, spec[0]))
+        for path in (root / CONDO_FAQ_V7_BASE).glob("*.json"):
+            validation.bytes(path)
+        for name in ("data/department-registry.json", "data/task-contract.json", w.WORKFLOW_EVENTS):
+            path = root / name
+            if path.is_file():
+                validation.bytes(path)
+        snapshot = restore_goal(root, w.read_json(w.snapshot_path(root, task_id)))
+        _condo_faq_v7_post_candidate_action(root, snapshot, action)
+        validation.recheck()
+    return validation
+
+
 def record_approved_action(root, task_id, input_path):
     """Freeze a precise routine decision, or owner action in an original declared collaboration scope."""
     action = w.read_json(w.safe_path(root, input_path))
+    special = action.get("action_id") == CONDO_FAQ_V7_POST_CANDIDATE_ACTION or "condo_faq_v7_post_candidate_source" in action
+    validation = (_condo_faq_v7_post_candidate_preflight(root, task_id, input_path, action)
+                  if special else None)
     with w.workflow_lock(root):
+        if validation is not None:
+            validation.recheck()
         snapshot = restore_goal(root, w.read_json(w.snapshot_path(root, task_id)))
         if not enabled(root, snapshot):
             raise w.WorkflowError("complete original goal required")
@@ -923,11 +1188,16 @@ def record_approved_action(root, task_id, input_path):
         declarations = [d for d in goal.get('collaboration_scopes', []) if isinstance(d, dict)
                         and d.get('target_department') == action.get('target_department')
                         and d.get('scope') == action.get('scope')
-                        and d.get('sender_department') == action.get('sender_department') == goal['primary_owner']]
-        declared = len(declarations) == 1
-        decisions = [row for row in w._result_handoff_rows(root, task_id)
-                     if row.get("event") == "controller_decision" and row.get("record_id") == action.get("decision_record_id")]
-        if not declared and not parent_linked_initial and not responsibility_initial and (len(decisions) != 1 or decisions[0].get("decision") not in {"rework", "continue", "accept"}
+                        and d.get('sender_department') == goal['primary_owner']
+                        and action.get('sender_department') in {goal['primary_owner'],goal['responsible_assistant']}]
+        preauthorized = [a for a in goal.get('continuation_actions', [])
+                         if all(a.get(k)==action.get(k) for k in ('action_id','action_class','scope','target_department','payload'))]
+        batch_authorized=(len(preauthorized)==1 and action.get('sender_department') in
+                          {goal['primary_owner'],goal['responsible_assistant']})
+        declared = len(declarations) == 1 or batch_authorized
+        decisions = ([] if special else [row for row in w._result_handoff_rows(root, task_id)
+                     if row.get("event") == "controller_decision" and row.get("record_id") == action.get("decision_record_id")])
+        if not special and not declared and not parent_linked_initial and not responsibility_initial and (len(decisions) != 1 or decisions[0].get("decision") not in {"rework", "continue", "accept"}
                 or decisions[0].get("coordinator_role") != goal["responsible_assistant"]
                 or action.get("sender_department") != goal["responsible_assistant"]
                 or action.get("target_department") != decisions[0].get("next_owner")
@@ -939,15 +1209,19 @@ def record_approved_action(root, task_id, input_path):
                          or not action.get('action_id') or snapshot.get('current_state') in w.TERMINAL_STATES
                          or w.file_digest(root, goal['authorization_pin']['path']) != goal['authorization_pin']):
             raise w.WorkflowError('active same goal original owner authorization required')
+        if special and (action.get("action_id") != CONDO_FAQ_V7_POST_CANDIDATE_ACTION
+                        or snapshot.get("current_state") in w.TERMINAL_STATES
+                        or w.file_digest(root, goal["authorization_pin"]["path"]) != goal["authorization_pin"]):
+            raise w.WorkflowError("post-candidate message cannot change original human authority")
         pin = action.get("payload")
         if (not isinstance(pin, dict) or w.file_digest(root, pin.get("path", "")) != pin
                 or pin["sha256"] != action.get("payload_sha256")):
             raise w.WorkflowError("exact prepared approved message bytes required")
         binding = (w.read_json(Path(root) / 'data/department-registry.json').get('collaboration_bindings', {}).get(action['target_department'], {})
-                   if declared else w.department_registry(root)[action["target_department"]].get("chat_binding", {}))
-        mapping = {"target_thread_id": "thread_id" if declared else "task_id", "target_thread_title": "title", "target_cwd": "cwd",
+                   if declared and not batch_authorized else w.department_registry(root)[action["target_department"]].get("chat_binding", {}))
+        mapping = {"target_thread_id": "thread_id" if declared and not batch_authorized else "task_id", "target_thread_title": "title", "target_cwd": "cwd",
                    "target_project_id": "project_id", "target_sidebar_section_id": "sidebar_section_id"}
-        if declared:
+        if declared and not batch_authorized:
             mapping.pop('target_sidebar_section_id')
         if any(action.get(k) != binding.get(v) or not binding.get(v) for k, v in mapping.items()):
             raise w.WorkflowError("exact original fixed producer/collaboration binding required")
@@ -1279,6 +1553,25 @@ def record_collaboration(root, task_id, input_path):
         if not enabled(root, snapshot) or record.get("task_id") != task_id:
             raise w.WorkflowError("exact parent complete goal required")
         goal = snapshot["goal_delivery"]
+        if record.get('source_kind')=='historical_native_collaboration':
+            from goal_source_recovery import collaboration_source
+            collaboration_source(root,record)
+            prior=goal.get('collaboration_records',[])
+            declaration={'scope':record['scope'],'sender_department':goal['primary_owner'],
+                         'target_department':record['sender_department']}
+            declared=declaration in goal.get('collaboration_scopes',[])
+            if pin in prior and declared:return {'result':'duplicate_ignored','parent_closed':False}
+            existing=[w.read_json(w.safe_path(root,p['path'])) for p in prior]
+            if pin not in prior and any(x.get('action_id')==record.get('action_id') for x in existing):
+                raise w.WorkflowError('historical collaboration recovery cannot replace a previous source')
+            snapshot['goal_delivery']={**goal,'collaboration_records':prior if pin in prior else prior+[pin],
+                'collaboration_scopes':goal.get('collaboration_scopes',[]) if declared else
+                                      goal.get('collaboration_scopes',[])+[declaration]}
+            w.append_workflow_event(root,task_id,snapshot['current_state'],
+                {'goal_delivery':snapshot['goal_delivery'],'collaboration_receipt':pin,
+                 'historical_source_recovered':True,'prior_policy_fabricated':False})
+            w.atomic_write_json(w.snapshot_path(root,task_id),snapshot)
+            return {'result':'recorded','parent_closed':False,'new_permissions':0}
         action = [x for x in goal.get("approved_actions", []) if x.get("action_id") == record.get("action_id")]
         if len(action) != 1 or record.get("scope") != action[0].get("scope"):
             raise w.WorkflowError("one frozen approved parent collaboration action required")
@@ -1578,6 +1871,12 @@ def _collaboration_wait_states(root, snapshot):
             if not isinstance(pin, dict) or w.file_digest(root, pin.get("path", "")) != pin:
                 raise CollaborationProofError("collaboration_receipt_changed_or_missing", "frozen collaboration receipt changed")
             record = w.read_json(w.safe_path(root, pin["path"]))
+            if record.get('source_kind')=='historical_native_collaboration':
+                from goal_source_recovery import collaboration_source
+                recovered=collaboration_source(root,record)
+                recovered.update(collaboration=pin,result_receipt=pin)
+                states[record['action_id']]=recovered
+                continue
             matched = [a for a in actions if a.get("action_id") == record.get("action_id")]
             if len(matched) != 1:
                 raise CollaborationProofError("approved_action_identity_mismatch", "one original approved collaboration action required")
@@ -1726,19 +2025,21 @@ def collaboration_result_source(root, identity):
             or (returned.get("candidate_version") and result.get("candidate_version")
                 and returned["candidate_version"] != result["candidate_version"])):
         raise w.WorkflowError("candidate version must come from the original frozen collaboration result")
-    if result.get("task_id", snapshot["task_id"]) != snapshot["task_id"] or result.get("department", sender) != sender:
+    allowed_task=(returned.get('original_task_id') if state.get('source_recovered') else snapshot['task_id'])
+    if result.get("task_id", allowed_task) != allowed_task or result.get("department", sender) != sender:
         raise w.WorkflowError("original collaboration result task and sender required")
     action = state["approved_action"]
     policies = [row for row in w.read_jsonl(Path(root) / w.POLICY_DECISIONS)
                 if row.get("decision_id") == state["policy_decision_id"]]
-    if (len(policies) != 1 or policies[0].get("status") != "allow"
+    if not state.get('source_recovered') and (len(policies) != 1 or policies[0].get("status") != "allow"
             or any(policies[0].get(k) != action.get(k) for k in
                    ("task_id", "action_id", "scope", "payload_sha256", "target_thread_id"))):
         raise w.WorkflowError("original exact collaboration policy receipt required")
     return {"task_id": snapshot["task_id"], "department": sender, "candidate_version": version,
             "scope": action["scope"], "status": "completed", "source_mode": "collaboration",
             "fixed_chat_task_id": binding["thread_id"], "result": state["result"], "state": state,
-            "responsible_assistant": snapshot["goal_delivery"]["responsible_assistant"]}
+            "responsible_assistant": snapshot["goal_delivery"]["responsible_assistant"],
+            "batch_has_outcome":True,"business_goal_closed":False,"independent_acceptance":False}
 
 
 def validate_collaboration_result_handoff(root, request):
@@ -1771,8 +2072,16 @@ def wait_plan(root, role, cursors=None, *, queue=None):
                     + queue.get('collaboration_pending', []) + queue.get('collaboration_not_proven', [])
                     + [row for row in queue.get('completion_followthrough', []) if row.get('actionable')])
     ready.extend(row for row in queue.get('notification_delivery_pending', []) if row.get('actionable'))
+    ready.extend(queue.get('shared_pool_pending', []))
     targets, tasks, collaboration_states, errors = {}, [], [], []
     current_owners = _current_goal_owners(root)
+    for notice in queue.get('notification_delivery_pending', []):
+        if notice.get('waiting_for_native_completion'):
+            tid = notice.get('delivery_identity', {}).get('target_thread_id', notice.get('target_thread_id'))
+            if tid:
+                targets[tid] = {'threadId': tid, **({'afterCursor': cursors[tid]} if cursors.get(tid) else {})}
+                tasks.append({'task_id': notice.get('identity', {}).get('task_id'),
+                              'threadId': tid, 'wait_source': 'busy_result_recipient'})
     for path in sorted((Path(root) / w.WORKFLOW_DIR).glob("*.json")):
         exact_owner = 'ownership_unresolved'
         try:
@@ -2095,6 +2404,8 @@ def main():
     for name in ("preflight-record", "collaboration-record", "dependency-record", "approved-action-record"):
         command = sub.add_parser(name); command.add_argument("--task-id", required=True); command.add_argument("--input", required=True)
     bind = sub.add_parser("bind"); bind.add_argument("--task-id", required=True); bind.add_argument("--input", required=True)
+    auth = sub.add_parser("authorization-precheck")
+    auth.add_argument("--task-id", required=True); auth.add_argument("--input", required=True)
     show = sub.add_parser("status"); show.add_argument("--task-id", required=True)
     wait = sub.add_parser("wait-plan"); wait.add_argument("--role", required=True)
     begin = sub.add_parser("wait-begin"); begin.add_argument("--role", required=True); begin.add_argument("--input", required=True)
@@ -2120,6 +2431,8 @@ def main():
         elif args.command == "dependency-record": result = record_dependency(root, args.task_id, args.input)
         elif args.command == "approved-action-record": result = record_approved_action(root, args.task_id, args.input)
         elif args.command == "bind": result = bind_goal(root, args.task_id, w.read_json(w.safe_path(root, args.input)))
+        elif args.command == "authorization-precheck":
+            result = authorization_precheck(root, args.task_id, w.read_json(w.safe_path(root, args.input)))
         elif args.command == "status": result = status(root, args.task_id)
         elif args.command == "delegation-bind": result = bind_review_delegation(root, args.task_id, args.input, args.role)
         elif args.command == "wait-begin": result = begin_wait(root, args.role, args.input)

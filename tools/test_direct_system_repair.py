@@ -192,7 +192,7 @@ class NoticeResumeTests(unittest.TestCase):
         self.assertEqual(result["result"], "deferred")
         self.assertFalse(result["interrupts_active_thread"])
         item = coordination.notification_plan(self.root, fixture.PRODUCER)["notifications"][0]
-        self.assertTrue(item["actionable"])
+        self.assertFalse(item["actionable"]); self.assertTrue(item["waiting_for_native_completion"])
         self.assertEqual(item["next_action"], "refresh_busy_target_at_next_legal_opportunity")
         self.assertFalse(item["delivered"])
 

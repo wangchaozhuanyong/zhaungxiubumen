@@ -1587,7 +1587,8 @@ def result_handoff_status_command(root: Path, args: argparse.Namespace) -> tuple
 
 def result_handoff_pending_command(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any], list[Path]]:
     try:
-        return workflow.result_handoff_pending(root, getattr(args, "task_ids", None)), [root / workflow.RESULT_HANDOFF_DIR]
+        from goal_continuity import pending_intake
+        return pending_intake(root, getattr(args, "task_ids", None)), [root / workflow.RESULT_HANDOFF_DIR]
     except workflow.WorkflowError as exc:
         raise OpsError(str(exc)) from exc
 
@@ -2567,8 +2568,16 @@ def department_learning_effective(root: Path, department: str) -> tuple[dict[str
     raw = memory_path.read_bytes()
     from result_coordination import current_assignment_for_role
     actual_current_assignment = current_assignment_for_role(root, department)
+    from goal_continuity import work_boundary
+    boundary = work_boundary(root, department, assignment=actual_current_assignment, read_assignment=False)
     payload = {"status": "department_learning_effective_read_only", "department": department,
                "actual_current_assignment": actual_current_assignment,
+               "work_boundary": boundary,
+               "authorization_precheck_entry": {
+                   "command": "python3 tools/goal_delivery_runtime.py authorization-precheck --task-id <原任务ID> --input <准确动作JSON>",
+                   "required_before_repeat_confirmation": True,
+                   "internal_repair_is_new_authorization": False,
+                   "precheck_grants_execution_permission": False},
                "operating_mode": mode, "role_retired": role_retired,
                "current_rule_sources": rule_sources, "current_lessons": current,
                "knowledge_reference": reference, "historical_references": history,
@@ -4203,6 +4212,8 @@ def print_artifacts(payload: dict[str, Any], artifacts: list[Path], root: Path) 
         "waiting_followthrough_count",
         "followthrough_results",
         "total_actionable_count",
+        "received_HQ_knowledge_without_second_review",
+        "knowledge_source_errors",
         "business_goal_closed",
         "automatic_pause_performed",
         "prompt_or_chat_body_stored",

@@ -15,6 +15,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[3]
 BANK_PATH = ROOT / "data/knowledge/renovation-scenario-library-v2.json"
+MANIFEST_PATH = ROOT / "data/knowledge/full-house-custom-knowledge-manifest.json"
 USAGE_NAME = "renovation-content-used-topics-v2.json"
 STYLE_NAME = "whole-house-style-rotation.json"
 JOURNAL_NAME = "renovation-adoption-transaction-v2.json"
@@ -165,18 +166,27 @@ def validate_plan(path, bank):
     return {"status": "PASS", "task_id": plan["task_id"], "primary_topic_id": topic["id"], "scope": selection["scope"], "checked": ["selection_hash", "specific_actions", "visible_shot_plan", "scope", "truthful_boundaries"], "not_checked": ["actual_rendered_images", "actual_video", "qingdou", "independent_qa", "publication"]}
 
 
-def choose(bank, usage, state_dir, product, scene=None, family=None, context="residential", scope="single_space"):
+def choose(bank, usage, state_dir, product, scene=None, family=None, context="residential", scope="single_space", topic_id=None):
     cards = bank["cards"]
     if product == "brand_process_ad":
         return {"product_type": product, "topic": None, "style": None, "status": "FIXED_CONFIRMED_COMPANY_PROCESS_NO_ROTATION"}
+    policy = read(MANIFEST_PATH).get("content_policy", {})
+    excluded = set(policy.get("excluded_semantic_keys", []))
+    if topic_id and any(c["id"] == topic_id and c["semantic_key"] in excluded for c in cards):
+        raise ValueError("OWNER_TOPIC_SCOPE_EXCLUDED; new videos focus on design, construction methods and use")
     if scope == "whole_home" and (product not in ("realistic_effect_ad", "design_plan_pitch") or scene or context == "commercial"):
         raise ValueError("WHOLE_HOME_SCOPE_ONLY_FOR_RESIDENTIAL_SHOWCASE_OR_PLAN; do not silently change scope")
     scene_map = {s["id"]: s for s in bank["scenes"]}
     eligible = [c for c in cards if product in c["supported_products"] and (context == "any" or scene_map[c["scene_id"]]["context"] == context)]
+    eligible = [c for c in eligible if c["semantic_key"] not in excluded]
     if scene:
         eligible = [c for c in eligible if scene in (c["scene_key"], c["scene_name"], c["scene_id"])]
     if family:
         eligible = [c for c in eligible if c["family"] == family]
+    if topic_id:
+        if not any(c["id"] == topic_id for c in cards):
+            raise ValueError("UNKNOWN_EXPLICIT_TOPIC_ID")
+        eligible = [c for c in eligible if c["id"] == topic_id]
     recipes = {b["primary_topic_id"]: b for b in bank["whole_home_blueprints"]}
     if scope == "whole_home":
         eligible = [c for c in eligible if c["id"] in recipes]
@@ -210,8 +220,11 @@ def select(args, bank, usage, state_dir):
     if old:
         if old["product_type"] != args.product_type:
             raise ValueError("TASK_PRODUCT_CONFLICT")
+        if getattr(args, "topic_id", None) and args.topic_id != old["topic_id"]:
+            raise ValueError("TASK_TOPIC_CONFLICT_REWORK_MUST_PRESERVE_ORIGINAL")
         return {**old["selection"], "status": "ALREADY_ADOPTED_REWORK_PRESERVES_TOPIC_STYLE"}
-    selection = choose(bank, usage, state_dir, args.product_type, args.scene, args.family, args.context, args.scope)
+    selection = choose(bank, usage, state_dir, args.product_type, args.scene, args.family, args.context, args.scope,
+                       getattr(args, "topic_id", None))
     if selection["topic"] is None:
         return selection
     engine = style_engine()
@@ -327,6 +340,8 @@ def parser():
         p.add_argument("--context", choices=("residential", "commercial", "any"), default="residential")
         p.add_argument("--scope", choices=("single_space", "whole_home"), default="single_space")
         p.add_argument("--task-id")
+        if command == "peek":
+            p.add_argument("--topic-id", help="Exact admitted card; scope and recent semantic dedup still apply")
         p.add_argument("--style-id")
         p.add_argument("--variant-id", choices=("V1", "V2", "V3"))
         if command == "simulate":

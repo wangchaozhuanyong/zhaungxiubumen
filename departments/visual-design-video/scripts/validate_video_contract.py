@@ -8,7 +8,14 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 from typing import Any
+
+# Also support the existing spec_from_file_location import callers.
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+from narration_contract import validate_narration, enabled_narration, validate_narration_evidence
 
 
 EXTERNAL_RELEASE_SCOPES = {
@@ -50,7 +57,7 @@ def nonempty(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
-def validate_contract(contract: dict[str, Any], final_media: Path | None) -> dict[str, Any]:
+def validate_contract(contract: dict[str, Any], final_media: Path | None, contract_root: Path | None = None) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
     presentation = contract.get("presentation_mode")
@@ -62,6 +69,12 @@ def validate_contract(contract: dict[str, Any], final_media: Path | None) -> dic
     routing = contract.get("routing", {})
     artifacts = contract.get("artifacts", {})
     music_state = contract.get("music_state", {})
+    errors.extend(validate_narration(contract, final=stage == "final_candidate"))
+    if enabled_narration(contract) and stage == "final_candidate":
+        if contract_root is None:
+            errors.append("narration_final_contract_root_required")
+        else:
+            errors.extend(validate_narration_evidence(contract, contract_root, final_media=final_media))
     music_required = presentation == "visual_music" or contract.get("music_required") is True
     audio_required = contract.get("audio_required")
     if audio_required is None:
@@ -153,7 +166,7 @@ def main() -> int:
     args = build_parser().parse_args()
     contract = load_contract(args.contract.expanduser().resolve())
     final_media = args.final_media.expanduser().resolve() if args.final_media else None
-    result = validate_contract(contract, final_media)
+    result = validate_contract(contract, final_media, args.contract.expanduser().resolve().parent)
     rendered = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     if args.output:
         destination = args.output.expanduser().resolve()

@@ -108,7 +108,21 @@ def require_capture_review(report: dict[str, Any], evidence_bytes: bytes,
         and report.get("findings") == []
         and report.get("observed_result") == "未检查到敏感词"
     )
-    if not (human_review or agent_no_hit_review):
+    # Owner explicitly approved evidence-backed automatic hit recording on
+    # 2026-10-14. This is the actual agent's declaration, never a human alias.
+    # checked_report still checks every term, field, complete batch and hash.
+    agent_hit_review = (
+        review.get("status") == "agent_inspected_real_hit_batch"
+        and review.get("declaration") == "AGENT_VERIFIED_REAL_QINGDOU_HIT_BATCH"
+        and review.get("surface") == "codex_iab"
+        and str(report.get("status", "")).casefold() in {"fail", "failed", "risk_detected"}
+        and isinstance(report.get("findings"), list)
+        and bool(report["findings"])
+        and isinstance(report.get("observed_result"), str)
+        and bool(report["observed_result"].strip())
+        and report["observed_result"] != "未检查到敏感词"
+    )
+    if not (human_review or agent_no_hit_review or agent_hit_review):
         raise ValueError("real_full_batch_capture_personal_review_required")
     for key in ("task_id", "run_id", "public_text_sha256", "batch_sha256", "evidence_sha256"):
         if review.get(key) != report.get(key):

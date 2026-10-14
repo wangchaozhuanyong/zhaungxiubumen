@@ -8,7 +8,7 @@
 
 先判断视频的信息任务，再开始创作。六类常规装修视频有简洁说明，统一中英双语、深炭灰编辑式文字；明确无字或纯空间欣赏任务才走 `visual_music/copy_mode=none`，不反向强加正文或 CTA。
 
-需要讲知识、流程、报价逻辑或明确广告主张时，才走 `copy_led`。输入模式（自主、参考、素材或 campaign）与呈现模式分开记录。
+需要讲设计知识、施工做法、使用改善、已确认服务流程或明确广告主张时，才走 `copy_led`。选题按 `references/renovation-knowledge-workflow.md` 的现行内容边界，不制作签约、报价套路或对付装修公司的内容。输入模式（自主、参考、素材或 campaign）与呈现模式分开记录。
 
 ## 固定专业 Skill
 
@@ -18,7 +18,10 @@
 
 ## 本地工具
 
-- `scripts/renovation_knowledge.py`：活动知识唯一选择器，48场景/144深度卡、18个来源及8整屋组合；peek/simulate只读，跨类型语义去重，validate-plan检查具体动作和镜头证据，采用后commit一次并管理原风格队列。固定品牌流程不轮换。完整规则见 `references/renovation-knowledge-workflow.md`，旧主题和重复提示词退出活动目录；归档、使用账、风格辅助函数按manifest区分。
+- `scripts/narration_audio.py`：项目内Qwen3-TTS/MLX0.5.9隔离配音；当前已选A「女设计师」，默认沿活动档案的较快语义节奏与已认可配乐平衡，实际配音/中文对齐驱动45–60秒讲解，不重做五声选择。参数与详细方法只在 `assets/voice/voice-profiles.json` 和 `references/mature-female-narration.md` 维护。无固定档案明确阻断正式配音，不默选/换声/转收费；普通展示仍≤30秒。模型文件冻结revision/SHA，下载/制作保留≥8GiB。
+- `scripts/narration_contract.py`：原合同追加配音结构与逐段语义绑定检查；缺narration的旧任务保持兼容，机器检查不代替真实自然感听检。
+
+- `scripts/renovation_knowledge.py`：活动知识唯一选择器，覆盖场景、深度卡、可靠来源和整屋组合，实时数量以活动manifest及verify为准，不把初版数量当上限；peek/simulate只读，跨类型语义去重，validate-plan检查具体动作和镜头证据，采用后commit一次并管理原风格队列。固定品牌流程不轮换。完整规则见 `references/renovation-knowledge-workflow.md`，旧主题和重复提示词退出活动目录；归档、使用账、风格辅助函数按manifest区分。
 - `scripts/music_scout_preflight.py`：每日音乐采集先用 Codex `list_threads` 生成新鲜单目标快照，核验 projectId、固定任务、标题、真实目录及分组；`read_thread` 缺省项目字段不能单独当成跨项目。缺字段/错配仍阻断，不修改注册表或放宽发布授权。
 - `scripts/reference_media.py`：检查环境、分析本地视频、冻结抖音参考视频、生成 ffprobe/contact sheet、可选提取音轨；默认不读浏览器，只有显式 `--cookies-from-browser` 才只读当前会话；不发布、不自动安装依赖、不保存 Cookie，并可输出无敏感信息的原因码诊断。
 - `scripts/music_library.py`：列出、核验、分析和推荐音乐，生成 `music-map.json`；推荐会先按时长/视频类型/风格/情绪排序，排除最近 mounted 历史，再从最高 3 名按正权重随机。`--seed` 可复现，`--history` 只读；推荐不等于挂载、可听或授权通过。
@@ -31,7 +34,7 @@
 - 局部细节模块：`references/same-image-detail-lens.md`；保留同一全景，用原图同源裁切放大窗、定位框和短引导线解释柜体/抽屉，不替换成新生成近景。逐镜避让字幕和家具，按源图清晰度控制尺寸。
 - `scripts/validate_douyin_publish_package.py`：新包验证同一双语描述＋两套各5个话题（中文只固定马来西亚装修公司、另4个自适应；英语逐项对应）、两份合并文案、全部公开文字统一哈希、Qingdou证据和封面结果；冻结旧包保留原规则兼容。
 - `scripts/public_copy_guard.py`：全部字幕/封面/口播/描述/话题先规划定稿，按项目风险词库筛查，生成一份完整轻抖送检文件；真实平台命中按证据去重入库，之后自动避用。只做本地汇总和证据校验，不联网代检、不伪造轻抖PASS。
-- `data/knowledge/qingdou-risk-lexicon.json`：真实轻抖命中风险词/短语与证据记录；初始化未录入实测命中，不是通用法律违禁词表。
+- `data/knowledge/qingdou-risk-lexicon.json`：真实轻抖命中风险词/短语与证据记录；只有实见且绑定截图/版本的命中由执行者本人自动记录，不是通用法律违禁词表。
 - `scripts/validate_first_frame_cover.py`：从最终 MP4 抽取第 0/1 帧及 0.50/0.70/0.90 秒证据，生成含第 0 帧的联系表，并用 SSIM 对比正式封面。
 - `scripts/validate_renovation_workflow.py`：验证六个核心产物、当前批次身份、无文案路由、代表帧、逐镜色彩报告、人工审片和 final 晋级指纹。
 - `assets/music/music-catalog.json`：可解码装修音频及哈希、时长、标签和既有版权状态；实时数量以 `music_library.py verify` 为准。2026-10-07老板已明确现有及以后下载入库的全库音乐均可参与本项目抖音视频制作，新曲入库后自动纳入可用池，按适配随机去重后直接挂载成片，不逐首确认；既有版权字段不改。详见音乐参考流程的全库使用决定。

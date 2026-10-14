@@ -1974,6 +1974,76 @@ if set(TARGETS) & set(SPARSE_PUBLISHER_TARGETS):
     raise ValueError('Sparse publisher successor collides with a historical target')
 TARGETS.update(SPARSE_PUBLISHER_TARGETS)
 
+# One new original publisher action. This registration only makes the exact
+# namespace discoverable; existing assistant QA, policy and protected permit
+# gates still decide whether it can be executed.
+CONDO_FAQ_V7_NAME = "condo-faq-v7-current-native-two-fields-20261014"
+CONDO_FAQ_V7_SHAPE = "condo_faq_current_native_v7"
+CONDO_FAQ_V7_BASE = "drafts/publishing/fc-20261014-condo-faq-v7-cms-publishing-v1/"
+CONDO_FAQ_V7_TARGET = {
+    "task_id": "fc-20261014-condo-faq-v7-cms-publishing-v1",
+    "action_id": "publish-condo-faq-v7-current-native-20261014-v1",
+    "candidate_version": "publishing-condo-faq-v7-current-native-v1-20261014",
+    "scope": "company.example:blog_posts/701c2406-ba5b-4bbc-8d47-f985047d5c81:content_en,content_zh",
+    "record_id": "701c2406-ba5b-4bbc-8d47-f985047d5c81",
+    "slug": "condo-renovation-management-approval-malaysia",
+    "table": "blog_posts", "content_type": "blog",
+    "changed_fields": ["content_en", "content_zh"],
+    "expected_updated_at": "2026-09-26T18:34:55.816725+00:00",
+    "observed_version": 1,
+    "execution_owner": "publishing",
+    "execution_thread_id": "<LOCAL_TASK_ID>",
+    "candidate_shape": CONDO_FAQ_V7_SHAPE,
+    "candidate": (CONDO_FAQ_V7_BASE + "publishing-condo-v7-current-native-candidate-v1.json",
+                  "5a717a01629d62bf5fa161c4c377a0467439edf00c6d47143311dc3e755ee821"),
+    "source_frozen_candidate": (CONDO_FAQ_V7_BASE + "publishing-condo-v7-current-native-candidate-v1.json",
+                                "5a717a01629d62bf5fa161c4c377a0467439edf00c6d47143311dc3e755ee821"),
+    "rollback": ("backups/fc-20261014-condo-faq-v7-cms-publishing-v1/condo.before-full-native-record-v1.json",
+                 "8a4b333aeb573e461f923b1f954366f8a6fdc9237b95c43dc4cebdf9bee50bed"),
+    "rollback_allowed": False,
+    "qa_outbox": None,
+    "payload_sha256": "bd4c49e6c375208f527e703aaf8a217d7cd8c5f380f7ff337a3e006c0fd2f409",
+}
+if CONDO_FAQ_V7_NAME in TARGETS:
+    raise ValueError("Exact condo FAQ action collides with a registered target")
+TARGETS[CONDO_FAQ_V7_NAME] = CONDO_FAQ_V7_TARGET
+
+# The owner-authorized two-page batch has a new single-field publishing goal.
+# Its closed Ads parent and older builtin permits are references, never a grant.
+BUILTIN_WARDROBE_NAME = "builtin-wardrobe-layout-content-zh-20261014-v1"
+BUILTIN_WARDROBE_SHAPE = "builtin_wardrobe_one_field_registration_v1"
+BUILTIN_WARDROBE_BASE = "drafts/publishing/fc-20260920-google-ads-rm100-budget-plan/two-quality-pages-20261014-v1/"
+BUILTIN_WARDROBE_BINDING = (
+    "logs/handoffs/2026-10-14-builtin-wardrobe-registration-v1/system-development-candidate-v1/"
+    "exact-registration-binding.json", "6f2383aa27ba012e783b18b97912cfa8b01c6e3f9b4a0119a43f4fbf49236419")
+BUILTIN_WARDROBE_GOAL = (
+    "logs/handoffs/2026-10-14-builtin-wardrobe-registration-v1/system-development-candidate-v1/"
+    "goal-input.json", "3a8ba4375bdae2e7bce3f589c3fe49d7c6aba00a0ab9a0d19b6fe04d166aa99b")
+BUILTIN_WARDROBE_TARGET = {
+    "task_id": "fc-20261014-builtin-wardrobe-layout-cms-publication-v1",
+    "action_id": "publish-builtin-wardrobe-layout-20261014-v1",
+    "candidate_version": "two-quality-pages-20261014-v1",
+    "scope": "company.example:services/b401a610-a4dc-4a0b-a7e0-efcac6c81d71:content_zh",
+    "record_id": "b401a610-a4dc-4a0b-a7e0-efcac6c81d71",
+    "slug": "builtin", "table": "services", "content_type": "service",
+    "changed_fields": ["content_zh"],
+    "expected_updated_at": "2026-10-10T16:08:22.003433+00:00", "observed_version": 1,
+    "execution_owner": "publishing",
+    "execution_thread_id": "<LOCAL_TASK_ID>",
+    "candidate_shape": BUILTIN_WARDROBE_SHAPE,
+    "candidate": (BUILTIN_WARDROBE_BASE + "builtin.candidate-full-native-record.json",
+                  "35c0d78e6ae84774c94b011c0f8be52f5ba199c08b09dc762a2fdbd64982610e"),
+    "rollback": ("backups/fc-20260920-google-ads-rm100-budget-plan/"
+                 "two-quality-pages-20261014-v1/builtin.before-full-native-response.json",
+                 "1093a1c0541b877f5772528599532042b1ad57dff8138a67367290da7f9a033f"),
+    "rollback_allowed": False, "qa_outbox": None,
+    "payload_sha256": "ac15ee387764d4a7420edc106cc2b078b3f28ce273d608664cf18ef00ec57e83",
+    "registration_binding": BUILTIN_WARDROBE_BINDING, "goal_contract": BUILTIN_WARDROBE_GOAL,
+}
+if BUILTIN_WARDROBE_NAME in TARGETS:
+    raise ValueError("Exact new builtin wardrobe action collides with a registered target")
+TARGETS[BUILTIN_WARDROBE_NAME] = BUILTIN_WARDROBE_TARGET
+
 BLOG_TARGETS = frozenset({
     "blog-kitchen-cabinet-cost-r1-v1",
     "blog-renovation-quotation-links-r1-v1",
@@ -2071,10 +2141,237 @@ def validate_completed_parent_status(status: dict, target: dict,
             "Rollback parent permit is not the completed exact publish run")
 
 
+def validate_condo_faq_v7_candidate(root: Path, candidate: dict, target: dict) -> None:
+    """Read one frozen publisher package; this grants no permit or Save."""
+    root = Path(root).resolve()
+    require(root == ROOT.resolve() and target == CONDO_FAQ_V7_TARGET,
+            "Exact original condo FAQ target and company root required")
+    def frozen(path: str, sha: str) -> bytes:
+        observed = wc.file_digest(root, path)
+        require(observed["sha256"] == sha, "Frozen condo FAQ evidence changed: " + path)
+        return wc.safe_path(root, path).read_bytes()
+    canonical = json.loads(frozen(*target["candidate"]))
+    require(candidate == canonical and candidate.get("schema_version") == "current-native-answer-only-CMS-candidate/1",
+            "Exact current publisher candidate bytes required")
+    frozen(CONDO_FAQ_V7_BASE + "frozen-exact-production-tuple-v1.json",
+           "9e5915c4df6f37567611312e91772e2f275449be638d6ceda67658e0ca7b2fde")
+    authority = frozen("logs/handoffs/2026-10-14-assistant1-v7-remaining-followthrough-1818-v1/"
+                       "original-human-CMS-publishing-authority-native-context.json",
+                       "463bbf764c280221a55e16fb17023dcce94f2041ba3984001cf570a91abe405b")
+    contract = frozen("logs/handoffs/2026-10-14-condo-faq-v7-publishing-child-v1/child-goal-input.json",
+                      "fa7aae6bd9791360386c9ffb6eb049ed1e868005993a50536dc2708553219967")
+    before_raw = frozen(CONDO_FAQ_V7_BASE + "condo.current-full-native-record-v1.json",
+                        "8a4b333aeb573e461f923b1f954366f8a6fdc9237b95c43dc4cebdf9bee50bed")
+    backup_raw = frozen(target["rollback"][0], target["rollback"][1])
+    read = json.loads(frozen(CONDO_FAQ_V7_BASE + "actual-current-native-read-source-v1.json",
+                            "92a4a0d15df9831607ab76d3dea4bdfb4e14d388d046e489c571194fb54d2eea"))
+    payload = json.loads(frozen(CONDO_FAQ_V7_BASE + "write-only-two-native-fields-v1.json",
+                                "11f87d04f38b178904a4a3f9cab92a02493ded170b8688ff7e2f40bae79d6548"))
+    wire = frozen(CONDO_FAQ_V7_BASE + "actual-canonical-two-field-payload-wire.json", target["payload_sha256"])
+    checks = json.loads(frozen(CONDO_FAQ_V7_BASE + "actual-native-diff-and-serialization-checks-v1.json",
+                                "e944675e49725505fd3558be1e4c4b04215967344d2daab65b65977d73ac3443"))
+    span = json.loads(frozen(CONDO_FAQ_V7_BASE + "answer-only-native-span-diff-v1.json",
+                              "92c46694e9c0a20138431b941f9a04e28520610106035eb7a7a680231b0f5d29"))
+    restore = json.loads(frozen(CONDO_FAQ_V7_BASE + "only-two-field-restore-preparation-v1.json",
+                                 "4a904f6d15420686ba1fbed71e1fa2620995c7dfda66fa0df9841683a5557d8f"))
+    before = json.loads(before_raw)
+    exact = {"task_id": target["task_id"], "action_id": target["action_id"],
+             "candidate_version": target["candidate_version"], "scope": target["scope"],
+             "record_id": target["record_id"], "slug": target["slug"],
+             "table": target["table"], "content_type": target["content_type"],
+             "execution_owner": target["execution_owner"],
+             "execution_thread_id": target["execution_thread_id"],
+             "expected_updated_at": target["expected_updated_at"],
+             "expected_version": target["observed_version"],
+             "payload_sha256": target["payload_sha256"]}
+    require(all(candidate.get(key) == value for key, value in exact.items())
+            and candidate.get("action_class") == "cms_content_candidate"
+            and candidate.get("execution_action_class") == "cms_write"
+            and candidate.get("fixed_chat_task_id") == target["execution_thread_id"]
+            and candidate.get("changed_fields") == target["changed_fields"]
+            and set(candidate.get("desired_fields", {})) == set(target["changed_fields"])
+            and candidate.get("new_permit") == candidate.get("protected_preview") == candidate.get("Save") == 0
+            and candidate.get("published") is False
+            and candidate.get("parent_goal_closed") is False,
+            "Exact original task/action/row/two-field current candidate required")
+    require(candidate.get("backup") == wc.file_digest(root, target["rollback"][0])
+            and candidate.get("actual_current_native_record") == wc.file_digest(
+                root, CONDO_FAQ_V7_BASE + "condo.current-full-native-record-v1.json")
+            and candidate.get("only_write_projection") == wc.file_digest(
+                root, CONDO_FAQ_V7_BASE + "write-only-two-native-fields-v1.json")
+            and candidate.get("child_goal_contract") == wc.file_digest(
+                root, "logs/handoffs/2026-10-14-condo-faq-v7-publishing-child-v1/child-goal-input.json")
+            and backup_raw == before_raw and len(before) == 23
+            and before.get("id") == target["record_id"] and before.get("slug") == target["slug"]
+            and before.get("status") == "published" and before.get("version") == target["observed_version"]
+            and before.get("updated_at") == target["expected_updated_at"],
+            "Actual current 23-field row, authorization contract or physical backup changed")
+    require(read.get("task_id") == target["task_id"] and read.get("request_method") == "GET"
+            and read.get("http_status") == 200 and read.get("record_id") == target["record_id"]
+            and read.get("slug") == target["slug"] and read.get("field_count") == 23
+            and read.get("version") == before["version"]
+            and read.get("raw_updated_at") == before["updated_at"]
+            and read.get("network_buffer_truncated") is False
+            and read.get("credentials_or_headers_read") is False
+            and read.get("Save") == read.get("new_permit") == 0,
+            "Actual native before-source observation changed")
+    require(payload == candidate["desired_fields"] and set(payload) == set(target["changed_fields"])
+            and hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                                          separators=(",", ":")).encode()).hexdigest() == target["payload_sha256"]
+            and hashlib.sha256(wire).hexdigest() == target["payload_sha256"]
+            and json.loads(wire) == payload
+            and wc.sha256_value(before) == candidate.get("baseline_fields_sha256")
+            and wc.sha256_value({key: before[key] for key in candidate["retained_business_fields"]})
+                == candidate.get("retained_business_fields_sha256")
+            and set(before) - set(target["changed_fields"])
+                == set(candidate.get("retained_including_metadata_fields", [])),
+            "Exact native two-field wire, CAS baseline or retained projection changed")
+    projected = json.loads(frozen(CONDO_FAQ_V7_BASE + "desired-full-native-projection-v1.json",
+                                  "fbabb060787eb902ae4116696a00b87fe87f7280f3336518650b2e23264ec061"))
+    require(projected == {**before, **payload}
+            and span.get("all_other_full_field_bytes_preserved") is True
+            and set(span.get("changed_native_fields", [])) == set(target["changed_fields"])
+            and len(span.get("spans", [])) == 2
+            and checks.get("status") == "PASS_BOUNDED_ACTUAL_PAYLOAD_SERIALIZATION_AND_MINIMAL_NATIVE_DIFF"
+            and all(value is True for value in checks.get("checks", {}).values())
+            and checks.get("actual_payload_sha256") == target["payload_sha256"]
+            and checks.get("HTTP_requests") == checks.get("Save") == checks.get("new_permit") == 0
+            and restore.get("before_full_backup") == wc.file_digest(root, target["rollback"][0])
+            and restore.get("restore_field_count") == 2
+            and set(restore.get("restore_fields", {})) == set(target["changed_fields"])
+            and restore.get("production_restore_executable") is False
+            and restore.get("applied") is False
+            and bool(authority) and bool(contract),
+            "Actual answer-only diff, local checks or two-field restore preparation changed")
+
+
+def validate_builtin_wardrobe_one_field_candidate(root: Path, candidate: dict, target: dict) -> None:
+    """Bind only the owner-approved new batch; neither history nor metadata permits Save."""
+    root = Path(root).resolve()
+    require(root == ROOT.resolve() and target == BUILTIN_WARDROBE_TARGET,
+            "Exact builtin wardrobe project and registered target required")
+    binding = json.loads(exact_file(root, BUILTIN_WARDROBE_BINDING).read_text())
+    goal = json.loads(exact_file(root, BUILTIN_WARDROBE_GOAL).read_text())
+    expected = {"task_id": target["task_id"], "candidate_version": target["candidate_version"],
+                "action_id": target["action_id"], "scope": target["scope"],
+                "record_id": target["record_id"], "table": target["table"],
+                "changed_fields": target["changed_fields"], "execution_owner": "publishing",
+                "execution_thread_id": target["execution_thread_id"],
+                "expected_updated_at": target["expected_updated_at"],
+                "expected_version": target["observed_version"],
+                "payload_sha256": target["payload_sha256"]}
+    require(binding.get("schema") == "builtin-wardrobe-exact-registration-binding/v1"
+            and all(binding.get(key) == value for key, value in expected.items())
+            and binding.get("parent_reference_task_id") == "fc-20260920-google-ads-rm100-budget-plan"
+            and binding.get("action_class") == "cms_write"
+            and binding.get("production_write_allowed") is False
+            and binding.get("permit_issued") is False and binding.get("CMS_Save") is False
+            and goal.get("original_parent_reference_task_id") == binding["parent_reference_task_id"]
+            and goal.get("primary_owner") == "paid-growth-data"
+            and goal.get("responsible_assistant") == "operations-assistant-2"
+            and goal.get("producer_departments") == ["paid-growth-data", "publishing"]
+            and goal.get("authorized_scope") == [target["scope"]]
+            and goal.get("required_execution_actions") == [{"action_id": target["action_id"],
+                 "action_class": "cms_write", "scope": target["scope"], "department": "publishing"}]
+            and goal.get("source_mode") == "owner_direct"
+            and goal.get("production_write_allowed") is False
+            and goal.get("external_permission_issued") is False
+            and goal.get("CMS_Save") is False,
+            "New single-field goal or original owner/executor binding differs")
+    sources = binding.get("source")
+    required = {"actual-builtin-exact-admission-result.json", "exact-new-builtin-execution-identity.json",
+                "original-human-authority-native-fragment.json", "field-preparation-selfchecks.json",
+                "actual-native-field-serialization-proof.json", "actual-current-native-read-source.json",
+                "builtin.current-native-response.json", "builtin.candidate-full-native-record.json",
+                "write-only-content-zh.json", "exact-field-rollback-plan-NOT-ADMITTED.json",
+                "protected-dry-run-request-PREPARED-NOT-SENT.json",
+                "protected-wire-serialized-NOT-SENT.json", "observed-parent-reference-status.json",
+                "physical_before_backup"}
+    require(isinstance(sources, dict) and set(sources) == required,
+            "Only the original current builtin batch evidence may enter registration")
+    for item in (*sources.values(), binding["original_human_authority"],
+                 binding["actual_native_human_page"], binding["new_task_request_adapter"]):
+        require(wc.file_digest(root, item["path"]) == item,
+                "Exact original builtin source changed")
+    def source(name):
+        return json.loads(wc.safe_path(root, sources[name]["path"]).read_text())
+    identity, admission = source("exact-new-builtin-execution-identity.json"), source("actual-builtin-exact-admission-result.json")
+    before, after = source("builtin.current-native-response.json"), source("builtin.candidate-full-native-record.json")
+    backup = source("physical_before_backup")
+    patch = source("write-only-content-zh.json")
+    read = source("actual-current-native-read-source.json")
+    checks, wire = source("field-preparation-selfchecks.json"), source("actual-native-field-serialization-proof.json")
+    parent = source("observed-parent-reference-status.json")
+    original_request = source("protected-dry-run-request-PREPARED-NOT-SENT.json")
+    adapted = json.loads(wc.safe_path(root, binding["new_task_request_adapter"]["path"]).read_text())
+    human = json.loads(wc.safe_path(root, binding["original_human_authority"]["path"]).read_text())
+    native = json.loads(wc.safe_path(root, binding["actual_native_human_page"]["path"]).read_text())
+    selected = {item.get("id"): item for turn in native.get("turns", [])
+                for item in turn.get("items", []) if item.get("type") == "userMessage"}
+    require(human.get("source_thread_id") == native.get("thread", {}).get("id")
+            == "<LOCAL_TASK_ID>"
+            and selected.get("example-native-8b2eedaf7db63344") == human.get("message")
+            and selected.get("example-native-052c3570db5757e7") == human.get("registration_authorization")
+            and "授权这两部门完成两页改进" in human["message"]["content"][0]["text"]
+            and "授权仅修本批登记" in human["registration_authorization"]["content"][0]["text"]
+            and goal.get("human_authorization", {}).get("evidence_path") == binding["original_human_authority"]["path"]
+            and goal["human_authorization"].get("message_id") == human["message"]["id"],
+            "Original two-page authority and exact registration-only answer required")
+    require(identity.get("task_id") == binding["parent_reference_task_id"]
+            and identity.get("action_id") == target["action_id"]
+            and identity.get("scope") == target["scope"]
+            and identity.get("fields") == ["content_zh"]
+            and identity.get("payload_sha256") == target["payload_sha256"]
+            and admission.get("status") == "REJECTED_BY_ACTUAL_LOCAL_NAMESPACE_CONSUMER"
+            and admission.get("matching_current_batch_targets") == []
+            and admission.get("permit_issued") is False and admission.get("Save") == 0
+            and parent.get("task_id") == binding["parent_reference_task_id"]
+            and parent.get("current_state") == "closed" and parent.get("goal_delivery") is None
+            and parent.get("parent_reopened_or_modified") is False,
+            "Old parent and namespace rejection may be cited, never reused as a current grant")
+    require(candidate == after and len(before) == len(after) == len(backup) == 30
+            and before == backup and before.get("id") == after.get("id") == target["record_id"]
+            and before.get("slug") == after.get("slug") == target["slug"]
+            and before.get("status") == after.get("status") == "published"
+            and before.get("version") == after.get("version") == target["observed_version"]
+            and before.get("updated_at") == after.get("updated_at") == target["expected_updated_at"]
+            and {key for key in before if before[key] != after[key]} == {"content_zh"}
+            and patch == {"content_zh": after["content_zh"]}
+            and hashlib.sha256(json.dumps(patch, ensure_ascii=False, sort_keys=True,
+                            separators=(",", ":")).encode()).hexdigest() == target["payload_sha256"],
+            "One native content_zh change, full 30-field before backup and exact payload required")
+    require(read.get("method") == "GET" and read.get("status") == 200
+            and read.get("record_id") == target["record_id"] and read.get("field_count") == 30
+            and read.get("updated_at") == target["expected_updated_at"]
+            and read.get("credentials_or_headers_read") is False and read.get("Save") == 0
+            and all(value is True for value in checks.get("checks", {}).values())
+            and all(value is True for value in wire.get("checks", {}).values())
+            and wire.get("all_passed") is True and wire.get("remote_request_sent") is False
+            and wire.get("permit_issued") is False and wire.get("Save") == 0,
+            "Current native observation and local serialization must remain zero-write")
+    old_managed, new_managed = original_request.get("managedCandidate"), adapted.get("managedCandidate")
+    require(original_request.get("record") == adapted.get("record") == after
+            and {key: value for key, value in original_request.items() if key != "managedCandidate"}
+                == {key: value for key, value in adapted.items() if key != "managedCandidate"}
+            and isinstance(old_managed, dict) and isinstance(new_managed, dict)
+            and old_managed.get("taskId") == binding["parent_reference_task_id"]
+            and new_managed == {**old_managed, "taskId": target["task_id"]}
+            and adapted.get("mode") == "dry-run"
+            and adapted.get("expectedUpdatedAt") == target["expected_updated_at"]
+            and binding["new_task_request_adapter"]["path"].endswith("NOT-SENT.json"),
+            "Only the new task ID may change in the unsent protected request adapter")
+
+
 def validate_candidate_binding(candidate: dict, target: dict, *, root: Path | None = None) -> None:
     """Bind newly added targets to one approved row and its exact field set."""
     evidence_root = Path(root) if root is not None else ROOT
     shape = target.get("candidate_shape")
+    if shape == CONDO_FAQ_V7_SHAPE:
+        validate_condo_faq_v7_candidate(evidence_root, candidate, target)
+        return
+    if shape == BUILTIN_WARDROBE_SHAPE:
+        validate_builtin_wardrobe_one_field_candidate(evidence_root, candidate, target)
+        return
     from paid_three_page_bounded_cms import MODEL as bounded_model, targets as bounded_targets, doc as bounded_doc
     if shape == bounded_model:
         exact = bounded_targets(evidence_root).get(target.get("action_id"))
@@ -2310,6 +2607,241 @@ def _current_registered_targets(root: Path) -> dict:
     return targets
 
 
+CONDO_FAQ_CANDIDATE_ACCEPTANCE_MODEL = "condo_faq_v7_candidate_scope_only_v1"
+CONDO_FAQ_PARENT_TASK = "fc-20261010-assistant1-remaining-business-continuation-v2"
+CONDO_FAQ_PARENT_RESULT = {
+    "path": "logs/department-outbox/fc-20261010-assistant1-remaining-business-continuation-v2-content-organic-website-condo-faq-field-locator-v8-1837MYT.json",
+    "sha256": "a2af2e067cab1ec0bb6e408d3f1222b6ea71cd8d34bc08e99401b44a1fc96375", "size": 8466}
+CONDO_FAQ_PARENT_REVIEW = {
+    "path": "logs/handoffs/2026-10-14-assistant1-v7-remaining-followthrough-1818-v1/V8-once-new-locator-result-bounded-review.json",
+    "sha256": "9396ebe0412e17ee24c54a43bc4692e2aefe85b1f1156b17b179de77cadf6012", "size": 3088}
+CONDO_FAQ_PUBLISHER_RESULT = {
+    "path": "drafts/publishing/fc-20261014-condo-faq-v7-cms-publishing-v1/outbox-v2.json",
+    "sha256": "98951c7e4381bd872ca4c6d0f092a38929ab135426aa2f98b5b18bb59ef3accc", "size": 13390}
+
+
+def _condo_faq_parent_candidate_source(root: Path, snapshot: dict, report: dict) -> None:
+    """Keep the original SEO1 V8 locator in its parent task, not a fake child outbox."""
+    require(snapshot.get("goal_delivery", {}).get("parent_task_id") == CONDO_FAQ_PARENT_TASK
+            and report.get("original_parent_SEO1_result") == CONDO_FAQ_PARENT_RESULT
+            and report.get("original_parent_A1_review") == CONDO_FAQ_PARENT_REVIEW,
+            "Exact original parent SEO1 locator and A1 bounded review required")
+    for pin in (CONDO_FAQ_PARENT_RESULT, CONDO_FAQ_PARENT_REVIEW):
+        require(wc.file_digest(root, pin["path"]) == pin, "Original parent result/review bytes changed")
+    source = wc.read_json(wc.safe_path(root, CONDO_FAQ_PARENT_RESULT["path"]))
+    review = wc.read_json(wc.safe_path(root, CONDO_FAQ_PARENT_REVIEW["path"]))
+    require(source.get("task_id") == CONDO_FAQ_PARENT_TASK
+            and source.get("department") == "content-organic-website"
+            and source.get("candidate_version") == "seo1-condo-faq-cms-field-locator-v8-20261014-1837MYT"
+            and review.get("outbox") == CONDO_FAQ_PARENT_RESULT
+            and review.get("reviewer") == "operations-assistant"
+            and review.get("formal_whole_goal_QA_PASS") is False
+            and review.get("production_saved") is False,
+            "Parent source is locator-only, not child producer or publication completion")
+    parent_rows, invalid = wc._validate_receipt_chain(root, CONDO_FAQ_PARENT_TASK,
+                                                       through_receipt_id="65dd7840-0d19-4c09-b5d3-d3bae6bb339a")
+    require(not invalid and any(row.get("receipt_id") == "65dd7840-0d19-4c09-b5d3-d3bae6bb339a"
+            and row.get("receipt_type") == "outbox_received"
+            and row.get("department") == "content-organic-website"
+            and CONDO_FAQ_PARENT_RESULT in row.get("evidence", []) for row in parent_rows),
+            "Original parent SEO1 result receipt missing")
+    history = wc._result_handoff_rows(root, CONDO_FAQ_PARENT_TASK)
+    expected = (("notification_queued", "22df53dc-aef4-4227-b2a6-b655adba5014"),
+                ("controller_received", "ea40180e-3e2a-4962-9af1-e939eb11ed43"),
+                ("controller_decision", "bc0edf1e-822c-4c24-9c3b-15d4ecd8c57b"),
+                ("controller_followthrough", "486d3333-29d0-48b9-9c53-761f25a9a65d"))
+    for event, record_id in expected:
+        matches = [row for row in history if row.get("event") == event
+                   and row.get("record_id") == record_id and row.get("outbox") == CONDO_FAQ_PARENT_RESULT]
+        require(len(matches) == 1, "Original parent result intake/continue/followthrough missing")
+        if event == "controller_decision":
+            require(matches[0].get("decision") == "continue"
+                    and matches[0].get("coordinator_role") == "operations-assistant"
+                    and matches[0].get("responsible_assistant") == "operations-assistant"
+                    and matches[0].get("business_goal_closed") is False,
+                    "Original A1 parent decision must remain bounded continuation")
+
+
+def _condo_faq_child_result_history(root: Path) -> None:
+    """Preserve the one already-decided publisher result; it is not a Save decision."""
+    expected = (("notification_queued", "576663d5-77c7-474a-a03c-2922079380dd"),
+                ("controller_received", "0f54a653-b24a-482b-97ee-6e7bde403d8b"),
+                ("controller_decision", "e3ee8e33-b013-42da-8cc2-f5d3c2462699"),
+                ("controller_followthrough", "169d7716-5131-4109-a4b2-4c4f2edcc59f"))
+    rows = wc._result_handoff_rows(root, CONDO_FAQ_V7_TARGET["task_id"])
+    for event, record_id in expected:
+        matches = [row for row in rows if row.get("event") == event
+                   and row.get("record_id") == record_id
+                   and row.get("outbox") == CONDO_FAQ_PUBLISHER_RESULT]
+        require(len(matches) == 1, "Original child publisher result stage missing")
+        if event == "controller_decision":
+            require(matches[0].get("decision") == "continue"
+                    and matches[0].get("next_owner") == "system-development"
+                    and matches[0].get("coordinator_role") == "operations-assistant"
+                    and matches[0].get("business_goal_closed") is False,
+                    "Original child continue is only the technical repair handoff")
+
+
+def _condo_faq_candidate_acceptance(root: Path, snapshot: dict, goal: dict, plan: dict,
+                                     receipts: list, target: dict, candidate_pin: dict) -> dict:
+    """A1's actual candidate-only result can precede Save; final QA stays separate."""
+    require(target == CONDO_FAQ_V7_TARGET and goal.get("parent_task_id") == CONDO_FAQ_PARENT_TASK
+            and goal.get("primary_owner") == "content-organic-website"
+            and goal.get("responsible_assistant") == "operations-assistant"
+            and goal.get("producer_departments") == ["content-organic-website", "publishing"]
+            and goal.get("source_mode") == "approved_dispatch"
+            and goal.get("authorized_scope") == [target["scope"]]
+            and goal.get("authorization_pin", {}).get("sha256") == "463bbf764c280221a55e16fb17023dcce94f2041ba3984001cf570a91abe405b"
+            and snapshot.get("goal_contract", {}).get("sha256") == "fa7aae6bd9791360386c9ffb6eb049ed1e868005993a50536dc2708553219967"
+            and goal.get("required_execution_actions") == [{"action_id": target["action_id"],
+                "action_class": "cms_write", "scope": target["scope"], "department": "publishing"}],
+            "Only the original exact condo FAQ CMS child is candidate eligible")
+    from qa_review_plan import original_condo_faq_child_review_context
+    require(original_condo_faq_child_review_context(root, snapshot, receipts, plan) is not None,
+            "Current original A1 main-to-child reviewer source required")
+    bounded = wc._goal_bounded_candidate_subject(root, snapshot, receipts, plan, "publishing")
+    require(bounded.get("state") == "PROVEN"
+            and bounded.get("acceptance_scope") == "candidate_source_only"
+            and bounded.get("business_goal_closed") is False
+            and bounded.get("candidate") == candidate_pin
+            and bounded.get("producer_outbox") == CONDO_FAQ_PUBLISHER_RESULT,
+            "Current independent exact condo FAQ candidate-only acceptance missing")
+    accepted = bounded["acceptance_receipt"]
+    require(accepted.get("receipt_type") == "outbox_received"
+            and accepted.get("department") == "operations-assistant"
+            and accepted.get("task_id") == target["task_id"],
+            "Real A1 candidate outbox receipt required; no fabricated QA verdict")
+    box = wc.read_json(wc.safe_path(root, bounded["acceptance_outbox"]["path"]))
+    report_pin = box.get("bounded_candidate_acceptance")
+    report = wc.read_json(wc.safe_path(root, report_pin["path"]))
+    require(report.get("goal_completion_claimed") is False
+            and report.get("external_permission_issued") is False
+            and report.get("producer_outbox") == CONDO_FAQ_PUBLISHER_RESULT
+            and box.get("production_write_allowed") is False
+            and box.get("external_permission_issued") is False
+            and box.get("goal_completion_claimed") is False,
+            "A1 conclusion must be candidate-only, not whole-goal or write authority")
+    _condo_faq_parent_candidate_source(root, snapshot, report)
+    _condo_faq_child_result_history(root)
+    require(report.get("decision") == "continue"
+            and report.get("next_owner") == "publishing"
+            and report.get("next_action_id") == target["action_id"]
+            and report.get("next_scope") == target["scope"]
+            and report.get("execution_status") == "NOT_EXECUTED"
+            and report.get("public_postcheck_status") == "NOT_VERIFIED",
+            "Real A1 candidate-only conclusion must explicitly return exact pre-Save work to publishing")
+    require(not any(row.get("receipt_type") == "execution_result"
+            and row.get("action_id") == target["action_id"]
+            and row.get("scope") == target["scope"]
+            and row.get("verdict") != "blocked" for row in receipts),
+            "Already executed condo FAQ cannot issue a fresh initial permit")
+    return {**accepted, "acceptance_model": CONDO_FAQ_CANDIDATE_ACCEPTANCE_MODEL,
+            "task_id": target["task_id"], "action_id": target["action_id"],
+            "action_class": "cms_content_candidate", "scope": target["scope"],
+            "verdict": "pass_candidate_only", "operation": "publish",
+            "responsible_assistant": "operations-assistant", "candidate_version": target["candidate_version"],
+            "acceptance_capability": goal["acceptance_capability"],
+            "candidate_acceptance_record_id": accepted["receipt_id"],
+            "candidate_acceptance_record_hash": accepted["receipt_hash"],
+            "review_plan": snapshot["qa_review_plan"]["pin"],
+            "review_outbox": bounded["acceptance_outbox"], "bounded_report": report_pin,
+            "producer_outbox": bounded["producer_outbox"], "candidate": candidate_pin,
+            "source_fingerprint": bounded["source_fingerprint"],
+            "risk_level": plan["risk_level"], "authorization_pin": goal["authorization_pin"],
+            "goal_completion_claimed": False, "production_write_allowed": False}
+
+
+def _condo_faq_candidate_decision(root: Path, decision: dict, target: dict,
+                                  payload_sha256: str, acceptance: dict, now: datetime) -> dict:
+    """Bind A1's later native candidate conclusion, not a forbidden second decision."""
+    expected = {"department": "operations-assistant",
+        "assistant_chat_task_id": "<LOCAL_TASK_ID>",
+        "decision": "EXECUTE_AUTHORIZED_ACTION", "operation": "publish",
+        "task_id": target["task_id"], "action_id": target["action_id"],
+        "action_class": "cms_write", "scope": target["scope"],
+        "candidate_version": target["candidate_version"], "record_id": target["record_id"],
+        "payload_sha256": payload_sha256,
+        "candidate_acceptance_record_id": acceptance["candidate_acceptance_record_id"],
+        "candidate_acceptance_record_hash": acceptance["candidate_acceptance_record_hash"],
+        "review_outbox": acceptance["review_outbox"], "review_plan": acceptance["review_plan"],
+        "bounded_report": acceptance["bounded_report"],
+        "producer_outbox": acceptance["producer_outbox"],
+        "source_fingerprint": acceptance["source_fingerprint"],
+        "authorization_pin": acceptance["authorization_pin"],
+        "candidate_scope_only": True, "goal_completion_claimed": False}
+    require(target == CONDO_FAQ_V7_TARGET and acceptance.get("acceptance_model") == CONDO_FAQ_CANDIDATE_ACCEPTANCE_MODEL
+            and all(decision.get(key) == value for key, value in expected.items())
+            and not decision.get("qa_receipt_id")
+            and not decision.get("controller_decision_record_id")
+            and len(str(acceptance.get("candidate_acceptance_record_hash") or "")) == 64
+            and decision.get("decision_id") == "condo-faq-v7-candidate-" + acceptance["candidate_acceptance_record_hash"][:20],
+            "Exact A1 candidate-only CMS decision differs from current source/authority")
+    report = wc.read_json(wc.safe_path(root, acceptance["bounded_report"]["path"]))
+    require(wc.file_digest(root, acceptance["bounded_report"]["path"]) == acceptance["bounded_report"]
+            and report.get("decision") == "continue"
+            and report.get("next_owner") == "publishing"
+            and report.get("next_action_id") == target["action_id"]
+            and report.get("next_scope") == target["scope"],
+            "A1 native bounded report must direct only this Save preparation")
+    decided_at = timestamp(str(decision.get("decided_at", "")))
+    require(timestamp(acceptance["created_at"]) <= decided_at <= now
+            and now - timedelta(hours=24) <= decided_at,
+            "A1 candidate decision is stale, future or predates current acceptance")
+    return {**decision, "candidate_scope_only": True,
+            "decision_source": "native_A1_bounded_candidate_conclusion"}
+
+
+SELF_CHECK_EXECUTION_MODEL = "goal_authorized_cms_selfcheck_v1"
+
+
+def _authorized_cms_selfcheck(root: Path, snapshot: dict, target: dict, operation: str) -> dict:
+    """Admission to existing protected execution, not final acceptance or a permit."""
+    from goal_delivery_runtime import execution_preflight
+    goal = snapshot["goal_delivery"]
+    require(operation == "publish" and snapshot.get("current_state") not in wc.TERMINAL_STATES,
+            "Active exact forward CMS goal required; history cannot grant a new write")
+    preflight = execution_preflight(root, snapshot, target["action_id"], "cms_write", target["scope"], "publishing")
+    require(preflight.get("risk_level") in {"R1", "R2"}
+            and preflight.get("payload_sha256") == target.get("payload_sha256"),
+            "Ordinary selfcheck mode retains exact payload; sensitive R3 still uses its original gate")
+    candidate_path = exact_file(Path(target.get("evidence_root",root)),target["candidate"])
+    require(candidate_path.is_relative_to(root), "Exact project-owned native candidate required")
+    candidate_pin = wc.file_digest(root,str(candidate_path.relative_to(root)))
+    candidate = json.loads(candidate_path.read_text())
+    validate_candidate_binding(candidate,target,root=root)
+    exact_file(root,target["rollback"])
+    require(wc._chat_binding_healthy(wc.department_registry(root)["publishing"]["chat_binding"],
+                                    verification_ttl_hours=26), "Fresh actual publisher health required")
+    require(not wc.validate_workflow_events(root,target["task_id"])
+            and not wc._validate_receipt_chain(root,target["task_id"])[1],
+            "Original goal event and receipt chains must be intact")
+    events = [e for e in wc.read_jsonl(root/wc.WORKFLOW_EVENTS) if e.get("task_id")==target["task_id"]
+              and isinstance(e.get("details",{}).get("production_preflight_registered"),dict)]
+    matches = []
+    for event in events:
+        pin = event["details"]["production_preflight_registered"]
+        require(wc.file_digest(root,pin.get("path",""))==pin,"Committed execution selfcheck changed")
+        if wc.read_json(wc.safe_path(root,pin["path"])) == preflight: matches.append((event,pin))
+    require(len(matches)==1,"One actual committed current execution selfcheck required")
+    event,pin=matches[0]
+    check=wc.read_json(wc.safe_path(root,preflight["self_check"]["path"]))
+    require(check.get("candidate") == candidate_pin and check.get("payload_sha256")==target["payload_sha256"]
+            and check.get("expected_updated_at")==target["expected_updated_at"]
+            and check.get("record_id")==target["record_id"]
+            and check.get("changed_fields")==target["changed_fields"]
+            and check.get("executor_department")=="publishing"
+            and check.get("production_write_allowed") is False,
+            "Publisher selfcheck must bind the actual candidate, row/version, fields and payload")
+    return {"acceptance_model":SELF_CHECK_EXECUTION_MODEL,"verdict":"selfcheck_ready",
+            "task_id":target["task_id"],"action_id":target["action_id"],"scope":target["scope"],
+            "candidate_version":target["candidate_version"],"candidate":candidate_pin,
+            "risk_level":preflight["risk_level"],"authorization_pin":goal["authorization_pin"],
+            "execution_preflight":pin,"execution_preflight_event_id":event["event_id"],
+            "receipt_id":event["event_id"],"receipt_hash":event["event_hash"],"created_at":event["created_at"],
+            "review_plan":None,"review_outbox":None,"goal_completion_claimed":False,
+            "final_assistant_acceptance_required":True,"production_write_allowed":False}
+
+
 def validate_goal_cms_acceptance(root: Path, target: dict, operation: str,
                                  *, allow_blocked_retry: bool = False) -> dict:
     """New goals use their one current independent assistant, never retired QA.
@@ -2341,6 +2873,20 @@ def validate_goal_cms_acceptance(root: Path, target: dict, operation: str,
             and isinstance(target.get("changed_fields"), list) and bool(target["changed_fields"])
             and len(set(target["changed_fields"])) == len(target["changed_fields"]),
             "Modern CMS target needs its existing exact candidate shape and field namespace")
+    preflights=[p for p in goal.get('execution_preflights',[]) if all(p.get(k)==v for k,v in
+                {'action_id':target['action_id'],'action_class':'cms_write','scope':target['scope'],
+                 'department':'publishing'}.items())]
+    typed_selfcheck=False
+    if len(preflights)==1:
+        if wc.file_digest(root,preflights[0]['self_check']['path'])!=preflights[0]['self_check']:
+            raise wc.WorkflowError('exact committed CMS selfcheck source changed')
+        check=wc.read_json(wc.safe_path(root,preflights[0]['self_check']['path']))
+        typed_selfcheck=all(k in check for k in ('candidate','executor_department','changed_fields','expected_updated_at'))
+    if (operation == 'publish' and goal.get("execution_mode") == "authorized_selfcheck_then_execute"
+            and target.get("candidate_shape") != CONDO_FAQ_V7_SHAPE
+            and (target.get('candidate_shape')==BUILTIN_WARDROBE_SHAPE or typed_selfcheck)
+            and (not preflights or preflights[0].get('risk_level') in {'R1','R2'})):
+        return _authorized_cms_selfcheck(root,snapshot,target,operation)
     expected_action = target["action_id"] if operation == "publish" else f"rollback-{target['candidate_version']}"
     expected_version = target["candidate_version"] if operation == "publish" else f"{target['candidate_version']}-rollback-v1"
     evidence_root = Path(target.get("evidence_root", root)).resolve()
@@ -2366,6 +2912,8 @@ def validate_goal_cms_acceptance(root: Path, target: dict, operation: str,
     receipts, invalid = wc._validate_receipt_chain(root, target["task_id"])
     require(not invalid and not wc.validate_workflow_events(root, target["task_id"]),
             "Current assistant CMS receipt/event chains are invalid")
+    if target == CONDO_FAQ_V7_TARGET and operation == "publish":
+        return _condo_faq_candidate_acceptance(root, snapshot, goal, plan, receipts, target, candidate_pin)
     verdicts = [row for row in receipts if row.get("receipt_type") == "qa_verdict"
                 and row.get("department") == reviewer
                 and row.get("action_id") == expected_action and row.get("scope") == target["scope"]]
@@ -2415,6 +2963,16 @@ def validate_goal_cms_policy(root: Path, task_id: str, action_id: str, scope: st
                 matches.append((name, target, operation))
     require(len(matches) == 1, "One current exact registered CMS task/action/executor namespace required")
     name, target, operation = matches[0]
+    if target.get("candidate_shape") == CONDO_FAQ_V7_SHAPE:
+        require(name == CONDO_FAQ_V7_NAME and operation == "publish"
+                and target == CONDO_FAQ_V7_TARGET
+                and payload_sha256 == target["payload_sha256"],
+                "Exact current condo FAQ publisher payload and forward action required")
+    if target.get("candidate_shape") == BUILTIN_WARDROBE_SHAPE:
+        require(name == BUILTIN_WARDROBE_NAME and operation == "publish"
+                and target == BUILTIN_WARDROBE_TARGET
+                and payload_sha256 == target["payload_sha256"],
+                "Only the new builtin wardrobe content_zh payload and forward action required")
     require(operation != "rollback" or target.get("rollback_allowed", True), "Exact target does not allow rollback")
     accepted = validate_goal_cms_acceptance(Path(root), target, operation, allow_blocked_retry=True)
     validate_new_permit_target(target, assistant_acceptance=accepted)
@@ -2431,6 +2989,11 @@ def validate_goal_cms_policy(root: Path, task_id: str, action_id: str, scope: st
             "review_outbox": accepted["review_outbox"],
             "review_plan": accepted["review_plan"], "candidate": accepted["candidate"],
             "authorization_pin": accepted["authorization_pin"], "preflight": preflight,
+            "candidate_acceptance_record_hash": accepted.get("candidate_acceptance_record_hash"),
+            "source_fingerprint": accepted.get("source_fingerprint"),
+            "bounded_report": accepted.get("bounded_report"),
+            "producer_outbox": accepted.get("producer_outbox"),
+            "goal_completion_claimed": accepted.get("goal_completion_claimed", False),
             "external_permission_issued": False}
 
 
@@ -2441,6 +3004,26 @@ def validate_goal_cms_decision(root: Path, decision: dict, target: dict, operati
     if acceptance.get("acceptance_model") == bounded_model:
         require(operation == acceptance.get("operation"), "Publish proof cannot grant rollback permission")
         return bounded_decision(root, decision, target, payload_sha256, acceptance, now)
+    if acceptance.get("acceptance_model") == CONDO_FAQ_CANDIDATE_ACCEPTANCE_MODEL:
+        require(operation == "publish" and payload_sha256 == CONDO_FAQ_V7_TARGET["payload_sha256"],
+                "Condo FAQ candidate acceptance cannot authorize another operation or payload")
+        return _condo_faq_candidate_decision(root, decision, target, payload_sha256, acceptance, now)
+    if acceptance.get("acceptance_model") == SELF_CHECK_EXECUTION_MODEL:
+        require(operation=="publish" and payload_sha256==target["payload_sha256"],
+                "Selfcheck cannot grant a different operation or payload")
+        expected={"department":"publishing","decision":"EXECUTE_ORIGINAL_AUTHORIZED_ACTION",
+            "task_id":target["task_id"],"action_id":target["action_id"],"action_class":"cms_write",
+            "scope":target["scope"],"candidate_version":target["candidate_version"],
+            "record_id":target["record_id"],"payload_sha256":payload_sha256,
+            "authorization_pin":acceptance["authorization_pin"],
+            "execution_preflight":acceptance["execution_preflight"],
+            "execution_preflight_event_id":acceptance["execution_preflight_event_id"]}
+        require(all(decision.get(k)==v for k,v in expected.items()) and bool(decision.get("decision_id")),
+                "Original executor readiness differs from its committed exact authority/selfcheck")
+        decided=timestamp(str(decision.get("decided_at","")))
+        require(timestamp(acceptance["created_at"])<=decided<=now and now-timedelta(hours=24)<=decided,
+                "Execution readiness is stale or predates actual selfcheck")
+        return decision
     require(acceptance.get("acceptance_model") == "goal_delivery_assistant_v1", "Exact assistant acceptance required")
     action_id = target["action_id"] if operation == "publish" else f"rollback-{target['candidate_version']}"
     version = target["candidate_version"] if operation == "publish" else f"{target['candidate_version']}-rollback-v1"
@@ -2626,6 +3209,17 @@ def validate_policy(row: dict, target: dict, operation: str, payload_sha256: str
             and row.get("approval_status") == "consumed"
             and isinstance(row.get("decision_id"), str) and row["decision_id"],
             "Policy decision is not exact, allowed, and consumed")
+    if target == CONDO_FAQ_V7_TARGET and operations.get("candidate_scope_only") is True:
+        context = row.get("cms_candidate_acceptance", {})
+        require(context.get("acceptance_model") == CONDO_FAQ_CANDIDATE_ACCEPTANCE_MODEL
+                and context.get("candidate_acceptance_record_id") == operations.get("candidate_acceptance_record_id")
+                and context.get("candidate_acceptance_record_hash") == operations.get("candidate_acceptance_record_hash")
+                and context.get("source_fingerprint") == operations.get("source_fingerprint")
+                and context.get("bounded_report") == operations.get("bounded_report")
+                and context.get("producer_outbox") == operations.get("producer_outbox")
+                and context.get("goal_completion_claimed") is False
+                and row.get("approval_basis") == "original_exact_condo_publishing_v1",
+                "Policy must consume the same exact original A1 candidate and owner approval")
     from paid_three_page_bounded_cms import TASK as bounded_task, MODEL as bounded_model
     if target.get("task_id") == bounded_task:
         context = row.get("cms_candidate_acceptance", {})
@@ -2765,6 +3359,29 @@ def validate_new_permit_target(target: dict, *, assistant_acceptance: dict | Non
             require(bool(pin) and len(pin) == 2 and len(str(pin[1])) == 64,
                     "ORG-020 target has no pinned actual fixed QA outbox")
     if assistant_acceptance is not None:
+        if assistant_acceptance.get("acceptance_model") == SELF_CHECK_EXECUTION_MODEL:
+            require(assistant_acceptance.get("verdict")=="selfcheck_ready"
+                    and assistant_acceptance.get("task_id")==target["task_id"]
+                    and assistant_acceptance.get("scope")==target["scope"]
+                    and assistant_acceptance.get("candidate",{}).get("sha256")==target["candidate"][1]
+                    and assistant_acceptance.get("execution_preflight_event_id")
+                    and assistant_acceptance.get("goal_completion_claimed") is False,
+                    "Exact ordinary selfcheck readiness required; not an assistant verdict")
+            return
+        if assistant_acceptance.get("acceptance_model") == CONDO_FAQ_CANDIDATE_ACCEPTANCE_MODEL:
+            require(target == CONDO_FAQ_V7_TARGET
+                    and assistant_acceptance.get("operation") == "publish"
+                    and assistant_acceptance.get("task_id") == target["task_id"]
+                    and assistant_acceptance.get("scope") == target["scope"]
+                    and assistant_acceptance.get("candidate_version") == target["candidate_version"]
+                    and assistant_acceptance.get("verdict") == "pass_candidate_only"
+                    and assistant_acceptance.get("goal_completion_claimed") is False
+                    and assistant_acceptance.get("production_write_allowed") is False
+                    and assistant_acceptance.get("candidate", {}).get("sha256") == target["candidate"][1]
+                    and assistant_acceptance.get("candidate_acceptance_record_id")
+                    and assistant_acceptance.get("candidate_acceptance_record_hash"),
+                    "Only the original independent condo FAQ candidate may enter the protected permit path")
+            return
         from paid_three_page_bounded_cms import TASK as bounded_task, MODEL as bounded_model, exact_tuple
         if assistant_acceptance.get("acceptance_model") == bounded_model:
             require(target.get("task_id") == bounded_task and target.get("candidate_shape") == bounded_model
@@ -2850,7 +3467,8 @@ def main() -> None:
         decision_path = (ROOT / args.operations_decision).resolve()
         require(decision_path.is_relative_to(ROOT) and decision_path.is_file(), "Operations decision file is missing")
         decision = json.loads(decision_path.read_text())
-        if qa.get("acceptance_model") in {"goal_delivery_assistant_v1", bounded_model}:
+        if qa.get("acceptance_model") in {"goal_delivery_assistant_v1", SELF_CHECK_EXECUTION_MODEL, bounded_model,
+                                          CONDO_FAQ_CANDIDATE_ACCEPTANCE_MODEL}:
             validate_goal_cms_policy(ROOT, target["task_id"], expected_action, target["scope"],
                                      target.get("execution_owner", ""), payload_sha256)
             operations = validate_goal_cms_decision(ROOT, decision, target, args.operation,

@@ -15,6 +15,6 @@ description: Google Ads、合法数据与真实咨询对账；准确直授内执
 
 source-manifest/conversion-reconcile/ads-daily/action-queue/run-ledger/handoff是内部证据工具；qa-gate仅内部检查不代替负责助理独立验收，不凭本地工具绿色授外部权。Save、回读、Enabled、资格、展示和业务效果逐层记录；不确定Save先回读实际对象，缺登录/OTP给准确账号保管人/动作，不绕安全或重试认证。
 
-部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。
-状态分别为执行中、待助理验收、返工中、已完成范围、下一任务真实已安排、具体依赖等待、暂时无可执行工作。验收PASS必须关联实际下一动作或准确范围关闭；prepared不算sent，passed不算adopted，子任务结束不关闭父目标。缺输入只暂停依赖它的动作，其他独立合法工作继续。停止时列已完成、未完成、唯一负责人、下一动作、解除条件和复查时间；自然去重IP口径缺失记DATA_MISSING，AI效果未实测记NOT_MEASURED。
 不得读取/输出/保存秘密或完整客户PII，不联系客户、不付款或承诺价格/合同，不增加本任务准确授权范围外的操作。
+
+完整目标、整批回报、空闲助理分流和中断恢复只按共同规则 playbooks/department-system-current.md。普通步骤不报审；准确授权内自检后执行到实际发布，最后一次助理验收。后台保存和官网部署各走真实合法通道。

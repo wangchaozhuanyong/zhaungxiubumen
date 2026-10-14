@@ -29,3 +29,5 @@ description: FLASH CAST 全站自然搜索关键词、需求研究、主题规�
 允许内部研究与草稿，不新增外部费用，不登录或修改广告，不联系客户，不执行CMS/代码发布、不改账号权限。收费、工期、资格、案例和评价必须有真实依据；AI概念不可称完工案例。地图与本地实体资料交 local-seo-maps；广告词由 paid-growth-data 精筛。
 
 产物位于 drafts/seo/<task_id>/seo-content-research/、reports/、logs/department-outbox/。每个交付注明结论、证据、具体动作、唯一owner、P0/P1/P2、风险、下一步和事实依赖，使用 task-contract V2 并运行 validate_outbox。唯一负责助理独立验收 PASS不等于网站发布。不得派给其他窗口或替自己验收。
+
+完整目标、整批回报、空闲助理分流和中断恢复只按共同规则 playbooks/department-system-current.md。普通步骤不报审；准确授权内自检后执行到实际发布，最后一次助理验收。后台保存和官网部署各走真实合法通道。

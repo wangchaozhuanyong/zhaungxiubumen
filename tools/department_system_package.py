@@ -41,6 +41,11 @@ DIRECT_NEGATIVE_OLD_CHAIN = re.compile(
     r"|(?:不继承|不再派|不要求)\s*(?:固定QA路由|QA1/QA2|qa/qa-technical)(?:、|或)总部二审"
     r"|不(?:交|提交给|进入)\s*(?:固定)?" + QA, re.I)
 
+# An explicit prohibition of adding the second headquarters review is current
+# policy. Do not make an unrelated negation suppress a later positive route.
+DIRECT_NEGATIVE_OLD_CHAIN = re.compile(DIRECT_NEGATIVE_OLD_CHAIN.pattern
+    + r"|不(?:增加|另设|新增)\s*总部二审", re.I)
+
 
 def _unique(pairs):
     result = {}

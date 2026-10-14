@@ -32,6 +32,14 @@ SECRET_PATTERNS = (
 )
 
 
+def retired_rule_stub(rel, raw):
+    """Retired local evidence stays local; never re-export its dead entry point."""
+    first = raw.decode("utf-8").splitlines()[:1]
+    return bool(first and (
+        (rel.startswith("prompts/automations/") and first[0] == "# 历史自动任务提示词已退出")
+        or (rel == "playbooks/qa2-exact-r0-admission.md" and first[0] == "# QA2精确R0准入（历史只读）")))
+
+
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
@@ -318,6 +326,8 @@ def prepare(root: Path, target: Path):
         if not source.is_file() or source.is_symlink() or any(item.is_symlink() for item in source.parents if item != root.parent):
             raise ValueError("Missing or symlink source: " + rel)
         raw = source.read_bytes()
+        if retired_rule_stub(rel, raw):
+            return
         text = raw.decode("utf-8")
         if source.suffix == ".json" and Path(rel).parts[0] in {"templates", "examples"}:
             value = public_policy(json.loads(text))
@@ -380,6 +390,30 @@ def prepare(root: Path, target: Path):
             "mode", "new_dispatch_enabled", "coordination_authority", "capabilities",
             "result_report_contract", "result_report_entrypoint",
         ) if key in row}
+        authority = dict(safe.get('coordination_authority', {}))
+        shared = authority.get('shared_review_methods')
+        if shared:
+            method_path = shared['path']
+            source = root / method_path
+            original = source.read_bytes()
+            if hashlib.sha256(original).hexdigest() != shared['sha256']:
+                raise ValueError('Changed shared review methods; do not export stale adoption')
+            methods = json.loads(original)
+            rebuilt = {}
+            for capability, sources in methods['methods'].items():
+                rebuilt[capability] = []
+                for pin in sources:
+                    actual = root / pin['path']
+                    if hashlib.sha256(actual.read_bytes()).hexdigest() != pin['sha256']:
+                        raise ValueError('Changed shared method source: '+pin['path'])
+                    if pin['path'] not in payloads:copy(pin['path'])
+                    raw = payloads[pin['path']]
+                    rebuilt[capability].append({'path':pin['path'],'sha256':hashlib.sha256(raw).hexdigest(),'size':len(raw)})
+            public_methods = {**methods,'methods':rebuilt,'production_permissions_inherited':False}
+            add(method_path, json.dumps(public_methods,ensure_ascii=False,indent=2)+'\n', original)
+            raw = payloads[method_path]
+            authority['shared_review_methods']={'path':method_path,'sha256':hashlib.sha256(raw).hexdigest(),'size':len(raw)}
+            safe['coordination_authority']=authority
         safe["chat_binding"] = {"status": "unbound", "task_id": "", "project_id": "", "cwd": "", "title": "",
             "sidebar_section_id": "", "sidebar_section_name": "", "reply_health": "not_verified", "dispatch_eligible": False, "handoff_path": ""}
         rows.append(safe)
@@ -413,7 +447,7 @@ def prepare(root: Path, target: Path):
     validate_payloads(payloads, ids, retired_roles, historical)
     manifest = seal_manifest({
         "schema_version": SCHEMA, "runtime_model": MODEL, "non_runtime_files": historical,
-        "version": "2026.10.10.goal-delivery-assistant-v1", "artifact_type": "department_system_source",
+        "version": "2026.10.15.goal-delivery-assistant-v1", "artifact_type": "department_system_source",
         "roles": ids, "files": sorted(tracked, key=lambda row: row["path"]),
         "retired_roles": retired_roles,
         "live_bindings_exported": False, "live_health_exported": False, "live_ledgers_exported": False,

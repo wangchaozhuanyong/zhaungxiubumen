@@ -334,8 +334,8 @@
       "candidate_version",
       "result_sha256"
     ],
-    "source_result": "部门先在原固定聊天非空回复，保存并校验V2 outbox；完成、部分完成、需输入、QA阻断和失败均需交接。result_sha256须匹配原任务和固定部门outbox当前字节。",
-    "notification": "部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。",
+    "source_result": "完整批次冻结后以真实固定聊天声明和V2/hash交接；delivery_ready可在本轮结束前入队与通知，原生结束事件另记而不新增审核。ACK和普通进度不能代替交付。",
+    "notification": "整批冻结->空闲合格助理选择->准确预检->真实通知；忙时事件等待，助理收尾取共享待办。总部通知知悉不阻断常规后续。原task/version/hash去重；queued不算delivered。",
     "scheduled_daily_intake": "真实既有自动任务按scheduled_daily_sources精确匹配automation_id、固定部门、task_id和唯一助理；原生固定聊天当轮完成结果与准确thread/turn/UTF8/outbox及MYT日期现场核实，不补造总部dispatch/ACK。已保存旧结果沿原task/hash收取，不重做专业任务。来源登记不等于完成证明或生产许可。",
     "blocked_notification": "policy拒绝、健康/绑定过期或发送工具失败时记录notification_blocked及原因，不冒充已发送、不绕过门禁、不重复业务派工；每日兜底收取可用fallback方式登记controller_received。",
     "controller_intake": "新goal由唯一负责助理核真实固定聊天、V2/hash及实际执行层级，认领后收取、决策与落实动作；总部不逐结果再审。旧结果只按原版本回读，恢复漏报不补造通知或人类派工。",
@@ -464,6 +464,16 @@
         "task_id_pattern": "fc-(?P<date>\\d{8})-local-seo-maps-daily",
         "responsible_assistant": "operations-assistant",
         "acceptance_capability": "maps"
+      },
+      {
+        "automation_id": "flash-cast-19-100",
+        "department": "visual-design-video",
+        "task_id_pattern": "fc-(?P<date>\\d{8})-renovation-100ep-(?:00[1-9]|0[1-9]\\d|100)",
+        "responsible_assistant": "operations-assistant-3",
+        "acceptance_capability": "visual",
+        "local_delivery_only": true,
+        "external_upload_authorized": false,
+        "fees_authorized": false
       }
     ],
     "scheduled_daily_source_boundary": {
@@ -612,7 +622,7 @@
       "unblock_or_recheck_condition"
     ],
     "daily_no_change": "Report what was actually checked; no repeated candidate or user notification when unchanged.",
-    "result_handoff": "部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。",
+    "result_handoff": "整批冻结->空闲合格助理选择->准确预检->真实通知；忙时事件等待，助理收尾取共享待办。总部通知知悉不阻断常规后续。原task/version/hash去重；queued不算delivered。",
     "controller_decision_required_for_business_continuation": false,
     "controller_followthrough_required_after_decision": true,
     "closed_workflow_is_not_business_goal_closed": true,
@@ -689,7 +699,8 @@
     },
     "new_results_before_maintenance": true,
     "department_source": "registered active professional roles; QA1/QA2 excluded from new daily dispatch",
-    "responsible_assistant_decision_required_for_routine_continuation": true
+    "responsible_assistant_decision_required_for_routine_continuation": true,
+    "check_findings_require_disposition": true
   },
   "goal_delivery_runtime": {
     "model": "goal_delivery_assistant_v1",
@@ -710,7 +721,10 @@
       "acceptance_capability"
     ],
     "optional_goal_fields": [
-      "parent_task_id"
+      "parent_task_id",
+      "continuation_actions",
+      "execution_mode",
+      "sensitive_boundaries"
     ],
     "source_modes": [
       "approved_dispatch",
@@ -761,7 +775,64 @@
     "notification_delivery_claim_independent": true,
     "ready_actions_before_event_wait": true,
     "max_wait_ms_per_call": 60000,
-    "task_read_failure_isolation": true
+    "task_read_failure_isolation": true,
+    "whole_goal_continuity": {
+      "enabled": true,
+      "module": "tools/goal_continuity.py",
+      "ordinary_execution": "authorized_self_check_then_execute_accept_after_complete_batch",
+      "result_sources": [
+        "delivery_ready",
+        "completed_turn"
+      ],
+      "ordinary_review_selection": "idle_qualified",
+      "fixed_future_review_time_required": false,
+      "busy_notice_is_actionable": false,
+      "current_assignment_schema": "goal-current-assignment/v2",
+      "no_new_polling": true,
+      "no_second_HQ_review": true,
+      "authorization_precheck": {
+        "entry": "goal_delivery_runtime authorization-precheck",
+        "schema": "goal-authorization-precheck/v1",
+        "required_before_repeat_confirmation": true,
+        "existing_whole_goal_authority_reused": true,
+        "version_or_send_count_requires_new_authorization": false,
+        "internal_binding_health_receipt_repair_requires_new_authorization": false,
+        "precheck_grants_execution_permission": false,
+        "escalation": "only_actual_scope_fee_account_irreversible_or_major_security_change; real_platform_owner_verification_requires_actual_evidence"
+      }
+    },
+    "work_boundary_entry": "goal_continuity work-boundary; department-learning-effective.work_boundary",
+    "work_boundary_inventory_grants_permission": false,
+    "whole_batch_continuity": {
+      "native_source_recovery": {
+        "entry": "python3 tools/goal_source_recovery.py recover-source --input <original-source-json>",
+        "sources": [
+          "owner_direct_native",
+          "historical_native_send"
+        ],
+        "records": "existing_workflow_event_and_current_assignment",
+        "old_closed_goal_grants_permission": false,
+        "fabricated_dispatch_or_policy_allowed": false,
+        "restore_time": "current_actual_time",
+        "suspended_assignments_preserved": true
+      },
+      "actual_message_preparation": {
+        "entry": "python3 tools/goal_source_recovery.py prepare-message --input <exact-message-json>",
+        "calls_original_authorization_precheck": true,
+        "calls_exact_policy_check": true,
+        "busy_target": "retain_return_responsibility_without_send",
+        "status_source": "actual_latest_native_turn_not_sidebar_cache",
+        "prepared_is_sent": false
+      },
+      "ordinary_cms_execution": {
+        "mode": "authorized_selfcheck_then_execute",
+        "sensitive_R3_gate_unchanged": true,
+        "full_goal_assistant_PASS_before_Save": false,
+        "original_authority_and_exact_registered_target_required": true,
+        "selfcheck_candidate_backup_CAS_protected_preview_single_use_required": true,
+        "final_independent_assistant_acceptance": "after_actual_Save_version_readback_and_public_proof"
+      }
+    }
   },
   "public_template": true
 }

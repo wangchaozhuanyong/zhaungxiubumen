@@ -87,6 +87,27 @@ class KnowledgeTests(unittest.TestCase):
         self.assertIsNone(selection["topic"])
         self.assertIsNone(selection["style"])
 
+    def test_new_explicit_contract_topic_is_excluded(self):
+        topic = next(c for c in BANK["cards"] if c["semantic_key"] == "renovation_brief:series-quotation-scope")
+        with self.assertRaisesRegex(ValueError, "OWNER_TOPIC_SCOPE_EXCLUDED"):
+            rk.choose(BANK, self.usage, self.state_dir, "renovation_mistake_guide", topic_id=topic["id"])
+
+    def test_automatic_candidates_exclude_historical_quote_card(self):
+        quote = next(c for c in BANK["cards"] if c["semantic_key"] == "renovation_brief:series-quotation-scope")
+        good = next(c for c in BANK["cards"] if c["semantic_key"] != quote["semantic_key"] and "renovation_mistake_guide" in c["supported_products"] and c["family"] != "商用空间")
+        isolated = {**BANK, "cards": [quote, good]}
+        result = rk.choose(isolated, self.usage, self.state_dir, "renovation_mistake_guide")
+        self.assertEqual(result["topic"]["id"], good["id"])
+
+    def test_original_adopted_topic_survives_rework_boundary(self):
+        topic = next(c for c in BANK["cards"] if c["semantic_key"] == "renovation_brief:series-quotation-scope")
+        original = {"task_id": "LOCAL-HISTORICAL-REWORK", "product_type": "renovation_mistake_guide", "topic_id": topic["id"], "selection": {"topic": topic, "style": {"style_id": "S06"}}}
+        usage = {"used": [original]}
+        result = rk.select(args_for(self.state_dir, task_id=original["task_id"], product_type=original["product_type"], topic_id=topic["id"]), BANK, usage, self.state_dir)
+        self.assertEqual(result["status"], "ALREADY_ADOPTED_REWORK_PRESERVES_TOPIC_STYLE")
+        self.assertEqual(result["topic"], topic)
+        self.assertEqual(usage["used"], [original])
+
     def test_whole_home_has_combination_not_one_room(self):
         selection = rk.choose(BANK, self.usage, self.state_dir, "design_plan_pitch", scope="whole_home")
         self.assertGreaterEqual(len(selection["blueprint"]["supporting_topic_ids"]), 3)

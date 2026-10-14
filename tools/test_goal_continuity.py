@@ -1,0 +1,454 @@
+"""Real local entry points with synthetic isolated data; zero native sends."""
+import copy
+import datetime as dt
+import hashlib
+import json
+import re
+from pathlib import Path
+import unittest
+from unittest import mock
+import goal_continuity as c
+import goal_delivery_runtime as g
+import result_coordination as r
+import workflow_control as w
+import test_goal_runtime_consumers as fixture
+import test_direct_system_repair as notices
+
+
+class ContinuityTests(unittest.TestCase):
+    def setUp(self):
+        self.t=fixture.GoalRuntimeConsumerTests('runTest');self.t.setUp()
+        self.addCleanup(self.t.doCleanups);self.root=self.t.root
+
+    def ready(self):
+        plan,producer=self.t.prepare_initial_review()
+        identity={'task_id':self.t.task_id,'sender_department':fixture.PRODUCER,
+                  'candidate_version':'v1','result_sha256':producer['sha256']}
+        declaration={**identity,'outbox_path':producer['path'],'batch_complete':True}
+        text='Finished the whole synthetic batch.\n'+c.READY_MARKER+json.dumps(declaration)+'\n'
+        (self.root/'reports/ready.txt').write_text(text)
+        binding=w.department_registry(self.root)[fixture.PRODUCER]['chat_binding']
+        page={'thread':{'id':binding['task_id'],'title':binding['title'],'cwd':binding['cwd']},
+              'turns':[{'id':'ready-turn','status':'inProgress','error':None,
+                        'startedAt':int(dt.datetime.now(dt.timezone.utc).timestamp())-1,
+                        'items':[{'type':'agentMessage','id':'ready-message','phase':'commentary','text':text}]}]}
+        path=self.t.write('reports/ready-native.json',page)
+        request={**identity,'event':'notification_queued','idempotency_key':'ready-one',
+                 'outbox_path':producer['path'],'result_source_phase':'delivery_ready',
+                 'source_thread_id':binding['task_id'],'source_turn_id':'ready-turn',
+                 'source_message_id':'ready-message','source_reply_sha256':hashlib.sha256(text.encode()).hexdigest(),
+                 'reply_observed_at':dt.datetime.now(dt.timezone.utc).isoformat(),
+                 'actual_native_completion':w.file_digest(self.root,path),
+                 'visible_reply':w.file_digest(self.root,'reports/ready.txt')}
+        return identity,request,page
+
+    def test_frozen_whole_batch_can_queue_before_turn_ends_once(self):
+        identity,request,_=self.ready()
+        row,_=w.record_result_handoff(self.root,request)
+        self.assertTrue(row['batch_delivery_frozen']);self.assertFalse(row['source_turn_completed'])
+        self.assertEqual(w.record_result_handoff(self.root,request)[0]['result'],'duplicate_ignored')
+        self.assertFalse(row['business_goal_closed'])
+
+    def test_ready_intake_uses_original_frozen_declaration_without_new_ack(self):
+        identity,request,_=self.ready();w.record_result_handoff(self.root,request)
+        store=r.CoordinationStore(self.root);self.addCleanup(store.close)
+        claim=store.claim(identity,fixture.ASSISTANT,'test-a2','claim-ready')
+        receive={**request,'event':'controller_received','idempotency_key':'receive-ready',
+                 'intake_mode':'queue','coordinator_role':fixture.ASSISTANT,'coordinator_owner':'test-a2','coordination_claim':claim}
+        row,_=w.record_result_handoff(self.root,receive)
+        self.assertEqual(row['source_turn_id'],'ready-turn');self.assertTrue(row['batch_delivery_frozen'])
+
+    def test_only_frozen_verified_batch_satisfies_dispatch_dependency(self):
+        identity,request,_=self.ready()
+        self.assertFalse(c.frozen_dependency_available(self.root,self.t.task_id,fixture.PRODUCER))
+        w.record_result_handoff(self.root,request)
+        self.assertTrue(c.frozen_dependency_available(self.root,self.t.task_id,fixture.PRODUCER))
+        path=self.root/request['outbox_path'];path.write_text('{}')
+        self.assertFalse(c.frozen_dependency_available(self.root,self.t.task_id,fixture.PRODUCER))
+
+    def daily_ready(self):
+        identity,request,page=self.ready()
+        contract=w.read_json(self.root/'data/task-contract.json')
+        contract.setdefault('result_handoff_contract',{})['scheduled_daily_sources']=[{
+            'automation_id':'test-current-daily','department':fixture.PRODUCER,
+            'task_id_pattern':re.escape(self.t.task_id),'responsible_assistant':fixture.ASSISTANT,
+            'acceptance_capability':'development'}]
+        w.atomic_write_json(self.root/'data/task-contract.json',contract)
+        w.snapshot_path(self.root,self.t.task_id).unlink()
+        w.receipts_path(self.root,self.t.task_id).unlink()
+        now=dt.datetime.now(dt.timezone.utc)
+        box=w.read_json(self.root/request['outbox_path'])
+        box['reported_at_myt']=(now-dt.timedelta(seconds=2)).isoformat()
+        w.atomic_write_json(self.root/request['outbox_path'],box)
+        digest=w.file_digest(self.root,request['outbox_path']);identity['result_sha256']=digest['sha256']
+        declaration={**identity,'outbox_path':request['outbox_path'],'batch_complete':True}
+        text=c.READY_MARKER+json.dumps(declaration)+'\n'
+        (self.root/'reports/ready.txt').write_text(text)
+        page['turns'][0]['id']='11111111-1111-1111-1111-111111111111'
+        page['turns'][0]['items'][0]['text']=text
+        w.atomic_write_json(self.root/'reports/ready-native.json',page)
+        request.update(**identity,source_mode='scheduled_run',source_automation_id='test-current-daily',
+            source_turn_id=page['turns'][0]['id'],source_reply_sha256=hashlib.sha256(text.encode()).hexdigest(),
+            visible_reply=w.file_digest(self.root,'reports/ready.txt'),
+            actual_native_completion=w.file_digest(self.root,'reports/ready-native.json'))
+        return identity,request,page
+
+    def test_daily_batch_can_deliver_before_end_without_fabricated_goal_or_dispatch(self):
+        identity,request,_=self.daily_ready()
+        row,_=w.record_result_handoff(self.root,request)
+        self.assertTrue(row['batch_delivery_frozen']);self.assertFalse(row['source_turn_completed'])
+        self.assertFalse(w.snapshot_path(self.root,self.t.task_id).exists())
+        self.assertEqual(w.record_result_handoff(self.root,request)[0]['result'],'duplicate_ignored')
+        with self.assertRaises(w.WorkflowError):
+            w.record_result_handoff(self.root,{**request,'source_automation_id':'wrong-source'})
+
+    def test_daily_idle_backup_routes_and_recovers_without_creating_workflow(self):
+        identity,request,_=self.daily_ready();w.record_result_handoff(self.root,request)
+        self.shared_methods('operations-assistant')
+        self.assertEqual(c.shared_pending(self.root,'operations-assistant')['results'][0]['task_id'],self.t.task_id)
+        selection={**identity,'actor':fixture.PRODUCER,
+                    'request_id':'daily-resource-select','live_identity':self.live()}
+        selected=c.select_result(self.root,selection)
+        self.assertEqual(selected['selected'],'operations-assistant')
+        self.assertEqual(r.result_lane(self.root,identity)['target_department'],'operations-assistant')
+        self.assertFalse(w.snapshot_path(self.root,self.t.task_id).exists())
+        self.assertFalse(selected['accepted'])
+        self.assertEqual(c.recover_selection(self.root,selection)['selected'],'operations-assistant')
+
+    def test_daily_turn_end_is_additive_without_fabricated_workflow(self):
+        identity,request,page=self.daily_ready();w.record_result_handoff(self.root,request)
+        page['turns'][0]['status']='completed'
+        pin=w.file_digest(self.root,self.t.write('reports/daily-ended.json',page))
+        self.assertEqual(c.record_turn_completion(self.root,identity,pin)['result'],'recorded')
+        self.assertEqual(c.record_turn_completion(self.root,identity,pin)['result'],'duplicate_ignored')
+        self.assertFalse(w.snapshot_path(self.root,self.t.task_id).exists())
+
+    def test_ack_progress_or_changed_result_is_not_frozen_delivery(self):
+        _,req,page=self.ready()
+        for change in [{'result_sha256':'a'*64},{'source_message_id':'wrong'},{'source_reply_sha256':'b'*64}]:
+            with self.subTest(change=change),self.assertRaises(w.WorkflowError):
+                c.ready_source(self.root,{**req,**change},req['source_thread_id'])
+        page['turns'][0]['items'][0]['text']='ACK: starting work'
+        path=self.t.write('reports/ack-only.json',page)
+        req['actual_native_completion']=w.file_digest(self.root,path)
+        with self.assertRaises(w.WorkflowError):c.ready_source(self.root,req,req['source_thread_id'])
+
+    def test_actual_turn_completion_is_additive_and_idempotent(self):
+        identity,req,page=self.ready();w.record_result_handoff(self.root,req)
+        page['turns'][0]['status']='completed';page['turns'][0]['completedAt']=dt.datetime.now(dt.timezone.utc).timestamp()
+        pin=w.file_digest(self.root,self.t.write('reports/ready-ended.json',page))
+        self.assertEqual(c.record_turn_completion(self.root,identity,pin)['result'],'recorded')
+        self.assertEqual(c.record_turn_completion(self.root,identity,pin)['result'],'duplicate_ignored')
+        source=w._result_handoff_rows(self.root,self.t.task_id)[0]
+        self.assertEqual(source['actual_native_completion'],req['actual_native_completion'])
+
+    def test_completed_read_thread_uses_exact_turn_and_authenticates_late_ack(self):
+        identity,request,page=self.ready()
+        now=dt.datetime.now(dt.timezone.utc);completed=now.timestamp()-1
+        ack_text=self.t.task_id+' received the complete original goal'
+        ack={'type':'agentMessage','id':'original-ack','phase':'commentary','text':ack_text}
+        final_text=self.t.task_id+' original whole delivered result'
+        page['turns'][0].update(status='completed',completedAt=completed)
+        page['turns'][0]['items']=[ack,{'type':'agentMessage','id':'actual-final','phase':'final_answer','text':final_text}]
+        (self.root/'reports/final.txt').write_text(final_text)
+        source=self.t.write('reports/exact-completed-source.json',page)
+        # Model a late recovery entry with a real original same-turn ACK.
+        proof=self.t.write('reports/original-ack.json',{'task_id':self.t.task_id,'department':fixture.PRODUCER,
+           'source_thread_id':request['source_thread_id'],'turn':{'id':'ready-turn'},'message':ack})
+        rows=w.read_jsonl(w.receipts_path(self.root,self.t.task_id))
+        for row in rows:
+            if row.get('department')==fixture.PRODUCER and row.get('receipt_type')=='chat_ack':
+                row['created_at']=now.isoformat();row['evidence']=[w.file_digest(self.root,proof)]
+            else:row['created_at']=(now-dt.timedelta(seconds=3)).isoformat()
+        previous=''
+        for row in rows:
+            row['previous_hash']=previous;row['receipt_hash']=w.sha256_value(w._receipt_payload_for_hash(row));previous=row['receipt_hash']
+        w.receipts_path(self.root,self.t.task_id).write_text(''.join(json.dumps(row)+'\n' for row in rows))
+        request.update(result_source_phase='completed_final',reply_observed_at=(now+dt.timedelta(microseconds=1)).isoformat(),
+            source_reply_sha256=hashlib.sha256(final_text.encode()).hexdigest(),visible_reply=w.file_digest(self.root,'reports/final.txt'),
+            actual_native_completion=w.file_digest(self.root,source))
+        result=w._validate_goal_completed_result(self.root,request,request['source_thread_id'])
+        self.assertEqual(result['source_turn_id'],'ready-turn')
+        page['turns'][0]['items'][0]['id']='not-the-actual-ack'
+        w.atomic_write_json(self.root/source,page);request['actual_native_completion']=w.file_digest(self.root,source)
+        with self.assertRaises(w.WorkflowError):w._validate_goal_completed_result(self.root,request,request['source_thread_id'])
+
+    def live(self,default_status='active',other_status='idle'):
+        rows=[]
+        for role in ('operations-assistant',fixture.ASSISTANT,'operations-assistant-3'):
+            b=w.department_registry(self.root)[role]['chat_binding']
+            rows.append({'id':b['task_id'],'title':b['title'],'cwd':b['cwd'],'projectId':b['project_id'],
+                         'status':default_status if role==fixture.ASSISTANT else other_status})
+        pin=w.file_digest(self.root,self.t.write('reports/select-native.json',{'threads':rows}))
+        return w.file_digest(self.root,self.t.write('reports/select-live.json',{
+            'observed_at':dt.datetime.now(dt.timezone.utc).isoformat(),'actual_native_observation':pin}))
+
+    def shared_methods(self,role):
+        path=self.t.write('reports/shared-method.md.json',{'method':'synthetic complete-result independent review'})
+        method=w.file_digest(self.root,path)
+        manifest=self.t.write('reports/shared-'+role+'.json',{'production_permissions_inherited':False,
+                              'methods':{'development':[method]}})
+        registry=w.read_json(self.root/'data/department-registry.json')
+        row=next(d for d in registry['departments'] if d['id']==role)
+        row['coordination_authority']['shared_review_methods']=w.file_digest(self.root,manifest)
+        w.atomic_write_json(self.root/'data/department-registry.json',registry)
+
+    def test_busy_default_routes_once_to_capable_idle_assistant(self):
+        identity,req,_=self.ready();w.record_result_handoff(self.root,req)
+        self.shared_methods('operations-assistant')
+        live=self.live()
+        selected=c.select_result(self.root,{**identity,'actor':fixture.PRODUCER,'request_id':'selection-one','live_identity':live})
+        self.assertEqual(selected['selected'],'operations-assistant')
+        self.assertEqual(self.t.snapshot()['goal_delivery']['responsible_assistant'],'operations-assistant')
+        notice=r.notification_plan(self.root,fixture.PRODUCER)['notifications'][0]
+        self.assertEqual(notice['route']['target_department'],'operations-assistant')
+        self.assertFalse(notice['delivered']);self.assertFalse(selected['accepted'])
+
+    def test_all_busy_waits_without_artificial_future_deadline(self):
+        identity,req,_=self.ready();w.record_result_handoff(self.root,req)
+        answer=c.selection_plan(self.root,identity,self.live('active','active'))
+        self.assertEqual(answer['state'],'shared_waiting');self.assertIsNone(answer['selected'])
+        self.assertNotIn('next_check_at',answer)
+
+    def test_existing_claim_retains_unique_owner(self):
+        identity,req,_=self.ready();w.record_result_handoff(self.root,req)
+        store=r.CoordinationStore(self.root);self.addCleanup(store.close)
+        store.claim(identity,fixture.ASSISTANT,'current-reviewer','already-started')
+        answer=c.selection_plan(self.root,identity,self.live())
+        self.assertEqual(answer['state'],'already_owned');self.assertEqual(answer['selected'],fixture.ASSISTANT)
+
+    def test_expired_same_result_claim_does_not_reserve_assistant(self):
+        identity,req,_=self.ready();w.record_result_handoff(self.root,req)
+        self.shared_methods('operations-assistant')
+        store=r.CoordinationStore(self.root);self.addCleanup(store.close)
+        store.claim(identity,fixture.ASSISTANT,'expired-reviewer','expired-start')
+        store.conn.execute('UPDATE claims SET expires=0');store.conn.commit()
+        answer=c.selection_plan(self.root,identity,self.live())
+        self.assertEqual(answer['state'],'ready')
+        self.assertEqual(answer['selected'],'operations-assistant')
+        self.assertEqual(store.conn.execute('SELECT COUNT(*) FROM claims').fetchone()[0],1)
+        selected=c.select_result(self.root,{**identity,'actor':fixture.PRODUCER,
+                  'request_id':'expired-lease-real-transfer','live_identity':self.live()})
+        self.assertTrue(selected['assignment_committed'])
+
+    def test_expired_unrelated_claim_does_not_make_idle_backup_busy(self):
+        identity,req,_=self.ready();w.record_result_handoff(self.root,req)
+        self.shared_methods('operations-assistant')
+        store=r.CoordinationStore(self.root);self.addCleanup(store.close)
+        other={**identity,'candidate_version':'older-unrelated-result'}
+        store.claim(identity,fixture.ASSISTANT,'expired-other-reviewer','other-start')
+        store.conn.execute("UPDATE claims SET identity_json=?, role='operations-assistant', expires=0", (json.dumps(other),));store.conn.commit()
+        answer=c.selection_plan(self.root,identity,self.live())
+        self.assertEqual(answer['selected'],'operations-assistant')
+
+    def test_committed_selection_interruption_recovers_without_second_review(self):
+        identity,req,_=self.ready();w.record_result_handoff(self.root,req)
+        self.shared_methods('operations-assistant')
+        request={**identity,'actor':fixture.PRODUCER,'request_id':'selection-interrupted','live_identity':self.live()}
+        original=w.atomic_write_json
+        def interrupt(path,value):
+            if Path(path)==w.snapshot_path(self.root,self.t.task_id):raise RuntimeError('modeled stop after selection commit')
+            return original(path,value)
+        with mock.patch.object(w,'atomic_write_json',side_effect=interrupt),self.assertRaises(RuntimeError):
+            c.select_result(self.root,request)
+        answer=c.recover_selection(self.root,request)
+        self.assertEqual(answer['selected'],'operations-assistant');self.assertFalse(answer['accepted'])
+        self.assertEqual(c.recover_selection(self.root,request)['selected'],'operations-assistant')
+        self.assertEqual(len(self.t.snapshot()['goal_delivery']['assignment_history']),1)
+
+    def test_idle_backup_has_shared_inventory_and_can_select_at_own_work_boundary(self):
+        identity,req,_=self.ready();w.record_result_handoff(self.root,req)
+        self.shared_methods('operations-assistant')
+        pool=c.shared_pending(self.root,'operations-assistant')
+        self.assertEqual(pool['results'][0]['task_id'],self.t.task_id)
+        self.assertFalse(pool['inventory_is_permission'])
+        request={**identity,'actor':'operations-assistant','at_work_boundary':True,
+                 'request_id':'self-boundary-one','live_identity':self.live('active','active')}
+        answer=c.select_result(self.root,request)
+        self.assertEqual(answer['selected'],'operations-assistant')
+        store=r.CoordinationStore(self.root);self.addCleanup(store.close)
+        lease=store.claim(identity,'operations-assistant','boundary-handler','claim-after-select')
+        self.assertEqual(lease['role'],'operations-assistant')
+
+    def test_ready_statement_must_be_complete_not_a_small_progress_step(self):
+        _,request,page=self.ready()
+        text=page['turns'][0]['items'][0]['text'].replace('"batch_complete": true','"batch_complete": false')
+        page['turns'][0]['items'][0]['text']=text
+        (self.root/'reports/not-complete.txt').write_text(text)
+        request.update(visible_reply=w.file_digest(self.root,'reports/not-complete.txt'),
+                       source_reply_sha256=hashlib.sha256(text.encode()).hexdigest(),
+                       actual_native_completion=w.file_digest(self.root,self.t.write('reports/not-complete.json',page)))
+        with self.assertRaisesRegex(w.WorkflowError,'complete batch'):
+            c.ready_source(self.root,request,request['source_thread_id'])
+
+    def test_changed_shared_method_cannot_grant_backup_capability(self):
+        self.shared_methods('operations-assistant')
+        goal=fixture.GoalRuntimeConsumerTests.make_goal(self.t)
+        self.assertTrue(c.shared_capable(self.root,'operations-assistant',goal))
+        (self.root/'reports/shared-method.md.json').write_text('{}')
+        self.assertFalse(c.shared_capable(self.root,'operations-assistant',goal))
+
+    def test_shared_skill_requires_real_aligned_path_and_unchanged_bytes(self):
+        role='operations-assistant';self.shared_methods(role)
+        path=self.root/'reports/installed-method/SKILL.md';path.parent.mkdir();path.write_text('synthetic independent method')
+        resource={'path':str(path),'sha256':hashlib.sha256(path.read_bytes()).hexdigest(),'size':path.stat().st_size}
+        registry=w.read_json(self.root/'data/department-registry.json');row=next(x for x in registry['departments'] if x['id']==role)
+        row.update(approved_subskills=['renovation-seo-geo'],approved_subskill_paths=[str(path)])
+        manifest=self.root/row['coordination_authority']['shared_review_methods']['path'];doc=w.read_json(manifest)
+        doc.update(resources={'renovation-seo-geo':resource},method_skill_requirements={'development':['renovation-seo-geo']})
+        w.atomic_write_json(manifest,doc);row['coordination_authority']['shared_review_methods']=w.file_digest(self.root,w.rel_path(self.root,manifest))
+        w.atomic_write_json(self.root/'data/department-registry.json',registry)
+        goal=self.t.make_goal()
+        self.assertTrue(c.shared_capable(self.root,role,goal))
+        path.write_text('changed method');self.assertFalse(c.shared_capable(self.root,role,goal))
+        path.write_text('synthetic independent method');row['approved_subskill_paths']=[]
+        w.atomic_write_json(self.root/'data/department-registry.json',registry)
+        self.assertFalse(c.shared_capable(self.root,role,goal))
+
+    def assignment(self,role=fixture.PRODUCER,initialize=True):
+        if initialize:self.t.initialize()
+        payload='reports/assignment.txt';(self.root/payload).write_text(self.t.task_id+' complete original goal')
+        pin=w.file_digest(self.root,payload)
+        req=self.t.requested(sender='operations',target=role,payload=pin,
+                             scope=self.t.snapshot()['goal_delivery']['authorized_scope'][0])
+        decision=self.t.policy(req)
+        sent=self.t.fixture.receipt('dispatch_sent',role,'assignment-send',
+             policy_decision_id=decision['decision_id'],action_id=req['action_id'],action_class='thread_message',scope=req['scope'])
+        self.t.fixture.receipt('chat_ack',role,'assignment-ack')
+        binding=w.department_registry(self.root)['operations']['chat_binding']
+        page={'thread':{'id':binding['task_id'],'cwd':binding['cwd'],'title':binding['title']},
+              'turns':[{'id':'sending-turn','error':None,'items':[{'id':'actual-call','type':'mcpToolCall',
+                  'server':'codex_app','tool':'send_message_to_thread','status':'completed','error':None,
+                  'arguments':{'threadId':'fixed-'+role,'prompt':(self.root/payload).read_text()}}]}]}
+        call=w.file_digest(self.root,self.t.write('reports/assignment-call.json',page))
+        result={'content':[{'type':'text','text':json.dumps({'threadId':'fixed-'+role})}],'isError':False}
+        transport=w.file_digest(self.root,self.t.write('reports/assignment-send.json',{
+            'actual_tool':'mcp__codex_app__send_message_to_thread','thread_id':'fixed-'+role,
+            'raw_tool_return':result,'exact_consumed_prompt':pin}))
+        item={'schema':c.ASSIGNMENT_SCHEMA,'task_id':self.t.task_id,'department':role,
+              'sender_department':'operations','payload':pin,'actual_native_invocation':call,'actual_native_send':transport,
+              'source_call_id':'actual-call','dispatch_receipt_id':sent['receipt_id']}
+        path=self.t.write('reports/assignment.json',item)
+        return item,w.file_digest(self.root,path)
+
+    def test_whole_goal_assignment_admits_first_plan_without_old_qa_round(self):
+        import qa_review_plan as review
+        self.t.initialize();self.t.dispatch()
+        self.t.fixture.receipt('chat_ack',fixture.PRODUCER,'producer-before-review')
+        candidate,producer=self.t.producer_result()
+        item,pin=self.assignment(role=fixture.ASSISTANT,initialize=False);c.record_assignment(self.root,item,pin)
+        plan=self.t.review_plan(candidate)
+        path=self.t.write('reports/whole-result-review-plan.json',plan)
+        answer=review.bind_plan(self.root,task_id=self.t.task_id,plan_path=path,coordinator_role=fixture.ASSISTANT)
+        self.assertEqual(answer['current_assignment_review_source'],pin)
+        self.assertEqual(review.bind_plan(self.root,task_id=self.t.task_id,plan_path=path,
+                             coordinator_role=fixture.ASSISTANT)['result'],'duplicate_ignored')
+        verdict=self.t.assistant_verdict(plan,producer)
+        self.assertEqual(verdict['workflow_state'],'qa_passed')
+        receipts,errors=w._validate_receipt_chain(self.root,self.t.task_id)
+        self.assertEqual(errors,[])
+        self.assertEqual(w.reconcile_workflow(self.root,task_id=self.t.task_id)[0]['current_state'],'qa_passed')
+        changed={**plan,'reviewer_department':'operations-assistant-3'}
+        self.assertIsNone(review._current_goal_assignment_round(self.root,self.t.snapshot(),
+                          w._validate_receipt_chain(self.root,self.t.task_id)[0],changed))
+        (self.root/item['payload']['path']).write_text('tampered')
+        with self.assertRaisesRegex(w.WorkflowError,'frozen whole-goal'):
+            review._assigned_review_round(self.root,self.t.snapshot(),w._validate_receipt_chain(self.root,self.t.task_id)[0],plan)
+
+    def test_generic_producer_assignment_restores_without_historical_repair(self):
+        item,pin=self.assignment();answer=c.record_assignment(self.root,item,pin)
+        self.assertTrue(answer['actual_message_delivered'])
+        active=r.current_assignment_for_role(self.root,fixture.PRODUCER)
+        self.assertEqual(active['task_id'],self.t.task_id);self.assertTrue(active['resume_required'])
+        self.assertFalse(active['permissions_inherited'])
+        self.assertEqual(c.record_assignment(self.root,item,pin)['result'],'duplicate_ignored')
+
+    def test_assignment_wrong_role_original_call_or_bytes_rejected(self):
+        item,pin=self.assignment()
+        for change in [{'source_call_id':'missing'},{'sender_department':'sales'},{'department':'operations-assistant-3'}]:
+            with self.subTest(change=change),self.assertRaises((w.WorkflowError,KeyError,ValueError)):
+                c.record_assignment(self.root,{**item,**change},pin)
+        (self.root/item['payload']['path']).write_text('changed by another writer')
+        with self.assertRaises(w.WorkflowError):c.record_assignment(self.root,item,pin)
+
+    def test_preapproved_next_batch_does_not_require_a_new_hq_decision(self):
+        request=self.t.requested();request['action_id']='next-whole-batch-2'
+        action={**request,'payload':request['payload']}
+        self.t.initialize(continuation_actions=[{k:action[k] for k in ('action_id','action_class','scope','target_department','payload')}])
+        self.t.dispatch()
+        path=self.t.write('reports/authorized-next.json',action)
+        self.assertEqual(g.record_approved_action(self.root,self.t.task_id,path)['result'],'recorded')
+        self.assertEqual(self.t.policy(action)['status'],'allow')
+        self.assertEqual(w._result_handoff_rows(self.root,self.t.task_id),[])
+
+    def knowledge_read_fixture(self):
+        identity,source,page=self.ready()
+        binding=w.department_registry(self.root)['operations']['chat_binding']
+        caller={'thread':{'id':binding['task_id'],'title':binding['title'],'cwd':binding['cwd']},
+           'turns':[{'id':'hq-turn','items':[{'id':'one-real-read','type':'mcpToolCall',
+             'server':'codex_app','tool':'read_thread','status':'completed','error':None,
+             'arguments':{'threadId':source['source_thread_id']}}]}]}
+        pin=w.file_digest(self.root,self.t.write('reports/hq-read-caller.json',caller))
+        observation={'native_invocation':pin,'source_call_id':'one-real-read',
+                     'actual_read_result':source['actual_native_completion']}
+        input_pin=w.file_digest(self.root,self.t.write('reports/hq-read-observation.json',observation))
+        return {'actual_recipient_read':input_pin},{'identity':identity,'queued_source':source,'dependency_pins':[]},observation
+
+    def test_actual_hq_read_can_receive_knowledge_without_claiming_message_sent(self):
+        request,proof,_=self.knowledge_read_fixture()
+        result=c.actual_knowledge_read(self.root,request,proof)
+        self.assertTrue(result['native_conclusion_received']);self.assertFalse(result['native_notification_sent'])
+        self.assertNotIn('qa_verdict',result)
+
+    def test_knowledge_intake_never_copies_queue_event_id_or_receipt_time(self):
+        identity,source,_=self.ready();queued,_=w.record_result_handoff(self.root,source)
+        store=r.CoordinationStore(self.root);self.addCleanup(store.close)
+        claim=store.claim(identity,fixture.ASSISTANT,'intake-emitter-fixture','one-intake')
+        request={**source,'event':'controller_received','idempotency_key':'distinct-intake',
+                 'reply_observed_at':dt.datetime.now(dt.timezone.utc).isoformat(),'intake_mode':'queue',
+                 'coordinator_role':fixture.ASSISTANT,'coordinator_owner':'intake-emitter-fixture','coordination_claim':claim}
+        # The public guard separately authenticates the HQ reader. Exercise its
+        # native emitter with the full queue object, which caused ID overwrite.
+        proof={'queued_source':queued,'transport_binding':'actual_recipient_native_read',
+               'actual_recipient_read':source['actual_native_completion'],'dependency_fingerprint':'fixture-only'}
+        row,_=w._record_result_handoff_uncoordinated(self.root,request,knowledge_source=proof)
+        self.assertEqual(row['event'],'controller_received')
+        self.assertNotEqual(row['record_id'],queued['record_id'])
+        self.assertEqual(row['idempotency_key'],'distinct-intake')
+        self.assertEqual(row['reply_observed_at'],request['reply_observed_at'])
+
+    def test_knowledge_queue_alone_or_wrong_actual_read_never_counts_as_receipt(self):
+        request,proof,observation=self.knowledge_read_fixture()
+        with self.assertRaises(w.WorkflowError):c.actual_knowledge_read(self.root,{},proof)
+        observation['source_call_id']='unrelated-call'
+        pin=w.file_digest(self.root,self.t.write('reports/wrong-reader.json',observation))
+        with self.assertRaises(w.WorkflowError):c.actual_knowledge_read(self.root,{'actual_recipient_read':pin},proof)
+
+    def test_divergent_native_append_keeps_uncertain_reservation(self):
+        identity,source,_=self.ready();w.record_result_handoff(self.root,source)
+        store=r.CoordinationStore(self.root);self.addCleanup(store.close)
+        claim=store.claim(identity,fixture.ASSISTANT,'divergent-native-test','one-receive')
+        request={**source,'event':'controller_received','idempotency_key':'expected-native-key',
+                 'intake_mode':'queue','coordinator_role':fixture.ASSISTANT,
+                 'coordinator_owner':'divergent-native-test','coordination_claim':claim}
+        with self.assertRaises(w.WorkflowError),r.handoff_guard(self.root,request):
+            w._record_result_handoff_uncoordinated(self.root,{**request,'idempotency_key':'divergent-native-key'})
+            raise w.WorkflowError('modeled divergence after a native append')
+        row=store.conn.execute('SELECT status FROM reservations WHERE result_key=? AND effect_key=?',
+                    (r._key(identity),r._sha([request['event'],request['idempotency_key']]))).fetchone()
+        self.assertEqual(row['status'],'uncertain')
+
+
+class BusyWaitTests(unittest.TestCase):
+    def test_busy_notice_waits_for_native_completion_and_does_not_spin(self):
+        n=notices.NoticeResumeTests('runTest');n.setUp();self.addCleanup(n.doCleanups)
+        n.claim('active')
+        notice=r.notification_plan(n.root,fixture.PRODUCER)['notifications'][0]
+        self.assertFalse(notice['actionable']);self.assertTrue(notice['waiting_for_native_completion'])
+        p=g.wait_plan(n.root,fixture.ASSISTANT,queue={'notification_delivery_pending':[notice]})
+        self.assertEqual(p['state'],'inflight_event_wait')
+        self.assertEqual(p['batches'],[[{'threadId':'fixed-'+fixture.ASSISTANT}]])
+        self.assertFalse(p['wait_deferred_for_ready_work'])
+
+
+if __name__=='__main__':unittest.main()

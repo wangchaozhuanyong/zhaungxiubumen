@@ -169,6 +169,9 @@ def _initial_assignment_envelope(root, snapshot, dispatch, contract_pin, *, hist
     envelope path reads existing policy/send/ACK bytes, creates no receipts and
     never substitutes a health observation for the original dispatch time.
     """
+    from goal_source_recovery import initial_assignment_source
+    if initial_assignment_source(root,snapshot,dispatch,contract_pin):
+        return True
     if _saved_initial_assignment_envelope(root, snapshot, dispatch, contract_pin, source_pins=source_pins):
         return True
     if _modern_initial_assignment_transport(root, snapshot, dispatch, contract_pin):
@@ -4581,6 +4584,179 @@ def _saved_original_first_binding_round(root, snapshot, receipts, plan):
     return current
 
 
+CONDO_FAQ_ORIGINAL_CHILD_CHAIN = {
+    "main_task": "fc-20261010-assistant1-remaining-business-continuation-v2",
+    "cms_task": "fc-20261014-condo-faq-v7-cms-publishing-v1",
+    "tech_task": "fc-20261014-condo-faq-v7-exact-issuer-compatibility-v1",
+    "main_scope": "project:flashcast:assistant1:remaining-original-goals:v2",
+    "cms_scope": "company.example:blog_posts/701c2406-ba5b-4bbc-8d47-f985047d5c81:content_en,content_zh",
+    "tech_scope": "project:flashcast:condo-faq-v7:exact-issuer-compatibility:v1",
+    "authority_sha256": "463bbf764c280221a55e16fb17023dcce94f2041ba3984001cf570a91abe405b",
+    "main_contract_sha256": "d793afba09010a68c0657ca93a825ef0a4532437acd7fc105f1df5c83d795b2f",
+    "cms_contract_sha256": "fa7aae6bd9791360386c9ffb6eb049ed1e868005993a50536dc2708553219967",
+    "tech_contract_sha256": "c0b985417ac034a596d8c87f966ada03025c0b7d7a47787bc55426f5e525a7c1",
+    "main_dispatch": "6f4e678b-a691-4b83-80b0-4e7f0554985d",
+    "main_ack": "dbf33de9-b256-4464-8eec-9e0b9ef089fa",
+    "cms_dispatch": "46b9404a-9b85-47c4-8896-45db0640589d",
+    "cms_ack": "fd7d9171-70ab-4334-8eab-6694eb41e52c",
+    "cms_outbox": "9697f63c-bf83-43ef-80eb-1b873c292277",
+    "tech_dispatch": "17b75e9a-3b31-4cde-b04b-c0c2285c93fc",
+    "tech_ack": "61dbfa18-d496-4757-9d53-755ab957b711",
+}
+
+
+def original_condo_faq_child_review_context(root, snapshot, receipts=None, plan=None):
+    """Read this original A1 assignment through its two exact child contracts.
+
+    The main assignment remains in the main task. No reviewer dispatch/ACK,
+    publication permission, or result is created in either child ledger.
+    """
+    w = _workflow()
+    exact = CONDO_FAQ_ORIGINAL_CHILD_CHAIN
+    task = snapshot.get("task_id")
+    if task not in {exact["cms_task"], exact["tech_task"]}:
+        return None
+    cms = task == exact["cms_task"]
+    scope = exact["cms_scope"] if cms else exact["tech_scope"]
+    producer = "publishing" if cms else "system-development"
+    dispatch_id = exact["cms_dispatch"] if cms else exact["tech_dispatch"]
+    ack_id = exact["cms_ack"] if cms else exact["tech_ack"]
+    reviewer = "operations-assistant"
+    fixed = w.department_registry(root)
+    reviewer_thread = fixed.get(reviewer, {}).get("chat_binding", {}).get("task_id")
+    if (reviewer_thread != "<LOCAL_TASK_ID>"
+            or plan is not None and any(plan.get(k) != value for k, value in {
+                "task_id": task, "scope": scope, "reviewer_department": reviewer,
+                "reviewer_thread_id": reviewer_thread, "producer_department": producer,
+            }.items())):
+        return None
+    child_goal = _goal(root, snapshot)
+    parent_task = exact["main_task"] if cms else exact["cms_task"]
+    if (not isinstance(child_goal, dict)
+            or child_goal.get("parent_task_id") != parent_task
+            or child_goal.get("primary_owner") != ("content-organic-website" if cms else producer)
+            or child_goal.get("responsible_assistant") != reviewer
+            or child_goal.get("producer_departments") != (["content-organic-website", "publishing"] if cms else [producer])
+            or child_goal.get("authorized_scope") != [scope]
+            or child_goal.get("source_mode") != "approved_dispatch"
+            or child_goal.get("authorization_pin", {}).get("sha256") != exact["authority_sha256"]
+            or child_goal.get("human_authorization", {}).get("source_thread_id") != reviewer_thread
+            or child_goal.get("human_authorization", {}).get("scope") != scope
+            or child_goal.get("human_authorization", {}).get("executor") != ("content-organic-website" if cms else producer)):
+        return None
+    authority = child_goal["authorization_pin"]
+    if w.file_digest(root, authority.get("path", "")) != authority:
+        return None
+    main = w.read_json(w.snapshot_path(root, exact["main_task"]))
+    cms_snapshot = snapshot if cms else w.read_json(w.snapshot_path(root, exact["cms_task"]))
+    main_goal, cms_goal = _goal(root, main), _goal(root, cms_snapshot)
+    if (not isinstance(main_goal, dict) or not isinstance(cms_goal, dict)
+            or main_goal.get("responsible_assistant") != reviewer
+            or main_goal.get("authorized_scope") != [exact["main_scope"]]
+            or main_goal.get("source_mode") != "approved_dispatch"
+            or cms_goal.get("parent_task_id") != exact["main_task"]
+            or cms_goal.get("responsible_assistant") != reviewer
+            or cms_goal.get("authorized_scope") != [exact["cms_scope"]]
+            or cms_goal.get("source_mode") != "approved_dispatch"
+            or cms_goal.get("authorization_pin") != authority):
+        return None
+    contracts = ((main, main_goal, exact["main_contract_sha256"]),
+                 (cms_snapshot, cms_goal, exact["cms_contract_sha256"]),
+                 (snapshot, child_goal, exact["cms_contract_sha256"] if cms else exact["tech_contract_sha256"]))
+    for current, goal, expected_sha in contracts:
+        pin = current.get("goal_contract")
+        if not isinstance(pin, dict) or pin.get("sha256") != expected_sha or w.file_digest(root, pin.get("path", "")) != pin:
+            return None
+        contract = w.read_json(w.safe_path(root, pin["path"]))
+        contract = contract.get("goal_delivery", contract)
+        if any(contract.get(key) != goal.get(key) for key in
+               ("parent_task_id", "primary_owner", "responsible_assistant", "producer_departments",
+                "authorized_scope", "source_mode", "human_authorization")):
+            return None
+    main_rows, main_invalid = w._validate_receipt_chain(root, exact["main_task"],
+                                                          through_receipt_id=exact["main_ack"])
+    if main_invalid:
+        return None
+    main_round = _current_goal_assignment_round(root, main, main_rows, {
+        "reviewer_department": reviewer, "reviewer_thread_id": reviewer_thread,
+        "scope": exact["main_scope"]})
+    if (main_round is None or main_round["dispatch"].get("receipt_id") != exact["main_dispatch"]
+            or main_round["ack"].get("receipt_id") != exact["main_ack"]):
+        return None
+    cms_rows, cms_invalid = w._validate_receipt_chain(root, exact["cms_task"],
+                                                        through_receipt_id=exact["cms_outbox"] if not cms else exact["cms_ack"])
+    if cms_invalid:
+        return None
+    if not cms:
+        cms_producer = [(i, row) for i, row in enumerate(cms_rows)
+                        if row.get("receipt_id") == exact["cms_outbox"]]
+        if len(cms_producer) != 1 or cms_producer[0][1].get("department") != "publishing" or cms_producer[0][1].get("receipt_type") != "outbox_received":
+            return None
+    actual_rows, child_invalid = (cms_rows, []) if cms else w._validate_receipt_chain(
+        root, task, through_receipt_id=ack_id)
+    if child_invalid:
+        return None
+    if receipts is not None and receipts[:len(actual_rows)] != actual_rows:
+        return None
+    pairs = [(i, row) for i, row in enumerate(actual_rows)
+             if row.get("receipt_id") in {dispatch_id, ack_id}]
+    if len(pairs) != 2 or pairs[0][1].get("receipt_id") != dispatch_id or pairs[1][1].get("receipt_id") != ack_id:
+        return None
+    dispatch, ack = pairs[0][1], pairs[1][1]
+    producer_thread = fixed.get(producer, {}).get("chat_binding", {}).get("task_id")
+    expected_action = ("A1-condo-faq-v7-publishing-complete-continuation-20261014" if cms
+                       else "A1-condo-faq-v7-system-exact-issuer-compatibility-20261014")
+    if (dispatch.get("receipt_type") != "dispatch_sent" or dispatch.get("department") != producer
+            or dispatch.get("chat_task_id") != producer_thread or dispatch.get("scope") != scope
+            or dispatch.get("action_id") != expected_action
+            or ack.get("receipt_type") != "chat_ack" or ack.get("department") != producer
+            or ack.get("chat_task_id") != producer_thread or ack.get("ack_nonempty") is not True
+            or w._parse_observed_at(dispatch.get("created_at")) > w._parse_observed_at(ack.get("created_at"))):
+        return None
+    if any(row.get("department") in {reviewer, "qa", "qa-technical"}
+           and row.get("receipt_type") in {"dispatch_sent", "dispatch_failed", "chat_ack"}
+           for row in (receipts if receipts is not None else w.read_jsonl(w.receipts_path(root, task)))):
+        return None
+    return {"dispatch": main_round["dispatch"], "ack": main_round["ack"],
+            "dispatch_index": -1, "ack_index": -1, "original_main_task_id": exact["main_task"],
+            "child_task_id": task, "production_permissions_inherited": False}
+
+
+def _current_goal_assignment_round(root,snapshot,receipts,plan):
+    """A real whole-goal reviewer assignment is not a legacy QA-plan send."""
+    w=_workflow();goal=_goal(root,snapshot)
+    if goal is None:return None
+    role=goal['responsible_assistant']
+    if (plan.get('reviewer_department')!=role or plan.get('scope') not in goal['authorized_scope']
+            or any(row.get('department') in {'qa','qa-technical'} for row in receipts)):return None
+    binding=_binding(root,snapshot) or {}
+    frozen=binding.get('current_assignment_review_source')
+    index=w.read_json(Path(root)/'data/department-current-assignment.json')
+    pin=frozen or index.get('assignments',{}).get(role)
+    if not isinstance(pin,dict):return None
+    import goal_continuity as continuity
+    try:
+        item=continuity.pin_document(root,pin)
+        if item.get('department')!=role:return None
+        original,dispatch_source=continuity._dispatch_source(root,item)
+        active={'task_id':original['task_id'],'actual_message_delivered':True,
+                'dispatch_receipt_id':dispatch_source['receipt_id']}
+    except (w.WorkflowError,OSError,ValueError,KeyError,TypeError):
+        if frozen:raise w.WorkflowError('frozen whole-goal reviewer assignment changed')
+        return None
+    if not active or active.get('task_id')!=snapshot['task_id'] or active.get('actual_message_delivered') is not True:return None
+    matches=[(i,row) for i,row in enumerate(receipts) if row.get('receipt_id')==active['dispatch_receipt_id']]
+    if len(matches)!=1:return None
+    dispatch_index,dispatch=matches[0]
+    acks=[(i,row) for i,row in enumerate(receipts) if i>dispatch_index and row.get('receipt_type')=='chat_ack'
+          and row.get('department')==role and row.get('chat_task_id')==plan['reviewer_thread_id'] and row.get('ack_nonempty') is True]
+    if not acks:return None
+    ack_index,ack=acks[0]
+    if w._parse_observed_at(dispatch['created_at'])>w._parse_observed_at(ack['created_at']):return None
+    return {'dispatch':dispatch,'dispatch_index':dispatch_index,'ack':ack,'ack_index':ack_index,
+            'current_assignment_review_source':pin,'production_permissions_inherited':False}
+
+
 def _assigned_review_round(root, snapshot, receipts, plan, *, source_pins=None):
     """Resume the original assignment; never turn a new reviewer into that role.
 
@@ -4597,6 +4773,10 @@ def _assigned_review_round(root, snapshot, receipts, plan, *, source_pins=None):
         if receipts != _strict_source_rows(root, snapshot["task_id"]):
             raise w.WorkflowError("complete current original responsibility receipts required")
         return current["responsibility_windows"][-1]
+    ordinary=_current_goal_assignment_round(root,snapshot,receipts,plan)
+    if ordinary is not None:return ordinary
+    original_child = original_condo_faq_child_review_context(root, snapshot, receipts, plan)
+    if original_child is not None:return original_child
     saved_first = _saved_original_first_binding_round(root, snapshot, receipts, plan)
     if saved_first is not None:
         return saved_first
@@ -5105,8 +5285,19 @@ def validate_plan(root: Path, snapshot: dict, plan: dict, *, transfer_from=None)
     if any(not isinstance(plan.get(k), str) or not plan[k].strip() for k in IDENTITY):
         raise w.WorkflowError("complete exact QA identity required")
     scope = plan["scope"]
+    exact_cms = (scope == CONDO_FAQ_ORIGINAL_CHILD_CHAIN["cms_scope"]
+                 and snapshot.get("task_id") == CONDO_FAQ_ORIGINAL_CHILD_CHAIN["cms_task"]
+                 and plan.get("action_id") == "publish-condo-faq-v7-current-native-20261014-v1"
+                 and plan.get("action_class") == "cms_content_candidate"
+                 and plan.get("candidate_version") == "publishing-condo-faq-v7-current-native-v1-20261014"
+                 and plan.get("candidate_sha256") == "5a717a01629d62bf5fa161c4c377a0467439edf00c6d47143311dc3e755ee821"
+                 and plan.get("candidate") == {
+                     "path": "drafts/publishing/fc-20261014-condo-faq-v7-cms-publishing-v1/publishing-condo-v7-current-native-candidate-v1.json",
+                     "sha256": "5a717a01629d62bf5fa161c4c377a0467439edf00c6d47143311dc3e755ee821",
+                     "size": 16308}
+                 and original_condo_faq_child_review_context(root, snapshot, plan=plan) is not None)
     if ((not modern and not scope.startswith("project:")) or scope.endswith((":", "/"))
-            or any(c in scope for c in "*?[]|,\n\r")):
+            or any(c in scope for c in "*?[]|\n\r") or ("," in scope and not exact_cms)):
         raise w.WorkflowError("one exact project scope required")
     reviewer, producer = plan.get("reviewer_department"), plan.get("producer_department")
     registry = w.department_registry(root)
@@ -5202,7 +5393,10 @@ def bind_plan(root: Path, *, task_id: str, plan_path: str, coordinator_role: str
         if modern:
             binding["goal_identity"] = {key: _goal(root, snapshot)[key] for key in GOAL_IDENTITY}
         if old is not None:
-            if old == binding or {k:v for k,v in old.items() if k != "review_delegation"} == binding:
+            if old.get('current_assignment_review_source') and _current_goal_assignment_round(root,snapshot,
+                    w._validate_receipt_chain(root,task_id)[0],plan) is None:
+                raise w.WorkflowError('frozen whole-goal reviewer assignment no longer valid')
+            if old == binding or {k:v for k,v in old.items() if k not in {"review_delegation","current_assignment_review_source"}} == binding:
                 if old.get("review_delegation"):
                     from goal_delivery_runtime import review_delegation
                     if review_delegation(root, snapshot)["binding"] != old["review_delegation"]:
@@ -5234,6 +5428,9 @@ def bind_plan(root: Path, *, task_id: str, plan_path: str, coordinator_role: str
             if (not modern or _assigned_review_round(root, snapshot, receipts, plan) is None
                     or any(r.get("receipt_type") == "qa_verdict" for _, r in review_history)):
                 raise w.WorkflowError("cannot change reviewer after QA dispatch or history")
+        ordinary=_current_goal_assignment_round(root,snapshot,receipts,plan)
+        if ordinary is not None:
+            binding['current_assignment_review_source']=ordinary['current_assignment_review_source']
         now = dt.datetime.now(dt.timezone.utc)
         health_roles = (plan["producer_department"], plan["reviewer_department"])
         if coordinator_role == "operations" or not modern:
@@ -5593,7 +5790,10 @@ def validate_verdict(root: Path, snapshot: dict, receipts: list, receipt: dict) 
         else:
             direct = owner_direct_review_context(root, snapshot, binding)
             if direct is None:
-                raise w.WorkflowError("latest actual reviewer dispatch required, or exact inherited delegation/original owner-direct proof")
+                original_child = original_condo_faq_child_review_context(root, snapshot, receipts, plan)
+                if original_child is None:
+                    raise w.WorkflowError("latest actual reviewer dispatch required, or exact inherited delegation/original owner-direct proof")
+                dispatch, ack = original_child["dispatch"], original_child["ack"]
         initial_assignment = True
         boxes = [r for r in receipts if r.get("department") == reviewer and r.get("receipt_type") == "outbox_received"]
     else:

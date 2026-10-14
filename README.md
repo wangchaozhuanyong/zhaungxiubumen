@@ -10,6 +10,8 @@
 
 `python3 tools/flashcast_ops.py department-learning-effective --department <注册部门ID>`
 
+当前学习视图提供授权预检入口；提出重复授权问题前先核原目标。`python3 tools/goal_delivery_runtime.py authorization-precheck --task-id <原任务ID> --input <准确动作JSON>` 只读解释范围，不能替代发送或生产许可。实际消息通过 `goal_source_recovery.py prepare-message` 同时消费授权及精确policy-check；现代任务普通消息的policy入口也强制消费授权预检。老板直派或历史实际发送恢复使用该工具的 `recover-source`，不补造旧dispatch/ACK。具体规则只维护在共同正文中。
+
 ## 源码导出与安装
 
 运行环境为 Python 3.9以上标准库。本项目业务协调目录不是 Git 根目录；源码仓库、官网和业务输出各自隔离。

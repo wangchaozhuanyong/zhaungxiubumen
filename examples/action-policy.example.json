@@ -298,7 +298,10 @@
       "evidence_path": "<PROJECT_ROOT>/logs/handoffs/2026-10-10-goal-delivery-assistant-runtime-v1/developer/human-authority.json"
     },
     "exact_production_authorization_gate": "existing exact human/standing scope, actor, facts, necessary selfchecks, backup/rollback, lawful channel and actual effects; no per-step fixed QA/HQ approval",
-    "independent_acceptance_at_complete_delivery": true
+    "independent_acceptance_at_complete_delivery": true,
+    "ordinary_execution": "self_check_then_execute_one_acceptance_after_batch",
+    "idle_qualified_assistant_selection": true,
+    "sensitive_scope_changes_require_real_authorization": true
   },
   "public_template": true
 }

@@ -400,7 +400,28 @@ def current_assignment_for_role(root,role):
     """Expose a proven live assignment after compaction; never infer completion."""
     w=_w();config=w.read_json(Path(root)/'data/department-current-assignment.json')
     pin=config.get('assignments',{}).get(role)
-    if pin is None:return None
+    from goal_continuity import current_assignment
+    if pin is None:
+        pending=[];errors=[]
+        for prior in config.get('suspended_assignments',{}).get(role,[]):
+            try:
+                old=current_assignment(root,role,prior)
+                if old and old.get('resume_required'): pending.append(old)
+            except _w().WorkflowError as error:
+                errors.append({'source':prior,'reason':str(error)})
+        if not pending:
+            return {'resume_required':False,'assignment_errors':errors} if errors else None
+        return {**pending.pop(),'resumed_suspended_assignment':True,
+                'unfinished_assignment_queue':pending,'assignment_errors':errors}
+    generic = current_assignment(root, role, pin)
+    if generic is not None:
+        pending=[]
+        for prior in config.get('suspended_assignments',{}).get(role,[]):
+            old=current_assignment(root,role,prior)
+            if old and old.get('resume_required'):pending.append(old)
+        if not generic.get('resume_required') and pending:
+            generic={**pending.pop(),'resumed_suspended_assignment':True}
+        return {**generic,'unfinished_assignment_queue':pending}
     import direct_system_repair as direct
     from qa_review_plan import _review_same_goal_send_wrapper
     if direct.context(root,direct.TASK) is None:
@@ -513,6 +534,72 @@ def _knowledge_events(root, task_id):
     return selected
 
 
+def assistant_decision_bundle(root, box, goal, assistant):
+    """A partial batch reports real decisions, not an invented whole-goal PASS."""
+    pin=box.get('assistant_decision_bundle')
+    if pin is None:return None
+    w=_w()
+    if (box.get('status')!='partial' or box.get('qa_verdict')=='pass'
+            or box.get('goal_completion_claimed') is not False
+            or box.get('production_write_allowed') is not False
+            or box.get('external_permission_issued') is not False
+            or pin not in box.get('evidence',[]) or w.file_digest(root,pin.get('path',''))!=pin):
+        _fail('partial knowledge must preserve exact non-PASS bundle and no completion/permission claim')
+    doc=w.read_json(w.safe_path(root,pin['path']));items=doc.get('items')
+    if doc.get('schema')!='assistant-actual-decision-bundle/v1' or not isinstance(items,list) or not 1<=len(items)<=100:
+        _fail('bounded existing assistant decision bundle required')
+    database=w.safe_path(root,str(DATABASE))
+    if not database.is_file():_fail('partial knowledge existing committed coordinator audit required')
+    connection=sqlite3.connect(database.as_uri()+'?mode=ro',uri=True)
+    try:audit=connection.execute('SELECT payload_json,previous_hash,record_hash FROM coordination_audit ORDER BY seq').fetchall()
+    finally:connection.close()
+    previous='';actors={}
+    for raw,prior,digest in audit:
+        event=json.loads(raw)
+        if prior!=previous or digest!=_sha([previous,event]):
+            _fail('partial knowledge actual coordinator audit changed')
+        previous=digest
+        if event.get('event')=='effect_reserved':
+            key=(_key(exact_identity(event['identity'])),event['details']['effect_key'])
+            actors.setdefault(key,set()).add(event['details'].get('role'))
+    verified=[];seen=set()
+    for item in items:
+        identity=exact_identity(item.get('identity',{}));key=_key(identity)
+        if key in seen or identity['sender_department'] not in goal['producer_departments']:
+            _fail('one original producer result per knowledge bundle item required')
+        seen.add(key);route=result_lane(root,identity)
+        if route['lane']!='professional_acceptance' or route.get('target_department')!=assistant:
+            _fail('knowledge bundle result must belong to this exact responsible assistant')
+        _validate_queued(root,identity)
+        rows=w._result_handoff_rows(root,identity['task_id'])
+        decision=[row for row in rows if row.get('record_id')==item.get('decision_record_id')]
+        follow=[row for row in rows if row.get('record_id')==item.get('followthrough_record_id')]
+        if (len(decision)!=1 or len(follow)!=1 or decision[0].get('event')!='controller_decision'
+                or follow[0].get('event')!='controller_followthrough'):
+            _fail('one real decision and actual next action or named waiting record required')
+        for row in [decision[0],follow[0]]:
+            if exact_identity(row)!=identity:
+                _fail('partial knowledge decision/result actor differs')
+            _committed_result(root,row)
+            # Scheduled native rows used to omit actors; the authenticated
+            # original reservation audit retains the actual handling role.
+            committed_actors=actors.get((_key(identity),_sha([row['event'],row['idempotency_key']])),set())
+            if committed_actors!={assistant} or row.get('coordinator_role',assistant)!=assistant:
+                _fail('partial knowledge actual committed coordinator differs')
+        if (decision[0].get('decision') not in {'rework','wait_external','continue','accept','release_gate','close_scope'}
+                or not decision[0].get('next_owner') or not decision[0].get('next_action')
+                or rows.index(follow[0])<=rows.index(decision[0])):
+            _fail('partial knowledge needs ordered actual responsibility and followthrough')
+        if follow[0].get('followthrough_status') in {'external_wait_registered','blocked_with_owner'}:
+            if not follow[0].get('unblock_condition') or w._parse_observed_at(follow[0].get('next_check_at')) is None:
+                _fail('named waiting must retain a real release condition and review time')
+        elif follow[0].get('followthrough_status') in {None,'pending'}:
+            _fail('a decision alone is not an actual next action')
+        verified.append({'identity':identity,'decision':decision[0],'followthrough':follow[0]})
+    return {'source_kind':'committed_assistant_decision_bundle','bundle':pin,'items':verified,
+            'acceptance_proven':False,'parent_goal_closed':False,'external_permission_issued':False}
+
+
 def _hq_knowledge_source(root, identity, *, require_transport=False):
     """Read a formal assistant conclusion; never execute professional review.
 
@@ -573,7 +660,10 @@ def _hq_knowledge_source(root, identity, *, require_transport=False):
     binding = _binding(root, snapshot)
     nonpass_decision = None
     if box.get('qa_verdict') != 'pass':
-        if is_original_a3_conclusion_identity(identity):
+        bundle=assistant_decision_bundle(root,box,goal,assistant)
+        if bundle is not None:
+            nonpass_decision=bundle
+        elif is_original_a3_conclusion_identity(identity):
             nonpass_decision = committed_original_a3_conclusion(root, identity)
             if nonpass_decision is None:
                 _fail('original A3 partial summary requires its exact committed non-PASS conclusion')
@@ -670,7 +760,7 @@ def _hq_knowledge_source(root, identity, *, require_transport=False):
                   'qa_receipt_id': latest['receipt_id'], 'qa_receipt_hash': latest['receipt_hash']}
     else:
         source_commit = nonpass_decision
-    _knowledge_native_reply(root, source, registry[assistant]['chat_binding'], completed=True)
+    _knowledge_native_reply(root, source, registry[assistant]['chat_binding'], completed=source.get('result_source_phase')!='delivery_ready')
     dependencies = [w.file_digest(root, str(path)) for path in
         (w.snapshot_path(root, identity['task_id']), w.receipts_path(root, identity['task_id']),
          w.result_handoff_path(root, identity['task_id']),
@@ -700,6 +790,11 @@ def _knowledge_transport(root, original):
     exact = [row for row in w._result_handoff_rows(root, identity['task_id'])
              if w._result_identity(row) == tuple(identity[key] for key in IDENTITY_FIELDS[1:])]
     sent = [row for row in exact if row.get('event') == 'notification_sent']
+    observed=[row for row in exact if row.get('event')=='controller_received'
+              and row.get('result_lane')=='HQ_knowledge' and row.get('actual_recipient_read')]
+    if not sent and len(observed)==1:
+        from goal_continuity import actual_knowledge_read
+        return actual_knowledge_read(root,observed[0],proof)
     if len(sent) != 1 or sent[0].get('target_department') != 'operations':
         _fail('exact actual HQ knowledge transport required')
     transport = sent[0].get('actual_native_transport', {})
@@ -787,6 +882,57 @@ def _collaboration_source(root, identity):
     return collaboration_result_source(root, identity)
 
 
+def supplemental_owner_return_source(root, identity):
+    """Read exact admitted old owner results; no reopening or execution rights."""
+    w=_w();contract=w.read_json(Path(root)/'data/task-contract.json')
+    entries=contract.get('result_handoff_contract',{}).get('owner_direct_return_sources',[])
+    matches=[item for item in entries if item.get('identity')==identity]
+    if not matches:return None
+    if len(matches)!=1:_fail('one exact original owner return admission required')
+    item=matches[0]
+    if item.get('execution_rights_granted') is not False:_fail('owner return cannot grant execution rights')
+    pins={}
+    for name in ['outbox','actual_reply','actual_owner_command']:
+        pin=item.get(name)
+        if not isinstance(pin,dict) or w.file_digest(root,pin.get('path',''))!=pin:
+            _fail('exact owner return source changed')
+        pins[name]=pin
+    snapshot=w.read_json(w.snapshot_path(root,item['original_coordination_task_id']))
+    goal=goal_delivery(root,snapshot=snapshot);registry=w.department_registry(root)
+    assistant=item.get('responsible_assistant');sender=identity['sender_department']
+    if (not goal or goal['responsible_assistant']!=assistant or sender not in goal['producer_departments']
+            or registry.get(assistant,{}).get('coordination_authority',{}).get('routine_decisions') is not True):
+        _fail('original independent assistant responsibility required for owner return')
+    box=w.read_json(w.safe_path(root,pins['outbox']['path']));reply=box.get('chat_reply',{})
+    w.validate_outbox(root,[pins['outbox']],sender,identity['task_id'])
+    if pins['outbox']['sha256']!=identity['result_sha256'] or box.get('candidate_version')!=identity['candidate_version']:
+        _fail('owner return exact result bytes differ')
+    source=w.read_json(w.safe_path(root,pins['actual_reply']['path']));records=source.get('records',[])
+    if len(records)!=1:_fail('one actual old frozen result source required')
+    record=records[0];original=record['original_row']['payload']
+    body=''.join(c.get('text','') for c in original.get('content',[]))
+    fixed=registry[sender]['chat_binding']
+    if (original.get('role')!='assistant' or original.get('id')!=reply.get('message_id')
+            or original.get('phase')!=reply.get('phase') or record.get('source_turn_id')!=reply.get('turn_id')
+            or source.get('source_thread_id')!=fixed['task_id'] or reply.get('thread_id')!=fixed['task_id']
+            or body!=reply.get('body_utf8') or hashlib.sha256(body.encode()).hexdigest()!=reply.get('body_sha256')):
+        _fail('owner return must bind original fixed turn/message/UTF8, not a fabricated completion')
+    owner=w.read_json(w.safe_path(root,pins['actual_owner_command']['path']));owner_rows=owner.get('records',[])
+    if len(owner_rows)!=1 or owner.get('source_thread_id')!=fixed['task_id'] or owner_rows[0]['original_row']['payload'].get('role')!='user':
+        _fail('actual original human owner source required')
+    queued=[row for row in w._result_handoff_rows(root,identity['task_id']) if row.get('event')=='notification_queued'
+            and exact_identity(row)==identity and row.get('outbox')==pins['outbox']]
+    if len(queued)!=1 or queued[0].get('record_id')!=item['original_queue_record_id']:
+        _fail('original immutable owner queue required; no new history manufactured')
+    return {'identity':identity,'outbox':pins['outbox'],'responsible_assistant':assistant,
+            'source_mode':'original_paid16','source_kind':'admitted_original_owner_return',
+            'original_coordination_task_id':item['original_coordination_task_id'],
+            'execution_rights_granted':False,'original_reply':{
+                'source_thread_id':fixed['task_id'],'source_turn_id':reply['turn_id'],
+                'source_message_id':reply['message_id'],'source_reply_sha256':reply['body_sha256'],
+                'reply_observed_at':record['source_timestamp'],'source_phase':reply['phase']}}
+
+
 def original_paid16_source(root, identity):
     """Admit only sixteen frozen original Paid results to their existing A3 owner.
 
@@ -795,6 +941,8 @@ def original_paid16_source(root, identity):
     results merely because they share its task ID.
     """
     identity = exact_identity(identity)
+    supplement=supplemental_owner_return_source(root,identity)
+    if supplement is not None:return supplement
     if (identity['task_id'] != ORIGINAL_PAID16_TASK
             or identity['sender_department'] != 'paid-growth-data'):
         return None
@@ -1417,10 +1565,14 @@ def handoff_guard(root, request):
     modern = (goal_delivery(root, identity["task_id"]) is not None
               or route.get('source_mode') in {'scheduled_run', 'original_paid16'})
     if route['lane'] == 'HQ_knowledge' and not own_conclusion and (role != 'operations'
-            or request['event'] != 'controller_received' or request.get('intake_mode') != 'notification'):
+            or request['event'] != 'controller_received' or request.get('intake_mode') not in {'notification','queue'}):
         _fail('HQ knowledge only; no self review or HQ second acceptance')
-    knowledge = (hq_knowledge_source(root, identity, require_transport=True)
-                 if route['lane'] == 'HQ_knowledge' and not own_conclusion else None)
+    knowledge=None
+    if route['lane']=='HQ_knowledge' and not own_conclusion:
+        if request.get('intake_mode')=='queue':
+            from goal_continuity import actual_knowledge_read
+            knowledge=actual_knowledge_read(root,request,hq_knowledge_source(root,identity))
+        else:knowledge=hq_knowledge_source(root,identity,require_transport=True)
     if not modern and role != "operations":
         _fail("assistant precheck cannot record final controller events")
     with coordination_lock(root):
@@ -1464,6 +1616,8 @@ def handoff_guard(root, request):
             admission.knowledge_source = knowledge
             if native:
                 admission.complete(native)
+            native_path=_w().result_handoff_path(root,identity['task_id'])
+            before_bytes=native_path.read_bytes() if native_path.exists() else None
             try:
                 yield admission
             except _w().WorkflowError:
@@ -1471,7 +1625,8 @@ def handoff_guard(root, request):
                 # legacy caller behavior, but only after exact append readback
                 # proves this effect is absent. Crashes and divergent records
                 # keep their uncertain reservation and require reconciliation.
-                if _native_readback(root, payload) is None:
+                after_bytes=native_path.read_bytes() if native_path.exists() else None
+                if after_bytes==before_bytes and _native_readback(root, payload) is None:
                     store._begin()
                     store.conn.execute("DELETE FROM reservations WHERE result_key=? AND effect_key=?",
                                        (_key(identity), effect))
@@ -1501,10 +1656,13 @@ def recover_reservation(root, request, reason):
     modern = (goal_delivery(root, identity["task_id"]) is not None
               or route.get('source_mode') in {'scheduled_run', 'original_paid16'})
     if route['lane'] == 'HQ_knowledge' and not own_conclusion and (role != 'operations'
-            or request['event'] != 'controller_received' or request.get('intake_mode') != 'notification'):
+            or request['event'] != 'controller_received' or request.get('intake_mode') not in {'notification','queue'}):
         _fail('HQ knowledge only; no self review or HQ second acceptance')
     if route['lane'] == 'HQ_knowledge' and not own_conclusion:
-        hq_knowledge_source(root, identity, require_transport=True)
+        if request.get('intake_mode')=='queue':
+            from goal_continuity import actual_knowledge_read
+            actual_knowledge_read(root,request,hq_knowledge_source(root,identity))
+        else:hq_knowledge_source(root, identity, require_transport=True)
     if not modern and role != "operations":
         _fail("assistant cannot recover final controller effects")
     with coordination_lock(root):
@@ -1609,7 +1767,9 @@ def result_lane(root, identity, *, source=None):
                and queued[0].get('source_automation_id') == route.get('automation_id')
                and queued[0].get('source_thread_id') == _w().department_registry(root).get(sender, {}).get('chat_binding', {}).get('task_id')]
     if len(matches) == 1 and matches[0].get('responsible_assistant') in coordinator_roles(root):
-        return {'lane': 'professional_acceptance', 'target_department': matches[0]['responsible_assistant'],
+        from goal_continuity import daily_selected_assistant
+        target=daily_selected_assistant(root,identity,matches[0]['responsible_assistant'])
+        return {'lane': 'professional_acceptance', 'target_department': target,
                 'source_mode': 'scheduled_run', 'HQ_second_review_required': False}
     return {'lane': 'legacy_unmapped', 'target_department': None,
             'reason': 'original_evidence_mapping_required_no_redispatch'}
@@ -1780,13 +1940,15 @@ def notification_plan(root, role=None):
             if record.get('next_check_at') and due is None:
                 _fail('notification next check time must be an exact timestamp')
             state = record.get('state')
-            actionable = ((due is None or due <= dt.datetime.now(dt.timezone.utc))
+            busy_wait = state == 'deferred' and record.get('defer_reason') == 'actual_target_busy'
+            actionable = (not busy_wait and (due is None or due <= dt.datetime.now(dt.timezone.utc))
                           and (state != 'deferred' or due is not None
                                or record.get('defer_reason') == 'actual_target_busy')
                           and (route.get('lane') != 'HQ_knowledge' or route.get('notification_proven') is True))
             pending.append({**public, 'delivery_identity': exact, 'dedupe_key': key,
                             'delivery_owner': identity['sender_department'], 'recovery_owner': identity['sender_department'],
                             'purpose': exact['purpose'], 'actionable': actionable,
+                            'waiting_for_native_completion': busy_wait,
                             'next_action': 'record_exact_original_assistant_conclusion'
                                            if route.get('lane') == 'HQ_knowledge' and not route.get('notification_proven')
                                            else 'read_actual_native_effect' if state == 'sending'
@@ -1856,7 +2018,8 @@ def notification_claim(root, identity, role, owner, request_id, live_identity, p
             _fail('legacy prepared send effect requires original native readback; no lease migration retry')
         if current.get('payload') and current['payload'] != payload:
             _fail('prepared notification exact message cannot be replaced')
-        status = target[0].get('status')
+        from goal_source_recovery import actual_target_turn_status
+        status = actual_target_turn_status(root,live,target[0],binding)
         if status != 'idle':
             known_busy = status in {'active', 'inProgress', 'running', 'busy'}
             current.update(state='deferred' if known_busy else 'unknown_target', route=route,
@@ -2098,14 +2261,17 @@ def _notification_native_effect(root, current, request):
         _fail('readback_required: one new exact recipient effect after the immutable boundary required')
     turn, effect = effects[0]
     started = _w()._parse_observed_at(attempt['call_started_at'])
-    # Provider turn starts have one-second precision. Require the actual new
-    # recipient turn to start strictly after the real local reservation. A
-    # same-second effect remains unknown instead of being rounded forward.
+    # A seconds-only provider timestamp describes an interval. Full before
+    # boundaries plus one new exact invocation/effect prove order; a same-second
+    # integer is compatible, without rewriting or inventing subsecond time.
     effect_started = turn.get('startedAt')
     sender_started = source_turn.get('startedAt')
     if (started is None or type(effect_started) not in {int, float}
             or type(sender_started) not in {int, float}
-            or not sender_started <= started.timestamp() < effect_started <= dt.datetime.now(dt.timezone.utc).timestamp()):
+            or not sender_started <= started.timestamp()
+            or not (effect_started > started.timestamp()
+                    or (type(effect_started) is int and effect_started == int(started.timestamp())))
+            or effect_started > dt.datetime.now(dt.timezone.utc).timestamp()):
         _fail('readback_required: provider recipient effect must start strictly after the immutable reservation')
     return {'schema_version': 'native-notification-effect-readback/v1',
             'attempt_id': attempt['attempt_id'], 'native_before': attempt['native_before'],

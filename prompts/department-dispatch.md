@@ -1,23 +1,11 @@
-# 完整目标一次派工与唯一助理接续
+完整目标一次给清完成标准、原task、主负责人、授权、协作部门、默认助理和已批准continuation_actions；需要上线的目标声明completion_kind、completion_requirements和required_execution_actions。共同流程只读playbooks/department-system-current.md。
 
-先读现行AGENTS、注册表与task-contract，以实际固定项目/聊天/标题/cwd/分组/健康及目标scope完成精确预检。计划不等于消息已发；实际成功才记dispatch_sent，非空真实ACK才接单。老板直接任务以真实human_authorization纳管，不补造HQ派工。
+派工时列明允许修改的页面/对象、允许联系的固定开发和发布部门、预算/期限及不可扩大边界。要求人类确认前读取原真实授权并运行 authorization-precheck；同目标返工、版本更新、已有协作或内部健康/绑定修复不再请老板重复批准。只有真实新增范围、费用、账号权限及重大不可恢复操作升级。预检不签发执行许可，实际消息准备统一使用goal_source_recovery prepare-message，实际消费授权与精确policy-check；发布继续使用原准确动作门禁。
 
-任务输入 `goal_delivery`：objective、completion_criteria、primary_owner、responsible_assistant、existing_results、authorized_scope、dependencies、producer_departments、acceptance_capability；子任务附parent_task_id。human_authorization包含source_thread_id/message_id/executor/scope/evidence_path，仅为真实来源引用，不能扩权。
+真实发送后assignment-record登记原生调用与派工回执；已有老板直派或历史实际发送但缺回执时，通过goal_source_recovery recover-source恢复，禁止补造旧dispatch/ACK/policy。所有启动先恢复actual_current_assignment并保留暂停未完任务。
 
-现行模式为 `goal_delivery_assistant_v1`：总部给完整目标，专业主负责人沿同一任务执行到底，唯一负责助理独立验收并落实已授权常规后续，总部读结论、定新目标。角色/能力/绑定由注册表动态读取；QA1/QA2保留历史证据并退出新派工。禁止生产者自审，跨助理仅显式转给相同验收能力者。候选、自检、验收、采用、实际Save/部署、公开复核和业务结果分别记录。
+整项或完整批次做完，冻结V2及最终hash，在真实当前聊天声明FLASHCAST_DELIVERY_READY和准确task_id/sender_department/candidate_version/result_sha256/outbox_path/batch_complete:true，以delivery_ready交接；聊天结束另补turn-completed，不新增审核。ACK、进度或prepared不能冒充交付。完整有限批次的部分完成、失败或无法自行解除的阻断也要一次回报，不能等整个业务目标已完成才通知。禁止越权新增派工不等于禁止原任务结果返回。
 
-部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。
+先result-select选择空闲合格助理；全忙共享排队。助理手头任务完成立即读shared-pending，以at_work_boundary接取合格结果，精确选责、唯一认领、一次验收，直接落实下一已批准任务或准确关闭；总部只读结论不二审。忙通知事件等待，中断保留未完位置。
 
-总部完成真实派工和负责助理责任交接后可以结束协调。负责助理在本批在途期间用 wait_threads 聚合完成事件，每次最多60秒、按固定聊天去重、保存cursor；结果到达后逐项收取、验收并落实下一实际动作。部门active时普通消息排队。队列不能唤醒已结束聊天；中断保留原task/turn/cursor，先核实际回执再恢复。保留已有每日兜底，不新建高频轮询、监控窗口或后台循环。
-
-真实生产动作仍须准确授权来源、执行者、范围、事实/必要自检、备份与可执行回滚以及既有合法通道；CMS保存交publishing；本公司部门系统控制源码、规则与源码导出由system-development负责，装修官网代码/构建/部署交designated-development，Ads操作归付费部。助理验收不授账号权限，不绕401、issuer、单次许可或通道。老板已给付费任务的直接执行授权保持有效，不重新加入旧QA/HQ阻断链；只按原精确授权处理，不能扩大到其他Ads、费用或项目。秘密、Cookie、Token和完整客户PII不存不读出。仅系统改造任务 fc-20261010-goal-delivery-assistant-runtime-v1、fc-20261010-continuation-proof-rework-and-cms-entry-v1、fc-20261010-department-flow-audit-repair-v1 的开发交付限制为候选与迁移包，且不含网站/CMS/Ads/Maps实际写入、推送部署或平台自动化变更；该限制不扩展到其他已有准确授权的业务。平台提示词迁移由总部或已获准确授权的助理经原生工具完成，不手改automation.toml。
-
-状态分别为执行中、待助理验收、返工中、已完成范围、下一任务真实已安排、具体依赖等待、暂时无可执行工作。验收PASS必须关联实际下一动作或准确范围关闭；prepared不算sent，passed不算adopted，子任务结束不关闭父目标。缺输入只暂停依赖它的动作，其他独立合法工作继续。停止时列已完成、未完成、唯一负责人、下一动作、解除条件和复查时间；自然去重IP口径缺失记DATA_MISSING，AI效果未实测记NOT_MEASURED。
-
-开始前用 `python3 tools/flashcast_ops.py department-learning-effective --department <注册部门ID>` 读取当前模式的只读有效学习视图。原学习JSON、继承通知和旧next_action只作历史证据；当前派工操作以现行规则和本任务真实授权为准。专业结果交唯一助理，已验收的助理总结交总部知悉，通知待发送另计；不得把总部知悉变成助理自审。
-
-后续部门系统源码目标交system-development，唯一负责助理按development能力独立验收；装修官网源码继续交designated-development并核对该网站自己的准确授权。已派出的系统旧任务保留原task、执行者和授权，尤其fc-20261010-department-system-adopted-source-push-v18仍由原指定开发执行。本次开通任务只交候选与必要验证，不推送、部署或写外部平台；角色开通不继承其他任务许可。
-
-完成契约须显式冻结completion_kind和completion_requirements，逐项映射原标准、准确scope、当前候选指纹与实际动作证据；生产发布同时明确required_execution_actions。缺声明列待补，不把空数组或候选PASS当作完成。内部源码采用和真实试点分别证明；close_scope只关闭当前真实已验范围，父目标及残余事项继续列负责人、下一动作、解除条件与复查时间。
-
-通知投递由真实发送者以task/发送部门/版本/outbox SHA/接收部门/固定聊天/用途独立认领投递租约；专业验收仍使用唯一负责助理认领，两者不能互相替代。部分完成、返工或阻断结论也可通知总部知悉，总部不重复专业验收。先处理已到结果、到期动作与待发送责任，只有无可行动事项才按cursor聚合等待，每次最多60秒；单任务证据故障具名隔离。
+主负责人连续完成制作、自检、开发及发布协作、实际保存或部署、公开核对。未变有效成果复用。范围外、费用或重大安全变化升级，其他独立授权工作继续。不恢复旧质检、守候、逐步骤报审、高频轮询。

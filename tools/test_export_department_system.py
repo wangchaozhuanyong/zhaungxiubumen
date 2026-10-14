@@ -72,6 +72,20 @@ class ExportTests(unittest.TestCase):
         canonical = json.dumps(unsigned, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
         self.assertEqual(manifest["fingerprint"], hashlib.sha256(canonical).hexdigest())
 
+    def test_retired_rule_entry_is_not_exported_or_revived_after_a_prior_release(self):
+        rel = "prompts/automations/retired-entry.md"
+        self.write(rel, "完整目标由唯一助理验收。\n")
+        export.prepare(self.root, self.target)
+        original = (self.target / rel).read_bytes()
+        self.write(rel, "# 历史自动任务提示词已退出\n不可创建或恢复此自动任务。\n")
+        export.prepare(self.root, self.target)
+        self.assertFalse((self.target / rel).exists())
+        self.assertEqual((self.target / "backups/withdrawn-source" / rel).read_bytes(), original)
+        manifest = json.loads((self.target / "release-manifest.json").read_text())
+        self.assertNotIn(rel, [row["path"] for row in manifest["files"]])
+        package.validate_release(self.target)
+        self.assertTrue((self.root / rel).exists())  # Original local evidence preserved.
+
     def test_positive_obsolete_professional_qa_hq_chain_rejected_before_output(self):
         surfaces = ("AGENTS.md", "README.md", "departments/future-specialist/SKILL.md",
                     ".codex/agents/future-specialist.toml", "prompts/automations/assistant-2.md",
@@ -88,7 +102,7 @@ class ExportTests(unittest.TestCase):
                     (self.root / rel).write_bytes(old)
 
     def test_negative_old_chain_description_and_nonoperational_history_allowed(self):
-        self.write("templates/goal-delivery-report.md", "禁止专业部门→QA→HQ旧链。\n不得恢复专业→QA→HQ。\n不要提交给QA。\n不得沿专业结果→QA→总部旧链派工。\n现行模式不能恢复 legacy_fixed_qa。\n完整目标由唯一助理验收。\n")
+        self.write("templates/goal-delivery-report.md", "禁止专业部门→QA→HQ旧链。\n不得恢复专业→QA→HQ。\n不要提交给QA。\n不得沿专业结果→QA→总部旧链派工。\n现行模式不能恢复 legacy_fixed_qa。\n不增加总部二审或逐段报审。\n完整目标由唯一助理验收。\n")
         self.write_json("examples/nonoperational-history.json", {"historical_only": True,
             "operational_template": False, "reviewer_department": "qa", "required_departments": ["qa"],
             "historical_route": "专业部门→QA→HQ"})
@@ -97,7 +111,7 @@ class ExportTests(unittest.TestCase):
         self.assertIn("examples/nonoperational-history.json", manifest["non_runtime_files"])
 
     def test_unrelated_negation_or_prose_cannot_hide_positive_old_qa_hq_rule(self):
-        for text in ("不得自审，专业结果 → QA → 总部\n", "全部专业结果必须经过总部二审\n",
+        for text in ("不增加总部二审，专业结果 → QA → 总部\n", "不得自审，专业结果 → QA → 总部\n", "全部专业结果必须经过总部二审\n",
                      "专业结果提交给质检部门审批后交总部\n",
                      "不得上传账号，并把专业结果提交给QA审核后交总部\n",
                      "禁止修改素材，且专业结果→QA→总部\n"):

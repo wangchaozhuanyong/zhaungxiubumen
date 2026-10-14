@@ -850,6 +850,8 @@ def review_capable(root, role, goal, *, task_id=None, transfer_from=None, allow_
     import workflow_control as w
     try:
         root = Path(root).resolve()
+        from goal_continuity import shared_capable
+        if shared_capable(root, role, goal):return True
         item = w.department_registry(root).get(role, {})
         authority = item.get("coordination_authority", {})
         capability = goal.get("acceptance_capability")

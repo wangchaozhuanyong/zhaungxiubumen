@@ -149,7 +149,7 @@ def _modern_derive(root: Path, registry: dict, role: str, now: dt.datetime) -> t
              if role == "operations" else [role])
     queue = {key: [] for key in ("results", "followthrough_results", "collaboration_pending", "collaboration_not_proven",
                                 'HQ_knowledge_pending', 'named_due_dependencies', 'named_waiting_dependencies',
-                                'notification_delivery_pending', 'completion_followthrough', 'task_errors')}
+                                'notification_delivery_pending', 'completion_followthrough', 'shared_pool_pending', 'task_errors')}
     plans, inventory, errors, checkpoint_sources = {}, [], [], []
     for owner in roles:
         # A corrupt wait cursor affects waiting only; arrived work still projects.
@@ -169,6 +169,8 @@ def _modern_derive(root: Path, registry: dict, role: str, now: dt.datetime) -> t
         scoped = {'results': item['pending'], 'followthrough_results': item['followthrough_pending'],
                   **{key: item.get(key, []) for key in ('collaboration_pending', 'collaboration_not_proven', 'completion_followthrough')},
                   'completion_status': item.get('completion_status', {})}
+        # Shared candidates require resource selection, not blind claims or HQ review.
+        scoped['shared_pool_pending']=item.get('shared_pool_pending',[])
         plan = wait_plan(root, owner, cursors=cursors, queue=item)
         if cursor_error:
             plan.update(batches=[], cursor_recovery_required=True)
@@ -201,11 +203,12 @@ def _modern_derive(root: Path, registry: dict, role: str, now: dt.datetime) -> t
                  followthrough_pending_count=len(queue['followthrough_results']), collaboration_pending_count=len(queue['collaboration_pending']),
                  collaboration_not_proven_count=len(queue['collaboration_not_proven']), HQ_knowledge_pending_count=len(queue['HQ_knowledge_pending']),
                  named_due_dependency_count=len(queue['named_due_dependencies']), named_waiting_dependency_count=len(queue['named_waiting_dependencies']),
-                 notification_delivery_pending_count=len(queue['notification_delivery_pending']), completion_followthrough_count=len(queue['completion_followthrough']))
+                 notification_delivery_pending_count=len(queue['notification_delivery_pending']), completion_followthrough_count=len(queue['completion_followthrough']),
+                 shared_pool_pending_count=len(queue['shared_pool_pending']))
     actionable = [row for row in inventory if row['requires_action'] and row['status'] != 'inflight_event_wait']
     ready_results = deduplicate_records(queue['results'] + queue['followthrough_results'] + queue['collaboration_pending']
                     + queue['collaboration_not_proven'] + [row for row in queue['completion_followthrough'] if row.get('actionable')]
-                    + queue['named_due_dependencies'])
+                    + queue['named_due_dependencies'] + queue['shared_pool_pending'])
     ready_deliveries = [row for row in queue['notification_delivery_pending'] if row.get('actionable')]
     ready_knowledge = queue['HQ_knowledge_pending'] if role == 'operations' else []
     represented = {row.get('task_id') for row in ready_results}

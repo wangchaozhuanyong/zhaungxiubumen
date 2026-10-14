@@ -26,3 +26,5 @@ description: FLASH CAST 地图、本地实体、地区需求及真实信任资�
 不做广告投放，不增加费用、不联系客户、发送评价邀请或外联，不改账号权限。真实案例、照片权利、营业时间和接待政策由公司保管人及视觉/销售提供；本部门不编造。未实测排名写NOT_MEASURED，平台Saved/Pending/Accepted/公开状态分别报告，不保证排名。
 
 产物归drafts/seo/<task_id>/local-seo-maps/、reports/、logs/department-outbox/。先在固定聊天说明实际工作和限制，再写V2 outbox/report，校验必填字段及学习状态后记录学习。注明结论、依据、动作、owner、优先级、风险、下一步。SEO/GEO与内容线结果由唯一未参与制作的负责助理1独立验收并作已授权常规接续；总部确定完整目标和重大方向，不恢复QA1/QA2新派工或逐段总部审批。本部门不跨窗口派工或自验收。
+
+完整目标、整批回报、空闲助理分流和中断恢复只按共同规则 playbooks/department-system-current.md。普通步骤不报审；准确授权内自检后执行到实际发布，最后一次助理验收。后台保存和官网部署各走真实合法通道。
