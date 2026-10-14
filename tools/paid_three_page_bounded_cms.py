@@ -1346,6 +1346,18 @@ SOURCE_SUCCESSION_SCHEMA = "flashcast-actual-authenticated-source-successor/v1"
 SOURCE_BOOTSTRAP_SUCCESSION_SCHEMA = "flashcast-actual-source-bootstrap-successor/v1"
 SOURCE_SUCCESSION_FIELD_SCHEMA = "flashcast-actual-config-field-cas/v1"
 SOURCE_SUCCESSION_VERSION = "qualified-native-handoff-envelope-recovery-source-candidate-v9-20261012"
+EN2_OWNER_SUCCESSION_TASK = "fc-20261014-english-kitchen-en2-original-dependency-continuation-v1"
+EN2_OWNER_SUCCESSION_SCOPE = "project:flashcast:english-kitchen-exact-en2-registration:v1"
+EN2_OWNER_SUCCESSION_VERSION = "english-kitchen-en2-exact-registration-candidate-v9-20261014"
+EN2_OWNER_ORIGINAL_HISTORY = {"path": "logs/handoffs/2026-10-11-qualified-native-handoff-envelope-recovery-v1/assistant2-independent-review/post-V3-remaining-original-scope-v1/actual-v7-completed-intake-independent-adoption-v1/ROOT-ACTUAL-V7-stage-B-two-source-CAS-and-actual-readback-v1/actual-V7-eighth-source-durable-continuation.json",
+    "sha256": "cdca07d63216ea2b058f26d125e676a5fb168b5391b142cc66b74d514dda360b", "size": 3868}
+EN2_OWNER_RECOVERED_INDEX = {"path": "logs/handoffs/2026-10-14-complete-goal-continuity-v1/assistant2-CMS-business-continuation-v1/A2-EN2-current-seven-runtime-provenance-recovered-index-v1.json",
+    "sha256": "62aa3bd07fd3e6d02e48f13e2e4e2176e62985ea812c9cbfa215af62d2a3ddfd", "size": 47112}
+EN2_OWNER_RECOVERED_DECISION = {"path": "logs/handoffs/2026-10-14-complete-goal-continuity-v1/assistant2-CMS-business-continuation-v1/A2-ROOT-EN2-v4-real-source-facts-recovered-and-bounded-rework-v5.json",
+    "sha256": "0b724fef41cecf6059420507c3b4c77c91ee94b68f61dbd3b33c471968c299b0", "size": 1338}
+EN2_OWNER_HUMAN_AUTH = {"path": "logs/handoffs/2026-10-14-complete-goal-continuity-v1/assistant2-CMS-business-continuation-v1/actual-human-original-EN2-source-lineage-compatibility-authorization-v1.json",
+    "sha256": "587881d4f9d84223ed4df26857547f952349df97f72d577b44f29cf7be86c103", "size": 5970}
+EN2_OWNER_SOURCE_PATHS = {"tools/paid_three_page_bounded_cms.py", "tools/managed_cms_permit_issuer.py"}
 
 
 def _source_successor_doc(root, value):
@@ -1678,7 +1690,7 @@ def _source_bootstrap_governance(root,continuation,manifest_pin,manifest,journal
 
 
 def _source_successor_governance(root, continuation, manifest_pin, manifest, journal_pin, journal, *,
-        defer_assignment=False, assignment_backings=None, assignment_fields=()):
+        defer_assignment=False, assignment_backings=None, assignment_fields=(), exact_en2=False):
     """Authenticate original authority, A2 native QA, producer and committed effects."""
     if continuation.get("schema") == SOURCE_BOOTSTRAP_SUCCESSION_SCHEMA:
         return _source_bootstrap_governance(root,continuation,manifest_pin,manifest,journal_pin,journal,
@@ -1718,27 +1730,48 @@ def _source_successor_governance(root, continuation, manifest_pin, manifest, jou
     receipts = _receipts(root, task)
     require(not w.validate_workflow_events(root, task), "readback_required: intact original workflow events required")
     events = [row for row in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS) if row.get("task_id") == task]
-    bound = [row for row in events if row.get("details", {}).get("qa_review_plan_bound", {}).get("pin") == plan_pin]
-    require(len(bound) == 1, "readback_required: one immutable exact source-plan binding required")
-    binding = bound[0]["details"]["qa_review_plan_bound"]
-    require(binding in q._bindings(root, snapshot) and binding.get("reviewer_department") == ROLE,
-        "readback_required: actual original A2 binding required")
-    original_snapshot = {**snapshot, "qa_review_plan":binding}
-    q.validate_plan(root, original_snapshot, plan)
-    require(isinstance(plan.get("original_goal_continuation_sources", []), list)
-        and all(value in manifest.get("inputs", []) for value in plan.get("original_goal_continuation_sources", [])),
-        "reviewed manifest must close every saved original responsibility source in its exact plan")
-    require(plan.get("task_id") == task and plan.get("scope") == scope and plan.get("candidate_version") == version
-        and plan.get("candidate") == producer_pin and plan.get("candidate_sha256") == producer_pin["sha256"]
-        and plan.get("producer_department") == "system-development" and plan.get("reviewer_department") == ROLE
-        and plan.get("controller_department") == ROLE and plan.get("action_class") == "internal_control_candidate"
-        and q._producer_candidate_bound(root, plan, producer_pin, producer),
-        "readback_required: exact MP/PP/plan and full actual responsibility/native ACK chain required")
-    if not defer_assignment:
-        assigned = (q._assigned_review_round(root, original_snapshot, receipts, plan, source_pins=manifest.get("inputs"))
-            if assignment_backings is None else _source_successor_assignment_round(root, original_snapshot,
-                receipts, plan, manifest.get("inputs"), assignment_backings, assignment_fields))
-        require(assigned is not None, "readback_required: complete actual original responsibility/native ACK chain required")
+    if exact_en2:
+        import importlib.util
+        require(task == EN2_OWNER_SUCCESSION_TASK and scope == EN2_OWNER_SUCCESSION_SCOPE
+                and version == EN2_OWNER_SUCCESSION_VERSION
+                and {row.get("path") for row in manifest.get("files", [])} == EN2_OWNER_SOURCE_PATHS
+                and len(manifest.get("files", [])) == 2 and manifest.get("field_changes") == [],
+                "readback_required: exact EN2 local source-only responsibility only")
+        helper_pin = pin(root, continuation.get("review_context_helper"))
+        require(helper_pin == manifest.get("source_review_helper")
+                and helper_pin == manifest.get("source_successor_helper")
+                and helper_pin in manifest.get("inputs", [])
+                and helper_pin["path"] == str(Path(manifest_pin["path"]).parent / "rollback/source_review_context.py"),
+                "readback_required: exact adjacent EN2 helper required")
+        spec = importlib.util.spec_from_file_location("_flashcast_exact_en2_source_context", w.safe_path(root, helper_pin["path"]))
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        require(helper.TASK == task and helper.VERSION == version and helper.SCOPE == scope,
+                "readback_required: exact EN2 helper identity required")
+        local = helper.successor_plan(root, manifest_pin, producer_pin, plan_pin)
+        bound = [{"created_at": local["created_at"]}]
+    else:
+        bound = [row for row in events if row.get("details", {}).get("qa_review_plan_bound", {}).get("pin") == plan_pin]
+        require(len(bound) == 1, "readback_required: one immutable exact source-plan binding required")
+        binding = bound[0]["details"]["qa_review_plan_bound"]
+        require(binding in q._bindings(root, snapshot) and binding.get("reviewer_department") == ROLE,
+            "readback_required: actual original A2 binding required")
+        original_snapshot = {**snapshot, "qa_review_plan":binding}
+        q.validate_plan(root, original_snapshot, plan)
+        require(isinstance(plan.get("original_goal_continuation_sources", []), list)
+            and all(value in manifest.get("inputs", []) for value in plan.get("original_goal_continuation_sources", [])),
+            "reviewed manifest must close every saved original responsibility source in its exact plan")
+        require(plan.get("task_id") == task and plan.get("scope") == scope and plan.get("candidate_version") == version
+            and plan.get("candidate") == producer_pin and plan.get("candidate_sha256") == producer_pin["sha256"]
+            and plan.get("producer_department") == "system-development" and plan.get("reviewer_department") == ROLE
+            and plan.get("controller_department") == ROLE and plan.get("action_class") == "internal_control_candidate"
+            and q._producer_candidate_bound(root, plan, producer_pin, producer),
+            "readback_required: exact MP/PP/plan and full actual responsibility/native ACK chain required")
+        if not defer_assignment:
+            assigned = (q._assigned_review_round(root, original_snapshot, receipts, plan, source_pins=manifest.get("inputs"))
+                if assignment_backings is None else _source_successor_assignment_round(root, original_snapshot,
+                    receipts, plan, manifest.get("inputs"), assignment_backings, assignment_fields))
+            require(assigned is not None, "readback_required: complete actual original responsibility/native ACK chain required")
     for frozen, actor in ((producer_pin,"system-development"),(review_pin,ROLE)):
         w.validate_outbox(root, [frozen], actor, task)
     review = box.get("candidate_review", {})
@@ -1771,6 +1804,7 @@ def _source_successor_governance(root, continuation, manifest_pin, manifest, jou
     require(c.exact_identity(decision) == c.exact_identity(follow) == identity
         and decision.get("event") == "controller_decision" and decision.get("decision") == "continue"
         and decision.get("outbox") == producer_pin and review_pin in decision.get("evidence", [])
+        and (not exact_en2 or plan_pin in decision.get("evidence", []))
         and decision.get("next_owner") == ROLE and decision.get("next_action") == "adopt-" + version
         and decision.get("business_goal_closed") is False and decision.get("qa_status") != "pass"
         and all(row.get("coordinator_role") == row.get("decision_actor") == row.get("responsible_assistant") == ROLE for row in (decision,follow))
@@ -1830,6 +1864,191 @@ def _source_bootstrap_prior_history_context(root,continuation_pins):
     return _source_bootstrap_assignment_context(root,selected) if selected else contextlib.nullcontext()
 
 
+def _en2_owner_predecessor_boundary(root, manifest_pin, manifest):
+    """Keep the old proof and read the one later endpoint from the same helper."""
+    index = doc(root, EN2_OWNER_RECOVERED_INDEX)
+    decision = doc(root, EN2_OWNER_RECOVERED_DECISION)
+    pin(root, EN2_OWNER_HUMAN_AUTH)
+    old = doc(root, EN2_OWNER_ORIGINAL_HISTORY)
+    require(old.get("schema") == "actual_qualified_history_window_source_continuation/v1"
+        and old.get("task_id") == QUALIFIED_NATIVE_HANDOFF_TASK
+        and old.get("scope") == QUALIFIED_NATIVE_HANDOFF_SCOPE,
+        "readback_required: exact original eighth source history retained")
+    require(index.get("task_id") == EN2_OWNER_SUCCESSION_TASK
+        and index.get("runtime_source_count") == index.get("current_sha_size_mode_verified_count") == 7
+        and index.get("input_pin_checks_count") == 30
+        and index.get("all_selected_input_artifact_pins_rechecked_unchanged") is True
+        and decision.get("result") == "REWORK_WITH_REAL_ORIGINAL_SOURCE_FACTS_RECOVERED"
+        and decision.get("formal_source_QA") is False and decision.get("source_adopted") is False,
+        "readback_required: exact real owner predecessor recovery required")
+    rows = index.get("sources", [])
+    require(isinstance(rows, list) and len(rows) == 7
+        and len({row.get("source_path") for row in rows if isinstance(row, dict)}) == 7
+        and {row.get("source_path") for row in rows} == {
+            "tools/managed_cms_permit_issuer.py", "tools/paid_three_page_bounded_cms.py",
+            "tools/goal_delivery_runtime.py", "tools/qa_review_plan.py", "tools/workflow_control.py",
+            "tools/result_coordination.py", "tools/goal_continuity.py"},
+        "readback_required: only seven named original runtime predecessors")
+    versions, modes = [], {}
+    for row in rows:
+        value = row.get("actual_current", {})
+        require(value.get("path") == row["source_path"] and type(value.get("mode")) is int,
+            "readback_required: original current source pin/mode missing")
+        canonical = _source_successor_shape({key:value[key] for key in ("path","sha256","size")})
+        modes[canonical["path"]] = value["mode"]
+        versions.append(canonical)
+        require(row.get("new_source_QA_or_adoption") is False
+            and any(row.get(key) is True for key in (
+                "current_sha_size_mode_equal_original_actual_after",
+                "current_sha_size_mode_equal_actual_after",
+                "current_sha_size_mode_equal_reconstructed_actual_bytes")),
+            "readback_required: actual old effect or native byte reconstruction required")
+        if row.get("proof_type") in {"existing_historical_source_only_CAS_complete_with_after_actual",
+                                     "existing_real_adopted_source_transaction_and_physical_before_backup"}:
+            physical = row.get("actual_physical_before_backup")
+            journal = row.get("actual_historical_CAS_journal",row.get("actual_historical_journal"))
+            require(isinstance(physical,dict) and isinstance(journal,dict)
+                and (row.get("actual_historical_CAS_status") == "complete"
+                     or row.get("actual_journal_state") == "adopted"),
+                "readback_required: actual prior source-only CAS/journal and physical backup")
+            pin(root, physical); pin(root, journal)
+        else:
+            require(row.get("proof_type") in {
+                "existing_physical_base_plus_complete_actual_native_patch_chain_reconstructed_in_memory",
+                "actual_absence_guard_exclusive_creation_then_existing_CAS_and_complete_native_patch_chain"}
+                and isinstance(row.get("actual_native_patch_chain"),list)
+                and bool(row["actual_native_patch_chain"]),
+                "readback_required: actual owner native patch chain required")
+            pin(root,row["actual_physical_base"])
+            pin(root,row["Root_independent_byte_reconstruction_check"])
+    for item in index.get("input_pin_checks", []):
+        require(item.get("sha_size_and_available_mode_match") is True,
+            "readback_required: one of 30 actual predecessor evidence pins failed")
+        observed = pin(root,item["actual"])
+        mode = item["actual"].get("mode")
+        require(mode is None or w.safe_path(root, observed["path"]).stat().st_mode & 0o777 == mode,
+            "readback_required: original predecessor evidence mode drift")
+    require(len(index.get("input_pin_checks", [])) == 30,
+        "readback_required: all 30 recovered original evidence pins required")
+    import importlib.util
+    helper_pin = pin(root, manifest.get("source_review_helper"))
+    require(helper_pin == manifest.get("source_successor_helper")
+        and helper_pin["path"] == str(Path(manifest_pin["path"]).parent / "rollback/source_review_context.py"),
+        "readback_required: one exact adjacent source review helper required")
+    spec = importlib.util.spec_from_file_location("_flashcast_exact_en2_current_endpoint", w.safe_path(root, helper_pin["path"]))
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    require(helper.TASK == EN2_OWNER_SUCCESSION_TASK
+        and helper.SCOPE == EN2_OWNER_SUCCESSION_SCOPE
+        and helper.VERSION == EN2_OWNER_SUCCESSION_VERSION
+        and helper.INDEX == EN2_OWNER_RECOVERED_INDEX
+        and manifest.get("actual_owner_provenance") == helper.INDEX
+        and manifest.get("actual_current_owner_endpoint") == helper.CURRENT_ENDPOINT_A2
+        and manifest.get("actual_owner_g70_native_tail") == helper.CURRENT_G70_NATIVE
+        and helper.CURRENT_ENDPOINT_A2 in manifest.get("inputs", [])
+        and helper.CURRENT_G70_NATIVE in manifest.get("inputs", []),
+        "readback_required: one exact later seven-source proof layer required")
+    endpoint = helper.current_owner_endpoint(root)
+    actual = [_source_successor_shape({key:value[key] for key in ("path", "sha256", "size")})
+              for value in endpoint.values()]
+    current_modes = {path:value["mode"] for path,value in endpoint.items()}
+    require(len(actual) == len(current_modes) == 7
+        and endpoint["tools/paid_three_page_bounded_cms.py"]["sha256"]
+            == next(row["actual_current"]["sha256"] for row in rows
+                    if row["source_path"] == "tools/paid_three_page_bounded_cms.py"),
+        "readback_required: current endpoint cannot replace original paid source")
+    return actual,current_modes
+
+
+def _en2_owner_successor_is_exact(root, continuation_pins):
+    if not isinstance(continuation_pins,list) or len(continuation_pins) != 1:
+        return False
+    candidate = _source_successor_doc(root,pin(root,continuation_pins[0]))
+    return candidate.get("schema") == SOURCE_SUCCESSION_SCHEMA and all(
+        candidate.get(key) == value for key,value in {
+            "task_id":EN2_OWNER_SUCCESSION_TASK,"scope":EN2_OWNER_SUCCESSION_SCOPE,
+            "candidate_version":EN2_OWNER_SUCCESSION_VERSION}.items())
+
+
+def _en2_owner_authenticated_source_successions(root, continuation_pins, *, predecessor_sources,
+                                                 original_history_pin, current_sources=None):
+    """One exact EN2 effect after the recovered real owner endpoint, never a general bridge."""
+    require(original_history_pin == EN2_OWNER_ORIGINAL_HISTORY,
+        "readback_required: original eighth source history changed")
+    original = _source_successor_versions(predecessor_sources)
+    continuation_pin = pin(root,continuation_pins[0])
+    continuation = _source_successor_doc(root,continuation_pin)
+    fields = {"schema","task_id","scope","candidate_version","predecessor_sources",
+        "original_history_continuation","candidate_manifest","source_qa","review_plan",
+        "producer_outbox","source_adoption","adoption_followthrough_record_id",
+        "review_context_helper","field_adoptions","prepared_only",*V5_REVIEW_FLAGS}
+    require(set(continuation) == fields and continuation.get("prepared_only") is False
+        and all(continuation.get(key) is False for key in V5_REVIEW_FLAGS)
+        and continuation.get("original_history_continuation") == EN2_OWNER_ORIGINAL_HISTORY
+        and _source_successor_versions(continuation.get("predecessor_sources")) == original,
+        "readback_required: exact one-time EN2 continuation and real predecessor required")
+    manifest_pin = pin(root,continuation.get("candidate_manifest"))
+    manifest = _source_successor_doc(root,manifest_pin)
+    actual,modes = _en2_owner_predecessor_boundary(root,manifest_pin,manifest)
+    require(original == actual, "readback_required: exact seven-source real owner endpoint required")
+    require(manifest.get("schema") == "flashcast-exact-source-candidate/v1"
+        and all(manifest.get(key) == continuation.get(key) for key in
+                ("task_id","scope","candidate_version"))
+        and manifest.get("original_task_id") == "fc-20261011-english-kitchen-exact-en2-registration-source-v1"
+        and manifest.get("project_root") == str(root)
+        and manifest.get("primary_owner") == "system-development"
+        and manifest.get("responsible_assistant") == ROLE
+        and manifest.get("candidate_fingerprint") == digest({key:value for key,value in manifest.items()
+            if key != "candidate_fingerprint"})
+        and manifest.get("source_predecessor_sources") == original
+        and manifest.get("actual_owner_provenance") == EN2_OWNER_RECOVERED_INDEX
+        and manifest.get("actual_current_owner_endpoint") == manifest.get("source_lineage", {}).get("actual_owner_current_endpoint")
+        and manifest.get("actual_owner_g70_native_tail") == manifest.get("source_lineage", {}).get("actual_owner_g70_native_tail")
+        and manifest.get("A2_bounded_rework_decision") == EN2_OWNER_RECOVERED_DECISION
+        and manifest.get("source_lineage_compatibility_authorization") == EN2_OWNER_HUMAN_AUTH
+        and manifest.get("source_lineage",{}).get("original_qualified_history_window_continuation") == EN2_OWNER_ORIGINAL_HISTORY
+        and set(manifest.get("source_predecessor_modes",{})) == set(modes)
+        and manifest["source_predecessor_modes"] == modes
+        and {row.get("path") for row in manifest.get("files",[])} == EN2_OWNER_SOURCE_PATHS
+        and len(manifest["files"]) == 2 and manifest.get("field_changes") == []
+        and {row.get("path") for row in manifest.get("protected_sources",[])} == set(modes)-EN2_OWNER_SOURCE_PATHS
+        and all(value in manifest.get("inputs",[]) for value in (
+            EN2_OWNER_RECOVERED_INDEX,EN2_OWNER_RECOVERED_DECISION,EN2_OWNER_HUMAN_AUTH,
+            manifest.get("actual_current_owner_endpoint"),manifest.get("actual_owner_g70_native_tail"),
+            EN2_OWNER_ORIGINAL_HISTORY,manifest.get("goal_contract"),manifest.get("human_authorization"))),
+        "readback_required: exact original EN2 two-source reviewed manifest required")
+    require(pin(root,continuation.get("review_context_helper")) == manifest.get("source_review_helper")
+        == manifest.get("source_successor_helper")
+        and manifest["source_review_helper"] in manifest["inputs"],
+        "readback_required: adjacent exact reviewed EN2 source helper required")
+    journal_pin = pin(root,continuation.get("source_adoption"))
+    journal = _source_successor_doc(root,journal_pin)
+    installed,backings = _source_successor_files(root,manifest_pin,manifest,journal_pin,journal,
+        original,continuation_pin)
+    require(set(installed) == EN2_OWNER_SOURCE_PATHS and journal.get("field_adoptions",[]) == []
+        and continuation.get("field_adoptions") == [],
+        "readback_required: exactly two source effects and zero field effects")
+    preflight = _source_successor_governance(root,continuation,manifest_pin,manifest,journal_pin,journal,
+        defer_assignment=True, exact_en2=True)
+    endpoint = [installed.get(row["path"],row) for row in original]
+    require(all(pin(root,row) == row and w.safe_path(root,row["path"]).stat().st_mode & 0o777
+                == modes[row["path"]] for row in endpoint)
+        and (current_sources is None or _source_successor_versions(current_sources) == endpoint),
+        "readback_required: real complete EN2 after endpoint and protected five source modes")
+    committed = _source_successor_governance(root,continuation,manifest_pin,manifest,journal_pin,journal,
+        assignment_backings=backings,assignment_fields=[], exact_en2=True)
+    require(committed == preflight and all(pin(root,row["backup"]) == row["backup"] for row in backings)
+        and all(pin(root,row) == row for row in endpoint),
+        "readback_required: EN2 independent QA, original owner backups and after bytes changed")
+    return {"original_history_pin":EN2_OWNER_ORIGINAL_HISTORY,
+        "continuation_pins":[continuation_pin],"predecessor_sources":original,
+        "endpoint":endpoint,"layers":[{"continuation_pin":continuation_pin,
+            "task_id":EN2_OWNER_SUCCESSION_TASK,"scope":EN2_OWNER_SUCCESSION_SCOPE,
+            "candidate_version":EN2_OWNER_SUCCESSION_VERSION,"manifest_pin":manifest_pin,
+            "journal_pin":journal_pin,"predecessor_sources":original,"installed":installed,
+            "backups":backings,**committed}],"source_backings":backings,"field_effects":[]}
+
+
 @strict
 def authenticated_source_successions(root, continuation_pins, *, predecessor_sources, original_history_pin, current_sources=None):
     # This context gives original normal readers their authenticated old binding;
@@ -1837,6 +2056,10 @@ def authenticated_source_successions(root, continuation_pins, *, predecessor_sou
     # still executed by the unchanged body before a result can escape.
     root=Path(root).resolve()
     require(isinstance(continuation_pins,list) and continuation_pins,'readback_required: exact actual continuations required')
+    if _en2_owner_successor_is_exact(root,continuation_pins):
+        return _en2_owner_authenticated_source_successions(root,continuation_pins,
+            predecessor_sources=predecessor_sources,original_history_pin=original_history_pin,
+            current_sources=current_sources)
     with _source_bootstrap_prior_history_context(root,continuation_pins):
         return _authenticated_source_successions(root,continuation_pins,predecessor_sources=predecessor_sources,
             original_history_pin=original_history_pin,current_sources=current_sources)
@@ -3423,6 +3646,152 @@ WEEKLY_KEY_REPAIR_VERSION = "weekly-native-structured-create-response-compatibil
 WEEKLY_KEY_REPAIR_PATHS = {"tools/workflow_control.py", "tools/qa_review_plan.py", "tools/paid_three_page_bounded_cms.py"}
 WEEKLY_KEY_REPAIR_CONTEXT_PATH = "logs/handoffs/2026-10-11-weekly-native-structured-create-response-compatibility-v1/developer-v4/rollback/source_review_context.py"
 WEEKLY_KEY_REPAIR_CONTEXT_BYTES = {"sha256":"8c80f0db2981a7d5f344002c5b8db25626259db9fc09c055827f714d924c9728","size":90136}
+
+
+# The original kitchen EN2 dependency is one distinct, registered production
+# identity. These frozen preparation bytes do not establish a current Save CAS.
+EN2_TASK = "fc-20261011-english-kitchen-actual-publication-goal-v1"
+EN2_ACTION = "save-kitchen-english-two-fields-v1"
+EN2_VERSION = "publishing-english-kitchen-en2-actual-publication-v1-20261011"
+EN2_SCOPE = "cms:services:kitchen:english-two-fields:publication:v1"
+EN2_RECORD = "ce4156db-9034-42c8-ba29-b35724ea7d6d"
+EN2_FIELDS = ("title_en", "excerpt_en")
+EN2_PUBLISHER = "<LOCAL_TASK_ID>"
+EN2_CANDIDATE = {"path": "drafts/publishing/fc-20261011-english-kitchen-actual-publication-goal-v1/publishing-production-input-candidate-v1.json",
+                 "sha256": "fcc055acb530d2debdb86469321b61c28c124200c7d045155798f575b55ed7c8", "size": 12221}
+EN2_HANDOFF = {"path": "drafts/publishing/fc-20261011-english-kitchen-actual-publication-goal-v1/production-input-exact-original-dependency-handoff-v1.json",
+               "sha256": "bdb4a4be0ac630bf8d20b12db8934e014cb087fa29771d29095bae1f065c856d", "size": 2738}
+EN2_BINDINGS = {"path": "drafts/publishing/fc-20261011-english-kitchen-actual-publication-goal-v1/actual-production-source-bindings-v1.json",
+                "sha256": "99fbe36b5cfe68fe1aed68f5edcbb7ec1067b7827005c0b27dd1cca52dd256a5", "size": 15020}
+EN2_PREPARATION_PASS = {"path": "logs/handoffs/2026-10-11-qualified-native-handoff-envelope-recovery-v1/assistant2-independent-review/post-adoption-real-PUB-preparation-pilot-readonly-preparation-v1/ROOT-actual-installed-V3-original-PUB-preparation-pilot-v1/ROOT-ACTUAL-original-TP-full7-preparation-only-independent-PASS-outbox-v1.json",
+                        "sha256": "31af2885ba30150802092d6f0903d91a6121c04ccda4445f2b77efd26d8d1aa6", "size": 14847}
+EN2_AUTH = {"path": "logs/handoffs/2026-10-10-owner-direct-paid/assistant2-owned/english-kitchen-CMS-readiness-independent-lane/EN2-exact-three-original-target-messages-APPROVED-v1/actual-human-EN2-three-original-continuations-authorization-selected-v1.json",
+            "sha256": "060e68362fe56228838d410fb35d089a8f5df5c1be1e2f1ebae46cf4832bae7f", "size": 2208}
+
+
+def english_kitchen_en2_targets(root):
+    """Read the one frozen EN2 registration; never infer a new field or tuple."""
+    root = Path(root).resolve()
+    candidate, handoff, bindings = (doc(root, item) for item in
+                                    (EN2_CANDIDATE, EN2_HANDOFF, EN2_BINDINGS))
+    preparation = doc(root, EN2_PREPARATION_PASS)
+    pin(root, EN2_AUTH)
+    require(preparation.get("status") == "qa_pass"
+            and preparation.get("qa_verdict") == "pass"
+            and preparation.get("department") == "operations-assistant-2"
+            and preparation.get("task_id") == "fc-20261011-english-kitchen-en2-current-row-preparation-v1",
+            "original seven-check preparation acceptance required")
+    tuple_value = {"Save_task_id": EN2_TASK, "Save_action_id": EN2_ACTION,
+                   "Save_action_class": "cms_write", "Save_candidate_version": EN2_VERSION,
+                   "Save_scope": EN2_SCOPE, "Save_department": "publishing",
+                   "fixed_chat_task_id": EN2_PUBLISHER}
+    require(all(candidate.get("production_tuple", {}).get(k) == v
+                and handoff.get("production_tuple", {}).get(k) == v
+                and bindings.get("production_tuple", {}).get(k) == v
+                for k, v in tuple_value.items()), "one exact original EN2 Save tuple required")
+    require(candidate.get("task_id") == handoff.get("task_id") == bindings.get("task_id") == EN2_TASK
+            and candidate.get("action_id") == EN2_ACTION
+            and candidate.get("candidate_version") == bindings.get("candidate_version") == EN2_VERSION
+            and candidate.get("scope") == EN2_SCOPE
+            and candidate.get("department") == "publishing"
+            and candidate.get("fixed_chat_task_id") == EN2_PUBLISHER
+            and handoff.get("publisher_actual_bound_candidate") == EN2_CANDIDATE
+            and handoff.get("source_bindings") == EN2_BINDINGS
+            and candidate.get("source_bindings") == EN2_BINDINGS,
+            "frozen publisher, handoff, binding or human authority differs")
+    pin(root, bindings["actual_human_authorization_pin"])
+    require(candidate.get("production_write_executed") is False
+            and candidate.get("new_permit") == 0 and candidate.get("Save") == 0
+            and handoff.get("new_permit") == 0 and handoff.get("Save") == 0,
+            "registration input must remain preparation only")
+
+    target = candidate.get("target", {})
+    source = doc(root, candidate["source_frozen_candidate"])
+    require((target.get("table"), target.get("record_id"), target.get("slug"), target.get("content_type"))
+            == ("services", EN2_RECORD, "kitchen", "service")
+            and candidate.get("changed_fields") == target.get("changed_fields") == list(EN2_FIELDS)
+            and set(candidate.get("desired_fields", {})) == set(EN2_FIELDS)
+            and target.get("desired_fields") == candidate["desired_fields"]
+            and target.get("original_Paid_candidate_pin") == candidate["source_frozen_candidate"]
+            and source.get("target", {}).get("record_id") == EN2_RECORD
+            and source.get("target", {}).get("table") == "services"
+            and [x.get("field") for x in source.get("exact_changes", [])] == list(EN2_FIELDS)
+            and all(x.get("after") == candidate["desired_fields"][x["field"]]
+                    for x in source["exact_changes"]), "original Paid EN2 content or exact target differs")
+
+    before = doc(root, candidate["native_current_record"])
+    require(doc(root, candidate["backup"]) == before
+            and candidate["backup"]["sha256"] == candidate["native_current_record"]["sha256"],
+            "complete original native backup required")
+    require(before.get("id") == EN2_RECORD and before.get("slug") == "kitchen"
+            and before.get("status") == "published" and type(before.get("version")) is int
+            and before["version"] == candidate.get("expected_version")
+            and before.get("updated_at") == candidate.get("expected_updated_at")
+            and set(before) == set(candidate.get("baseline_projection_fields", []))
+            and len(before) == 30, "complete 30-field baseline and raw CAS required")
+    desired = dict(before, **candidate["desired_fields"])
+    require({k for k in before if before[k] != desired[k]} == set(EN2_FIELDS)
+            and all(before[x["field"]] == x.get("before") for x in source["exact_changes"]),
+            "only the original two English fields may change")
+    projections = (("baseline_projection", before, "baseline_fields_sha256"),
+                   ("desired_full_projection", desired, "desired_full_record_fields_sha256"),
+                   ("only_write_projection", candidate["desired_fields"], "desired_fields_sha256"),
+                   ("retained_projection", {k: before[k] for k in candidate["retained_projection_fields"]}, "retained_fields_sha256"),
+                   ("retained_including_metadata_projection", {k: before[k] for k in candidate["retained_including_metadata_projection_fields"]}, "retained_including_metadata_fields_sha256"))
+    for name, expected, hash_key in projections:
+        require(doc(root, candidate[name]) == expected and digest(expected) == candidate.get(hash_key),
+                "EN2 full-row projection, retention or digest differs: " + name)
+    require(set(candidate["retained_projection_fields"]) == set(before) - set(EN2_FIELDS) - {"updated_at", "version"}
+            and set(candidate["retained_including_metadata_projection_fields"]) == set(before) - set(EN2_FIELDS)
+            and digest({k: before[k] for k in EN2_FIELDS}) == candidate.get("rollback_fields_sha256"),
+            "retained fields or rollback field digest differs")
+    difference = doc(root, candidate["two_field_diff"])
+    require(difference.get("record_id") == EN2_RECORD
+            and difference.get("before_cas") == {"version": before["version"], "updated_at": before["updated_at"]}
+            and [(x.get("field"), x.get("before"), x.get("after")) for x in difference.get("changes", [])]
+                == [(x["field"], before[x["field"]], desired[x["field"]]) for x in source["exact_changes"]],
+            "frozen EN2 two-field diff or source CAS differs")
+    recovery = doc(root, candidate["rollback"])
+    bound_recovery = doc(root, candidate["bound_production_recovery_input"])
+    request = doc(root, candidate["protected_dry_run_request_prepared"])
+    require(recovery.get("record_id") == EN2_RECORD
+            and recovery.get("changed_fields") == list(EN2_FIELDS)
+            and recovery.get("restore_fields") == {k: before[k] for k in EN2_FIELDS}
+            and bound_recovery.get("forward_production_tuple") == candidate["production_tuple"]
+            and bound_recovery.get("record_identity") == target
+            and bound_recovery.get("restore_fields") == {k: before[k] for k in EN2_FIELDS}
+            and bound_recovery.get("before_full_backup") == candidate["backup"]
+            and bound_recovery.get("production_recovery_executable") is False
+            and request.get("contentType") == "service" and request.get("mode") == "dry-run"
+            and request.get("expectedUpdatedAt") == before["updated_at"]
+            and request.get("record") == desired
+            and request.get("managedCandidate") == {"taskId": EN2_TASK, "actionId": EN2_ACTION,
+                "operation": "publish", "scope": EN2_SCOPE, "candidateVersion": EN2_VERSION},
+            "frozen dry-run and recovery must bind only the exact row and two fields")
+    pin(root, candidate["offline_recovery_guard"])
+    return {"english-kitchen-en2-exact-v1": {
+        "task_id": EN2_TASK, "action_id": EN2_ACTION, "candidate_version": EN2_VERSION,
+        "scope": EN2_SCOPE, "table": "services", "record_id": EN2_RECORD,
+        "slug": "kitchen", "content_type": "service", "changed_fields": list(EN2_FIELDS),
+        "execution_owner": "publishing", "execution_thread_id": EN2_PUBLISHER,
+        "candidate_shape": "english_kitchen_en2_exact", "candidate": (EN2_CANDIDATE["path"], EN2_CANDIDATE["sha256"]),
+        "source_frozen_candidate": (candidate["source_frozen_candidate"]["path"], candidate["source_frozen_candidate"]["sha256"]),
+        "rollback": (candidate["backup"]["path"], candidate["backup"]["sha256"]),
+        "rollback_package": candidate["rollback"],
+        "bound_recovery_input": candidate["bound_production_recovery_input"],
+        "baseline_projection_fields": candidate["baseline_projection_fields"],
+        "baseline_fields_sha256": candidate["baseline_fields_sha256"],
+        "desired_fields_sha256": candidate["desired_fields_sha256"],
+        "retained_fields_sha256": candidate["retained_fields_sha256"],
+        "expected_updated_at": before["updated_at"], "observed_version": before["version"],
+        "rollback_allowed": False, "registration_only": True,
+    }}
+
+
+def validate_english_kitchen_en2_candidate(root, candidate, target):
+    exact = english_kitchen_en2_targets(root)["english-kitchen-en2-exact-v1"]
+    require(target == exact and candidate == doc(root, EN2_CANDIDATE),
+            "one unchanged frozen original EN2 candidate and registered target required")
 
 
 def _weekly_key_context(root):
