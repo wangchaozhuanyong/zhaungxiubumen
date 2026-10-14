@@ -818,9 +818,9 @@
     },
     {
       "path": "playbooks/department-system-current.md",
-      "source_sha256": "1193e83999f2ac875356842b64f7cfd72d5a2f4223599421c98bd162da7fa9e1",
-      "release_sha256": "1193e83999f2ac875356842b64f7cfd72d5a2f4223599421c98bd162da7fa9e1",
-      "bytes": 10835
+      "source_sha256": "5000ca5f9091793f0d7d5e18223046073281874e509adc9f249a850ced7d499d",
+      "release_sha256": "5000ca5f9091793f0d7d5e18223046073281874e509adc9f249a850ced7d499d",
+      "bytes": 11211
     },
     {
       "path": "playbooks/department-system-runtime-adoption.md",
@@ -1172,9 +1172,9 @@
     },
     {
       "path": "tools/goal_source_recovery.py",
-      "source_sha256": "b9b13b99bb77fd19b035de24defe4b237f12cb199349bca8ac4d3c99920b015b",
-      "release_sha256": "b9b13b99bb77fd19b035de24defe4b237f12cb199349bca8ac4d3c99920b015b",
-      "bytes": 24702
+      "source_sha256": "0ba6722c558083bd4614438b0f7d174507178e40df658e86c6009aabffbbf07d",
+      "release_sha256": "0ba6722c558083bd4614438b0f7d174507178e40df658e86c6009aabffbbf07d",
+      "bytes": 34278
     },
     {
       "path": "tools/managed_cms_permit_issuer.py",
@@ -1514,9 +1514,9 @@
     },
     {
       "path": "tools/test_goal_source_recovery.py",
-      "source_sha256": "48411597ba99ec48599fe8f6a5751f403cb7b7c903a71f4a82095edf8b6cb7ad",
-      "release_sha256": "baba1b8259220df7a90b1fc9aa189d6069d05eb97f4adf15f6dd4c0e0549d836",
-      "bytes": 19733
+      "source_sha256": "2320d391dcce9855e412c251d8b9ba7feb67c2d8ad6b3ea41e3b5acc7f7a825c",
+      "release_sha256": "01091b4ad8cc0550672caa855d81a116177417913289e7c8e496eb0c77a84b7f",
+      "bytes": 29093
     },
     {
       "path": "tools/test_goal_work_boundary.py",
@@ -1713,5 +1713,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "fddd9a2cedef0d10192be2600497952eae5ad3164e144298b6843330d87dd5c9"
+  "fingerprint": "f316322e32a4b4edf8109713fdbe138c7f431d45cf0ef53b1474a4807bbd9ae0"
 }

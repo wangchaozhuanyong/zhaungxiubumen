@@ -129,6 +129,136 @@ def record(root, input_path):
             'historical_task_reopened':False,'external_permission_issued':False}
 
 
+def adoption_notice_message(root, request):
+    """A frozen factual return to the original producer, never a new task grant."""
+    from goal_delivery_runtime import restore_goal
+    from result_coordination import _committed_result
+    task = w.validate_task_id(request.get('task_id', ''))
+    snapshot = restore_goal(root, w.read_json(w.snapshot_path(root, task)))
+    goal = snapshot['goal_delivery']
+    source = request.get('post_adoption_notice', {})
+    if (request.get('sender_department') not in {'operations', goal['responsible_assistant']}
+            or request.get('target_department') != goal['primary_owner']
+            or request.get('action_class') != 'thread_message'
+            or request.get('scope') not in goal['authorized_scope']
+            or not isinstance(source, dict)):
+        raise w.WorkflowError('same-goal factual return to original producer required')
+    pin = source.get('journal', {})
+    if not isinstance(pin, dict) or w.file_digest(root, pin.get('path', '')) != pin:
+        raise w.WorkflowError('exact actual adoption journal required')
+    journal = w.read_json(w.safe_path(root, pin['path']))
+    if (journal.get('task_id') != task or journal.get('actor') != goal['responsible_assistant']
+            or journal.get('status') != 'complete' or journal.get('direction') != 'forward'
+            or type(journal.get('external_writes')) is not int or journal['external_writes'] != 0
+            or journal.get('effect_uncertain') is not False or journal.get('permissions_issued') is not False
+            or not journal.get('execution_id')):
+        raise w.WorkflowError('actual zero-external-write adoption fact required')
+    operations = journal.get('source_operations', [])
+    if (not isinstance(operations, list) or not 1 <= len(operations) <= 32
+            or len({o.get('path') for o in operations if isinstance(o, dict)}) != len(operations)):
+        raise w.WorkflowError('bounded actual adopted source operations required')
+    for op in operations:
+        if (not isinstance(op, dict) or not op.get('path')
+                or op.get('write_attempted') is not True or op.get('verified_after') is not True
+                or op.get('after_expected') != op.get('after_actual')
+                or {k:w.file_digest(root, op['path'])[k] for k in ('sha256','size')} != op.get('after_actual')
+                or w.file_digest(root, op.get('backup', {}).get('path', '')) != op.get('backup')
+                or {k:op['backup'][k] for k in ('sha256','size')} != op.get('before')):
+            raise w.WorkflowError('actual current adopted source and physical backup readback required')
+    rows = w._result_handoff_rows(root, task)
+    decisions = [r for r in rows if r.get('event') == 'controller_decision'
+                 and r.get('record_id') == journal.get('decision_record_id')]
+    follows = [r for r in rows if r.get('event') == 'controller_followthrough'
+               and r.get('record_id') == source.get('followthrough_record_id')]
+    if (len(decisions) != 1 or len(follows) != 1
+            or decisions[0].get('decision') != 'continue'
+            or any(r.get('coordinator_role') != goal['responsible_assistant'] for r in (decisions[0], follows[0]))
+            or decisions[0].get('sender_department') != goal['primary_owner']
+            or any(decisions[0].get(k) != follows[0].get(k) for k in
+                   ('task_id', 'sender_department', 'candidate_version', 'result_sha256'))
+            or decisions[0].get('candidate_version') != journal.get('candidate_version')
+            or pin not in follows[0].get('evidence', [])
+            or not str(follows[0].get('unblock_condition', '')).startswith(
+                'source-adopted:' + journal['execution_id'] + ';')):
+        raise w.WorkflowError('exact committed adoption decision and followthrough required')
+    for row in (decisions[0], follows[0]):
+        _committed_result(root, row)
+    expected_id = 'notify-adoption-' + w.sha256_value(
+        [task, request['sender_department'], request['target_department'], pin])
+    if request.get('action_id') != expected_id:
+        raise w.WorkflowError('deterministic original adoption notice identity required')
+    return {'task_id': task, 'purpose': 'same_goal_source_adoption_notice',
+            'sender_department': request['sender_department'],
+            'target_department': goal['primary_owner'], 'scope': request['scope'],
+            'source_adoption': pin, 'execution_id': journal['execution_id'],
+            'candidate_version': journal['candidate_version'],
+            'decision_record_id': decisions[0]['record_id'],
+            'followthrough_record_id': follows[0]['record_id'],
+            'source_adopted': True, 'business_goal_completed': False,
+            'external_permission_issued': False, 'new_assignment_authorized': False,
+            'next_action': '读取已采用证据和本部门真实当前／暂停指派，继续已获授权的未完范围；不重做已采用源码，不重复保存或派工。本通知不新增任务、账号、费用或生产权限。'}
+
+
+def _prepare_adoption_notice(root, request):
+    """Reuse approved_actions/event storage for an exact factual callback."""
+    from goal_delivery_runtime import restore_goal
+    body = adoption_notice_message(root, request)
+    expected = (json.dumps(body, ensure_ascii=False, sort_keys=True, indent=2) + '\n').encode('utf-8')
+    if w.safe_path(root, request['payload']['path']).read_bytes() != expected:
+        raise w.WorkflowError('factual adoption notice cannot contain arbitrary new instructions')
+    fields = ('task_id', 'sender_department', 'action_id', 'action_class', 'scope',
+              'source_project_id', 'target_project_id', 'target_department', 'target_thread_id',
+              'target_thread_title', 'target_cwd', 'target_sidebar_section_id',
+              'payload_sha256', 'payload', 'post_adoption_notice')
+    action = {k: request[k] for k in fields}
+    registry = w.department_registry(root)
+    binding = registry[request['target_department']]['chat_binding']
+    source_binding = registry[request['sender_department']]['chat_binding']
+    if request.get('source_project_id') != source_binding.get('project_id'):
+        raise w.WorkflowError('exact original callback sender project required before preparation')
+    if any(request.get(k) != binding.get(v) for k,v in
+           {'target_thread_id':'task_id','target_thread_title':'title','target_project_id':'project_id',
+            'target_cwd':'cwd','target_sidebar_section_id':'sidebar_section_id'}.items()):
+        raise w.WorkflowError('exact original producer callback binding required')
+    with w.workflow_lock(root):
+        # Recheck the committed fact immediately before the existing preparation event.
+        if adoption_notice_message(root, request) != body:
+            raise w.WorkflowError('adoption callback source changed during preparation')
+        snapshot = restore_goal(root, w.read_json(w.snapshot_path(root, request['task_id'])))
+        goal = snapshot['goal_delivery']
+        # One factual return is owned once across HQ and its responsible assistant.
+        # A prepared uncertain call also blocks another sender; it must be recovered,
+        # not delivered twice with a different sender-specific action identifier.
+        same_fact = [a for a in goal.get('approved_actions', [])
+                     if a.get('target_department') == request['target_department']
+                     and a.get('post_adoption_notice', {}).get('journal') ==
+                         request['post_adoption_notice']['journal']]
+        action_ids = {a['action_id'] for a in same_fact}
+        sent = [row for row in w.read_jsonl(w.receipts_path(root, request['task_id']))
+                if row.get('receipt_type') == 'dispatch_sent' and row.get('action_id') in action_ids
+                and row.get('department') == request['target_department']]
+        if sent:
+            return {'status':'duplicate_ignored','actual_message_sent':True,
+                    'actual_receipt_ids':[row['receipt_id'] for row in sent],
+                    'historical_notice_count':len(sent),'message_sent':False}
+        different_owner = [a for a in same_fact if a.get('action_id') != request['action_id']]
+        if different_owner:
+            return {'status':'waiting_existing_callback_effect','message_sent':False,
+                    'recovery_owner':different_owner[0]['sender_department'],
+                    'notification_responsibility_retained':True}
+        old = [a for a in goal.get('approved_actions', []) if a.get('action_id') == action['action_id']]
+        if old:
+            if old != [action]:
+                raise w.WorkflowError('original adoption notice already frozen to different bytes')
+            return
+        snapshot['goal_delivery'] = {**goal, 'approved_actions': goal.get('approved_actions', []) + [action]}
+        w.append_workflow_event(root, request['task_id'], snapshot['current_state'],
+                                {'goal_delivery': snapshot['goal_delivery'],
+                                 'post_adoption_notice_prepared': request['payload'],
+                                 'actual_message_sent': False, 'external_permission_issued': False})
+        w.atomic_write_json(w.snapshot_path(root, request['task_id']), snapshot)
+
+
 def prepare_message(root, request):
     """The real preparation entry consumes authorization and exact policy checks."""
     from goal_delivery_runtime import authorization_precheck, _collaboration_native
@@ -158,6 +288,10 @@ def prepare_message(root, request):
     if turns[0].get('status') in {'inProgress','pending'}:
         return {'status':'waiting_target_completion','message_sent':False,
                 'notification_responsibility_retained':True,'authorization_precheck':checked}
+    if 'post_adoption_notice' in request:
+        existing = _prepare_adoption_notice(root, request)
+        if existing is not None:
+            return {**existing, 'authorization_precheck':checked,'external_permission_issued':False}
     if external_target:
         from goal_delivery_runtime import restore_goal, approved_action
         snapshot=restore_goal(root,w.read_json(w.snapshot_path(root,request['task_id'])))

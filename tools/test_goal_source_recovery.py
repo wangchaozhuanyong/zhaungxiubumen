@@ -2,6 +2,7 @@
 import copy
 import datetime as dt
 import json
+from pathlib import Path
 import unittest
 from unittest import mock
 import goal_source_recovery as recovery
@@ -162,6 +163,125 @@ class RecoveryTests(unittest.TestCase):
         result=recovery.prepare_message(self.root,request)
         self.assertEqual(result['status'],'ready_to_send',result)
         self.assertEqual(before,w.read_json(self.root/'data/department-registry.json'))
+
+
+class AdoptionNoticeTests(unittest.TestCase):
+    """Use committed native/SQL fixture decisions, never invented real dispatch."""
+    def setUp(self):
+        self.t=fixture.GoalRuntimeConsumerTests('runTest');self.t.setUp()
+        self.addCleanup(self.t.doCleanups);self.root=self.t.root
+
+    def prepare(self, sender=fixture.ASSISTANT):
+        import result_coordination as rc
+        t=self.t;plan,pp=t.prepare_initial_review();t.assistant_verdict(plan,pp,verdict='pass')
+        identity={'task_id':t.task_id,'sender_department':fixture.PRODUCER,'candidate_version':'v1',
+                  'result_sha256':pp['sha256'],'outbox_path':pp['path']}
+        w.record_result_handoff(self.root,{**identity,**t.completed_result_fields(),
+            'event':'notification_queued','idempotency_key':'adoption-fixture-queued'})
+        store=rc.CoordinationStore(self.root);self.addCleanup(store.close)
+        lease=store.claim(identity,fixture.ASSISTANT,'fixture-adoption-owner','adoption-fixture-claim')
+        actor={'coordinator_role':fixture.ASSISTANT,'coordinator_owner':lease['owner'],'coordination_claim':lease}
+        w.record_result_handoff(self.root,{**identity,**actor,'event':'controller_received',
+            'idempotency_key':'adoption-fixture-intake','intake_mode':'queue',
+            'source_thread_id':'fixed-'+fixture.PRODUCER,
+            'source_reply_sha256':w.file_digest(self.root,'reports/native-final.txt')['sha256'],
+            'reply_observed_at':w.utc_timestamp()})
+        decision,_=w.record_result_handoff(self.root,{**identity,**actor,'event':'controller_decision',
+            'idempotency_key':'adoption-fixture-decision','decision':'continue','next_owner':fixture.ASSISTANT,
+            'next_action':'adopt exact fixture source','evidence_paths':[pp['path']]})
+        backup=t.write('backups/source-before.json',{'before':True});source=t.write('tools/adopted-source.json',{'after':True})
+        bp=w.file_digest(self.root,backup);sp=w.file_digest(self.root,source)
+        journal={'task_id':t.task_id,'actor':fixture.ASSISTANT,'status':'complete','direction':'forward',
+            'external_writes':0,'effect_uncertain':False,'permissions_issued':False,'execution_id':'fixture-source-effect',
+            'candidate_version':'v1','decision_record_id':decision['record_id'],'source_operations':[
+                {'path':source,'before':{k:bp[k] for k in ('sha256','size')},'after_expected':{k:sp[k] for k in ('sha256','size')},
+                 'after_actual':{k:sp[k] for k in ('sha256','size')},'backup':bp,'write_attempted':True,'verified_after':True}]}
+        jp=t.write('reports/adoption-journal.json',journal);pin=w.file_digest(self.root,jp)
+        follow,_=w.record_result_handoff(self.root,{**identity,**actor,'event':'controller_followthrough',
+            'idempotency_key':'adoption-fixture-followthrough','followthrough_status':'blocked_with_owner',
+            'next_check_at':(dt.datetime.now(dt.timezone.utc)+dt.timedelta(hours=1)).isoformat(),
+            'unblock_condition':'source-adopted:fixture-source-effect;remaining:fixture publisher Save',
+            'evidence_paths':[jp]})
+        req=t.requested(sender=sender);req['post_adoption_notice']={'journal':pin,'followthrough_record_id':follow['record_id']}
+        req['action_id']='notify-adoption-'+w.sha256_value([t.task_id,sender,fixture.PRODUCER,pin])
+        body=recovery.adoption_notice_message(self.root,req)
+        p=self.root/'reports/adoption-notice.txt';p.write_text(json.dumps(body,ensure_ascii=False,sort_keys=True,indent=2)+'\n')
+        req['payload']=w.file_digest(self.root,str(p.relative_to(self.root)));req['payload_sha256']=req['payload']['sha256']
+        binding=w.department_registry(self.root)[fixture.PRODUCER]['chat_binding']
+        live=t.write('reports/adoption-target.json',{'thread':{'id':binding['task_id'],'title':binding['title'],'cwd':binding['cwd']},
+             'turns':[{'id':'original-idle-turn','status':'completed'}]})
+        req['actual_target_state']=w.file_digest(self.root,live)
+        return req
+
+    def test_assistant_return_after_adoption_uses_existing_real_policy_without_new_decision(self):
+        req=self.prepare();before=w._result_handoff_rows(self.root,self.t.task_id)
+        result=recovery.prepare_message(self.root,req)
+        self.assertEqual(result['status'],'ready_to_send',result)
+        self.assertEqual(before,w._result_handoff_rows(self.root,self.t.task_id))
+        self.assertEqual(recovery.prepare_message(self.root,req)['status'],'ready_to_send')
+        actions=self.t.snapshot()['goal_delivery']['approved_actions']
+        self.assertEqual(len([a for a in actions if a['action_id']==req['action_id']]),1)
+        self.assertFalse(result['message_sent']);self.assertFalse(w.read_jsonl(w.receipts_path(self.root,self.t.task_id))[-1].get('actual_message_sent',False))
+
+    def test_busy_original_producer_retains_notice_without_freezing_new_dispatch(self):
+        req=self.prepare();p=req['actual_target_state']['path'];d=w.read_json(self.root/p);d['turns'][0]['status']='inProgress';self.t.write(p,d)
+        req['actual_target_state']=w.file_digest(self.root,p);before=self.t.snapshot()
+        self.assertEqual(recovery.prepare_message(self.root,req)['status'],'waiting_target_completion')
+        self.assertEqual(before,self.t.snapshot())
+
+    def test_rejected_wrong_source_project_does_not_poison_corrected_retry(self):
+        req=self.prepare();before=self.t.snapshot()
+        with self.assertRaisesRegex(w.WorkflowError,'sender project'):
+            recovery.prepare_message(self.root,{**req,'source_project_id':'wrong-source-project'})
+        self.assertEqual(before,self.t.snapshot())
+        self.assertEqual(recovery.prepare_message(self.root,req)['status'],'ready_to_send')
+
+    def second_sender(self,req):
+        other={**req,'sender_department':'operations'}
+        other['action_id']='notify-adoption-'+w.sha256_value([self.t.task_id,'operations',fixture.PRODUCER,req['post_adoption_notice']['journal']])
+        msg=recovery.adoption_notice_message(self.root,other)
+        p=self.root/'reports/HQ-adoption-notice.txt';p.write_text(json.dumps(msg,ensure_ascii=False,sort_keys=True,indent=2)+'\n')
+        other['payload']=w.file_digest(self.root,str(p.relative_to(self.root)));other['payload_sha256']=other['payload']['sha256']
+        return other
+
+    def test_HQ_and_assistant_cannot_prepare_parallel_returns_for_one_adoption(self):
+        req=self.prepare();self.assertEqual(recovery.prepare_message(self.root,req)['status'],'ready_to_send')
+        other=self.second_sender(req);before=self.t.snapshot()
+        result=recovery.prepare_message(self.root,other)
+        self.assertEqual(result['status'],'waiting_existing_callback_effect');self.assertFalse(result['message_sent'])
+        self.assertEqual(before,self.t.snapshot())
+
+    def test_sent_fact_blocks_same_and_other_senders_without_second_policy_or_dispatch(self):
+        req=self.prepare();self.assertEqual(recovery.prepare_message(self.root,req)['status'],'ready_to_send')
+        other=self.second_sender(req)
+        receipt={'task_id':self.t.task_id,'receipt_type':'dispatch_sent','action_id':req['action_id'],
+                 'department':fixture.PRODUCER,'receipt_id':'fixture-only-actual-receipt'}
+        real=w.read_jsonl
+        def read(path):
+            values=real(path)
+            return values+[receipt] if Path(path)==w.receipts_path(self.root,self.t.task_id) else values
+        with mock.patch.object(w,'read_jsonl',side_effect=read),mock.patch.object(w,'policy_check') as policy:
+            for request in (req,other):
+                result=recovery.prepare_message(self.root,request)
+                self.assertEqual(result['status'],'duplicate_ignored');self.assertFalse(result['message_sent'])
+            policy.assert_not_called()
+
+    def test_factual_return_rejects_new_instruction_or_wrong_receiver(self):
+        req=self.prepare();p=self.root/req['payload']['path'];p.write_text('Make a new paid campaign')
+        req['payload']=w.file_digest(self.root,req['payload']['path']);req['payload_sha256']=req['payload']['sha256']
+        with self.assertRaisesRegex(w.WorkflowError,'arbitrary new instructions'):recovery.prepare_message(self.root,req)
+        with self.assertRaises(w.WorkflowError):recovery.adoption_notice_message(self.root,{**req,'target_department':'sales'})
+
+    def test_tampered_or_uncommitted_adoption_and_changed_source_are_rejected(self):
+        req=self.prepare();source=req['post_adoption_notice'];jp=source['journal']['path'];original=w.read_json(self.root/jp)
+        for delta in ({'external_writes':1},{'effect_uncertain':True},{'actor':'operations-assistant-3'},
+                      {'execution_id':'not-committed'},{'task_id':'different-task'},{'source_operations':[]}):
+            with self.subTest(delta=delta):
+                self.t.write(jp,{**original,**delta});changed={**req,'post_adoption_notice':{**source,'journal':w.file_digest(self.root,jp)}}
+                with self.assertRaises(w.WorkflowError):recovery.adoption_notice_message(self.root,changed)
+        self.t.write(jp,original)
+        self.t.write(original['source_operations'][0]['path'],{'changed':True})
+        with self.assertRaises(w.WorkflowError):recovery.adoption_notice_message(self.root,req)
 
 
 class CMSAdmissionTests(unittest.TestCase):
