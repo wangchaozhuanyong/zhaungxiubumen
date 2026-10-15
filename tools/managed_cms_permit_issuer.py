@@ -3385,9 +3385,10 @@ def validate_new_permit_target(target: dict, *, assistant_acceptance: dict | Non
                 and isinstance(assistant_acceptance, dict),
                 "Kitchen EN2 registration alone cannot issue a permit; exact current A2 acceptance is required")
     if target.get("candidate_shape") == "two_original_material_body_registration_only_v1":
-        raise PermitEvidenceError(
-            "Two-material source registration cannot issue a permit; original publisher goal, "
-            "deployed protected channel, fresh full-row CAS, zero-write preview and actual production QA remain required")
+        from paid_three_page_bounded_cms import two_original_material_readiness
+        require(isinstance(assistant_acceptance, dict),
+                "Two-material registration alone cannot issue a permit")
+        two_original_material_readiness(ROOT, target, assistant_acceptance)
     if target.get('candidate_shape') == 'native_publisher_registration':
         raise PermitEvidenceError('Publisher registration cannot issue a permit; protected preview and exact production QA remain required')
     if target.get("candidate_shape") == "native_five_projection_registration":
@@ -3525,6 +3526,13 @@ def main() -> None:
             if args.operation == "rollback":
                 require(args.parent_permit_id == qa["parent_permit_id"] and args.parent_run_id == qa["parent_run_id"],
                         "Rollback issuer must use independently reviewed completed parent permit/run")
+        if target.get("candidate_shape") == "two_original_material_body_registration_only_v1":
+            from paid_three_page_bounded_cms import validate_two_original_material_machine
+            require(args.operation == "publish" and payload_sha256 == target["payload_sha256"],
+                    "Two original material bodies only allow their exact forward payload")
+            validate_two_original_material_machine(ROOT, target, qa, run,
+                json.loads((backup_path.parent / "managed-identity-probe.json").read_text()),
+                digest, receipt, json.loads(backup_path.read_text()), args.github_actor_id)
         decision_path = (ROOT / args.operations_decision).resolve()
         require(decision_path.is_relative_to(ROOT) and decision_path.is_file(), "Operations decision file is missing")
         decision = json.loads(decision_path.read_text())

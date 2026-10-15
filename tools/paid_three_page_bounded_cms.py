@@ -3823,6 +3823,13 @@ MATERIAL_WEBSITE_RETURN = {
     "sha256": "864d47ac8347b9004151ad9f851ca7739cd9191ad7f1d5488697269100d90fe5",
     "size": 11680,
 }
+MATERIAL_EXPECTED_SOURCE = {
+    "path": ("logs/handoffs/2026-10-15-two-materials-readiness-continuation-v1/"
+             "A2-independent/readiness-consumer-review/"
+             "actual-b5f54dea-canonical-runtime-manifest-readonly-v1.json"),
+    "sha256": "aa9e40fef963a4f4b93be5bbd15ba9f24bfe047450ca9db0adfb910cf06ee2e2",
+    "size": 3932,
+}
 MATERIAL_ROWS = (
     ("sintered-stone-grey", "00db44f6-c26a-4140-b12d-601d9fbaedf7",
      "save-sintered-stone-grey-bilingual-body-v1",
@@ -4068,6 +4075,280 @@ def validate_two_original_material_candidate(root, candidate, target):
         "path": target["candidate"][0], "sha256": target["candidate"][1],
         "size": w.file_digest(root, target["candidate"][0])["size"]}),
         "only the exact original two-body material candidate can bind")
+
+
+def _material_site_doc(value):
+    """Read a pinned website release artifact; local candidate paths are excluded."""
+    require(isinstance(value, dict), "actual website release pin required")
+    path = Path(str(value.get("path", ""))).resolve()
+    release_root = WEBSITE / "reports"
+    require(path.is_file() and path.is_relative_to(release_root.resolve())
+            and ".worktrees" not in path.parts,
+            "website proof must be an actual project release artifact")
+    raw = path.read_bytes()
+    require(type(value.get("size")) is int and len(raw) == value["size"]
+            and hashlib.sha256(raw).hexdigest() == value.get("sha256"),
+            "website release proof bytes changed")
+    return json.loads(raw)
+
+
+@strict
+def two_original_material_readiness(root, target, accepted):
+    """Read the publisher's committed selfcheck and real website release proof.
+
+    Registration, a local website candidate, or an A2 source PASS alone never
+    makes either material ready for a permit.
+    """
+    root = Path(root).resolve()
+    exact = two_original_material_targets(root)
+    require(sum(value == target for value in exact.values()) == 1
+            and target.get("candidate_shape") == "two_original_material_body_registration_only_v1"
+            and target.get("native_registration_only") is True
+            and target.get("release_ready") is False
+            and target.get("rollback_allowed") is False,
+            "only one original two-body registration may seek later readiness")
+    require(isinstance(accepted, dict)
+            and accepted.get("acceptance_model") == "goal_authorized_cms_selfcheck_v1"
+            and accepted.get("verdict") == "selfcheck_ready"
+            and accepted.get("task_id") == target["task_id"]
+            and accepted.get("action_id") == target["action_id"]
+            and accepted.get("scope") == target["scope"]
+            and accepted.get("candidate_version") == target["candidate_version"]
+            and accepted.get("candidate", {}).get("sha256") == target["candidate"][1]
+            and accepted.get("goal_completion_claimed") is False,
+            "committed exact original publisher selfcheck required")
+    preflight = doc(root, accepted.get("execution_preflight"))
+    check = doc(root, preflight.get("self_check"))
+    source_pin = check.get("source_verification")
+    require(isinstance(source_pin, dict) and source_pin in check.get("evidence", []),
+            "committed publisher selfcheck must pin deployed source proof")
+    source = doc(root, source_pin)
+    required = {"task_id": target["task_id"], "action_id": target["action_id"],
+                "candidate_version": target["candidate_version"],
+                "scope": target["scope"], "record_id": target["record_id"]}
+    require(source.get("schema") == "two-original-material-protected-source/v1"
+            and all(source.get(key) == value for key, value in required.items())
+            and source.get("status") == "DEPLOYED_SOURCE_VERIFIED"
+            and source.get("source_candidate_version") ==
+                "two-original-materials-protected-body-channel-v2-20261014"
+            and source.get("source_candidate_head") ==
+                "b5f54dea9d6277b51daab2e0c0e23fe65bdac46a",
+            "exact original website source and publisher tuple required")
+    deployed = _material_site_doc(source.get("website_deployment"))
+    sha = deployed.get("production_website_sha")
+    require(deployed.get("status") == "PASS_ACTUAL_PRODUCTION_EDGE_SOURCE_AND_RECOVERY_BACKUP"
+            and deployed.get("source_candidate_version") == source["source_candidate_version"]
+            and deployed.get("source_candidate_head") == source["source_candidate_head"]
+            and re.fullmatch(r"[0-9a-f]{40}", str(sha))
+            and sha == source.get("production_sha")
+            and deployed.get("actual_function", {}).get("name") == "content-publish"
+            and deployed["actual_function"].get("status") == "ACTIVE"
+            and type(deployed["actual_function"].get("after_version")) is int
+            and deployed["actual_function"].get("after_download_version") ==
+                deployed["actual_function"]["after_version"],
+            "actual Edge deployment/version readback required")
+    release_run = _material_site_doc(deployed.get("run_proof")).get("run", {})
+    require(release_run.get("head_sha") == sha and release_run.get("event") == "workflow_dispatch"
+            and release_run.get("conclusion") == "success"
+            and release_run.get("status") == "completed"
+            and type(release_run.get("id")) is int and release_run["id"] > 0
+            and release_run["id"] == deployed.get("run_id")
+            and release_run.get("head_branch") == "main"
+            and release_run.get("name") == "Release managed content-publish R3"
+            and release_run.get("path") == ".github/workflows/supabase-content-publish-r3.yml"
+            and release_run.get("repository", {}).get("full_name") ==
+                "wangchaozhuanyong/zhuangxiuwangzhan"
+            and release_run["repository"].get("id") == 1248188229
+            and release_run.get("head_repository", {}).get("full_name") ==
+                "wangchaozhuanyong/zhuangxiuwangzhan",
+            "actual protected R3 repository/main/workflow run must own the deployed source")
+    release_artifacts = (WEBSITE / "reports" /
+        "two-original-materials-protected-body-channel-20261014-v2" /
+        f"production-r3-run-{release_run['id']}-artifacts").resolve()
+    require(Path(str(deployed.get("actual_readback", {}).get("manifest", {}).get("path", "")))
+            .resolve().is_relative_to(release_artifacts),
+            "Edge source manifest must belong to the exact R3 readback artifact")
+    expected = doc(root, MATERIAL_EXPECTED_SOURCE)
+    files = expected.get("files", [])
+    types = expected.get("typeOnlyFileRecovery", [])
+    paths = [item.get("path") for item in files]
+    type_paths = [item.get("path") for item in types]
+    require(expected.get("schema") == "content-publish-runtime-source/v1"
+            and expected.get("entrypoint") == "content-publish/index.ts"
+            and "content-publish/index.ts" in paths
+            and isinstance(files, list) and len(files) == len(set(paths)) == 21
+            and isinstance(types, list) and len(types) == len(set(type_paths))
+            and set(expected.get("typeOnlyFiles", [])) == set(type_paths)
+            and not set(paths) & set(type_paths),
+            "reviewed exact source-expected dependency closure required")
+    for item in files + types:
+        path = item.get("path")
+        require(isinstance(path, str)
+                and re.fullmatch(r"(?:_shared|content-publish)/[a-zA-Z0-9_-]+\.ts", path)
+                and type(item.get("bytes")) is int and item["bytes"] > 0,
+                "reviewed source closure contains an unexpected path or size")
+        original = _git_source(source["source_candidate_head"], "supabase/functions/" + path)
+        require(len(original) == item["bytes"]
+                and hashlib.sha256(original).hexdigest() == item.get("sha256")
+                and _git_source(sha, "supabase/functions/" + path) == original,
+                "reviewed and released Edge dependency source differs")
+    manifest = _material_site_doc(deployed.get("actual_readback", {}).get("manifest"))
+    recovered = manifest.get("typeOnlyFileRecovery", [])
+    require(manifest.get("schema") == expected["schema"]
+            and manifest.get("entrypoint") == expected["entrypoint"]
+            and manifest.get("files") == files
+            and manifest.get("typeOnlyFiles") == expected["typeOnlyFiles"]
+            and manifest.get("externalImports") == expected["externalImports"]
+            and isinstance(recovered, list)
+            and len({item.get("path") for item in recovered}) == len(recovered)
+            and all(item in types for item in recovered),
+            "actual download must match the complete reviewed runtime and type-only source")
+    canonical = [{"path": item["path"], "bytes": item["bytes"], "sha256": item["sha256"]}
+                 for item in sorted(files + recovered, key=lambda value: value["path"])]
+    closure_digest = hashlib.sha256(json.dumps(canonical, ensure_ascii=False,
+        separators=(",", ":")).encode()).hexdigest()
+    require(deployed["actual_readback"].get("source_sha256") == closure_digest,
+            "actual Edge runtime/type recovery digest differs")
+    readback = Path(str(deployed["actual_readback"].get("root", ""))).resolve()
+    require(readback == release_artifacts / "readback/edge-after/supabase/functions"
+            and readback.is_dir(), "actual downloaded Edge source root required")
+    metadata = deployed.get("artifact_metadata_pins", [])
+    require(isinstance(metadata, list) and len(metadata) == 2
+            and {Path(str(item.get("path", ""))).name for item in metadata}
+                == {"functions-after.json", "functions-after-download.json"},
+            "actual Edge function metadata and download metadata required")
+    for item in metadata:
+        require(Path(str(item.get("path", ""))).resolve().is_relative_to(release_artifacts),
+                "Edge function metadata must belong to the same release run artifact")
+        functions = _material_site_doc(item)
+        require(isinstance(functions, list)
+                and len([row for row in functions if row.get("name") == "content-publish"
+                         and row.get("status") == "ACTIVE"
+                         and row.get("version") == deployed["actual_function"]["after_version"]]) == 1,
+                "actual Edge function metadata version differs")
+    actual_paths = set(paths) | {item["path"] for item in recovered}
+    observed_paths = set()
+    for entry in readback.rglob("*"):
+        require(not entry.is_symlink(), "Edge source download contains a symbolic link")
+        if entry.is_dir():
+            continue
+        require(entry.is_file(), "Edge source download contains an unsupported entry")
+        observed_paths.add(entry.relative_to(readback).as_posix())
+    require(observed_paths == actual_paths,
+            "complete downloaded Edge file set must equal the reviewed dependency closure")
+    for item in files + recovered:
+        path = item["path"]
+        raw = (readback / path).read_bytes()
+        require(type(item.get("bytes")) is int and len(raw) == item["bytes"]
+                and hashlib.sha256(raw).hexdigest() == item.get("sha256")
+                and _git_source(sha, "supabase/functions/" + path) == raw,
+                "deployed Edge source differs from the release commit")
+    website = doc(root, MATERIAL_WEBSITE_RETURN)
+    require(len(website.get("source_file_pins", [])) == 11,
+            "all eleven reviewed website source files required")
+    for item in website["source_file_pins"]:
+        path = item.get("path", "")
+        marker = "/reports/two-original-materials-protected-body-channel-20261014-v2/after/"
+        require(isinstance(path, str) and path.startswith(str(WEBSITE) + marker),
+                "only original reviewed website source files may be checked")
+        relative = path.split(marker, 1)[1]
+        original = _git_source(source["source_candidate_head"], relative)
+        require(len(original) == item.get("bytes")
+                and hashlib.sha256(original).hexdigest() == item.get("sha256")
+                and _git_source(sha, relative) == original,
+                "released code must retain every reviewed material channel file")
+    machine_pin = check.get("actual_machine")
+    require(isinstance(machine_pin, dict) and machine_pin in check.get("evidence", []),
+            "publisher selfcheck must pin the actual protected preview machine")
+    machine = doc(root, machine_pin)
+    require(machine.get("task_id") == target["task_id"]
+            and machine.get("action_id") == target["action_id"]
+            and machine.get("scope") == target["scope"]
+            and machine.get("candidate_version") == target["candidate_version"]
+            and type(machine.get("github_actor_id")) is int
+            and machine["github_actor_id"] > 0,
+            "exact publisher workflow actor and machine binding required")
+    run, probe, payload, receipt, backup = [doc(root, machine.get(key)) for key in
+        ("run_snapshot", "identity_probe", "payload_digest", "locked_preview", "backup")]
+    before = doc(root, {"path": target["rollback"][0],
+                        "sha256": target["rollback"][1],
+                        "size": w.file_digest(root, target["rollback"][0])["size"]})
+    current = backup.get("record")
+    candidate = doc(root, {"path": target["candidate"][0],
+                           "sha256": target["candidate"][1],
+                           "size": w.file_digest(root, target["candidate"][0])["size"]})
+    require(isinstance(current, dict) and len(current) == 46
+            and type(current.get("version")) is int and current == before
+            and current.get("version") == target["observed_version"]
+            and current.get("updated_at") == target["expected_updated_at"]
+            and re.fullmatch(r".*\.\d{6}\+00:00", str(current.get("updated_at", "")))
+            and {key for key in current if current[key] != candidate[key]} == set(MATERIAL_FIELDS)
+            and backup.get("table") == "materials" and backup.get("key") == target["slug"]
+            and payload.get("task_id") == target["task_id"]
+            and payload.get("candidate_version") == target["candidate_version"]
+            and payload.get("operation") == "publish"
+            and payload.get("payload_sha256") == target["payload_sha256"]
+            and payload.get("expected_updated_at") == current["updated_at"]
+            and receipt.get("task_id") == target["task_id"]
+            and receipt.get("action_id") == target["action_id"]
+            and receipt.get("candidate_version") == target["candidate_version"]
+            and receipt.get("scope") == target["scope"]
+            and receipt.get("operation") == "publish"
+            and receipt.get("expected_updated_at") == current["updated_at"]
+            and receipt.get("http_status") == 200 and receipt.get("dry_run") is True
+            and receipt.get("performed_write") is False
+            and receipt.get("external_writes") == 0
+            and receipt.get("row_unchanged_after_dry_run") is True
+            and run.get("event") == "workflow_dispatch"
+            and run.get("head_branch") == "main"
+            and run.get("name") == "Approved website content publish"
+            and run.get("path") == ".github/workflows/content-publish-approved.yml"
+            and run.get("conclusion") == "success"
+            and type(run.get("id")) is int and run["id"] > 0
+            and run.get("head_sha") == sha
+            and run.get("actor", {}).get("id") == machine["github_actor_id"]
+            and probe.get("ok") is True and probe.get("dry_run") is True
+            and probe.get("performed_write") is False
+            and probe.get("identity", {}).get("actorId") == machine["github_actor_id"]
+            and probe["identity"].get("runId") == run["id"]
+            and probe["identity"].get("runAttempt") == run.get("run_attempt")
+            and probe["identity"].get("repositoryId") == 1248188229
+            and probe["identity"].get("workflowRef") ==
+                "wangchaozhuanyong/zhuangxiuwangzhan/.github/workflows/content-publish-approved.yml@refs/heads/main"
+            and probe["identity"].get("workflowSha") == run["head_sha"] == sha,
+            "actual protected preview must bind exact full row, CAS, actor and deployed code")
+    checked = w._parse_observed_at(receipt.get("checked_at"))
+    captured = w._parse_observed_at(backup.get("capturedAt"))
+    completed = w._parse_observed_at(run.get("updated_at"))
+    now = dt.datetime.now(dt.timezone.utc)
+    require(checked is not None and captured is not None and completed is not None
+            and now - dt.timedelta(minutes=30) <= captured <= checked <= completed <= now,
+            "full-row backup and zero-write preview must be fresh")
+    return {"source": source_pin, "production_sha": sha,
+            "function_version": deployed["actual_function"]["after_version"],
+            "machine": machine_pin}
+
+
+@strict
+def validate_two_original_material_machine(root, target, accepted, run, probe, payload,
+                                           receipt, backup, actor):
+    """Tie the live protected preview to the exact current full row and source."""
+    ready = two_original_material_readiness(root, target, accepted)
+    preflight = doc(root, accepted["execution_preflight"])
+    check = doc(root, preflight["self_check"])
+    machine = doc(root, check.get("actual_machine"))
+    require(check.get("actual_machine") == ready["machine"]
+            and machine.get("task_id") == target["task_id"]
+            and machine.get("action_id") == target["action_id"]
+            and machine.get("scope") == target["scope"]
+            and machine.get("candidate_version") == target["candidate_version"]
+            and machine.get("github_actor_id") == actor
+            and all(actual == doc(root, machine.get(key)) for actual, key in
+                    ((run, "run_snapshot"), (probe, "identity_probe"),
+                     (payload, "payload_digest"), (receipt, "locked_preview"),
+                     (backup, "backup"))),
+            "protected run artifacts must equal the committed publisher selfcheck")
+    return ready
 
 
 def _weekly_key_context(root):

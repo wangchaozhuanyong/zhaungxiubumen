@@ -1468,6 +1468,23 @@ def remaining_followthrough(root, snapshot, receipts=None, now=None, *, completi
     return rows
 
 
+def completion_proof_selector(requirement):
+    """Resolve an omitted typed-effect reference without rewriting its contract."""
+    kind, rid = requirement.get('requirement_type'), requirement.get('requirement_id')
+    committed = {'mode': 'committed_completion_evidence', 'requirement_id': rid}
+    if 'proof_ref' in requirement:
+        selector = requirement['proof_ref']
+        if not isinstance(selector, dict):
+            raise w.WorkflowError('typed proof selector object required')
+        if selector.get('mode') == 'committed_completion_evidence' and selector != committed:
+            raise w.WorkflowError('committed completion selector must retain its original requirement')
+        return selector
+    if (kind in COMPLETION_TYPES - {'accepted_delivery', 'execution_postcheck'}
+            and isinstance(rid, str) and rid.strip()):
+        return committed
+    return None
+
+
 def record_completion_evidence(root, task_id, input_path, role, requirement_id):
     """Append a verified new actual proof; the frozen standard remains unchanged."""
     task_id = w.validate_task_id(task_id)
@@ -1487,7 +1504,7 @@ def record_completion_evidence(root, task_id, input_path, role, requirement_id):
         if contract['state'] != 'declared' or len(matches) != 1:
             raise w.WorkflowError("one original frozen completion requirement required")
         requirement = matches[0]
-        if (requirement.get('proof_ref') != {'mode': 'committed_completion_evidence', 'requirement_id': requirement_id}
+        if (completion_proof_selector(requirement) != {'mode': 'committed_completion_evidence', 'requirement_id': requirement_id}
                 or requirement['requirement_type'] in {'accepted_delivery', 'execution_postcheck'}):
             raise w.WorkflowError("original typed committed-evidence selector required; no replacement of frozen proof refs")
         subject_reader, proof_reader = (getattr(w, name, None) for name in

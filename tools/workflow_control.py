@@ -5102,6 +5102,22 @@ def _workflow_requires_external_execution(
 
 
 
+def _completion_execution_output(executed):
+    """Read only the original complete native UTF-8 command output."""
+    from qa_review_plan import _review_native_containers
+    try:
+        _review_native_containers(executed)
+    except ValueError as error:
+        raise WorkflowError("successful complete native execution container required") from error
+    output = executed.get("output")
+    if isinstance(output, str):
+        return output.encode("utf-8")
+    if (isinstance(output, dict) and set(output) == {"text", "truncated"}
+            and isinstance(output.get("text"), str) and output.get("truncated") is False):
+        return output["text"].encode("utf-8")
+    raise WorkflowError("complete native command output string or untruncated text object required")
+
+
 def _completion_pin(root, pin):
     if not isinstance(pin, dict) or file_digest(root, str(pin.get("path") or "")) != pin:
         raise WorkflowError("exact completion evidence full pin required")
@@ -5512,7 +5528,7 @@ def _tnew_actual_source_adoption(root, snapshot, accepted, proof, journal_pin, j
     if (executed.get("status") != "completed" or executed.get("exitCode") != 0
             or executed.get("cwd") != str(Path(root).resolve())
             or not proof.get("execution_command") or executed.get("command") != proof["execution_command"]
-            or executed.get("output", "").encode("utf-8") != raw
+            or _completion_execution_output(executed) != raw
             or any(value.encode("utf-8") not in raw for value in (journal_pin["path"], journal_pin["sha256"], mp["sha256"]))):
         raise WorkflowError("actual successful source execution output must pin its journal and separate reviewed MP")
     return {"candidate_manifest": mp, "permanent_source_successors": successors}
@@ -5564,7 +5580,12 @@ def goal_typed_completion_proof(root, snapshot, receipts, requirement, accepted,
                    if row.get("event")=="controller_decision" and row.get("coordinator_role")==snapshot["goal_delivery"]["responsible_assistant"]
                    and _result_identity(row)==tuple(current_identity[k] for k in ("sender_department","candidate_version","result_sha256"))
                    and row.get("remaining_requirement_id")==requirement["requirement_id"]]
-        pin = proof_pin or requirement.get("proof_ref")
+        from goal_delivery_runtime import completion_proof_selector
+        selector = completion_proof_selector(requirement)
+        if (proof_pin is not None and selector is not None
+                and selector.get("mode") != "committed_completion_evidence" and proof_pin != selector):
+            raise WorkflowError("a frozen explicit completion proof cannot be replaced")
+        pin = proof_pin if proof_pin is not None else selector
         if isinstance(pin,dict) and pin.get("mode") == "committed_completion_evidence":
             rows = [row.get("details",{}).get("completion_evidence") for row in read_jsonl(root / WORKFLOW_EVENTS)
                     if row.get("task_id") == snapshot["task_id"]
@@ -5651,7 +5672,7 @@ def goal_typed_completion_proof(root, snapshot, receipts, requirement, accepted,
             if (executed.get("status")!="completed" or executed.get("exitCode")!=0
                     or executed.get("cwd")!=str(Path(root).resolve())
                     or (not proof.get("execution_command") or executed.get("command")!=proof.get("execution_command"))
-                    or executed.get("output","").encode("utf-8")!=raw
+                    or _completion_execution_output(executed)!=raw
                     or any(value.encode("utf-8") not in raw for value in
                         (journal_pin["path"],journal_pin["sha256"],accepted["candidate"]["sha256"]))):
                 raise WorkflowError("actual successful CAS command/output must pin journal and reviewed manifest")
