@@ -1316,9 +1316,9 @@
     },
     {
       "path": "tools/qa_review_plan.py",
-      "source_sha256": "c84ae629444172fcc951940d6e5b0936e760548c638fc0fca8131de59435098b",
-      "release_sha256": "964990eb003f4c0452fc746555c9bc1c36e039552b744c667b72a14357daaf87",
-      "bytes": 428648
+      "source_sha256": "249d53d8432d981e77f8aaf89c1a8bc0e4ccea9c68f9f427aa00f8085d189ecd",
+      "release_sha256": "7d733ba12895a7af74dfd5491c0b2148e7751b5283d8dfee7ad6c056cfc7ab2a",
+      "bytes": 429375
     },
     {
       "path": "tools/result_coordination.py",
@@ -1719,5 +1719,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "ba406385dc256d8fc0e6ee1c8645ae475d24b7ab6b49b4b6ac0d2cd4173a542d"
+  "fingerprint": "3ee1b17aede77303c04cbe475b20379748249812b10796999bbf2b90035304f0"
 }

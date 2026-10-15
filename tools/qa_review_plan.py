@@ -359,16 +359,33 @@ def _producer_candidate_bound(root, plan, producer_pin, producer):
     candidate = plan.get("candidate")
     if candidate != producer_pin:
         return candidate in list(_evidence_pins(producer.get("evidence", [])))
-    # A real original V2 outbox is itself a complete immutable candidate identity.
+    # A validated V2 or V3 producer outbox can itself be the immutable candidate.
     # Its evidence cannot contain its own final hash; no synthetic adapter needed.
-    return (isinstance(producer_pin, dict)
-            and w.file_digest(root, producer_pin.get("path", "")) == producer_pin
-            and producer.get("schema_version") == "2.0"
-            and producer.get("task_id") == plan.get("task_id")
-            and producer.get("department") == plan.get("producer_department")
+    if not isinstance(producer_pin, dict):
+        return False
+    try:
+        if w.file_digest(root, producer_pin.get("path", "")) != producer_pin:
+            return False
+    except (w.WorkflowError, OSError, ValueError, TypeError):
+        return False
+    version = producer.get("schema_version")
+    if not isinstance(version, str) or version not in {"2.0", "3.0"}:
+        return False
+    department = plan.get("producer_department")
+    binding = w.department_registry(root).get(department, {}).get("chat_binding", {})
+    if version == "3.0":
+        try:
+            w.validate_outbox(root, [producer_pin], department, plan.get("task_id"))
+        except (w.WorkflowError, OSError, ValueError, TypeError):
+            return False
+        if any(key in producer and producer[key] != expected for key, expected in (
+                ("sender_department", department), ("chat_task_id", binding.get("task_id")),
+                ("project_id", binding.get("project_id")), ("cwd", binding.get("cwd")))):
+            return False
+    return (producer.get("task_id") == plan.get("task_id")
+            and producer.get("department") == department
             and producer.get("candidate_version") == plan.get("candidate_version")
-            and producer.get("fixed_chat_task_id") == w.department_registry(root).get(
-                plan.get("producer_department"), {}).get("chat_binding", {}).get("task_id")
+            and producer.get("fixed_chat_task_id") == binding.get("task_id")
             and producer_pin.get("sha256") == plan.get("candidate_sha256"))
 
 
