@@ -40,13 +40,13 @@
 
 采用后的事实回报可以沿原任务回到原制作部门：使用 prepare-message 的 post_adoption_notice，绑定唯一助理已真实提交的采用决定、后续回执、实际采用日志及备份／读回。入口只生成准确事实通知，不新造决定、不增加工作授权；原部门按真实当前／暂停指派恢复，已采用成果不重做。
 
-空闲接收者先精确预检再通知一次，留真实送达证据；工作中目标先排队，不打断。忙通知进入事件等待，不反复刷新、不堵其他结果。其工作收尾处理共享待办。秒级原生时间和本地小数秒按发送前边界、唯一新调用与唯一接收效果关联，不补造时间、不盲重发。
+空闲接收者先精确预检再通知一次，留真实送达证据；工作中目标先排队，不打断。列表返回notLoaded时读取准确固定聊天的最新真实轮次，将原件指纹放入live_identity的actual_native_target_turns，以固定thread_id为键；result-select、通知认领和发送前预检使用同一证明。不得仅凭未加载标签一直等待，也不能把未知状态直接改成空闲。忙通知进入事件等待，不反复刷新、不堵其他结果。其工作收尾处理共享待办。秒级原生时间和本地小数秒按发送前边界、唯一新调用与唯一接收效果关联，不补造时间、不盲重发。
 
 controller_received/controller_decision/controller_followthrough 是兼容事件名称，实际身份写负责助理，不冒充总部。prepared不算sent，queued不算delivered，passed不算adopted。
 
 ## 通用恢复与连续工作
 
-真实发送后以 goal_continuity assignment-record 登记当前指派，绑定原许可、准确消息、成功原生调用及派工回执。所有部门启动、中断或上下文压缩后先读有效学习视图的 actual_current_assignment；无真实发送不造指派，普通任务不依赖历史助理或修复特例。老板直派及已有真实发送但缺本地回执时，通过 `goal_source_recovery recover-source`恢复实际来源，沿当前续办目标登记；不补造总部派工、ACK或历史政策。已关闭旧任务仅作历史引用，不产生新权限。较早未完任务进入暂停队列，不覆盖部门当前指派。
+真实发送后以 goal_continuity assignment-record 登记当前指派，绑定原许可、准确消息、成功原生调用及派工回执。新派工准备标记assignment_record_required=true，正文必须含完整原task_id，在精确政策与发送前校验；缺ID不先发后补。所有部门启动、中断或上下文压缩后先读有效学习视图的 actual_current_assignment；无真实发送不造指派，普通任务不依赖历史助理或修复特例。老板直派及已有真实发送但缺本地回执时，通过 `goal_source_recovery recover-source`恢复实际来源，沿当前续办目标登记；不补造总部派工、ACK或历史政策。已关闭旧任务仅作历史引用，不产生新权限。较早未完任务进入暂停队列，不覆盖部门当前指派。读取当前与暂停指派时逐条隔离异常，保留assignment_errors及原证据，不能让一条旧错误隐藏其他有效任务。日检结果按完整结果身份关联已有收取、决定及后续，不因后续事件未重复source_mode而重新入待收队列。
 
 有效学习入口同时返回 work_boundary；收尾也可运行 `python3 tools/goal_continuity.py work-boundary --role <本部门ID>`。有 ready_actions 时先落实原结果收取、下一动作或准确责任交接，不以维护清理替代原目标，不报 NO_CHANGE/DONT_NOTIFY。仅等待具体依赖或忙碌接收者时可以结束协调轮次，保留原目标和恢复责任；该入口不发消息、不授权限、不要求总部守候。条目是控制记录，实际动作仍沿准确来源、认领、许可和幂等消费。总部知悉结果已真实收取后不再要求第二次决策或技术审核。
 

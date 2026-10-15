@@ -7393,8 +7393,15 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any], *,
         return _record_collaboration_result_handoff(root, request, source)
     snapshot = read_json(snapshot_path(root, task_id))
     if sender == "operations":
-        from native_control_result import context
-        context(root, snapshot)
+        from native_control_result import context, matches
+        if matches(snapshot):
+            context(root, snapshot)
+        else:
+            from goal_delivery_runtime import enabled, owner_direct
+            if (not enabled(root,snapshot) or not owner_direct(root,snapshot,sender)
+                    or snapshot.get('goal_delivery',{}).get('completion_kind')!='internal_delivery'
+                    or snapshot['goal_delivery'].get('required_execution_actions')):
+                raise WorkflowError('OPS result requires exact owner-direct internal goal or native control task')
     from goal_delivery_runtime import enabled as goal_enabled, owner_direct
     candidate = str(request.get("candidate_version") or "")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9+._-]{0,199}", candidate):

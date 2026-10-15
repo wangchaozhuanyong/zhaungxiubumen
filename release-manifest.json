@@ -818,9 +818,9 @@
     },
     {
       "path": "playbooks/department-system-current.md",
-      "source_sha256": "5000ca5f9091793f0d7d5e18223046073281874e509adc9f249a850ced7d499d",
-      "release_sha256": "5000ca5f9091793f0d7d5e18223046073281874e509adc9f249a850ced7d499d",
-      "bytes": 11211
+      "source_sha256": "885e1f27c5d3f9e3ac592897d1a1931a2dc2a974dfbd9715a2dcbdc553505126",
+      "release_sha256": "885e1f27c5d3f9e3ac592897d1a1931a2dc2a974dfbd9715a2dcbdc553505126",
+      "bytes": 11955
     },
     {
       "path": "playbooks/department-system-runtime-adoption.md",
@@ -932,15 +932,15 @@
     },
     {
       "path": "prompts/department-dispatch.md",
-      "source_sha256": "cea9c1836f7e38a56e80b7f0587e59206efeb7ebfc160152d40d1d484e6254c1",
-      "release_sha256": "cea9c1836f7e38a56e80b7f0587e59206efeb7ebfc160152d40d1d484e6254c1",
-      "bytes": 2308
+      "source_sha256": "7e3ac614712a0393872db01c651ab794556200975bef205b2a3829f7d9113834",
+      "release_sha256": "7e3ac614712a0393872db01c651ab794556200975bef205b2a3829f7d9113834",
+      "bytes": 2650
     },
     {
       "path": "prompts/department-single-primary-dispatch.md",
-      "source_sha256": "cea9c1836f7e38a56e80b7f0587e59206efeb7ebfc160152d40d1d484e6254c1",
-      "release_sha256": "cea9c1836f7e38a56e80b7f0587e59206efeb7ebfc160152d40d1d484e6254c1",
-      "bytes": 2308
+      "source_sha256": "7e3ac614712a0393872db01c651ab794556200975bef205b2a3829f7d9113834",
+      "release_sha256": "7e3ac614712a0393872db01c651ab794556200975bef205b2a3829f7d9113834",
+      "bytes": 2650
     },
     {
       "path": "prompts/department-window.md",
@@ -1160,9 +1160,9 @@
     },
     {
       "path": "tools/goal_continuity.py",
-      "source_sha256": "c579e753f5efc799bf11241889c7a45537d98358f1796711a09e601bf1e56db8",
-      "release_sha256": "1931bee19894867bae4267db38fef53a864211a509c15d367a809170642288b9",
-      "bytes": 50980
+      "source_sha256": "fdeb7593714496e0e214f03abfa7b5602dc670beda3e49a776393186cc7c0642",
+      "release_sha256": "1e3c0179acbc4d8f4c04dfcd77e9eddf7e0ba28782a155f58d41ab63c6d0e3a2",
+      "bytes": 52611
     },
     {
       "path": "tools/goal_delivery_runtime.py",
@@ -1172,9 +1172,9 @@
     },
     {
       "path": "tools/goal_source_recovery.py",
-      "source_sha256": "0ba6722c558083bd4614438b0f7d174507178e40df658e86c6009aabffbbf07d",
-      "release_sha256": "0ba6722c558083bd4614438b0f7d174507178e40df658e86c6009aabffbbf07d",
-      "bytes": 34278
+      "source_sha256": "4886b14fa9e68dab0d6a63ac7199656c8237592caf230b2c944d94986e136030",
+      "release_sha256": "4886b14fa9e68dab0d6a63ac7199656c8237592caf230b2c944d94986e136030",
+      "bytes": 35050
     },
     {
       "path": "tools/managed_cms_permit_issuer.py",
@@ -1322,9 +1322,9 @@
     },
     {
       "path": "tools/result_coordination.py",
-      "source_sha256": "2e19a048458dda17d323e1bd6248de63997f853cd058c97eb08e6f918d374cbf",
-      "release_sha256": "c57cfb98aac3cfc3bc3e00308bf4256ceeb2a5f1528e241a5d25b6c79d9029f6",
-      "bytes": 162157
+      "source_sha256": "94a1c10b08e513d2cd8e7a41ad555362f4b1c06fc6926ccd12b4fdd29dc64384",
+      "release_sha256": "4f8109414d9d80bc5d274a8eb465ade530343d1665a6f3f766b9e9699aeac7e6",
+      "bytes": 165512
     },
     {
       "path": "tools/result_handoff_key.py",
@@ -1490,9 +1490,9 @@
     },
     {
       "path": "tools/test_goal_continuity.py",
-      "source_sha256": "e14c55554809586187fdaabcf3d66e8dfd5d076eaae79321629d1c6df625f08c",
-      "release_sha256": "e14c55554809586187fdaabcf3d66e8dfd5d076eaae79321629d1c6df625f08c",
-      "bytes": 32090
+      "source_sha256": "9ebdf6158b85f1e138bbee23016809e326cbbf4b9e7723cb65ad2d5497576aa5",
+      "release_sha256": "9ebdf6158b85f1e138bbee23016809e326cbbf4b9e7723cb65ad2d5497576aa5",
+      "bytes": 48286
     },
     {
       "path": "tools/test_goal_result_coordination.py",
@@ -1514,9 +1514,9 @@
     },
     {
       "path": "tools/test_goal_source_recovery.py",
-      "source_sha256": "12b2c5437b85e787a866701994af33ac316d32679aa02baab6b82bd9b55a8891",
-      "release_sha256": "2aebe0c5c5decfef13f67cfc80e65aba5e3d79cb03cca11ba2fdff611c79f97e",
-      "bytes": 32270
+      "source_sha256": "ea78ba47465908156627268e885e29f84e039f4831cfb7295d1effeddc1d1ab7",
+      "release_sha256": "7916c54763547d630712f31781152d3c482562f3a9d5a112077e1cf022f420b0",
+      "bytes": 32968
     },
     {
       "path": "tools/test_goal_work_boundary.py",
@@ -1694,9 +1694,9 @@
     },
     {
       "path": "tools/workflow_control.py",
-      "source_sha256": "e5dca51e942f2705069a78c60a4c2bbfaf74b59c98db5ea799e5f6974b11b465",
-      "release_sha256": "05a71b0f990fca1e4c51772c2c545c6137095f1a6975f46546f8cbbdfbbf0ab1",
-      "bytes": 489032
+      "source_sha256": "9bfe8d5e66c90ba131128b12393dfa91941ebf64268ea312f170680cbdf27253",
+      "release_sha256": "c93499c96ef8a54ba43b6b9faea90980dda404690413037c2ec34c54a09300eb",
+      "bytes": 489542
     }
   ],
   "retired_roles": [
@@ -1713,5 +1713,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "2ce936b72e2458e305e008b8a34dbcd41029eacab2a31002191d9bfcd2d6d18f"
+  "fingerprint": "c5c186e95665a2e2fa367851f44bd56d41dbda071ae493da89d00305d135e723"
 }

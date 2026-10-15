@@ -174,8 +174,9 @@ def _goal_actor(root, identity, role, *, assigned=True):
     if role == identity["sender_department"] or role in producers:
         _fail("independent assistant required; self review rejected")
     if identity["sender_department"] == "operations":
-        from native_control_result import assigned_assistant
-        assigned_assistant(root, _w().read_json(_w().snapshot_path(root, identity["task_id"])), role)
+        from native_control_result import assigned_assistant, matches
+        snapshot=_w().read_json(_w().snapshot_path(root, identity["task_id"]))
+        if matches(snapshot):assigned_assistant(root,snapshot,role)
     if assigned and role != goal.get("responsible_assistant"):
         _fail("only assigned responsible assistant may handle this result; explicit transfer required")
     capability = goal.get("acceptance_capability")
@@ -401,43 +402,54 @@ def current_assignment_for_role(root,role):
     w=_w();config=w.read_json(Path(root)/'data/department-current-assignment.json')
     pin=config.get('assignments',{}).get(role)
     from goal_continuity import current_assignment
+    pending=[];errors=[];seen=[]
+    for prior in config.get('suspended_assignments',{}).get(role,[]):
+        if prior == pin or prior in seen:continue
+        seen.append(prior)
+        try:
+            old=current_assignment(root,role,prior)
+            if old is None:raise w.WorkflowError('unsupported suspended assignment schema')
+            if old and old.get('resume_required'):pending.append(old)
+        except (w.WorkflowError,OSError,ValueError,KeyError,TypeError,AttributeError) as error:
+            errors.append({'source':prior,'reason':str(error),'blocks_other_tasks':False})
     if pin is None:
-        pending=[];errors=[]
-        for prior in config.get('suspended_assignments',{}).get(role,[]):
-            try:
-                old=current_assignment(root,role,prior)
-                if old and old.get('resume_required'): pending.append(old)
-            except _w().WorkflowError as error:
-                errors.append({'source':prior,'reason':str(error)})
         if not pending:
             return {'resume_required':False,'assignment_errors':errors} if errors else None
         return {**pending.pop(),'resumed_suspended_assignment':True,
                 'unfinished_assignment_queue':pending,'assignment_errors':errors}
-    generic = current_assignment(root, role, pin)
+    try:generic = current_assignment(root, role, pin)
+    except (w.WorkflowError,OSError,ValueError,KeyError,TypeError,AttributeError) as error:
+        errors.append({'source':pin,'reason':str(error),'blocks_other_tasks':False})
+        if not pending:return {'resume_required':False,'assignment_errors':errors,'current_assignment_invalid':True}
+        return {**pending.pop(),'resumed_suspended_assignment':True,'current_assignment_invalid':True,
+                'unfinished_assignment_queue':pending,'assignment_errors':errors}
     if generic is not None:
-        pending=[]
-        for prior in config.get('suspended_assignments',{}).get(role,[]):
-            old=current_assignment(root,role,prior)
-            if old and old.get('resume_required'):pending.append(old)
         if not generic.get('resume_required') and pending:
             generic={**pending.pop(),'resumed_suspended_assignment':True}
-        return {**generic,'unfinished_assignment_queue':pending}
-    import direct_system_repair as direct
-    from qa_review_plan import _review_same_goal_send_wrapper
-    if direct.context(root,direct.TASK) is None:
-        _fail('actual current assignment requires its human authorized source')
-    doc=direct._doc(root,pin)
-    invocation=_review_same_goal_send_wrapper(direct._doc(root,doc['actual_native_send']))
-    binding=w.department_registry(root).get(role,{}).get('chat_binding',{})
-    if (role!='operations-assistant-3' or doc.get('task_id')!=ORIGINAL_A3_CONCLUSION['task_id']
-            or doc.get('original_identity')!=ORIGINAL_A3_CONCLUSION
-            or doc.get('business_goal_closed') is not False
-            or invocation['thread_id']!=binding.get('task_id')
-            or invocation['exact_consumed_prompt']!=doc.get('payload')
-            or w.file_digest(root,doc['payload']['path'])!=doc['payload']):
-        _fail('current assignment exact task/recipient/payload/source mismatch')
-    return {**doc,'source':pin,'actual_message_delivered':True,
-            'resume_before_old_automation_or_summary':True,'permissions_inherited':False}
+        return {**generic,'unfinished_assignment_queue':pending,'assignment_errors':errors}
+    try:
+        import direct_system_repair as direct
+        from qa_review_plan import _review_same_goal_send_wrapper
+        if direct.context(root,direct.TASK) is None:
+            _fail('actual current assignment requires its human authorized source')
+        doc=direct._doc(root,pin)
+        invocation=_review_same_goal_send_wrapper(direct._doc(root,doc['actual_native_send']))
+        binding=w.department_registry(root).get(role,{}).get('chat_binding',{})
+        if (role!='operations-assistant-3' or doc.get('task_id')!=ORIGINAL_A3_CONCLUSION['task_id']
+                or doc.get('original_identity')!=ORIGINAL_A3_CONCLUSION
+                or doc.get('business_goal_closed') is not False
+                or invocation['thread_id']!=binding.get('task_id')
+                or invocation['exact_consumed_prompt']!=doc.get('payload')
+                or w.file_digest(root,doc['payload']['path'])!=doc['payload']):
+            _fail('current assignment exact task/recipient/payload/source mismatch')
+        return {**doc,'source':pin,'actual_message_delivered':True,
+                'unfinished_assignment_queue':pending,'assignment_errors':errors,
+                'resume_before_old_automation_or_summary':True,'permissions_inherited':False}
+    except (w.WorkflowError,OSError,ValueError,KeyError,TypeError,AttributeError) as error:
+        errors.append({'source':pin,'reason':str(error),'blocks_other_tasks':False})
+        if not pending:return {'resume_required':False,'assignment_errors':errors,'current_assignment_invalid':True}
+        return {**pending.pop(),'resumed_suspended_assignment':True,'current_assignment_invalid':True,
+                'unfinished_assignment_queue':pending,'assignment_errors':errors}
 
 
 def hq_knowledge_source(root, identity, *, require_transport=False):
@@ -1083,8 +1095,15 @@ def _validate_queued(root, identity):
     if sender not in registry:
         _fail("registered result sender required")
     if sender == "operations":
-        from native_control_result import context
-        context(root, w.read_json(w.snapshot_path(root, identity["task_id"])))
+        from native_control_result import context, matches
+        snapshot=w.read_json(w.snapshot_path(root,identity['task_id']))
+        if matches(snapshot):context(root,snapshot)
+        else:
+            from goal_delivery_runtime import enabled, owner_direct
+            if (not enabled(root,snapshot) or not owner_direct(root,snapshot,sender)
+                    or snapshot.get('goal_delivery',{}).get('completion_kind')!='internal_delivery'
+                    or snapshot['goal_delivery'].get('required_execution_actions')):
+                _fail('OPS result requires exact owner-direct internal goal or native control task')
     rows = w._result_handoff_rows(root, identity["task_id"])
     current = [row for row in rows if w._result_identity(row) ==
                (sender, identity["candidate_version"], identity["result_sha256"])]
@@ -1104,8 +1123,8 @@ def _validate_queued(root, identity):
     if pin["sha256"] != identity["result_sha256"]:
         _fail("queued result hash mismatch")
     if sender == "operations":
-        from native_control_result import completion
-        completion(root, queued[0], fixed)
+        from native_control_result import completion, matches
+        if matches(snapshot):completion(root,queued[0],fixed)
     return box
 
 
@@ -1833,9 +1852,12 @@ def validate_notification_delivery(root, identity):
                if row.get('id') == exact['target_thread_id']]
     binding = _w().department_registry(root)[exact['target_department']]['chat_binding']
     if (observed is None or not 0 <= (dt.datetime.now(dt.timezone.utc)-observed).total_seconds() <= 300
-            or len(targets) != 1 or targets[0].get('status') != 'idle'
+            or len(targets) != 1
             or any(targets[0].get(k) != binding.get(v) for k, v in
                    {'projectId':'project_id','title':'title','cwd':'cwd'}.items())):
+        _fail('current fresh exact native idle target required before policy or send')
+    from goal_source_recovery import actual_target_turn_status
+    if actual_target_turn_status(root,live,targets[0],binding) != 'idle':
         _fail('current fresh exact native idle target required before policy or send')
     _review_native_containers(targets[0])
     store = DeliveryStore(root)
@@ -2119,8 +2141,30 @@ def _notification_before(root, current, native_before):
     sender = _notification_native_page(root, native_before['sender'], current['identity']['sender_department'])
     receiver = _notification_native_page(root, native_before['receiver'], current['route']['target_department'])
     turns = sender['turns']
-    receiver_status = receiver['thread'].get('status')
-    receiver_status = receiver_status.get('type') if isinstance(receiver_status, dict) else receiver_status
+    from goal_source_recovery import actual_target_turn_status
+    binding=_w().department_registry(root)[current['route']['target_department']]['chat_binding']
+    live_pin=current.get('live_identity',{})
+    if _w().file_digest(root,live_pin.get('path',''))!=live_pin:
+        _fail('readback_required: frozen notification live identity changed')
+    live=_w().read_json(_w().safe_path(root,live_pin['path']))
+    from goal_delivery_runtime import _collaboration_native
+    inventory=_collaboration_native(root,live['actual_native_observation'])
+    targets=[row for row in [*inventory.get('threads',[]),*inventory.get('pinnedThreads',[])]
+             if row.get('id')==binding['task_id']]
+    if len(targets)!=1:_fail('readback_required: one original frozen target boundary required')
+    baseline=targets[0].copy()
+    pins=live.get('actual_native_target_turns',{})
+    prepared=pins.get(binding['task_id'],live.get('actual_native_target_turn'))
+    if prepared is not None:
+        prepared_page=_collaboration_native(root,prepared)
+        if actual_target_turn_status(root,live,targets[0],binding)!='idle':
+            _fail('readback_required: prepared actual target is not idle')
+        newer=prepared_page['thread'].get('updatedAt')
+        known=baseline.get('updatedAt')
+        if type(newer) in {int,float} and (type(known) not in {int,float} or newer>known):
+            baseline['updatedAt']=newer
+    receiver_status=actual_target_turn_status(root,{'actual_native_target_turn':native_before['receiver']},
+                                             baseline,binding)
     if (not turns or turns[0].get('status') != 'inProgress' or turns[0].get('error')
             or receiver_status != 'idle'):
         _fail('readback_required: actual current sender turn and idle recipient boundary required')

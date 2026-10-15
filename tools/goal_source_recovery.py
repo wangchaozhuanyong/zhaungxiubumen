@@ -268,6 +268,10 @@ def prepare_message(root, request):
     payload = request['payload']
     if w.file_digest(root,payload.get('path','')) != payload or payload['sha256'] != request.get('payload_sha256'):
         raise w.WorkflowError('exact prepared message required')
+    if request.get('assignment_record_required'):
+        body=w.safe_path(root,payload['path']).read_text(encoding='utf-8')
+        if not re.search(r'(?<![A-Za-z0-9_-])'+re.escape(request['task_id'])+r'(?![A-Za-z0-9_-])',body):
+            raise w.WorkflowError('assignment message must identify original task before policy or send')
     page = _collaboration_native(root,request['actual_target_state'])
     registry=w.department_registry(root)
     binding=registry.get(request['target_department'],{}).get('chat_binding')
@@ -392,8 +396,12 @@ def initial_assignment_source(root,snapshot,dispatch,contract):
 def actual_target_turn_status(root, live, inventory_row, binding):
     """Resolve a notLoaded/cache label only with a newer real fixed-thread read."""
     from goal_delivery_runtime import _collaboration_native
-    pin=live.get('actual_native_target_turn')
-    if pin is None:return inventory_row.get('status')
+    pins=live.get('actual_native_target_turns',{})
+    if not isinstance(pins,dict):raise w.WorkflowError('exact native target turns must be a mapping')
+    pin=pins.get(binding.get('task_id'),live.get('actual_native_target_turn'))
+    status=inventory_row.get('status')
+    status=status.get('type') if isinstance(status,dict) else status
+    if pin is None:return status
     page=_collaboration_native(root,pin)
     if any(page.get('thread',{}).get(k)!=binding.get(v) for k,v in
            {'id':'task_id','title':'title','cwd':'cwd'}.items()):
@@ -403,6 +411,9 @@ def actual_target_turn_status(root, live, inventory_row, binding):
     turn=turns[0]
     if turn.get('status') in {'inProgress','pending'}:return 'active'
     previous,current=inventory_row.get('updatedAt'),page['thread'].get('updatedAt')
+    if (status=='idle' and turn.get('status') in {'completed','interrupted','failed'}
+            and previous is None and current is None):
+        return 'idle'
     if (type(previous) not in {int,float} or type(current) not in {int,float} or current<previous):
         return 'unknown_target'
     if turn.get('status') in {'completed','interrupted','failed'}:

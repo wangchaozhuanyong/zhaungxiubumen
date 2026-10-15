@@ -443,7 +443,10 @@ def selection_plan(root,identity,live_pin,available_self=None):
                 queued+=int(task_row.get('goal_delivery',{}).get('responsible_assistant')==role
                             and task_row.get('current_state') not in w.TERMINAL_STATES)
             except (w.WorkflowError,ValueError,OSError,TypeError,AttributeError):continue
-        status=rows[0].get('status');status=status.get('type') if isinstance(status,dict) else status
+        from goal_source_recovery import actual_target_turn_status
+        # A single-recipient pin cannot be reused for every assistant.
+        role_live={**live};role_live.pop('actual_native_target_turn',None)
+        status=actual_target_turn_status(root,role_live,rows[0],binding)
         candidates.append({'role':role,'available':(status=='idle' or role==available_self and status=='active') and active_claims==0,
                            'score':(0 if role==goal['responsible_assistant'] else 1,queued,index)})
     available=[r for r in candidates if r['available']]
@@ -670,6 +673,9 @@ def work_boundary(root, role, *, assignment=None, read_assignment=True):
         try:assignment=rc.current_assignment_for_role(root,role)
         except (w.WorkflowError,OSError,ValueError,KeyError,TypeError) as exc:
             errors.append({'owner':role,'stage':'current_assignment_recovery','reason':str(exc)})
+    if assignment:
+        errors.extend({'owner':role,'stage':'assignment_record_recovery',**item}
+                      for item in assignment.get('assignment_errors',[]))
     for path in sorted((Path(root)/w.RESULT_HANDOFF_DIR).glob('*.jsonl')):
         try:
             snap=w.read_json(w.snapshot_path(root,path.stem));goal=snap.get('goal_delivery',{})
@@ -677,8 +683,19 @@ def work_boundary(root, role, *, assignment=None, read_assignment=True):
             scheduled=[s for s in sources if isinstance(s,dict) and re.fullmatch(s.get('task_id_pattern','(?!)'),path.stem)]
             relevant=(goal and (role in goal.get('producer_departments',[]) or role==goal.get('responsible_assistant')
                                or role=='operations')) or any(role in {s.get('department'),s.get('responsible_assistant')} for s in scheduled)
-            if not relevant:continue
+            if not relevant and not scheduled:continue
             rows=w._result_handoff_rows(root,path.stem)
+            # Scheduled routing belongs to the frozen result identity. Intake
+            # and decision events need not repeat the original source fields.
+            daily_targets={}
+            if not goal:
+                for row in rows:
+                    if row.get('event')!='notification_queued' or row.get('source_mode')!='scheduled_run':continue
+                    identity=rc.exact_identity(row)
+                    source=w.scheduled_result_source(root,path.stem,identity['sender_department'])
+                    if source and row.get('source_automation_id')==source['automation_id']:
+                        daily_targets[rc._key(identity)]=daily_selected_assistant(root,identity,source['responsible_assistant'])
+            if not relevant and role not in daily_targets.values():continue
             for row in rows:
                 identity=rc.exact_identity(row);sender=identity['sender_department']
                 target=goal.get('responsible_assistant') if sender in goal.get('producer_departments',[]) else None
@@ -687,10 +704,7 @@ def work_boundary(root, role, *, assignment=None, read_assignment=True):
                 if len(exact_returns)==1:target=exact_returns[0]['responsible_assistant']
                 knowledge=bool(goal and sender==goal.get('responsible_assistant'))
                 if knowledge:target='operations'
-                if not goal and row.get('source_mode')=='scheduled_run':
-                    source=w.scheduled_result_source(root,path.stem,sender)
-                    if source and row.get('source_automation_id')==source['automation_id']:
-                        target=daily_selected_assistant(root,identity,source['responsible_assistant'])
+                if not goal:target=daily_targets.get(rc._key(identity),target)
                 if target!=role and sender!=role:continue
                 key=rc._key(identity)
                 item=groups.setdefault(key,{**identity,'target_department':target,
@@ -708,7 +722,15 @@ def work_boundary(root, role, *, assignment=None, read_assignment=True):
         if 'notification_queued' not in events and 'controller_received' not in events:continue
         if item['knowledge_only']:
             if 'controller_received' not in events:
-                ready.append({**item,'next_action':'receive_exact_HQ_knowledge_without_second_review'})
+                try:
+                    rc.hq_knowledge_source(root,rc.exact_identity(item))
+                except (w.WorkflowError,OSError,ValueError,KeyError,TypeError,AttributeError) as exc:
+                    errors.append({'task_id':item['task_id'],'identity':rc.exact_identity(item),'owner':role,
+                        'stage':'HQ_knowledge_source','block_reason':str(exc),'actionable':False,
+                        'next_action':'recover_exact_original_conclusion_or_verified_successor',
+                        'unblock_condition':'original conclusion proof or verified successor evidence restored',
+                        'next_check_at':'original_source_changed','blocks_other_tasks':False})
+                else:ready.append({**item,'next_action':'receive_exact_HQ_knowledge_without_second_review'})
             continue
         if 'controller_decision' not in events:
             ready.append({**item,'next_action':'claim_and_receive_original_frozen_result'})

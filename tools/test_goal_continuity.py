@@ -439,6 +439,213 @@ class ContinuityTests(unittest.TestCase):
         self.assertEqual(row['status'],'uncertain')
 
 
+class ContinuationFaultTests(unittest.TestCase):
+    """The three observed failures, in disposable project-local fixtures."""
+    def setUp(self):
+        self.f=ContinuityTests('runTest');self.f.setUp()
+        self.addCleanup(self.f.doCleanups);self.root=self.f.root
+
+    def assignments(self, current=True):
+        config={'assignments':{'sales':{'path':'current'}} if current else {},
+                'suspended_assignments':{'sales':[{'path':'bad'},{'path':'older'},{'path':'older'}]}}
+        path=self.root/'data/department-current-assignment.json';w.atomic_write_json(path,config)
+        def read(root,role,pin):
+            if pin['path']=='bad':raise w.WorkflowError('intact original receipt chain required')
+            return {'task_id':pin['path'],'resume_required':True,'permissions_inherited':False}
+        return path,read
+
+    def test_bad_old_assignment_does_not_hide_valid_current_or_other_pending(self):
+        path,read=self.assignments();before=path.read_bytes()
+        with mock.patch.object(c,'current_assignment',side_effect=read):
+            actual=r.current_assignment_for_role(self.root,'sales')
+        self.assertEqual(actual['task_id'],'current')
+        self.assertEqual([x['task_id'] for x in actual['unfinished_assignment_queue']],['older'])
+        self.assertEqual(len(actual['assignment_errors']),1)
+        self.assertFalse(actual['assignment_errors'][0]['blocks_other_tasks'])
+        self.assertEqual(path.read_bytes(),before)
+
+    def test_missing_or_bad_current_preserves_valid_pending_without_accepting_bad_record(self):
+        for current in (False,True):
+            path,read=self.assignments(current)
+            def read_bad_current(root,role,pin):
+                if pin['path']=='current':raise w.WorkflowError('tampered current source')
+                return read(root,role,pin)
+            with self.subTest(current=current),mock.patch.object(c,'current_assignment',side_effect=read_bad_current):
+                actual=r.current_assignment_for_role(self.root,'sales')
+                self.assertEqual(actual['task_id'],'older')
+                self.assertFalse(actual['permissions_inherited'])
+                self.assertEqual(len(actual['assignment_errors']),2 if current else 1)
+
+    def test_real_malformed_and_unknown_schema_assignments_preserve_valid_work(self):
+        import test_goal_source_recovery as recovery_tests
+        import goal_source_recovery as recovery
+        t=recovery_tests.RecoveryTests('runTest');t.setUp();self.addCleanup(t.doCleanups)
+        path,_,_=t.source();recovery.record(t.root,path)
+        config=w.read_json(t.root/'data/department-current-assignment.json');valid=config['assignments'][fixture.PRODUCER]
+        (t.root/'reports/bad-json.json').write_text('{')
+        config['suspended_assignments']={fixture.PRODUCER:[{'path':'reports/missing.json','sha256':'a'*64,'size':1},
+            w.file_digest(t.root,'reports/bad-json.json'),valid,valid]}
+        w.atomic_write_json(t.root/'data/department-current-assignment.json',config)
+        actual=r.current_assignment_for_role(t.root,fixture.PRODUCER)
+        self.assertTrue(actual['resume_required']);self.assertEqual(len(actual['assignment_errors']),2)
+        self.assertEqual(actual['unfinished_assignment_queue'],[])
+        bad=t.write('reports/unsupported.json',{'schema':'unsupported-assignment-version'})
+        config['assignments'][fixture.PRODUCER]=w.file_digest(t.root,bad)
+        config['suspended_assignments'][fixture.PRODUCER]=[valid]
+        w.atomic_write_json(t.root/'data/department-current-assignment.json',config)
+        actual=r.current_assignment_for_role(t.root,fixture.PRODUCER)
+        self.assertEqual(actual['task_id'],t.task_id);self.assertTrue(actual['resumed_suspended_assignment'])
+        self.assertTrue(actual['current_assignment_invalid']);self.assertEqual(len(actual['assignment_errors']),1)
+
+    def test_daily_close_and_external_wait_are_not_reported_as_new_intake(self):
+        identity,request,_=self.f.daily_ready();w.record_result_handoff(self.root,request)
+        queued=w._result_handoff_rows(self.root,identity['task_id'])
+        for decision in ('close_scope','wait_external'):
+            rows=queued+[{**identity,'event':'controller_received'},
+                         {**identity,'event':'controller_decision','decision':decision},
+                         {**identity,'event':'controller_followthrough','followthrough_status':'blocked_with_owner',
+                          'next_check_at':(dt.datetime.now(dt.timezone.utc)+dt.timedelta(hours=1)).isoformat()}]
+            with self.subTest(decision=decision),mock.patch.object(w,'_result_handoff_rows',return_value=rows):
+                b=c.work_boundary(self.root,fixture.ASSISTANT,read_assignment=False)
+            self.assertFalse(b['source_errors'])
+            self.assertFalse(any(x.get('task_id')==identity['task_id'] for x in b['ready_actions']))
+        # A genuine queued-only result must still be actionable.
+        b=c.work_boundary(self.root,fixture.ASSISTANT,read_assignment=False)
+        self.assertTrue(any(x.get('task_id')==identity['task_id'] for x in b['ready_actions']))
+
+    def turn_live(self, default='notLoaded', other='active', chosen=None, turn_status='completed'):
+        chosen=chosen or fixture.ASSISTANT;pin=self.f.live(default,other)
+        live=w.read_json(self.root/pin['path']);inventory=w.read_json(self.root/live['actual_native_observation']['path'])
+        now=int(dt.datetime.now(dt.timezone.utc).timestamp())
+        for row in inventory['threads']:row['updatedAt']=now-1
+        live['actual_native_observation']=w.file_digest(self.root,self.f.t.write('reports/select-native.json',inventory))
+        binding=w.department_registry(self.root)[chosen]['chat_binding']
+        page={'thread':{'id':binding['task_id'],'title':binding['title'],'cwd':binding['cwd'],
+                        'status':'notLoaded','updatedAt':now},
+              'turns':[{'id':'exact-fresh-turn','status':turn_status,'error':None}]}
+        p=self.f.t.write('reports/current-reviewer-native.json',page)
+        live['actual_native_target_turns']={binding['task_id']:w.file_digest(self.root,p)}
+        return w.file_digest(self.root,self.f.t.write('reports/select-live.json',live))
+
+    def test_notloaded_completed_assistant_is_available_and_new_active_turn_is_not(self):
+        identity,request,_=self.f.ready();w.record_result_handoff(self.root,request)
+        actual=c.selection_plan(self.root,identity,self.turn_live())
+        self.assertEqual(actual['selected'],fixture.ASSISTANT)
+        actual=c.selection_plan(self.root,identity,self.turn_live(turn_status='inProgress'))
+        self.assertEqual(actual['state'],'shared_waiting')
+
+    def test_daily_selected_backup_sees_same_result_and_its_closed_events(self):
+        identity,request,_=self.f.daily_ready();w.record_result_handoff(self.root,request)
+        self.f.shared_methods('operations-assistant')
+        answer=c.select_result(self.root,{**identity,'actor':fixture.PRODUCER,'request_id':'daily-backup-recovery',
+                     'live_identity':self.turn_live('active','notLoaded',chosen='operations-assistant')})
+        self.assertEqual(answer['selected'],'operations-assistant')
+        self.assertTrue(any(x.get('task_id')==identity['task_id'] for x in
+                            c.work_boundary(self.root,'operations-assistant',read_assignment=False)['ready_actions']))
+        rows=w._result_handoff_rows(self.root,identity['task_id'])+[
+            {**identity,'event':'controller_received'},{**identity,'event':'controller_decision','decision':'close_scope'}]
+        with mock.patch.object(w,'_result_handoff_rows',return_value=rows):
+            b=c.work_boundary(self.root,'operations-assistant',read_assignment=False)
+        self.assertFalse(any(x.get('task_id')==identity['task_id'] for x in b['ready_actions']))
+
+    def test_notloaded_notification_claim_and_policy_share_same_native_turn(self):
+        n=notices.NoticeResumeTests('runTest');n.setUp();self.addCleanup(n.doCleanups)
+        live=n.live('notLoaded');value=w.read_json(n.root/live['path'])
+        inventory=w.read_json(n.root/value['actual_native_observation']['path']);inventory['threads'][0]['updatedAt']=2
+        w.atomic_write_json(n.root/value['actual_native_observation']['path'],inventory)
+        value['actual_native_observation']=w.file_digest(n.root,value['actual_native_observation']['path'])
+        binding=w.department_registry(n.root)[fixture.ASSISTANT]['chat_binding']
+        page={'thread':{'id':binding['task_id'],'title':binding['title'],'cwd':binding['cwd'],'updatedAt':3},
+              'turns':[{'status':'completed'}]}
+        value['actual_native_target_turns']={binding['task_id']:w.file_digest(n.root,n.t.write('reports/receiver.json',page))}
+        live=w.file_digest(n.root,n.t.write('reports/live-notLoaded.json',value))
+        actual=r.notification_claim(n.root,n.identity,fixture.PRODUCER,'fixture-producer','native-notloaded',live,n.payload)
+        self.assertEqual(actual['result'],'ready')
+        self.assertEqual(r.validate_notification_delivery(n.root,n.identity)['state'],'prepared')
+        self.assertFalse(actual['delivered'])
+        sender=w.department_registry(n.root)[fixture.PRODUCER]['chat_binding']
+        before={'sender':w.file_digest(n.root,n.t.write('reports/native-sender-before.json',{
+                    'schemaVersion':1,'page':{'order':'newest_first','limit':1,'hasMore':False},
+                    'thread':{'id':sender['task_id'],'title':sender['title'],'cwd':sender['cwd'],'status':'active'},
+                    'turns':[{'id':'actual-active','status':'inProgress','items':[]}]})),
+                'receiver':w.file_digest(n.root,n.t.write('reports/native-receiver-before.json',{
+                    'schemaVersion':1,'page':{'order':'newest_first','limit':1,'hasMore':False},
+                    'thread':{**page['thread'],'status':'notLoaded'},
+                    'turns':[{'id':'actual-ended','status':'completed','items':[]}]}))}
+        current=w.read_json(r._notification_path(n.root,n.identity))
+        self.assertEqual(r._notification_before(n.root,current,before)[1]['turns'][0]['status'],'completed')
+        stale=w.read_json(n.root/before['receiver']['path']);stale['thread']['updatedAt']=1
+        old_before={**before,'receiver':w.file_digest(n.root,n.t.write('reports/older-native-before.json',stale))}
+        unchanged=r._notification_path(n.root,n.identity).read_bytes()
+        with self.assertRaises(w.WorkflowError):
+            r.notification_send_started(n.root,n.identity,actual['claim'],native_before=old_before)
+        self.assertEqual(r._notification_path(n.root,n.identity).read_bytes(),unchanged)
+        # Replacing the latest observed turn with active blocks policy as well.
+        page['turns'][0]['status']='inProgress'
+        w.atomic_write_json(n.root/'reports/receiver.json',page)
+        with self.assertRaises(w.WorkflowError):r.validate_notification_delivery(n.root,n.identity)
+
+    def test_owner_direct_internal_ops_batch_is_not_an_automation_result(self):
+        import goal_source_recovery as recovery
+        t=self.f.t;binding=w.department_registry(self.root)['operations']['chat_binding']
+        human=w.read_json(self.root/'reports/synthetic-owner-message.json')
+        human['source_thread_id']=binding['task_id'];t.write('reports/synthetic-owner-message.json',human)
+        auth=t.make_goal()['human_authorization'];auth.update(source_thread_id=binding['task_id'],executor='operations')
+        scope='department:'+fixture.PRODUCER
+        t.initialize(primary_owner='operations',producer_departments=['operations'],source_mode='owner_direct',
+            human_authorization=auth,completion_kind='internal_delivery',completion_requirements=[{
+                'requirement_id':'internal-only','criterion_index':0,'scope':scope,'requirement_type':'accepted_delivery',
+                'subject':{'mode':'latest_exact_accepted_result','producer_department':'operations'}}])
+        native=t.write('reports/ops-owner.json',{'thread':{'id':binding['task_id'],'title':binding['title'],'cwd':binding['cwd']},
+            'turns':[{'id':'owner-turn','status':'completed','items':[human['message']]}]})
+        source=t.write('reports/ops-current.json',{'schema':c.ASSIGNMENT_SCHEMA,'task_id':t.task_id,
+            'original_task_id':t.task_id,'department':'operations','sender_department':'operations','scope':scope,
+            'source_kind':'owner_direct_native','authorization_pin':t.snapshot()['goal_delivery']['authorization_pin'],
+            'actual_native_invocation':w.file_digest(self.root,native)})
+        recovery.record(self.root,source)
+        out=t.write('logs/department-outbox/ops-result.json',t.result_box('operations','ops-v1',
+            w.file_digest(self.root,t.write('reports/ops-candidate.json',{'synthetic_internal_only':True}))))
+        identity={'task_id':t.task_id,'sender_department':'operations','candidate_version':'ops-v1',
+                  'result_sha256':w.file_digest(self.root,out)['sha256']}
+        text=c.READY_MARKER+json.dumps({**identity,'outbox_path':out,'batch_complete':True})+'\n'
+        (self.root/'reports/ops-ready.txt').write_text(text)
+        p=t.write('reports/ops-ready-native.json',{'thread':{'id':binding['task_id'],'title':binding['title'],'cwd':binding['cwd']},
+            'turns':[{'id':'ops-delivery','status':'inProgress','startedAt':dt.datetime.now(dt.timezone.utc).timestamp()-1,
+                'items':[{'id':'ops-ready','type':'agentMessage','phase':'commentary','text':text}]}]})
+        request={**identity,'outbox_path':out,'event':'notification_queued','idempotency_key':'ops-ready-once',
+            'result_source_phase':'delivery_ready','source_thread_id':binding['task_id'],'source_turn_id':'ops-delivery',
+            'source_message_id':'ops-ready','source_reply_sha256':hashlib.sha256(text.encode()).hexdigest(),
+            'reply_observed_at':dt.datetime.now(dt.timezone.utc).isoformat(),'actual_native_completion':w.file_digest(self.root,p),
+            'visible_reply':w.file_digest(self.root,'reports/ops-ready.txt')}
+        self.assertTrue(w.record_result_handoff(self.root,request)[0]['batch_delivery_frozen'])
+        self.assertEqual(w.record_result_handoff(self.root,request)[0]['result'],'duplicate_ignored')
+
+    def test_old_invalid_knowledge_is_blocked_without_hiding_valid_conclusion(self):
+        identity,request,_=self.f.ready();w.record_result_handoff(self.root,request)
+        identity={**identity,'sender_department':fixture.ASSISTANT}
+        older={**identity,'candidate_version':'historical-missing-source','result_sha256':'b'*64}
+        rows=[{**x,'event':'notification_queued'} for x in [older,identity]]
+        def proof(root,x):
+            if x==older:raise w.WorkflowError('exact historical conclusion missing')
+            return {'identity':x,'acceptance_proven':True}
+        with mock.patch.object(w,'_result_handoff_rows',return_value=rows),\
+             mock.patch.object(r,'hq_knowledge_source',side_effect=proof),\
+             mock.patch.object(r,'notification_plan',return_value={'notifications':[],'errors':[]}):
+            actual=c.work_boundary(self.root,'operations',read_assignment=False)
+        self.assertEqual(len(actual['ready_actions']),1)
+        self.assertEqual(actual['ready_actions'][0]['candidate_version'],identity['candidate_version'])
+        self.assertEqual(actual['source_errors'][0]['identity'],older)
+        self.assertFalse(actual['source_errors'][0]['actionable'])
+        self.assertFalse(actual['source_errors'][0]['blocks_other_tasks'])
+        # Genuine prior receipt does not become a new review or a source error.
+        rows.append({**older,'event':'controller_received'})
+        with mock.patch.object(w,'_result_handoff_rows',return_value=rows),\
+             mock.patch.object(r,'hq_knowledge_source',side_effect=proof),\
+             mock.patch.object(r,'notification_plan',return_value={'notifications':[],'errors':[]}):
+            actual=c.work_boundary(self.root,'operations',read_assignment=False)
+        self.assertFalse(actual['source_errors'])
+
+
 class BusyWaitTests(unittest.TestCase):
     def test_busy_notice_waits_for_native_completion_and_does_not_spin(self):
         n=notices.NoticeResumeTests('runTest');n.setUp();self.addCleanup(n.doCleanups)

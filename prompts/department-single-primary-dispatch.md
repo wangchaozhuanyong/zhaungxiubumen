@@ -2,10 +2,10 @@
 
 派工时列明允许修改的页面/对象、允许联系的固定开发和发布部门、预算/期限及不可扩大边界。要求人类确认前读取原真实授权并运行 authorization-precheck；同目标返工、版本更新、已有协作或内部健康/绑定修复不再请老板重复批准。只有真实新增范围、费用、账号权限及重大不可恢复操作升级。预检不签发执行许可，实际消息准备统一使用goal_source_recovery prepare-message，实际消费授权与精确policy-check；发布继续使用原准确动作门禁。
 
-真实发送后assignment-record登记原生调用与派工回执；已有老板直派或历史实际发送但缺回执时，通过goal_source_recovery recover-source恢复，禁止补造旧dispatch/ACK/policy。所有启动先恢复actual_current_assignment并保留暂停未完任务。
+新派工准备显式设置assignment_record_required=true，正文保留完整原task_id，缺失时在发送前拒绝。真实发送后assignment-record登记原生调用与派工回执；已有老板直派或历史实际发送但缺回执时，通过goal_source_recovery recover-source恢复，禁止补造旧dispatch/ACK/policy。所有启动先恢复actual_current_assignment并保留暂停未完任务；异常旧记录单列，不阻挡有效任务。
 
 整项或完整批次做完，冻结V2及最终hash，在真实当前聊天声明FLASHCAST_DELIVERY_READY和准确task_id/sender_department/candidate_version/result_sha256/outbox_path/batch_complete:true，以delivery_ready交接；聊天结束另补turn-completed，不新增审核。ACK、进度或prepared不能冒充交付。完整有限批次的部分完成、失败或无法自行解除的阻断也要一次回报，不能等整个业务目标已完成才通知。禁止越权新增派工不等于禁止原任务结果返回。
 
-先result-select选择空闲合格助理；全忙共享排队。助理手头任务完成立即读shared-pending，以at_work_boundary接取合格结果，精确选责、唯一认领、一次验收，直接落实下一已批准任务或准确关闭；总部只读结论不二审。忙通知事件等待，中断保留未完位置。
+先result-select选择空闲合格助理；列表notLoaded时补读准确固定聊天最新轮次，将原件指纹放入live_identity.actual_native_target_turns，以固定thread_id为键，分流与通知共用。全忙共享排队。助理手头任务完成立即读shared-pending，以at_work_boundary接取合格结果，精确选责、唯一认领、一次验收，直接落实下一已批准任务或准确关闭；总部只读结论不二审。忙通知事件等待，中断保留未完位置。
 
 主负责人连续完成制作、自检、开发及发布协作、实际保存或部署、公开核对。未变有效成果复用。范围外、费用或重大安全变化升级，其他独立授权工作继续。不恢复旧质检、守候、逐步骤报审、高频轮询。

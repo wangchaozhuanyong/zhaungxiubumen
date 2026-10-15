@@ -131,6 +131,15 @@ class RecoveryTests(unittest.TestCase):
         self.assertFalse(bad);self.assertFalse(any(r['receipt_type']=='chat_ack' for r in rows))
         self.assertEqual(w.record_result_handoff(self.root,request)[0]['result'],'duplicate_ignored')
 
+    def test_new_assignment_without_exact_task_id_stops_before_policy_or_send(self):
+        self.initialize();req=self.requested(sender='operations');req['assignment_record_required']=True
+        for body in ('bounded work without identity',self.task_id+'-different-task'):
+            w.safe_path(self.root,req['payload']['path']).write_text(body)
+            req['payload']=w.file_digest(self.root,req['payload']['path']);req['payload_sha256']=req['payload']['sha256']
+            with mock.patch.object(w,'policy_check') as policy,self.assertRaisesRegex(w.WorkflowError,'identify original task'):
+                recovery.prepare_message(self.root,req)
+            policy.assert_not_called()
+
     def test_notLoaded_is_resolved_by_actual_turn_and_new_active_turn_is_respected(self):
         self.initialize();b=w.department_registry(self.root)[fixture.PRODUCER]['chat_binding']
         page={'thread':{'id':b['task_id'],'title':b['title'],'cwd':b['cwd'],'updatedAt':3},
