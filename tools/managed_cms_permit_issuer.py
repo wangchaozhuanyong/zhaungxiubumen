@@ -82,10 +82,12 @@ else:
 
 if __package__:
     from .paid_three_page_bounded_cms import (english_kitchen_en2_targets,
-        validate_english_kitchen_en2_candidate)
+        validate_english_kitchen_en2_candidate, two_original_material_targets,
+        validate_two_original_material_candidate)
 else:
     from paid_three_page_bounded_cms import (english_kitchen_en2_targets,
-        validate_english_kitchen_en2_candidate)
+        validate_english_kitchen_en2_candidate, two_original_material_targets,
+        validate_two_original_material_candidate)
 
 
 TARGETS = {
@@ -1996,6 +1998,20 @@ if set(TARGETS) & set(ENGLISH_KITCHEN_EN2_TARGETS):
     raise ValueError('English kitchen EN2 target collides with a historical target')
 TARGETS.update(ENGLISH_KITCHEN_EN2_TARGETS)
 
+
+def _available_two_original_material_targets(root: Path) -> dict:
+    """No formal publisher goal means no two-material Save namespace."""
+    try:
+        return two_original_material_targets(root)
+    except (OSError, ValueError, TypeError, KeyError, wc.WorkflowError):
+        return {}
+
+
+TWO_ORIGINAL_MATERIAL_TARGETS = _available_two_original_material_targets(ROOT)
+if set(TARGETS) & set(TWO_ORIGINAL_MATERIAL_TARGETS):
+    raise ValueError("Two original material targets collide with historical targets")
+TARGETS.update(TWO_ORIGINAL_MATERIAL_TARGETS)
+
 # One new original publisher action. This registration only makes the exact
 # namespace discoverable; existing assistant QA, policy and protected permit
 # gates still decide whether it can be executed.
@@ -2397,6 +2413,9 @@ def validate_candidate_binding(candidate: dict, target: dict, *, root: Path | No
     if shape == "english_kitchen_en2_exact":
         validate_english_kitchen_en2_candidate(evidence_root, candidate, target)
         return
+    if shape == "two_original_material_body_registration_only_v1":
+        validate_two_original_material_candidate(evidence_root, candidate, target)
+        return
     from paid_three_page_bounded_cms import MODEL as bounded_model, targets as bounded_targets, doc as bounded_doc
     if shape == bounded_model:
         exact = bounded_targets(evidence_root).get(target.get("action_id"))
@@ -2622,8 +2641,9 @@ def _current_registered_targets(root: Path) -> dict:
                load_wave234_body_registration, load_remaining186_blog_registration,
                load_shop_children_body_registration, load_five_source_projection_registration,
                load_publisher_exact_registration, load_sparse_publisher_targets,
-               _available_english_kitchen_en2_targets)
-    dynamic_names = set(NATIVE_TARGETS) | set(REPAIR_FAQ_TARGETS) | set(WAVE234_BODY_TARGETS) | set(REMAINING186_BLOG_TARGETS) | set(SHOP_CHILDREN_BODY_TARGETS) | set(FIVE_PROJECTION_TARGETS) | set(PUBLISHER_EXACT_TARGETS) | set(SPARSE_PUBLISHER_TARGETS) | set(ENGLISH_KITCHEN_EN2_TARGETS)
+               _available_english_kitchen_en2_targets,
+               _available_two_original_material_targets)
+    dynamic_names = set(NATIVE_TARGETS) | set(REPAIR_FAQ_TARGETS) | set(WAVE234_BODY_TARGETS) | set(REMAINING186_BLOG_TARGETS) | set(SHOP_CHILDREN_BODY_TARGETS) | set(FIVE_PROJECTION_TARGETS) | set(PUBLISHER_EXACT_TARGETS) | set(SPARSE_PUBLISHER_TARGETS) | set(ENGLISH_KITCHEN_EN2_TARGETS) | set(TWO_ORIGINAL_MATERIAL_TARGETS)
     for name in dynamic_names:
         targets.pop(name, None)
     for loader in loaders:
@@ -3364,6 +3384,10 @@ def validate_new_permit_target(target: dict, *, assistant_acceptance: dict | Non
         require(target == english_kitchen_en2_targets(ROOT)["english-kitchen-en2-exact-v1"]
                 and isinstance(assistant_acceptance, dict),
                 "Kitchen EN2 registration alone cannot issue a permit; exact current A2 acceptance is required")
+    if target.get("candidate_shape") == "two_original_material_body_registration_only_v1":
+        raise PermitEvidenceError(
+            "Two-material source registration cannot issue a permit; original publisher goal, "
+            "deployed protected channel, fresh full-row CAS, zero-write preview and actual production QA remain required")
     if target.get('candidate_shape') == 'native_publisher_registration':
         raise PermitEvidenceError('Publisher registration cannot issue a permit; protected preview and exact production QA remain required')
     if target.get("candidate_shape") == "native_five_projection_registration":

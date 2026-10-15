@@ -3794,6 +3794,282 @@ def validate_english_kitchen_en2_candidate(root, candidate, target):
             "one unchanged frozen original EN2 candidate and registered target required")
 
 
+# The two original materials are source candidates only until the publisher
+# freezes its own exact production goal. A website tuple proposal and the old
+# read-only row input cannot create a CMS Save action.
+MATERIAL_SOURCE_TASK = "fc-20261014-two-original-materials-exact-registration-source-v1"
+MATERIAL_PUBLICATION_TASK = "fc-20261014-two-original-materials-exact-body-publication-v1"
+MATERIAL_PARENT = "fc-20261010-original-cms-materials-execution-recovery-v2"
+MATERIAL_MERGE_VERSION = "seo1-material-merge-and-warehouse-release-handoff-v1-20261010"
+MATERIAL_FIELDS = ("content_en", "content_zh")
+MATERIAL_BASE = ("drafts/publishing/fc-20261010-publishing-current-native-input-and-original-preview-v1/"
+                 "continuation-current-materials-20261014-v2/")
+MATERIAL_INPUT = {
+    "path": MATERIAL_BASE + "two-material-current-original-dependency-input.json",
+    "sha256": "3828dcefcb382409f095b28a85ac660b7e02c55c14d65e67cfbaa12d4460bf13",
+    "size": 9623,
+}
+MATERIAL_AUTH = {
+    "path": ("logs/handoffs/2026-10-14-complete-goal-continuity-v1/"
+             "assistant2-CMS-business-continuation-v1/"
+             "actual-human-two-original-materials-channel-authorization-selected-v1.json"),
+    "sha256": "25fcce1639899c803661e70c6d3befadcfea159aab7a885635824e0579bbc3f4",
+    "size": 2116,
+}
+MATERIAL_WEBSITE_RETURN = {
+    "path": ("logs/handoffs/2026-10-14-complete-goal-continuity-v1/"
+             "assistant2-CMS-business-continuation-v1/"
+             "original-website-two-materials-v2-returned-source-candidate.json"),
+    "sha256": "864d47ac8347b9004151ad9f851ca7739cd9191ad7f1d5488697269100d90fe5",
+    "size": 11680,
+}
+MATERIAL_ROWS = (
+    ("sintered-stone-grey", "00db44f6-c26a-4140-b12d-601d9fbaedf7",
+     "save-sintered-stone-grey-bilingual-body-v1",
+     "publishing-sintered-stone-grey-exact-bilingual-body-v1-20261014"),
+    ("solid-surface-warm-white", "1bce8dd6-26b5-443b-990b-7e7d6bc9147a",
+     "save-solid-surface-warm-white-bilingual-body-v1",
+     "publishing-solid-surface-warm-white-exact-bilingual-body-v1-20261014"),
+)
+
+
+def _material_tuple(slug, record_id, action, version):
+    return (MATERIAL_PUBLICATION_TASK, action, version,
+            f"company.example:materials/{record_id}:content_en,content_zh",
+            "publishing", "cms_write")
+
+
+def validate_two_material_row(before, candidate, publisher, slug, record_id):
+    """Check the actual 46-field source without treating its CAS as current."""
+    require(isinstance(before, dict) and isinstance(candidate, dict)
+            and isinstance(publisher, dict), "two material source objects required")
+    require(len(before) == 46 and set(candidate) == set(before)
+            and before.get("id") == candidate.get("id") == publisher.get("record_id") == record_id
+            and before.get("slug") == candidate.get("slug") == publisher.get("slug") == slug
+            and before.get("status") == candidate.get("status") == "published"
+            and type(before.get("version")) is int
+            and before.get("version") == candidate.get("version") == publisher.get("current_version")
+            and before.get("updated_at") == candidate.get("updated_at") == publisher.get("current_raw_updated_at")
+            and re.fullmatch(r".*\.\d{6}\+00:00", str(before["updated_at"])),
+            "exact material identity, 46 fields and raw microsecond CAS required")
+    changed = {key for key in before if before[key] != candidate[key]}
+    require(changed == set(MATERIAL_FIELDS)
+            and set(publisher.get("exact_two_body_patch", {})) == set(MATERIAL_FIELDS)
+            and {key: candidate[key] for key in MATERIAL_FIELDS} == publisher["exact_two_body_patch"]
+            and publisher.get("changed_fields") in
+                (list(MATERIAL_FIELDS), list(reversed(MATERIAL_FIELDS)))
+            and set(publisher.get("retained_field_names", [])) == set(before) - set(MATERIAL_FIELDS)
+            and publisher.get("retained_field_count") == 44
+            and publisher.get("retained_values") ==
+                {key: before[key] for key in before if key not in MATERIAL_FIELDS}
+            and publisher.get("Save") == publisher.get("protected_preview") == 0
+            and publisher.get("fresh_row_before_future_preview_or_Save_required") is True,
+            "only two original material bodies may differ; old input is not a Save")
+
+
+@strict
+def two_original_material_source_contract(root):
+    """Reviewable source facts; this never registers a production target."""
+    root = Path(root).resolve()
+    summary = doc(root, MATERIAL_INPUT)
+    authority = doc(root, MATERIAL_AUTH)
+    website = doc(root, MATERIAL_WEBSITE_RETURN)
+    pin(root, authority["actual_native_source"])
+    pin(root, authority["reviewable_specification"])
+    require(summary.get("parent_task_id") == MATERIAL_PARENT
+            and summary.get("merge_candidate_version") == MATERIAL_MERGE_VERSION
+            and summary.get("Save") == 0 and summary.get("parent_goal_closed") is False
+            and authority.get("source_thread_id") == "<LOCAL_TASK_ID>"
+            and authority.get("message", {}).get("type") == "userMessage"
+            and "允许这两项最小补齐及部门系统精确采用"
+                in authority["message"]["content"][0]["text"]
+            and website.get("source_candidate_head") == "b5f54dea9d6277b51daab2e0c0e23fe65bdac46a"
+            and website.get("production_goal_registered") is False
+            and website.get("issuer_registration_adopted") is False
+            and website.get("actual_Save") == 0,
+            "actual original human authority, source return and no-Save status required")
+    records = summary.get("records")
+    require(isinstance(records, list) and len(records) == len(MATERIAL_ROWS)
+            and {x.get("record_id") for x in records}
+                == {item[1] for item in MATERIAL_ROWS}
+            and isinstance(website.get("proposed_production_bindings"), list)
+            and len(website["proposed_production_bindings"]) == len(MATERIAL_ROWS),
+            "exactly the two original publisher rows required")
+    result = {}
+    for slug, record_id, action, version in MATERIAL_ROWS:
+        source = next(item for item in records if item.get("record_id") == record_id)
+        publisher_path = MATERIAL_BASE + slug + ".current-two-field-publisher-input.json"
+        publisher = w.read_json(w.safe_path(root, publisher_path))
+        require(source.get("slug") == slug and publisher.get("current_full_record") == source.get("current_full_record")
+                and publisher.get("snapshot_backup") == source.get("snapshot_backup")
+                and publisher.get("original_candidate") == source.get("original_candidate"),
+                "original publisher and source candidate pins differ")
+        before = doc(root, source["current_full_record"])
+        backup = doc(root, source["snapshot_backup"])
+        candidate = doc(root, source["original_candidate"])
+        require(before == backup and source["current_full_record"]["sha256"] == source["snapshot_backup"]["sha256"]
+                and source.get("current_version") == before.get("version")
+                and source.get("current_raw_updated_at") == before.get("updated_at")
+                and source.get("current_full46_equal_frozen_before_record") is True
+                and source.get("fresh_row_before_future_preview_or_Save_required") is True,
+                "frozen full-row material source and backup required")
+        validate_two_material_row(before, candidate, publisher, slug, record_id)
+        proposal = [item for item in website["proposed_production_bindings"]
+                    if item.get("recordId") == record_id]
+        require(len(proposal) == 1, "one exact website proposal per material required")
+        proposal = proposal[0]
+        task, proposed_action, proposed_version, scope, owner, action_class = (
+            _material_tuple(slug, record_id, action, version))
+        require((proposal.get("taskId"), proposal.get("actionId"),
+                 proposal.get("candidateVersion"), proposal.get("scope"))
+                == (task, proposed_action, proposed_version, scope)
+                and (proposal.get("recordId"), proposal.get("slug"),
+                     proposal.get("table"), proposal.get("contentType"))
+                    == (record_id, slug, "materials", "material")
+                and proposal.get("actionClass") == action_class
+                and proposal.get("changedFields") == list(MATERIAL_FIELDS)
+                and proposal.get("expectedUpdatedAt") == before["updated_at"]
+                and proposal.get("expectedVersion") == before["version"]
+                and proposal.get("baselineFieldsSha256") == digest(before)
+                and proposal.get("desiredFieldsSha256") ==
+                    digest({field: candidate[field] for field in MATERIAL_FIELDS})
+                and proposal.get("retainedFieldsSha256") ==
+                    digest({key: before[key] for key in before
+                            if key not in {*MATERIAL_FIELDS, "updated_at", "version"}})
+                and proposal.get("rollbackFieldsSha256") ==
+                    digest({field: before[field] for field in MATERIAL_FIELDS}),
+                "website tuple proposal must match the original publisher bytes exactly")
+        request = doc(root, source["prepared_comparison_request"])
+        recovery = doc(root, source["restore_input"])
+        require(request.get("mode") == "dry-run" and request.get("contentType") == "material"
+                and request.get("expectedUpdatedAt") == before["updated_at"]
+                and request.get("record") == candidate and "managedCandidate" not in request
+                and recovery.get("record_id") == record_id
+                and recovery.get("exact_restore_fields") ==
+                    {field: before[field] for field in MATERIAL_FIELDS}
+                and recovery.get("future_actual_Saved_ID") is None,
+                "zero-write material preview and future-only restoration required")
+        result[slug] = {
+            "slug": slug, "record_id": record_id,
+            "tuple": _material_tuple(slug, record_id, action, version),
+            "candidate": source["original_candidate"], "backup": source["snapshot_backup"],
+            "expected_updated_at": before["updated_at"], "observed_version": before["version"],
+            "payload_sha256": digest({field: candidate[field] for field in MATERIAL_FIELDS}),
+        }
+    return result
+
+
+def validate_two_material_formal_goal(formal, rows):
+    """The publisher's actual goal, not the website proposal, gates discovery."""
+    require(isinstance(formal, dict) and formal.get("task_id") == MATERIAL_PUBLICATION_TASK
+            and formal.get("current_state") not in w.TERMINAL_STATES,
+            "active original publisher production goal required")
+    goal = formal.get("goal_delivery", {})
+    required = goal.get("required_execution_actions")
+    expected = {row["tuple"] for row in rows.values()}
+    actual = {(x.get("task_id", MATERIAL_PUBLICATION_TASK), x.get("action_id"),
+               x.get("candidate_version"), x.get("scope"), x.get("department"),
+               x.get("action_class")) for x in required} if isinstance(required, list) else set()
+    require(actual == expected and len(required) == 2
+            and goal.get("primary_owner") == "publishing"
+            and "publishing" in goal.get("producer_departments", [])
+            and goal.get("responsible_assistant") == ROLE
+            and set(goal.get("authorized_scope", [])) == {row["tuple"][3] for row in rows.values()}
+            and goal.get("human_authorization", {}).get("executor") == "publishing"
+            and goal["human_authorization"].get("evidence_path")
+            and goal.get("original_business_task_id", MATERIAL_PARENT) == MATERIAL_PARENT,
+            "publisher must freeze two exact Save tuples and real publishing authority")
+
+
+@strict
+def authenticated_formal_goal_source(root, formal, contract, task_id):
+    """Confirm the existing goal initializer's human source and committed history."""
+    import goal_delivery_runtime as goal_runtime
+    validated = goal_runtime.validate_goal(root, contract, task_id=task_id)
+    goal = formal.get("goal_delivery", {})
+    require(goal.get("authorization_pin") == validated["authorization_pin"]
+            and goal.get("human_authorization") == validated["human_authorization"]
+            and goal.get("required_execution_actions") == validated["required_execution_actions"]
+            and goal.get("authorized_scope") == validated["authorized_scope"],
+            "original goal must match its validated human source and exact contract")
+    task_events = [event for event in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS)
+                   if event.get("task_id") == task_id]
+    require(task_events and task_events[0].get("state") == "planned"
+            and formal.get("event_count") == len(task_events)
+            and formal.get("current_state") == task_events[-1].get("state")
+            and not w.validate_workflow_events(root, task_id),
+            "real committed original workflow history required")
+    frozen_goals = [event.get("details", {}).get("goal_delivery") for event in task_events
+                    if isinstance(event.get("details", {}).get("goal_delivery"), dict)]
+    require(frozen_goals, "original event-frozen goal required")
+    restored = goal_runtime.restore_goal(root, formal)
+    immutable = ("authorization_pin", "human_authorization", "required_execution_actions",
+                 "authorized_scope", "primary_owner", "responsible_assistant",
+                 "producer_departments")
+    original = frozen_goals[0]
+    require(restored.get("task_id") == task_id
+            and all(all(event_goal.get(key) == original.get(key) for key in immutable)
+                    for event_goal in frozen_goals)
+            and all(original.get(key) == goal.get(key) ==
+                    restored["goal_delivery"].get(key) == validated.get(key)
+                    for key in immutable),
+            "snapshot and contract must match the original event-frozen goal and authority")
+
+
+@strict
+def two_original_material_targets(root):
+    rows = two_original_material_source_contract(root)
+    root = Path(root).resolve()
+    formal_path = root / "data/workflows" / (MATERIAL_PUBLICATION_TASK + ".json")
+    if not formal_path.exists():
+        return {}
+    formal = w.read_json(formal_path)
+    validate_two_material_formal_goal(formal, rows)
+    require(not w.validate_workflow_events(root, MATERIAL_PUBLICATION_TASK),
+            "intact original publisher workflow events required")
+    contract = doc(root, formal["goal_contract"])
+    require(contract.get("task_id", MATERIAL_PUBLICATION_TASK) == MATERIAL_PUBLICATION_TASK
+            and contract.get("parent_task_id") == MATERIAL_PARENT
+            and contract.get("required_execution_actions") ==
+                formal["goal_delivery"]["required_execution_actions"]
+            and contract.get("human_authorization") ==
+                formal["goal_delivery"]["human_authorization"],
+            "formal publisher contract and workflow must freeze the same two actions")
+    authenticated_formal_goal_source(root, formal, contract, MATERIAL_PUBLICATION_TASK)
+    return build_two_original_material_targets(rows)
+
+
+def build_two_original_material_targets(rows):
+    """Build only the two already validated source rows after formal freeze."""
+    targets = {}
+    for slug, row in rows.items():
+        task, action, version, scope, owner, _ = row["tuple"]
+        targets["two-original-material-body-" + slug] = {
+            "task_id": task, "action_id": action, "candidate_version": version,
+            "scope": scope, "table": "materials", "record_id": row["record_id"],
+            "slug": slug, "content_type": "material", "changed_fields": list(MATERIAL_FIELDS),
+            "execution_owner": owner, "execution_thread_id": "<LOCAL_TASK_ID>",
+            "candidate_shape": "two_original_material_body_registration_only_v1",
+            "candidate": (row["candidate"]["path"], row["candidate"]["sha256"]),
+            "rollback": (row["backup"]["path"], row["backup"]["sha256"]),
+            "rollback_allowed": False, "qa_outbox": None,
+            "expected_updated_at": row["expected_updated_at"],
+            "observed_version": row["observed_version"],
+            "payload_sha256": row["payload_sha256"],
+            "native_registration_only": True, "release_ready": False,
+        }
+    return targets
+
+
+def validate_two_original_material_candidate(root, candidate, target):
+    exact = two_original_material_targets(root)
+    matches = [row for row in exact.values() if row == target]
+    require(len(matches) == 1 and candidate == doc(root, {
+        "path": target["candidate"][0], "sha256": target["candidate"][1],
+        "size": w.file_digest(root, target["candidate"][0])["size"]}),
+        "only the exact original two-body material candidate can bind")
+
+
 def _weekly_key_context(root):
     import importlib.util
     frozen = pin(root, {"path": WEEKLY_KEY_REPAIR_CONTEXT_PATH, **WEEKLY_KEY_REPAIR_CONTEXT_BYTES})

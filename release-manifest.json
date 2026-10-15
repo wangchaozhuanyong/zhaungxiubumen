@@ -1178,9 +1178,9 @@
     },
     {
       "path": "tools/managed_cms_permit_issuer.py",
-      "source_sha256": "3304fd09b382024802b2263728e5e4356496a924841d0b1ebd45463af175a0e5",
-      "release_sha256": "f03a34e10acfe584930c3146d723f2a19fdfafeaeebee9a4e2344e6e9c3f6b0e",
-      "bytes": 209267
+      "source_sha256": "0c7f9e279a78c2df80b4402b49f5dde2c1c64b99d5b02a73563e52d8a1b7763a",
+      "release_sha256": "2acf59baffb9ee366f1b061da02dcc2922dc216ded85f2b13435efbfcb8df60b",
+      "bytes": 210592
     },
     {
       "path": "tools/native_cms_admission.py",
@@ -1280,9 +1280,9 @@
     },
     {
       "path": "tools/paid_three_page_bounded_cms.py",
-      "source_sha256": "eeef5bbfdb9f88ee062b444e7efdf07da2d5e864707da0d8a43122106984dd62",
-      "release_sha256": "be7574f40c400037a410d51cc5f0054b087623584b9d11bb88ce9358dfb0c43b",
-      "bytes": 340246
+      "source_sha256": "b82b9ee6f208f108d5574861a83ccfd928ec642ea7bcdb7207a38d57b2637970",
+      "release_sha256": "e55e87d22fc20249ae1fdcfe1f4153c34e55c34c0ca3acea342040174936eacc",
+      "bytes": 357277
     },
     {
       "path": "tools/parent_initial_child_review.py",
@@ -1713,5 +1713,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "c5c186e95665a2e2fa367851f44bd56d41dbda071ae493da89d00305d135e723"
+  "fingerprint": "44c5f7808a90e9fc2f4f6b4a88c9b80cc7223bed4aec178fa343d6d16014512c"
 }
