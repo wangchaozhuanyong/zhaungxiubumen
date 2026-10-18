@@ -64,6 +64,41 @@ class ResultCoordinationIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate["result"], "duplicate_ignored")
         self.assertFalse(duplicate["interrupts_active_thread"])
 
+    def test_official_queue_reservation_blocks_duplicate_sender_send(self):
+        route=mock.patch.object(coordination,'result_lane',return_value={
+            'lane':'professional_acceptance','target_department':'operations-assistant'})
+        route.start();self.addCleanup(route.stop)
+        record=coordination.notification_enqueue(self.root,self.identity)
+        path=coordination._notification_path(self.root,self.identity)
+        for state in ('sending','uncertain','accepted'):
+            with self.subTest(state=state):
+                record['native_queue_transport']={'state':state,'native_message_id':'original-queue-message'}
+                w.atomic_write_json(path,record)
+                result=coordination.notification_claim(self.root,self.identity,self.identity['sender_department'],
+                    'original-sender','do-not-send-twice',{}, {})
+                self.assertEqual(result['result'],'native_queue_pending')
+                self.assertFalse(result['delivered'])
+                self.assertFalse(result['native_send_executed'])
+                with self.assertRaisesRegex(w.WorkflowError,'already owns'):
+                    coordination.validate_notification_delivery(self.root,self.identity)
+
+    def test_native_queue_acceptance_without_intake_has_explicit_recovery_not_resend(self):
+        route=mock.patch.object(coordination,'result_lane',return_value={
+            'lane':'professional_acceptance','target_department':'operations-assistant'})
+        route.start();self.addCleanup(route.stop)
+        record=coordination.notification_enqueue(self.root,self.identity)
+        path=coordination._notification_path(self.root,self.identity)
+        for minutes,expected in ((1,False),(16,True)):
+            record['native_queue_transport']={'state':'accepted','native_message_id':'original-queue-message',
+                'updated_at':(dt.datetime.now(dt.timezone.utc)-dt.timedelta(minutes=minutes)).isoformat()}
+            w.atomic_write_json(path,record)
+            result=coordination.notification_plan(self.root)['notifications'][0]
+            self.assertEqual(result['actionable'],expected)
+            self.assertTrue(result['waiting_for_actual_intake'])
+            self.assertFalse(result['queue_acceptance_is_intake'])
+            self.assertEqual(result['recovery_owner'],'operations')
+            self.assertIn('no_resend' if not expected else 'resume_existing_once',result['next_action'])
+
     def test_two_connections_cannot_own_one_result(self):
         first = self.claim()
         with self.assertRaisesRegex(w.WorkflowError, "already claimed"):

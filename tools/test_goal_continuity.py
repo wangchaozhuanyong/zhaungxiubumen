@@ -42,6 +42,59 @@ class ContinuityTests(unittest.TestCase):
                  'visible_reply':w.file_digest(self.root,'reports/ready.txt')}
         return identity,request,page
 
+    def queue_notification_request(self,daily=False):
+        identity,request,_=self.daily_ready() if daily else self.ready()
+        w.record_result_handoff(self.root,request)
+        canonical={}
+        registry=w.department_registry(self.root)
+        for role in (fixture.PRODUCER,fixture.ASSISTANT):
+            binding=registry[role]['chat_binding']
+            page={'source_transport':'official_app_server_readonly_history',
+                  'thread':{'id':binding['task_id'],'title':binding['title'],'cwd':binding['cwd'],'projectId':None,
+                            'status':{'type':'notLoaded'}},
+                  'turns':[{'id':'persisted-only-turn','status':'completed'}]}
+            canonical[role]=w.file_digest(self.root,self.t.write('reports/canonical-'+role+'.json',page))
+        proof={'schema':'official-native-queue-identities/v1','identity':identity,
+               'target_thread_id':registry[fixture.ASSISTANT]['chat_binding']['task_id'],
+               'observed_at':dt.datetime.now(dt.timezone.utc).isoformat(),'canonical_sources':canonical}
+        proof=w.file_digest(self.root,self.t.write('reports/native-queue-identities.json',proof))
+        message=self.root/'reports/native-result-notice.txt';message.write_text('Original frozen result notice; zero new business authority.')
+        return {'task_id':identity['task_id'],'sender_department':fixture.PRODUCER,'result_notification':identity,
+                'notification_request_id':'original-result-native-queue','delivery_mode':'official_native_queue',
+                'actual_target_state':proof,'payload':w.file_digest(self.root,str(message.relative_to(self.root)))}
+
+    def test_result_queue_entry_uses_original_sender_policy_and_no_busy_inference(self):
+        import goal_source_recovery as recovery
+        import department_event_dispatcher as dispatcher
+        request=self.queue_notification_request()
+        with mock.patch.object(dispatcher,'native_queue_capability',return_value='/valid/cli'), \
+                mock.patch.object(recovery,'actual_target_turn_status',side_effect=AssertionError('no idle inference')):
+            result=recovery.prepare_message(self.root,request)
+        self.assertEqual(result['status'],'ready_to_queue',result)
+        self.assertEqual(result['policy_decision']['department'],fixture.PRODUCER)
+        self.assertTrue(result['policy_decision']['scope'].startswith('department_result:'))
+        self.assertFalse(result['ordinary_send_allowed']);self.assertFalse(result['message_sent'])
+
+    def test_scheduled_result_queue_entry_does_not_invent_goal_or_dispatch(self):
+        import goal_source_recovery as recovery
+        import department_event_dispatcher as dispatcher
+        request=self.queue_notification_request(daily=True)
+        with mock.patch.object(dispatcher,'native_queue_capability',return_value='/valid/cli'):
+            result=recovery.prepare_message(self.root,request)
+        self.assertEqual(result['status'],'ready_to_queue',result)
+        self.assertFalse(w.snapshot_path(self.root,self.t.task_id).exists())
+        self.assertFalse(w.receipts_path(self.root,self.t.task_id).exists())
+
+    def test_native_result_queue_refuses_changed_identity_and_unadmitted_transport(self):
+        import goal_source_recovery as recovery
+        import department_event_dispatcher as dispatcher
+        request=self.queue_notification_request()
+        with self.assertRaises(w.WorkflowError):
+            recovery.prepare_message(self.root,{**request,'sender_department':'operations'})
+        with mock.patch.object(dispatcher,'native_queue_capability',side_effect=ValueError('not admitted')):
+            with self.assertRaisesRegex(ValueError,'not admitted'):
+                recovery.prepare_message(self.root,request)
+
     def test_frozen_whole_batch_can_queue_before_turn_ends_once(self):
         identity,request,_=self.ready()
         row,_=w.record_result_handoff(self.root,request)

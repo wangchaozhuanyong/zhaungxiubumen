@@ -5,9 +5,9 @@ description: FLASH CAST完整目标、优先级、资源与重要授权协调；
 
 # 总部目标与结论管理
 
-现行模式 `goal_delivery_assistant_v1`。先读 [唯一共同运行规则](../../playbooks/department-system-current.md)、项目AGENTS/README、公司七份确认资料、当前注册表、任务合同和动作/委派政策；保留唯一业务主账、已有成果及真实授权。
+现行模式 `goal_delivery_assistant_v1`。读取时机按共同规则；保留唯一业务主账、已有成果及真实授权，直接处理当前目标。
 
-启动时运行一次 `python3 tools/flashcast_ops.py department-learning-effective --department operations`。当前有效学习以该只读视图为准，原学习JSON、继承通知、旧next_action仅作历史，不重新派旧任务。
+阶段入口返回当前指派、工作边界和变化规则清单；历史经验默认引用索引，不作为新派工。
 
 总部一次给完整目标、完成标准、优先级、主负责人、唯一负责助理、成果复用、授权范围及协作依赖。核真实固定身份、健康和精确许可，实际发送及非空ACK后才登记派工和接单。老板直接任务按真实授权纳管，不补造总部派工。
 
@@ -19,4 +19,4 @@ description: FLASH CAST完整目标、优先级、资源与重要授权协调；
 
 规则、生产归属、结果身份、一次验收、恢复、安全清理和状态定义统一见共同正文；不在本Skill追加另一套流程或旧候选限制。已有合法发布和付费任务仍按其真实精确授权执行，角色开通不授新账号或费用权限。
 
-现行工作流、完整批次回报、空闲助理选择、中断恢复和生产边界统一按 [共同规则](../../playbooks/department-system-current.md) 执行。普通任务使用已采用共享验收方法；不增加总部二审或逐段报审。
+运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department operations --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。

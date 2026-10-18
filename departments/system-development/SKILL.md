@@ -19,4 +19,4 @@ description: 开发和维护FLASH CAST部门系统的Python控制源码、任务
 
 沿原任务向已指定负责助理返回成果属于同原目标持续授权；按共同规则核对原人类来源、固定身份、健康、当前空闲状态与精确policy后发送一次，不把候选版本更新或上次发送次数解释为授权失效。收尾读取有效学习的work_boundary，未发通知保留发送责任；助理忙碌时排队，不能编造送达。
 
-完整目标、整批回报、空闲助理分流和中断恢复只按共同规则 playbooks/department-system-current.md。普通步骤不报审；准确授权内自检后执行到实际发布，最后一次助理验收。后台保存和官网部署各走真实合法通道。
+运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department system-development --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。

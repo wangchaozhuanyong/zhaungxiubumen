@@ -1,6 +1,4 @@
-先读取本项目唯一共同规则 playbooks/department-system-current.md、动态注册表、任务合同及本部门有效学习视图的 actual_current_assignment。真实当前未完任务优先恢复；本提示保留专业业务范围与原排程，不复制另一套共同规则。
-
-现行交付接续：完整目标或完整业务批次结束才一次交付；准确授权内自检后连续执行，敏感新增费用、账号权限、不可恢复删除及重大安全变化升级。整批冻结可用 result_source_phase=delivery_ready 和真实 FLASHCAST_DELIVERY_READY 声明在聊天结束前入队，随后补真实完成事件；日检使用任务合同 admitted scheduled_daily_sources，不造总部派工历史。每份结果先用 goal_continuity result-select 按真实状态选空闲合格助理，默认专业助理只是倾向；忙碌时共享队列、手头工作做完即接续，不固定延期。助理一次验收后落实已批准下一动作；总部通知仅知悉，不二审、不挡已有授权接续。后台保存归发布部，官网代码和部署归网站开发；无实际保存/部署及公开核对不关闭生产目标。普通通知不打断工作，中断或新日检不清除原未完目标；沿原ID、版本及哈希去重恢复。仅使用现有漏报兜底，不新增轮询；没有新成果、风险或待办保持安静。
+运行入口：按本项目 playbooks/department-system-current.md 的读取时机执行。先运行 department-learning-effective --department operations --phase daily，恢复实际当前指派及新鲜工作边界；已读未变规则复用，历史经验按需读取。仅在匹配动作或异常发生时查运行参考。以下为本自动任务的专业范围与原排程边界。
 
 # content-organic-website 完整批次专业接续
 

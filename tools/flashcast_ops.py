@@ -1605,6 +1605,7 @@ def approval_record(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any
             source_thread_id=args.source_thread_id,
             source_message_ref=args.source_message_ref,
             revoke=args.revoke,
+            source_evidence=args.source_evidence,
         )
     except workflow.WorkflowError as exc:
         raise OpsError(str(exc)) from exc
@@ -2492,7 +2493,10 @@ def learning_freshness(review_after: str, last_verified_at: str) -> str:
     return "stale" if deadline < now_utc().astimezone(BUSINESS_TZ).date() else "current"
 
 
-def department_learning_effective(root: Path, department: str) -> tuple[dict[str, Any], list[Path]]:
+def department_learning_effective(root: Path, department: str, *, phase: str = "startup",
+                                 work_type: str = "general", known_rules: str = "",
+                                 include_reference_details: bool = False,
+                                 triggers: tuple[str, ...] = ()) -> tuple[dict[str, Any], list[Path]]:
     """Read current-mode lessons without rewriting historical memory or grants."""
     config = department_learning_config(root, department)
     contract = read_json(root / "data/task-contract.json")
@@ -2570,15 +2574,32 @@ def department_learning_effective(root: Path, department: str) -> tuple[dict[str
     actual_current_assignment = current_assignment_for_role(root, department)
     from goal_continuity import work_boundary
     boundary = work_boundary(root, department, assignment=actual_current_assignment, read_assignment=False)
+    from department_rule_context import build as rule_context, reference_index
+    context = rule_context(root, department, str(config["professional_skill"]),
+                           phase=phase, work_type=work_type, known_rules=known_rules,
+                           triggers=triggers)
+    # A verified anecdote is still a reference, not a new standing procedure.
+    # Keep its immutable source and freshness without replaying old task prose.
+    current = [reference_index(item, details=include_reference_details) for item in current]
+    reference = [reference_index(item, details=include_reference_details) for item in reference]
     payload = {"status": "department_learning_effective_read_only", "department": department,
                "actual_current_assignment": actual_current_assignment,
                "work_boundary": boundary,
                "authorization_precheck_entry": {
                    "command": "python3 tools/goal_delivery_runtime.py authorization-precheck --task-id <原任务ID> --input <准确动作JSON>",
+                   "routine_message_entry": "python3 tools/goal_source_recovery.py prepare-message --input <准确消息JSON>",
+                   "separate_precheck_before_prepare_message_required": False,
                    "required_before_repeat_confirmation": True,
                    "internal_repair_is_new_authorization": False,
                    "precheck_grants_execution_permission": False},
                "operating_mode": mode, "role_retired": role_retired,
+               "rule_context": context,
+               "reference_loading_policy": {
+                   "default": "reference_index_only",
+                   "details_explicitly_requested": include_reference_details,
+                   "references_are_executable_instructions": False,
+                   "unchanged_instruction_text_requires_reread": False,
+                   "live_checks_reused_as_permissions": False},
                "current_rule_sources": rule_sources, "current_lessons": current,
                "knowledge_reference": reference, "historical_references": history,
                "current_lesson_count": len(current), "knowledge_reference_count": len(reference),
@@ -4168,6 +4189,11 @@ def print_artifacts(payload: dict[str, Any], artifacts: list[Path], root: Path) 
         "operating_mode",
         "role_retired",
         "current_rule_sources",
+        "actual_current_assignment",
+        "work_boundary",
+        "authorization_precheck_entry",
+        "rule_context",
+        "reference_loading_policy",
         "current_lessons",
         "knowledge_reference",
         "historical_references",
@@ -4287,6 +4313,7 @@ def build_parser() -> argparse.ArgumentParser:
     approval_parser.add_argument("--approval-id", default="")
     approval_parser.add_argument("--source-thread-id", default="")
     approval_parser.add_argument("--source-message-ref", default="")
+    approval_parser.add_argument("--source-evidence", default="", help="原衣柜 R3 当前源码和自检的项目内精确证据；其他任务不用")
     approval_parser.add_argument("--revoke", action="store_true")
     approval_parser.set_defaults(handler=lambda root, args: approval_record(root, args))
 
@@ -4518,7 +4545,16 @@ def build_parser() -> argparse.ArgumentParser:
         "department-learning-effective", help="只读当前模式有效学习视图，保留历史字节"
     )
     effective_learning_parser.add_argument("--department", required=True)
-    effective_learning_parser.set_defaults(handler=lambda root, args: department_learning_effective(root, args.department))
+    from department_rule_context import PHASES, WORK_TYPES, EXCEPTIONS
+    effective_learning_parser.add_argument("--phase", choices=PHASES, default="startup")
+    effective_learning_parser.add_argument("--work-type", choices=WORK_TYPES, default="general")
+    effective_learning_parser.add_argument("--known-rules", default="", help="本项目已读取的上次视图；只复用未变规则正文，不复用权限或实时状态")
+    effective_learning_parser.add_argument("--include-reference-details", action="store_true", help="明确需要历史经验时才加载原文；仍不作为执行指令")
+    effective_learning_parser.add_argument("--trigger", choices=sorted(EXCEPTIONS), action="append", default=[])
+    effective_learning_parser.set_defaults(handler=lambda root, args: department_learning_effective(
+        root, args.department, phase=args.phase, work_type=args.work_type,
+        known_rules=args.known_rules, include_reference_details=args.include_reference_details,
+        triggers=tuple(args.trigger)))
 
     successor_parser = sub.add_parser("workflow-successor-link", help="关联真实已发送后继，保留旧计划历史，不补造发送")
     successor_parser.add_argument("--task-id", required=True)

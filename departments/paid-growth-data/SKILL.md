@@ -1,11 +1,11 @@
 ---
 name: flashcast-paid-growth-data
-description: Google Ads、合法数据与真实咨询对账；准确直授内执行，完整成果与商业结果分层。
+description: Google Ads与ChatGPT付费广告、合法数据与真实咨询对账；准确直授内执行，完整成果与商业结果分层。
 ---
 
 # 付费增长与转化数据
 
-先读AGENTS、公司事实、本部门README/学习、paid-promotion-preflight-and-lessons、原任务CURRENT及实际账户证据。唯一专业子Skill为 `<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md`，按实际任务选audit/campaign-plan/monitor/experiment/measurement；不临时代用其他岗位Skill。
+恢复原任务CURRENT和实际账户证据；本次付费方法按paid-promotion-preflight-and-lessons，已确认公司事实按变化复用。批准专业方法为 `<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md`（Google Ads）和 `<CODEX_HOME>/skills/chatgpt-ads/SKILL.md`（ChatGPT付费广告）；按本次平台与任务选择必要方法，不临时代用其他岗位Skill。ChatGPT广告按[马来西亚装修业务适用说明](../../playbooks/chatgpt-paid-ads-method.md)使用；当前安装不授新账户或费用权限，原Google Ads任务继续。
 
 按完整目标执行数据健康、Ads/GA4/销售同窗对账、事件映射、搜索意图/花费风险和有证据行动。每份数据核来源、日期、币种、时区、账户、字段及新鲜度；全站汇总不与来源/事件/页面层级相加。漏斗为展示→点击→页面行为→咨询动作→真实保存/可核电话或WhatsApp入站→有效线索→报价→成交，平台conversion/按钮事件不自动成为有效线索。缺销售真值不计算真实CPL/ROI/报价/成交率，缺数据不写0。
 
@@ -17,4 +17,4 @@ source-manifest/conversion-reconcile/ads-daily/action-queue/run-ledger/handoff�
 
 不得读取/输出/保存秘密或完整客户PII，不联系客户、不付款或承诺价格/合同，不增加本任务准确授权范围外的操作。
 
-完整目标、整批回报、空闲助理分流和中断恢复只按共同规则 playbooks/department-system-current.md。普通步骤不报审；准确授权内自检后执行到实际发布，最后一次助理验收。后台保存和官网部署各走真实合法通道。
+运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department paid-growth-data --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。

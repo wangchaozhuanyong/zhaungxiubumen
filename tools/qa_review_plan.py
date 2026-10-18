@@ -4739,6 +4739,380 @@ def original_condo_faq_child_review_context(root, snapshot, receipts=None, plan=
             "child_task_id": task, "production_permissions_inherited": False}
 
 
+def _next12_native_page(root, pin, thread_id):
+    """Decode one pinned provider page without losing direct-page failure flags."""
+    w = _workflow()
+    value = _review_source_document(root, pin)
+    page = _review_raw_native_result(value) if "content" in value else value
+    _review_native_containers(page)
+    binding = next((item.get("chat_binding", {}) for item in w.department_registry(root).values()
+                    if item.get("chat_binding", {}).get("task_id") == thread_id), None)
+    if (binding is None or page.get("schemaVersion") != 1 or not isinstance(page.get("thread"), dict)
+            or any(page["thread"].get(k) != binding.get(v) for k, v in
+                   (("id", "task_id"), ("title", "title"), ("cwd", "cwd")))
+            or page.get("status") not in (None, "completed", "inProgress")
+            or not isinstance(page.get("turns"), list)
+            or any(not isinstance(turn, dict) or not isinstance(turn.get("items"), list)
+                   or any(not isinstance(item, dict) for item in turn["items"])
+                   for turn in page["turns"])):
+        raise w.WorkflowError("one exact successful next12 native thread page required")
+    return page
+
+
+def _next12_valid_turn(turn, item=None):
+    """An in-progress historical turn is valid; an errored selection is not."""
+    if not isinstance(turn, dict) or turn.get("status") not in {"completed", "inProgress"}:
+        raise ValueError("successful selected next12 native turn required")
+    _review_native_containers(turn)
+    if item is not None:
+        if not isinstance(item, dict):
+            raise ValueError("selected next12 native item required")
+        _review_native_containers(item)
+
+
+def _next12_ack_source(root, ack, dispatch, target_thread, *, observation_suffix=None):
+    """Tie one actual recipient message to its original dispatch and UTF-8."""
+    w = _workflow()
+    pins = ack.get("evidence", [])
+    native_pin = None
+    text_pin = None
+    turn_id = message_id = None
+    if observation_suffix:
+        observations = [pin for pin in pins if pin.get("path", "").endswith(observation_suffix)]
+        if len(observations) != 1:
+            raise w.WorkflowError("one actual next12 ACK observation required")
+        observation = _review_source_document(root, observations[0])
+        if (observation.get("actual_fixed_thread_id") != target_thread
+                or observation.get("actual_nonempty_ACK") is not True
+                or observation.get("actual_dispatch_receipt") != dispatch.get("receipt_id")):
+            raise w.WorkflowError("next12 ACK observation/dispatch mismatch")
+        native_pin, text_pin = observation.get("actual_native_source"), observation.get("exact_UTF8")
+        turn_id, message_id = observation.get("actual_turn_id"), observation.get("actual_message_id")
+        assignment_pin = observation.get("actual_assignment")
+        if (native_pin not in pins or text_pin not in pins or assignment_pin not in pins
+                or _review_source_document(root, assignment_pin).get("dispatch_receipt_id") != dispatch.get("receipt_id")):
+            raise w.WorkflowError("next12 ACK native/UTF8/current assignment source required")
+    else:
+        native_candidates = [pin for pin in pins if pin.get("path", "").endswith(
+            ("a1-actual-ACK-native.json", "Root-real-next12-first-nonempty-reply-native.json"))]
+        text_candidates = [pin for pin in pins if pin.get("path", "").endswith("Root-real-first-nonempty-ACK-utf8.txt")]
+        if len(native_candidates) != 1 or len(text_candidates) > 1:
+            raise w.WorkflowError("one actual next12 initial ACK native source required")
+        native_pin = native_candidates[0]
+        text_pin = text_candidates[0] if text_candidates else None
+    page = _next12_native_page(root, native_pin, target_thread)
+    selected = [(turn, item) for turn in page["turns"] for item in turn.get("items", [])
+                if item.get("type") == "agentMessage"
+                and (turn_id is None or turn.get("id") == turn_id)
+                and (message_id is None or item.get("id") == message_id)]
+    if len(selected) != 1:
+        raise w.WorkflowError("one selected actual next12 ACK message required")
+    turn, item = selected[0]
+    _next12_valid_turn(turn, item)
+    message = item.get("text")
+    if (not isinstance(message, str) or not message.strip()
+            or item.get("phase") not in {"commentary", "final_answer"}
+            or (text_pin is not None and
+                (w.file_digest(root, text_pin.get("path", "")) != text_pin
+                 or w.safe_path(root, text_pin["path"]).read_bytes() != message.encode("utf-8")))):
+        raise w.WorkflowError("nonempty selected next12 ACK exact UTF-8 required")
+    sent = w._parse_observed_at(dispatch.get("created_at"))
+    acknowledged = w._parse_observed_at(ack.get("created_at"))
+    started, completed = turn.get("startedAt"), turn.get("completedAt")
+    updated = page["thread"].get("updatedAt")
+    if (sent is None or acknowledged is None or sent > acknowledged
+            or type(started) not in {int, float}
+            or not acknowledged.timestamp() - 600 <= started <= acknowledged.timestamp()
+            or type(updated) not in {int, float} or updated < started
+            or not acknowledged.timestamp() - 600 <= updated <= acknowledged.timestamp() + 600
+            or (completed is not None and
+                (type(completed) not in {int, float} or completed < started
+                 or not acknowledged.timestamp() - 600 <= completed <= acknowledged.timestamp() + 600))):
+        raise w.WorkflowError("causal next12 ACK native time required")
+    return {"turn_id": turn.get("id"), "message_id": item.get("id")}
+
+
+def _next12_source_receipt_prefix(root, task_id, snapshot, plan, supplied=None):
+    """Validate source history only through the receipt preceding its first QA."""
+    w = _workflow()
+    raw = w.read_jsonl(w.receipts_path(root, task_id))
+    first_qa = next((i for i, row in enumerate(raw) if row.get("receipt_type") == "qa_verdict"), len(raw))
+    if first_qa != len(raw):
+        binding = _binding(root, snapshot)
+        if (not isinstance(binding, dict) or binding.get("pin") is None
+                or _review_source_document(root, binding["pin"]) != plan):
+            raise w.WorkflowError("later QA cannot authorize an unbound next12 source")
+    prefix = raw[:first_qa]
+    if not prefix:
+        raise w.WorkflowError("original next12 source receipt prefix required")
+    rows, invalid = w._validate_receipt_chain(root, task_id, through_receipt_id=prefix[-1].get("receipt_id"))
+    if invalid or rows != prefix or (supplied is not None and supplied[:len(prefix)] != prefix):
+        raise w.WorkflowError("exact valid next12 source receipt prefix required")
+    return rows
+
+
+def _next12_relevant_dispatch_still_current(rows, dispatch, *, before_time=None):
+    """A later failure/replay of this action invalidates its old success chain."""
+    w = _workflow()
+    start = rows.index(dispatch)
+    for row in rows[start + 1:]:
+        if (row.get("department") == dispatch.get("department")
+                and row.get("action_id") == dispatch.get("action_id")
+                and row.get("receipt_type") in {"dispatch_sent", "dispatch_failed"}
+                and not (row.get("receipt_type") == "dispatch_sent"
+                         and row.get("supersedes_receipt_id") == dispatch.get("receipt_id"))):
+            stamp = w._parse_observed_at(row.get("created_at"))
+            if before_time is None or stamp is None or stamp <= before_time:
+                return False
+    return True
+
+
+def _next12_exact_native_send(root, dispatch, target_thread, sender_thread, payload_suffix, native_suffix):
+    """Check one frozen policy/payload/provider call without re-sending it."""
+    w = _workflow()
+    pins = dispatch.get("evidence", [])
+    payloads = [pin for pin in pins if pin.get("path", "").endswith(payload_suffix)]
+    pages = [pin for pin in pins if pin.get("path", "").endswith(native_suffix)]
+    if len(payloads) != 1 or len(pages) != 1:
+        raise w.WorkflowError("one exact original next12 payload and native send page required")
+    payload, page_pin = payloads[0], pages[0]
+    if w.file_digest(root, payload["path"]) != payload or w.file_digest(root, page_pin["path"]) != page_pin:
+        raise w.WorkflowError("original next12 transport source bytes changed")
+    policies = [row for row in w.read_jsonl(Path(root) / w.POLICY_DECISIONS)
+                if row.get("decision_id") == dispatch.get("policy_decision_id")]
+    registry = w.department_registry(root)
+    senders = [(role, item.get("chat_binding", {})) for role, item in registry.items()
+               if item.get("chat_binding", {}).get("task_id") == sender_thread]
+    targets = [(role, item.get("chat_binding", {})) for role, item in registry.items()
+               if item.get("chat_binding", {}).get("task_id") == target_thread]
+    if len(senders) != 1 or len(targets) != 1 or len(policies) != 1:
+        raise w.WorkflowError("one fixed original next12 send policy identity required")
+    sender_role, sender_binding = senders[0]
+    _, target_binding = targets[0]
+    if (len(policies) != 1
+            or any(policies[0].get(k) != value for k, value in (
+            ("status", "allow"), ("routing_status", "routing_allowed"),
+            ("department", sender_role), ("action_class", "thread_message"),
+            ("task_id", dispatch["task_id"]), ("action_id", dispatch["action_id"]),
+            ("scope", dispatch["scope"]), ("target_department", dispatch["department"]),
+            ("target_thread_id", target_thread), ("payload_sha256", payload["sha256"]),
+            ("source_project_id", sender_binding["project_id"]),
+            ("target_project_id", target_binding["project_id"]),
+            ("target_thread_title", target_binding["title"]),
+            ("target_cwd", target_binding["cwd"])))):
+        raise w.WorkflowError("exact original next12 send policy required")
+    page = _next12_native_page(root, page_pin, sender_thread)
+    prompt = w.safe_path(root, payload["path"]).read_text(encoding="utf-8")
+    sends = [(turn, item) for turn in page.get("turns", []) for item in turn.get("items", [])
+             if item.get("type") == "mcpToolCall" and item.get("server") == "codex_app"
+             and item.get("tool") == "send_message_to_thread"
+             and item.get("status") == "completed" and item.get("arguments", {}).get("threadId") == target_thread
+             and item.get("arguments", {}).get("prompt") == prompt]
+    if len(sends) != 1:
+        raise w.WorkflowError("one actual native next12 message with exact frozen prompt required")
+    _next12_valid_turn(*sends[0])
+    return payload
+
+
+def next12_original_parent_review_context(root, snapshot, receipts=None, plan=None):
+    """Consume the actual parent A1 responsibility for this one existing child.
+
+    The parent receipts retain their original task and IDs.  This read-only
+    context neither creates a child reviewer send/ACK nor treats producer
+    intake as a formal QA verdict.
+    """
+    w = _workflow()
+    child_id = "fc-20261016-industry-keyword-next-twelve-pages-v1"
+    parent_id = "fc-20261015-industry-keywords-site-coverage-plan-v1"
+    if snapshot.get("task_id") != child_id or not isinstance(plan, dict):
+        return None
+    proof = plan.get("original_parent_review_source")
+    required = {"schema_version", "parent_task_id", "parent_contract", "child_contract",
+                "human_authorization", "parent_dispatch_receipt_id", "parent_ack_receipt_id",
+                "child_producer_dispatch_receipt_id", "child_producer_ack_receipt_id",
+                "v3_intake_record_id"}
+    if not isinstance(proof, dict) or set(proof) != required or proof.get("schema_version") != 1:
+        return None
+    parent = w.read_json(w.snapshot_path(root, parent_id))
+    pg, cg = _goal(root, parent), _goal(root, snapshot)
+    scope = "project:flashcast:industry-keyword-next-twelve-pages:v1"
+    reviewer, producer = "operations-assistant", "content-organic-website"
+    registry = w.department_registry(root)
+    reviewer_thread = registry[reviewer]["chat_binding"]["task_id"]
+    producer_thread = registry[producer]["chat_binding"]["task_id"]
+    if (not isinstance(pg, dict) or not isinstance(cg, dict)
+            or proof["parent_task_id"] != parent_id or cg.get("parent_task_id") != parent_id
+            or parent.get("goal_contract") != proof["parent_contract"]
+            or snapshot.get("goal_contract") != proof["child_contract"]
+            or cg.get("authorization_pin") != proof["human_authorization"]
+            or cg.get("human_authorization", {}).get("scope") != scope
+            or cg.get("human_authorization", {}).get("executor") != producer
+            or cg.get("human_authorization", {}).get("source_thread_id") != registry["operations"]["chat_binding"]["task_id"]
+            or pg.get("responsible_assistant") != reviewer
+            or cg.get("responsible_assistant") != reviewer
+            or cg.get("primary_owner") != producer or cg.get("producer_departments") != [producer]
+            or cg.get("authorized_scope") != [scope] or cg.get("source_mode") != "approved_dispatch"
+            or any(cg.get(k, False) is not False for k in ("production_write_allowed", "external_permission_issued"))
+            or any(plan.get(k) != v for k, v in (("scope", scope), ("reviewer_department", reviewer),
+                                                  ("reviewer_thread_id", reviewer_thread), ("producer_department", producer)))
+            or plan.get("candidate_version") != "fc-20261016-next12-content-candidate-v3-20261016"):
+        return None
+    for pin in (proof["parent_contract"], proof["child_contract"], proof["human_authorization"]):
+        if w.file_digest(root, pin.get("path", "")) != pin:
+            return None
+    contract = w.read_json(w.safe_path(root, proof["child_contract"]["path"]))
+    contract = contract.get("goal_delivery", contract)
+    if any(contract.get(k) != cg.get(k) for k in ("task_id", "parent_task_id", "primary_owner",
+            "responsible_assistant", "producer_departments", "authorized_scope", "human_authorization")):
+        return None
+    parent_rows, parent_invalid = w._validate_receipt_chain(root, parent_id)
+    child_rows = _next12_source_receipt_prefix(root, child_id, snapshot, plan, receipts)
+    if parent_invalid:
+        return None
+    def one(rows, receipt_id, kind, department, thread):
+        found = [row for row in rows if row.get("receipt_id") == receipt_id]
+        return found[0] if len(found) == 1 and found[0].get("receipt_type") == kind and found[0].get("department") == department and found[0].get("chat_task_id") == thread else None
+    dispatch = one(parent_rows, proof["parent_dispatch_receipt_id"], "dispatch_sent", reviewer, reviewer_thread)
+    ack = one(parent_rows, proof["parent_ack_receipt_id"], "chat_ack", reviewer, reviewer_thread)
+    producer_dispatch = one(child_rows, proof["child_producer_dispatch_receipt_id"], "dispatch_sent", producer, producer_thread)
+    producer_ack = one(child_rows, proof["child_producer_ack_receipt_id"], "chat_ack", producer, producer_thread)
+    if not all((dispatch, ack, producer_dispatch, producer_ack)):
+        return None
+    parent_scope = pg.get("authorized_scope", [None])[0]
+    if (not parent_rows.index(dispatch) < parent_rows.index(ack)
+            or not child_rows.index(producer_dispatch) < child_rows.index(producer_ack)
+            or ack.get("ack_nonempty") is not True or producer_ack.get("ack_nonempty") is not True
+            or any(row.get("supersedes_receipt_id") in {r["receipt_id"] for r in (dispatch, ack, producer_dispatch, producer_ack)}
+                   for row in parent_rows + child_rows)
+            or any(row.get("department") in {reviewer, "qa", "qa-technical"}
+                   and row.get("receipt_type") in {"dispatch_sent", "dispatch_failed", "chat_ack"} for row in child_rows)
+            or dispatch.get("task_id") != parent_id or dispatch.get("scope") != parent_scope
+            or dispatch.get("action_id") != "HQ-20261016-industry-A1-real-development-followthrough-v1"
+            or any(ack.get(k) != dispatch.get(k) for k in ("task_id", "department", "chat_task_id", "action_id", "scope"))
+            or producer_dispatch.get("task_id") != child_id or producer_dispatch.get("scope") != scope
+            or producer_dispatch.get("action_id") != "A1-next12-content1-exact-content-dispatch-20261016-v1"
+            or any(producer_ack.get(k) != producer_dispatch.get(k) for k in ("task_id", "department", "chat_task_id", "action_id", "scope"))):
+        return None
+    for row in (dispatch, ack, producer_dispatch, producer_ack):
+        if any(w.file_digest(root, pin.get("path", "")) != pin for pin in row.get("evidence", [])):
+            return None
+    payload = next((p for p in dispatch["evidence"] if p["path"].endswith("assistant1-main-goal-followthrough.txt")), None)
+    if payload is None:
+        return None
+    prompt = w.safe_path(root, payload["path"]).read_text(encoding="utf-8")
+    if parent_id not in prompt or "下一20页队列" not in prompt:
+        return None
+    try:
+        _next12_exact_native_send(root, dispatch, reviewer_thread,
+            registry["operations"]["chat_binding"]["task_id"],
+            "assistant1-main-goal-followthrough.txt", "HQ-actual-five-dispatch-invocations-native.json")
+        _next12_exact_native_send(root, producer_dispatch, producer_thread, reviewer_thread,
+            "Root-next12-content1-exact-message-v2.txt", "Root-next12-actual-source-invocation-native.json")
+        _next12_ack_source(root, ack, dispatch, reviewer_thread)
+        _next12_ack_source(root, producer_ack, producer_dispatch, producer_thread)
+    except (w.WorkflowError, OSError, ValueError, TypeError, KeyError):
+        return None
+    sent = next((w.read_json(w.safe_path(root, p["path"])) for p in dispatch["evidence"]
+                 if p["path"].endswith("a1-actual-send.json")), {})
+    if (sent.get("isError") is not False or sent.get("content") != [{"type": "text", "text": json.dumps({"threadId": reviewer_thread}, separators=(",", ":"))}]):
+        return None
+    handoffs = w._result_handoff_rows(root, child_id)
+    intake = [row for row in handoffs if row.get("record_id") == proof["v3_intake_record_id"]]
+    if (len(intake) != 1 or intake[0].get("event") != "controller_received"
+            or intake[0].get("sender_department") != producer
+            or intake[0].get("candidate_version") != plan["candidate_version"]
+            or intake[0].get("outbox") != plan["candidate"]
+            or intake[0].get("coordinator_role") != reviewer
+            or intake[0].get("source_thread_id") != producer_thread
+            or w.file_digest(root, plan["candidate"]["path"]) != plan["candidate"]
+            or plan["candidate"] not in intake[0].get("evidence", [])
+            or any(w.file_digest(root, pin.get("path", "")) != pin for pin in intake[0].get("evidence", []))):
+        return None
+    try:
+        w.validate_outbox(root, [plan["candidate"]], producer, child_id)
+        native_pin, reply_pin = intake[0]["actual_native_completion"], intake[0]["visible_reply"]
+        if (w.file_digest(root, native_pin["path"]) != native_pin
+                or w.file_digest(root, reply_pin["path"]) != reply_pin):
+            return None
+        native = _next12_native_page(root, native_pin, producer_thread)
+        reply = w.safe_path(root, reply_pin["path"]).read_text(encoding="utf-8")
+        selected = [(turn, item) for turn in native.get("turns", [])
+                    if turn.get("id") == intake[0].get("source_turn_id")
+                    for item in turn.get("items", [])
+                    if item.get("id") == intake[0].get("source_message_id") and item.get("type") == "agentMessage"]
+        marker = "FLASHCAST_DELIVERY_READY "
+        ready = json.loads(reply[len(marker):]) if reply.startswith(marker) else {}
+        if len(selected) != 1:
+            return None
+        _next12_valid_turn(*selected[0])
+        if (selected[0][1].get("phase") not in {"commentary", "final_answer"}
+                or selected[0][1].get("text") != reply
+                or ready.get("task_id") != child_id or ready.get("sender_department") != producer
+                or ready.get("candidate_version") != plan["candidate_version"]
+                or ready.get("result_sha256") != plan["candidate"]["sha256"]
+                or ready.get("outbox_path") != plan["candidate"]["path"]
+                or ready.get("batch_complete") is not True):
+            return None
+    except (w.WorkflowError, OSError, ValueError, KeyError, TypeError):
+        return None
+    stamps = [w._parse_observed_at(x.get("created_at")) for x in (dispatch, ack, producer_dispatch, producer_ack, intake[0])]
+    if (any(t is None for t in stamps) or stamps != sorted(stamps)
+            or stamps[-1] > dt.datetime.now(dt.timezone.utc)
+            or not _next12_relevant_dispatch_still_current(parent_rows, dispatch, before_time=stamps[-1])
+            or not _next12_relevant_dispatch_still_current(child_rows, producer_dispatch, before_time=stamps[-1])):
+        return None
+    successor = plan.get("business_rework_successor")
+    if successor is not None:
+        selected_dispatch = [row for row in child_rows if row.get("receipt_id") in {
+            successor.get("rework_dispatch_receipt_id"), successor.get("clarification_dispatch_receipt_id")}]
+        selected_ack = [row for row in child_rows if row.get("receipt_id") in {
+            successor.get("rework_ack_receipt_id"), successor.get("clarification_ack_receipt_id")}]
+        if (len(selected_dispatch) != 2 or len(selected_ack) != 2
+                or not all(_next12_relevant_dispatch_still_current(
+                    child_rows, row, before_time=stamps[-1]) for row in selected_dispatch)):
+            return None
+        try:
+            for dispatch_id, ack_id, suffix in (
+                ("rework_dispatch_receipt_id", "rework_ack_receipt_id", "Root-rework-real-nonempty-ACK-observation.json"),
+                ("clarification_dispatch_receipt_id", "clarification_ack_receipt_id", "Root-V2-three-prefix-real-ACK-observation.json"),
+            ):
+                selected_send = next(row for row in selected_dispatch if row["receipt_id"] == successor[dispatch_id])
+                selected_reply = next(row for row in selected_ack if row["receipt_id"] == successor[ack_id])
+                _next12_ack_source(root, selected_reply, selected_send, producer_thread, observation_suffix=suffix)
+        except (w.WorkflowError, OSError, ValueError, TypeError, KeyError, StopIteration):
+            return None
+    return {"dispatch": dispatch, "ack": ack, "dispatch_index": -1, "ack_index": -1,
+            "original_parent_task_id": parent_id, "child_task_id": child_id,
+            "production_permissions_inherited": False}
+
+
+def next12_normal_reviewer_source(root, snapshot, receipts):
+    """Admit only this child's real parent reviewer source at receipt entry.
+
+    The original V1 binding remains intact until a legitimate successor bind.
+    Source validation is independent of the new receipt being appended, and
+    neither fabricates a child dispatch nor grants a QA verdict.
+    """
+    w = _workflow()
+    task = "fc-20261016-industry-keyword-next-twelve-pages-v1"
+    if snapshot.get("task_id") != task:
+        return None
+    binding = _binding(root, snapshot)
+    if not isinstance(binding, dict) or not isinstance(binding.get("pin"), dict):
+        return None
+    current = _review_source_document(root, binding["pin"])
+    successor_pin = {
+        "path": "drafts/system-development/fc-20261017-assistant1-original-source-recovery-v1/source-candidate-v1/next12-review-plan-v3-source-successor.json",
+        "sha256": "01833cd84717b6ec47fed6438d1266f064e1251ce5d21e2cba6b90487284b8ce",
+        "size": 4473,
+    }
+    successor = _review_source_document(root, successor_pin)
+    original_pin = successor.get("business_rework_successor", {}).get("prior_plan")
+    if (binding["pin"] != original_pin and current != successor):
+        return None
+    return next12_original_parent_review_context(root, snapshot, receipts, successor)
+
+
 def _current_goal_assignment_round(root,snapshot,receipts,plan):
     """A real whole-goal reviewer assignment is not a legacy QA-plan send."""
     w=_workflow();goal=_goal(root,snapshot)
@@ -4794,6 +5168,8 @@ def _assigned_review_round(root, snapshot, receipts, plan, *, source_pins=None):
     if ordinary is not None:return ordinary
     original_child = original_condo_faq_child_review_context(root, snapshot, receipts, plan)
     if original_child is not None:return original_child
+    original_next12 = next12_original_parent_review_context(root, snapshot, receipts, plan)
+    if original_next12 is not None:return original_next12
     saved_first = _saved_original_first_binding_round(root, snapshot, receipts, plan)
     if saved_first is not None:
         return saved_first
@@ -5174,6 +5550,372 @@ def _validate_rework(root, snapshot, receipts, old_binding, plan):
             raise w.WorkflowError("rework must retain the complete original reviewer dispatch/ACK window")
 
 
+def _validate_next12_business_rework_successor(root, snapshot, receipts, old_binding, plan):
+    """Admit only the real unverdicted V1→V3 business correction.
+
+    The original business decision is not renamed as a blocked QA receipt.
+    A later formal blocked/pass verdict still uses the ordinary rework guard.
+    """
+    w = _workflow()
+    task = "fc-20261016-industry-keyword-next-twelve-pages-v1"
+    proof = plan.get("business_rework_successor")
+    required = {"schema_version", "prior_plan", "business_rework_record_id", "rework_dispatch_receipt_id",
+                "rework_ack_receipt_id", "clarification_dispatch_receipt_id", "clarification_ack_receipt_id",
+                "v3_intake_record_id", "limited_content_report"}
+    goal = _goal(root, snapshot)
+    old = load_plan(root, snapshot, old_binding)
+    if (snapshot.get("task_id") != task or not isinstance(goal, dict) or not isinstance(proof, dict)
+            or set(proof) != required or proof.get("schema_version") != 1
+            or proof["prior_plan"] != old_binding.get("pin")
+            or old_binding.get("pin", {}).get("sha256") != "f4f06fdff234156dbe68a66557c4b156ca571868875647f2b7792838878c8ab5"
+            or any(row.get("receipt_type") == "qa_verdict" for row in receipts)
+            or "rework_of" in plan or old is None
+            or plan.get("candidate_version") != "fc-20261016-next12-content-candidate-v3-20261016"
+            or plan.get("candidate", {}).get("sha256") != "fc861ce836a35fff43f7761581f50a3ae0077b7417ec28bc36f8832f94f5f87a"):
+        raise w.WorkflowError("one exact next12 business rework successor without formal verdict required")
+    same = ("task_id", "action_id", "action_class", "scope", "producer_department", "reviewer_department",
+            "reviewer_thread_id", "controller_department", "controller_thread_id", "risk_level",
+            "single_final_reviewer", "production_write_allowed", "external_permission_issued")
+    if (any(old.get(k) != plan.get(k) for k in same)
+            or old_binding.get("goal_identity") != {k: goal[k] for k in GOAL_IDENTITY}
+            or plan["candidate"] == old["candidate"]
+            or plan.get("original_parent_review_source") is None
+            or next12_original_parent_review_context(root, snapshot, receipts, plan) is None):
+        raise w.WorkflowError("successor must preserve V1 goal/reviewer and original parent responsibility")
+    changed, diff, methods = plan.get("changed_scope"), plan.get("evidence_diff"), plan.get("revalidation_methods")
+    if (changed != goal["authorized_scope"] or not isinstance(diff, dict)
+            or diff.get("previous_candidate") != old["candidate"] or diff.get("candidate") != plan["candidate"]
+            or not isinstance(diff.get("summary"), str) or not diff["summary"].strip()
+            or not isinstance(methods, dict) or set(methods) != set(changed)
+            or any(not isinstance(value, str) or not value.strip() for value in methods.values())):
+        raise w.WorkflowError("exact bounded changed scope and V1/V3 evidence diff required")
+    report_pin = proof["limited_content_report"]
+    report = _review_source_document(root, report_pin)
+    if (report.get("schema") != "Root-next12-V3-bounded-independent-content-decision/v1"
+            or report.get("task_id") != task or report.get("identity", {}).get("result_sha256") != plan["candidate"]["sha256"]
+            or report.get("changed_V2_to_V3", {}).get("blocks") != 3
+            or report.get("changed_V2_to_V3", {}).get("mappings") != 5
+            or report.get("original_query_count") != 74 or report.get("assigned_pages") != 12
+            or report.get("formal_qa_verdict_issued") is not False
+            or report.get("production_write_permission_issued") is not False
+            or report.get("Save") != 0 or report.get("push") != 0 or report.get("deploy") != 0):
+        raise w.WorkflowError("actual limited three-block/five-mapping V3 source required")
+    rows = w._result_handoff_rows(root, task)
+    decision = [row for row in rows if row.get("record_id") == proof["business_rework_record_id"]]
+    intake = [row for row in rows if row.get("record_id") == proof["v3_intake_record_id"]]
+    copied_intake = _review_source_document(root, report.get("actual_intake"))
+    if (len(decision) != 1 or len(intake) != 1
+            or decision[0].get("event") != "controller_decision" or decision[0].get("decision") != "rework"
+            or decision[0].get("outbox") != old["candidate"]
+            or decision[0].get("qa_status") != "NOT_VERIFIED"
+            or intake[0].get("event") != "controller_received" or intake[0].get("outbox") != plan["candidate"]
+            or intake[0].get("candidate_version") != plan["candidate_version"]
+            or intake[0].get("sender_department") != plan["producer_department"]
+            or intake[0].get("coordinator_role") != plan["reviewer_department"]
+            or rows.index(decision[0]) >= rows.index(intake[0])
+            or {k: v for k, v in copied_intake.items() if k not in {"result", "controller_handoff"}} != intake[0]
+            or copied_intake.get("result") != "recorded"):
+        raise w.WorkflowError("one exact original business decision and V3 intake required")
+    ids = ("rework_dispatch_receipt_id", "rework_ack_receipt_id", "clarification_dispatch_receipt_id", "clarification_ack_receipt_id")
+    selected = []
+    for name, kind in zip(ids, ("dispatch_sent", "chat_ack", "dispatch_sent", "chat_ack")):
+        matches = [row for row in receipts if row.get("receipt_id") == proof[name]]
+        if len(matches) != 1 or matches[0].get("receipt_type") != kind or matches[0].get("department") != plan["producer_department"]:
+            raise w.WorkflowError("actual producer rework and clarification send/ACK required")
+        selected.append(matches[0])
+    if (not all(receipts.index(selected[i]) < receipts.index(selected[i+1]) for i in range(3))
+            or selected[1].get("ack_nonempty") is not True or selected[3].get("ack_nonempty") is not True
+            or selected[0].get("action_id") != "A1-next12-original74-minimal-three-finding-rework-20261016-v1"
+            or selected[2].get("action_id") != "A1-next12-same-rework-three-insert-prefix-clarification-20261016-v1"
+            or any(row.get("task_id") != task or row.get("scope") != plan["scope"]
+                   or row.get("chat_task_id") != w.department_registry(root)[plan["producer_department"]]["chat_binding"]["task_id"]
+                   for row in selected)
+            or any(selected[i].get(k) != selected[i+1].get(k) for i in (0, 2)
+                   for k in ("task_id", "action_id", "action_class", "scope", "chat_task_id"))
+            or any(row.get("supersedes_receipt_id") in {x["receipt_id"] for x in selected} for row in receipts)
+            or any(w.file_digest(root, pin.get("path", "")) != pin for row in selected for pin in row.get("evidence", []))):
+        raise w.WorkflowError("unaltered ordered producer rework send/ACK chain required")
+    producer_thread = w.department_registry(root)[plan["producer_department"]]["chat_binding"]["task_id"]
+    reviewer_thread = w.department_registry(root)[plan["reviewer_department"]]["chat_binding"]["task_id"]
+    _next12_exact_native_send(root, selected[0], producer_thread, reviewer_thread,
+        "Root-next12-exact-minimal-rework-message.txt", "Root-rework-actual-source-invocation-native.json")
+    _next12_exact_native_send(root, selected[2], producer_thread, reviewer_thread,
+        "three-insert-prefix-clarification-message-PREPARED.txt", "Root-V2-three-prefix-actual-source-invocation-native.json")
+    _next12_ack_source(root, selected[1], selected[0], producer_thread,
+        observation_suffix="Root-rework-real-nonempty-ACK-observation.json")
+    _next12_ack_source(root, selected[3], selected[2], producer_thread,
+        observation_suffix="Root-V2-three-prefix-real-ACK-observation.json")
+    stamps = [w._parse_observed_at(x.get("created_at")) for x in (decision[0], *selected, intake[0])]
+    if any(t is None for t in stamps) or stamps != sorted(stamps) or stamps[-1] > dt.datetime.now(dt.timezone.utc):
+        raise w.WorkflowError("actual business rework chronology required")
+    if not all(_next12_relevant_dispatch_still_current(receipts, dispatch, before_time=stamps[-1])
+               for dispatch in (selected[0], selected[2])):
+        raise w.WorkflowError("later related next12 dispatch failure or replay invalidates original success")
+    return {"business_rework_successor": proof, "formal_qa_issued": False, "old_plan_preserved": old_binding["pin"]}
+
+
+def _validate_post_pass_remaining_stage(root, snapshot, receipts, old_binding, plan):
+    """Admit one received successor stage while keeping its prior PASS immutable."""
+    w = _workflow()
+    stage = plan.get("post_pass_remaining_stage")
+    goal = _goal(root, snapshot)
+    old = load_plan(root, snapshot, old_binding)
+    required = {"prior_plan", "prior_pass_receipt_id", "adoption_journal", "hq_barrier",
+                "producer_dispatch_id", "producer_ack_id", "reviewer_dispatch_id",
+                "reviewer_ack_id", "producer_outbox_receipt_id", "queue_record_id", "intake_record_id"}
+    if (not isinstance(stage, dict) or set(stage) not in (required, required | {"successor_adoption_journal"})
+            or goal is None or old is None
+            or snapshot.get("current_state") != "qa_passed" or stage["prior_plan"] != old_binding["pin"]
+            or old_binding not in _bindings(root, snapshot) or "rework_of" in plan
+            or any(name in plan for name in ("adopted_source_continuation", "owner_direct_review",
+                                              "native_multi_goal_review", "parent_initial_child_review"))):
+        raise w.WorkflowError("exact prior PASS and one explicit remaining-stage source required")
+    same = ("task_id", "action_class", "scope", "producer_department", "reviewer_department",
+            "reviewer_thread_id", "risk_level", "single_final_reviewer",
+            "production_write_allowed", "external_permission_issued")
+    if (any(plan.get(key) != old.get(key) for key in same)
+            or plan["scope"] not in goal["authorized_scope"]
+            or plan["candidate_version"] == old["candidate_version"]
+            or plan["candidate"] == old["candidate"]
+            or plan["action_id"] == old["action_id"]):
+        raise w.WorkflowError("remaining stage must preserve the original goal and freeze a distinct result")
+    verdicts = [(i, row) for i, row in enumerate(receipts) if row.get("receipt_type") == "qa_verdict"]
+    if (not verdicts or verdicts[-1][1].get("verdict") != "pass"
+            or verdicts[-1][1].get("receipt_id") != stage["prior_pass_receipt_id"]
+            or any(verdicts[-1][1].get(key) != old.get(key) for key in
+                   ("task_id", "action_id", "action_class", "scope"))
+            or verdicts[-1][1].get("department") != plan["reviewer_department"]):
+        raise w.WorkflowError("actual latest prior PASS must remain bound to the old plan")
+    try:
+        adoption = _review_source_document(root, stage["adoption_journal"])
+        barrier = _review_source_document(root, stage["hq_barrier"])
+    except (w.WorkflowError, OSError, ValueError, TypeError, KeyError) as exc:
+        raise w.WorkflowError("actual prior adoption and HQ stage barrier required") from exc
+    operations = adoption.get("source_operations", [])
+    if (adoption.get("schema") != "actual-source-adoption-fact-journal/v1"
+            or adoption.get("task_id") != snapshot["task_id"]
+            or adoption.get("candidate_version") != old["candidate_version"]
+            or adoption.get("candidate_manifest") != old["candidate"]
+            or adoption.get("state") != "adopted" or adoption.get("actor") != plan["reviewer_department"]
+            or adoption.get("business_goal_closed") is not False
+            or len(operations) != 1 or operations[0].get("path") != "tools/qa_review_plan.py"
+            or barrier.get("schema") != "HQ-remaining-source-scope-actual-continuation-commit-barrier/v1"
+            or barrier.get("task_id") != snapshot["task_id"]
+            or barrier.get("actual_dispatch_receipt_id") != stage["reviewer_dispatch_id"]
+            or barrier.get("old_V2_initial_responsibility_barrier_retained") is not True
+            or barrier.get("old_V2_QA_and_actual_adoption_not_repeated") is not True
+            or barrier.get("remaining_source_candidate_not_adopted") is not True):
+        raise w.WorkflowError("actual adopted predecessor and committed HQ remaining stage required")
+    current_sha = w.file_digest(root, "tools/qa_review_plan.py")["sha256"]
+    if "successor_adoption_journal" in stage:
+        try:
+            successor = _review_source_document(root, stage["successor_adoption_journal"])
+        except (w.WorkflowError, OSError, ValueError, TypeError, KeyError) as exc:
+            raise w.WorkflowError("actual independently adopted successor source required") from exc
+        operations_next = successor.get("source_operations", [])
+        manifest = _review_source_document(root, plan["candidate"])
+        files = manifest.get("files", [])
+        if (successor.get("schema") != "actual-source-adoption-fact-journal/v1"
+                or successor.get("task_id") != snapshot["task_id"]
+                or successor.get("candidate_version") != plan["candidate_version"]
+                or successor.get("candidate_manifest") != plan["candidate"]
+                or successor.get("state") != "adopted"
+                or successor.get("actor") != plan["reviewer_department"]
+                or successor.get("business_goal_closed") is not False
+                or successor.get("source_readback", {}).get("source_readback_passed") is not True
+                or len(files) != 1 or files[0].get("path") != "tools/qa_review_plan.py"
+                or len(operations_next) != 1 or operations_next[0].get("path") != "tools/qa_review_plan.py"
+                or operations_next[0].get("before_sha256") != operations[0].get("after_sha256")
+                or operations_next[0].get("after_sha256") != files[0].get("after", {}).get("sha256")
+                or current_sha != operations_next[0]["after_sha256"]):
+            raise w.WorkflowError("current source must equal the actually adopted exact successor")
+    elif current_sha != operations[0].get("after_sha256"):
+        raise w.WorkflowError("pre-adoption stage requires the exact adopted predecessor source")
+    indexed = {row.get("receipt_id"): (i, row) for i, row in enumerate(receipts)}
+    if len(indexed) != len(receipts):
+        raise w.WorkflowError("unique original receipt IDs required")
+    labels = ("producer_dispatch_id", "reviewer_dispatch_id", "producer_ack_id", "reviewer_ack_id",
+              "producer_outbox_receipt_id")
+    if any(stage[key] not in indexed for key in labels):
+        raise w.WorkflowError("complete actual remaining-stage receipt chain required")
+    pd_i, pd = indexed[stage["producer_dispatch_id"]]
+    rd_i, rd = indexed[stage["reviewer_dispatch_id"]]
+    pa_i, pa = indexed[stage["producer_ack_id"]]
+    ra_i, ra = indexed[stage["reviewer_ack_id"]]
+    out_i, out = indexed[stage["producer_outbox_receipt_id"]]
+    registry = w.department_registry(root)
+    if (not (verdicts[-1][0] < pd_i < pa_i < out_i and verdicts[-1][0] < rd_i < ra_i < out_i)
+            or any(row.get("task_id") != snapshot["task_id"] or row.get("scope") != plan["scope"]
+                   or row.get("action_class") != "thread_message" or row.get("receipt_type") != "dispatch_sent"
+                   or not row.get("policy_decision_id") for row in (pd, rd))
+            or pd.get("department") != plan["producer_department"]
+            or rd.get("department") != plan["reviewer_department"]
+            or pd.get("chat_task_id") != registry[plan["producer_department"]]["chat_binding"]["task_id"]
+            or rd.get("chat_task_id") != plan["reviewer_thread_id"]
+            or any(ack.get("receipt_type") != "chat_ack" or ack.get("ack_nonempty") is not True
+                   or any(ack.get(key) != dispatch.get(key) for key in
+                          ("task_id", "department", "chat_task_id", "action_id", "action_class", "scope"))
+                   or ack.get("policy_decision_id") not in {"", dispatch["policy_decision_id"]}
+                   for ack, dispatch in ((pa, pd), (ra, rd)))):
+        raise w.WorkflowError("actual HQ producer/reviewer dispatch and nonempty ACK required")
+    policies = w.read_jsonl(root / w.POLICY_DECISIONS)
+    for dispatch in (pd, rd):
+        matches = [row for row in policies if row.get("decision_id") == dispatch["policy_decision_id"]]
+        if (len(matches) != 1 or matches[0].get("status") != "allow"
+                or matches[0].get("task_id") != snapshot["task_id"]
+                or matches[0].get("action_id") != dispatch["action_id"]
+                or matches[0].get("scope") != plan["scope"]
+                or matches[0].get("target_department") != dispatch["department"]
+                or matches[0].get("target_thread_id") != dispatch["chat_task_id"]):
+            raise w.WorkflowError("actual same-goal HQ dispatch policy required")
+        try:
+            sources = [_review_source_document(root, pin) for pin in dispatch.get("evidence", [])
+                       if str(pin.get("path", "")).endswith(".json")]
+            wrappers = [source for source in sources if source.get("actual_thread_id") == dispatch["chat_task_id"]
+                        and isinstance(source.get("exact_consumed_prompt"), dict)
+                        and isinstance(source.get("raw_tool_return"), dict)]
+            native_pages = [_review_raw_native_result(source) for source in sources
+                            if source.get("isError") is False
+                            and any(item.get("type") == "text" and item.get("text", "").startswith("{\"schemaVersion\"")
+                                    for item in source.get("content", []))]
+            if len(wrappers) != 1 or len(native_pages) != 1:
+                raise ValueError("one actual HQ sender source required")
+            prompt_pin = wrappers[0]["exact_consumed_prompt"]
+            if (prompt_pin not in dispatch["evidence"]
+                    or w.file_digest(root, prompt_pin["path"]) != prompt_pin
+                    or matches[0].get("payload_sha256") != prompt_pin["sha256"]):
+                raise ValueError("exact policy payload required")
+            prompt = w.safe_path(root, prompt_pin["path"]).read_text(encoding="utf-8")
+            page = native_pages[0]
+            hq_thread = w.department_registry(root)["operations"]["chat_binding"]["task_id"]
+            calls = [(turn, item) for turn in page.get("turns", []) for item in turn.get("items", [])
+                     if item.get("type") == "mcpToolCall" and item.get("tool") == "send_message_to_thread"
+                     and item.get("status") == "completed"
+                     and item.get("arguments", {}).get("threadId") == dispatch["chat_task_id"]
+                     and item.get("arguments", {}).get("prompt") == prompt]
+            returned = wrappers[0]["raw_tool_return"]
+            reply = _review_raw_native_result(returned)
+            if (page.get("thread", {}).get("id") != hq_thread or len(calls) != 1
+                    or reply != {"threadId": dispatch["chat_task_id"]}
+                    or snapshot["task_id"] not in prompt or plan["scope"] not in prompt):
+                raise ValueError("HQ native send does not bind this stage")
+            _review_native_containers(page["thread"])
+            _review_native_containers(calls[0][0])
+            _review_native_containers(calls[0][1])
+        except (w.WorkflowError, OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+            raise w.WorkflowError("actual native HQ dispatch, prompt and policy required") from exc
+    for ack, dispatch in ((pa, pd), (ra, rd)):
+        try:
+            sources = [_review_source_document(root, pin) for pin in ack.get("evidence", [])
+                       if str(pin.get("path", "")).endswith(".json")]
+            def native_reply(source):
+                wrapped = source.get("schema") == "actual-fixed-chat-ack/v1"
+                if wrapped:
+                    if (source.get("source_thread_id") != dispatch["chat_task_id"]
+                            or source.get("department") != dispatch["department"]
+                            or source.get("task_id") != snapshot["task_id"]
+                            or source.get("original_committed_barrier") != stage["hq_barrier"]
+                            or source.get("ACK_is_actual_current_nonempty") is not True
+                            or source.get("dispatch_is_real") is not True):
+                        return False
+                    dispatch_pin = source.get("actual_dispatch_receipt")
+                    if (_review_source_document(root, dispatch_pin) != dispatch
+                            or w.file_digest(root, dispatch_pin["path"]) != dispatch_pin):
+                        return False
+                    native = _review_raw_native_result(_review_source_document(root, source["actual_native_completion"]))
+                else:
+                    native = source
+                _review_native_containers(native)
+                thread = native.get("thread", {})
+                fixed = registry[dispatch["department"]]["chat_binding"]
+                if (native.get("schemaVersion") != 1 or any(thread.get(key) != value for key, value in
+                        {"id": dispatch["chat_task_id"], "kind": "codex", "hostId": "local",
+                         "title": fixed["title"], "cwd": fixed["cwd"]}.items())
+                        or thread.get("projectId", fixed["project_id"]) != fixed["project_id"]):
+                    return False
+                _review_native_containers(thread)
+                sent, received = (_review_observed_at(row.get("created_at")) for row in (dispatch, ack))
+                updated = thread.get("updatedAt")
+                if (sent is None or received is None or not sent <= received
+                        or type(updated) not in {int, float}
+                        or not sent.timestamp() <= updated <= received.timestamp() + 1):
+                    return False
+                selected = [(turn, index, item) for turn in native.get("turns", [])
+                            for index, item in enumerate(turn.get("items", []))
+                            if item.get("type") == "agentMessage" and isinstance(item.get("text"), str)
+                            and item["text"].strip()]
+                if wrapped:
+                    message = source.get("message", {})
+                    selected = [value for value in selected if value[2] == message]
+                    observed = _review_observed_at(source.get("observed_at"))
+                    reply_pin = source.get("visible_reply")
+                    if (len(selected) != 1 or source.get("turn") != {key: selected[0][0].get(key)
+                            for key in ("id", "status", "startedAt")}
+                            or observed is None or not sent <= observed <= received + dt.timedelta(seconds=1)
+                            or not isinstance(reply_pin, dict)
+                            or w.file_digest(root, reply_pin["path"]) != reply_pin
+                            or w.safe_path(root, reply_pin["path"]).read_bytes() != message["text"].encode("utf-8")):
+                        return False
+                elif len(selected) != 1:
+                    return False
+                turn, index, message = selected[0]
+                _review_native_containers(turn)
+                _review_native_containers(message)
+                start = turn.get("startedAt")
+                # Both genuine chats were already active 23-25 seconds before
+                # the HQ send. The selected reply must follow that turn's
+                # send_message_to_thread output in the same narrow window.
+                if (turn.get("status") not in {"inProgress", "completed"} or turn.get("error") is not None
+                        or message.get("phase") not in {"commentary", "final_answer"}
+                        or type(start) not in {int, float}
+                        or not sent.timestamp() - 60 <= start <= received.timestamp()):
+                    return False
+                before = [item for item in turn["items"][:index]
+                          if item.get("type") == "functionCallOutput"
+                          and item.get("name") == "send_message_to_thread"
+                          and item.get("namespace") == "codex_app"]
+                if len(before) != 1 or any(item.get("type") == "agentMessage"
+                                           for item in turn["items"][index + 1:]):
+                    return False
+                _review_native_containers(before[0])
+                return True
+            if not any(native_reply(source) for source in sources):
+                raise ValueError("one native ACK reply required")
+        except (w.WorkflowError, OSError, ValueError, TypeError, KeyError, AttributeError, IndexError) as exc:
+            raise w.WorkflowError("actual native producer/reviewer ACK required") from exc
+    if (out.get("receipt_type") != "outbox_received" or out.get("department") != plan["producer_department"]
+            or out.get("task_id") != snapshot["task_id"] or len(out.get("evidence", [])) != 1
+            or any(row.get("department") == plan["producer_department"]
+                   and row.get("receipt_type") == "outbox_received" for row in receipts[out_i + 1:])):
+        raise w.WorkflowError("one exact new producer outbox receipt required")
+    pin = out["evidence"][0]
+    producer = _review_source_document(root, pin)
+    if not _producer_candidate_bound(root, plan, pin, producer):
+        raise w.WorkflowError("remaining stage result must bind the new exact candidate")
+    identity = (snapshot["task_id"], plan["producer_department"], plan["candidate_version"], pin["sha256"])
+    rows = w._result_handoff_rows(root, snapshot["task_id"])
+    stage_rows = [row for row in rows if tuple(row.get(field) for field in
+                  ("task_id", "sender_department", "candidate_version", "result_sha256")) == identity]
+    if (sum(row.get("event") == "notification_queued" for row in stage_rows) != 1
+            or sum(row.get("event") == "controller_received" for row in stage_rows) != 1
+            or any(row.get("event") in {"controller_decision", "controller_followthrough"}
+                   for row in stage_rows)):
+        raise w.WorkflowError("remaining stage requires one fresh undecided result intake")
+    for event, key in (("notification_queued", "queue_record_id"), ("controller_received", "intake_record_id")):
+        matches = [row for row in rows if row.get("event") == event and row.get("record_id") == stage[key]
+                   and tuple(row.get(field) for field in
+                             ("task_id", "sender_department", "candidate_version", "result_sha256")) == identity
+                   and row.get("outbox") == pin]
+        if len(matches) != 1:
+            raise w.WorkflowError("actual new READY queue and unique assistant intake required")
+    if next(i for i, row in enumerate(rows) if row.get("record_id") == stage["queue_record_id"]) >= next(
+            i for i, row in enumerate(rows) if row.get("record_id") == stage["intake_record_id"]):
+        raise w.WorkflowError("queue must precede the actual assistant intake")
+    return {"prior_pass_receipt_id": stage["prior_pass_receipt_id"],
+            "producer_outbox_receipt_id": stage["producer_outbox_receipt_id"],
+            "queue_record_id": stage["queue_record_id"], "intake_record_id": stage["intake_record_id"]}
+
+
 def reviewer_department(root: Path, snapshot: dict, *, preparation_only=False) -> str:
     snapshot = _review_context(root, snapshot)
     plan = load_plan(root, snapshot)
@@ -5378,6 +6120,11 @@ def validate_plan(root: Path, snapshot: dict, plan: dict, *, transfer_from=None)
                 or plan.get("risk_level") != "R0"
                 or not _producer_candidate_bound(root, plan, producer_pin, original)):
             raise w.WorkflowError("child review must bind its exact read-only producer candidate/version/result")
+    if "original_parent_review_source" in plan:
+        if (any(name in plan for name in ("owner_direct_review", "native_multi_goal_review",
+                                          "parent_initial_child_review", "review_delegation"))
+                or next12_original_parent_review_context(root, snapshot, plan=plan) is None):
+            raise w.WorkflowError("one exact original next12 parent/child reviewer source required")
 
 
 def bind_plan(root: Path, *, task_id: str, plan_path: str, coordinator_role: str = "operations") -> dict:
@@ -5401,12 +6148,18 @@ def bind_plan(root: Path, *, task_id: str, plan_path: str, coordinator_role: str
         binding = {"pin": pin, "reviewer_department": plan["reviewer_department"]}
         if "adopted_source_continuation" in plan:
             binding["adopted_source_continuation"] = plan["adopted_source_continuation"]
+        if "post_pass_remaining_stage" in plan:
+            binding["post_pass_remaining_stage"] = plan["post_pass_remaining_stage"]
         if "owner_direct_review" in plan:
             binding["owner_direct_review"] = plan["owner_direct_review"]
         if "native_multi_goal_review" in plan:
             binding["native_multi_goal_review"] = plan["native_multi_goal_review"]
         if "parent_initial_child_review" in plan:
             binding["parent_initial_child_review"] = plan["parent_initial_child_review"]
+        if "original_parent_review_source" in plan:
+            binding["original_parent_review_source"] = plan["original_parent_review_source"]
+        if "business_rework_successor" in plan:
+            binding["business_rework_successor"] = plan["business_rework_successor"]
         if modern:
             binding["goal_identity"] = {key: _goal(root, snapshot)[key] for key in GOAL_IDENTITY}
         if old is not None:
@@ -5435,10 +6188,16 @@ def bind_plan(root: Path, *, task_id: str, plan_path: str, coordinator_role: str
         if old is not None:
             if "adopted_source_continuation" in plan:
                 source_continuation = _validate_tnew_adopted_source_continuation(root, snapshot, receipts, old, plan)
+            elif "post_pass_remaining_stage" in plan:
+                remaining_stage = _validate_post_pass_remaining_stage(root, snapshot, receipts, old, plan)
+            elif "business_rework_successor" in plan:
+                business_successor = _validate_next12_business_rework_successor(root, snapshot, receipts, old, plan)
             else:
                 _validate_rework(root, snapshot, receipts, old, plan)
         elif "adopted_source_continuation" in plan:
             raise w.WorkflowError("actual previous immutable source binding required")
+        elif "business_rework_successor" in plan:
+            raise w.WorkflowError("original frozen next12 V1 plan required")
         elif plan.get("rework_of"):
             raise w.WorkflowError("original frozen plan required for rework")
         elif review_history:
@@ -5463,6 +6222,10 @@ def bind_plan(root: Path, *, task_id: str, plan_path: str, coordinator_role: str
             details.update(qa_review_plan_history=history, old_verdict_migrated=False)
             if "adopted_source_continuation" in plan:
                 details["adopted_source_continuation"] = source_continuation
+            elif "post_pass_remaining_stage" in plan:
+                details["post_pass_remaining_stage"] = remaining_stage
+            elif "business_rework_successor" in plan:
+                details["business_rework_successor"] = business_successor
             else:
                 details["rework_of"] = plan["rework_of"]
         snapshot["qa_review_plan"] = binding
@@ -5533,7 +6296,187 @@ def transfer_plan(root: Path, *, task_id: str, plan_path: str, target_role: str,
     return record_assignment_transfer(root, change["result_identity"], change)
 
 
-def _validate_goal_acceptance(root, snapshot, receipts, box, verdict, *, source_pins=None):
+_ORIGINAL_CAUSAL_PRODUCER_ACK = {
+    "task_id": "fc-20261015-industry-keywords-site-coverage-plan-v1",
+    "dispatch_receipt_id": "4a9d7ec9-254f-478b-8275-cf940a75eac5",
+    "ack_receipt_id": "648c70be-a1c6-466d-b1f4-c98b707713a3",
+    "receipt_snapshot": {
+        "path": "logs/handoffs/2026-10-15-industry-keywords-site-coverage-plan-v1/department3-real-nonempty-ACK-receipt.json",
+        "sha256": "b8e6e050776e6495eb9250632f6017aa705b1944b5344e0c8c762222b3489162",
+        "size": 1279,
+    },
+}
+
+
+def _historical_blocked_self_outbox_round(root, snapshot, receipts, box, plan,
+                                          producer, producer_pin, producer_index):
+    """Authenticate the original result/review prefix before later rework."""
+    w = _workflow()
+    if (plan is None or plan.get("candidate") != producer_pin
+            or box.get("qa_verdict") != "blocked"
+            or box.get("candidate_version") != plan.get("candidate_version")
+            or not isinstance(box.get("evidence"), list)
+            or snapshot.get("task_id") != _ORIGINAL_CAUSAL_PRODUCER_ACK["task_id"]):
+        return False
+    later = [(i, row) for i, row in enumerate(receipts)
+             if i > producer_index and row.get("department") == producer
+             and row.get("receipt_type") in {"dispatch_sent", "dispatch_failed"}]
+    if not later:
+        return False
+    fixed = w.department_registry(root)[producer]["chat_binding"]
+    dispatches = [(i, row) for i, row in enumerate(receipts[:producer_index])
+                  if row.get("department") == producer
+                  and row.get("receipt_type") in {"dispatch_sent", "dispatch_failed"}]
+    if not dispatches or dispatches[-1][1].get("receipt_type") != "dispatch_sent":
+        return False
+    dispatch_index, dispatch = dispatches[-1]
+    if (dispatch.get("task_id") != snapshot["task_id"]
+            or dispatch.get("receipt_id") != _ORIGINAL_CAUSAL_PRODUCER_ACK["dispatch_receipt_id"]
+            or dispatch.get("chat_task_id") != fixed["task_id"]
+            or dispatch.get("action_class") != "thread_message"
+            or dispatch.get("scope") != plan["scope"]
+            or not dispatch.get("action_id")
+            or not dispatch.get("policy_decision_id")
+            or not dispatch.get("evidence")):
+        return False
+    acks = [(i, row) for i, row in enumerate(receipts)
+            if dispatch_index < i < producer_index
+            and row.get("department") == producer
+            and row.get("receipt_type") == "chat_ack"]
+    if (len(acks) != 1 or acks[0][1].get("receipt_id") != _ORIGINAL_CAUSAL_PRODUCER_ACK["ack_receipt_id"]
+            or acks[0][1].get("ack_nonempty") is not True
+            or any(acks[0][1].get(key) != dispatch.get(key) for key in
+                   ("task_id", "department", "chat_task_id", "action_id", "action_class", "scope"))
+            or acks[0][1].get("policy_decision_id") not in {"", dispatch["policy_decision_id"]}
+            or acks[0][1].get("approval_id") != dispatch.get("approval_id")
+            or not acks[0][1].get("evidence")
+            or any(row.get("supersedes_receipt_id") in
+                   {dispatch.get("receipt_id"), acks[0][1].get("receipt_id")}
+                   for row in receipts)):
+        return False
+    try:
+        archive_pin = _ORIGINAL_CAUSAL_PRODUCER_ACK["receipt_snapshot"]
+        if w.file_digest(root, archive_pin["path"]) != archive_pin:
+            return False
+        archived = w.read_json(w.safe_path(root, archive_pin["path"]))
+        if (not isinstance(archived, dict)
+                or {key: archived.get(key) for key in acks[0][1]} != acks[0][1]
+                or set(archived) - set(acks[0][1]) != {"result", "workflow_state"}):
+            return False
+        for pin in (*dispatch.get("evidence", []), *acks[0][1].get("evidence", [])):
+            if w.file_digest(root, pin.get("path", "")) != pin:
+                return False
+        dispatch_sources = [w.read_json(w.safe_path(root, pin["path"]))
+                            for pin in dispatch["evidence"] if pin["path"].endswith(".json")]
+        wrappers = [item for item in dispatch_sources if isinstance(item, dict)
+                    and item.get("actual_thread_id") == fixed["task_id"]
+                    and isinstance(item.get("exact_consumed_prompt"), dict)
+                    and isinstance(item.get("raw_tool_return"), dict)]
+        if len(wrappers) != 1:
+            return False
+        wrapper = wrappers[0]
+        prompt_pin = wrapper["exact_consumed_prompt"]
+        if (prompt_pin not in dispatch["evidence"]
+                or w.file_digest(root, prompt_pin["path"]) != prompt_pin):
+            return False
+        prompt = w.safe_path(root, prompt_pin["path"]).read_text(encoding="utf-8")
+        native_sends = [item for source in dispatch_sources if isinstance(source, dict)
+                        and source.get("thread", {}).get("id") != fixed["task_id"]
+                        for turn in source.get("turns", [])
+                        for item in turn.get("items", [])
+                        if item.get("type") == "mcpToolCall"
+                        and item.get("tool") == "send_message_to_thread"
+                        and item.get("status") == "completed"
+                        and item.get("arguments", {}).get("threadId") == fixed["task_id"]
+                        and item.get("arguments", {}).get("prompt") == prompt]
+        returned = wrapper["raw_tool_return"]
+        replies = [json.loads(item.get("text", "")) for item in returned.get("content", [])
+                   if item.get("type") == "text"]
+        if (len(native_sends) != 1 or returned.get("isError") is not False
+                or replies != [{"threadId": fixed["task_id"]}]
+                or snapshot["task_id"] not in prompt or plan["scope"] not in prompt):
+            return False
+        policies = [row for row in w.read_jsonl(root / w.POLICY_DECISIONS)
+                    if row.get("decision_id") == dispatch["policy_decision_id"]]
+        if len(policies) != 1 or any(policies[0].get(key) != value for key, value in (
+                ("status", "allow"), ("routing_status", "routing_allowed"),
+                ("task_id", snapshot["task_id"]), ("action_id", dispatch["action_id"]),
+                ("action_class", dispatch["action_class"]), ("scope", dispatch["scope"]),
+                ("target_department", producer), ("target_thread_id", fixed["task_id"]),
+                ("target_project_id", fixed["project_id"]),
+                ("payload_sha256", prompt_pin["sha256"]))):
+            return False
+        ack_sources = [w.read_json(w.safe_path(root, pin["path"]))
+                       for pin in acks[0][1]["evidence"] if pin["path"].endswith(".json")]
+        ack_at = w._parse_observed_at(acks[0][1].get("created_at"))
+        if not any(source.get("timedOut") is True
+                   and source.get("wake") is None
+                   and any(poll.get("schemaVersion") == 1
+                           and poll.get("thread", {}).get("id") == fixed["task_id"]
+                           and poll.get("thread", {}).get("hostId") == fixed["host_id"]
+                           and isinstance(poll.get("cursor"), str) and poll["cursor"]
+                           and type(poll.get("revision")) is int and poll["revision"] > 0
+                           and poll.get("latestTurn", {}).get("id") == poll.get("latestAssistantMessage", {}).get("turnId")
+                           and poll.get("latestAssistantMessage", {}).get("phase") in {"commentary", "final_answer"}
+                           and poll.get("latestAssistantMessage", {}).get("text", "").strip()
+                           and poll.get("latestAssistantMessageId") == poll["latestAssistantMessage"].get("id")
+                           and ack_at is not None
+                           and type(poll.get("latestTurn", {}).get("startedAt")) in {int, float}
+                           and poll["latestTurn"]["startedAt"] <= ack_at.timestamp()
+                           for poll in source.get("polls", []))
+                   for source in ack_sources if isinstance(source, dict)):
+            return False
+    except (w.WorkflowError, OSError, ValueError, TypeError, KeyError, AttributeError):
+        return False
+    reviewer = plan["reviewer_department"]
+    original = [(i, row, pin) for i, row in enumerate(receipts)
+                if producer_index < i < later[0][0]
+                and row.get("department") == reviewer
+                and row.get("receipt_type") == "outbox_received"
+                for pin in row.get("evidence", [])
+                if pin in box.get("evidence", []) and str(pin.get("path", "")).endswith(".json")]
+    if len(original) != 1:
+        return False
+    original_index, original_receipt, original_pin = original[0]
+    if w.file_digest(root, original_pin["path"]) != original_pin:
+        return False
+    original_box = w.read_json(w.safe_path(root, original_pin["path"]))
+    if not isinstance(original_box, dict):
+        return False
+    if any(original_box.get(key) != box.get(key) for key in
+           ("task_id", "department", "candidate_version", "qa_verdict",
+            "review_identity", "goal_acceptance", "conclusion")):
+        return False
+    identity = (snapshot["task_id"], producer, plan["candidate_version"], producer_pin["sha256"])
+    handoffs = w._result_handoff_rows(root, snapshot["task_id"])
+    queued = [row for row in handoffs if row.get("event") == "notification_queued"
+              and tuple(row.get(key) for key in
+                        ("task_id", "sender_department", "candidate_version", "result_sha256")) == identity
+              and row.get("outbox") == producer_pin]
+    received = [row for row in handoffs if row.get("event") == "controller_received"
+                and tuple(row.get(key) for key in
+                          ("task_id", "sender_department", "candidate_version", "result_sha256")) == identity
+                and row.get("outbox") == producer_pin and row.get("intake_mode") == "queue"]
+    if len(queued) != 1 or len(received) != 1:
+        return False
+    source, intake = queued[0], received[0]
+    if (source.get("result_source_phase") != "delivery_ready"
+            or source.get("batch_delivery_frozen") is not True
+            or source.get("source_thread_id") != fixed["task_id"]
+            or any(intake.get(key) != source.get(key) for key in
+                   ("source_thread_id", "source_turn_id", "source_message_id", "source_reply_sha256"))):
+        return False
+    from result_coordination import _knowledge_native_reply
+    try:
+        _knowledge_native_reply(root, source, fixed, completed=False)
+    except (w.WorkflowError, OSError, ValueError, TypeError, KeyError):
+        return False
+    times = [w._parse_observed_at(row.get("created_at")) for row in
+             (dispatch, acks[0][1], source, intake, receipts[producer_index], original_receipt, later[0][1])]
+    return all(times) and times == sorted(times) and original_index < later[0][0]
+
+
+def _validate_goal_acceptance(root, snapshot, receipts, box, verdict, *, source_pins=None, plan=None):
     """A producer candidate PASS cannot stand in for the complete goal."""
     w = _workflow()
     goal = _goal(root, snapshot)
@@ -5556,7 +6499,7 @@ def _validate_goal_acceptance(root, snapshot, receipts, box, verdict, *, source_
     if not isinstance(pins, dict) or set(pins) != set(goal["producer_departments"]):
         raise w.WorkflowError("complete goal acceptance must bind every producer current outbox pin")
     from goal_delivery_runtime import owner_direct
-    plan = load_plan(root, snapshot)
+    plan = load_plan(root, snapshot) if plan is None else plan
     if source_pins is None:
         source_pins = _candidate_review_source_pins(root, snapshot, plan) if plan else []
     for producer in goal["producer_departments"]:
@@ -5564,12 +6507,17 @@ def _validate_goal_acceptance(root, snapshot, receipts, box, verdict, *, source_
                  if row.get("department") == producer and row.get("receipt_type") == "outbox_received"]
         if not boxes:
             raise w.WorkflowError("complete goal producer result missing")
+        historical = verdict == "blocked" and plan is not None and plan.get("candidate") == pins[producer]
+        if historical:
+            boxes = [(i, row) for i, row in boxes if pins[producer] in row.get("evidence", [])]
+            if len(boxes) != 1:
+                raise w.WorkflowError("one exact historical producer outbox receipt required")
         box_index, receipt = boxes[-1]
         pin = next((p for p in receipt.get("evidence", []) if p.get("path", "").endswith(".json")), None)
         if pin is None or pins[producer] != pin or w.file_digest(root, pin["path"]) != pin:
             raise w.WorkflowError("complete goal producer current result bytes differ")
         if producer == "operations":
-            bound_plan = load_plan(root, snapshot)
+            bound_plan = plan
             if (bound_plan is not None and bound_plan.get("producer_department") == producer
                     and bound_plan.get("action_class") == "runtime_control"):
                 if (bound_plan.get("task_id") != snapshot["task_id"] or bound_plan.get("scope") != goal["authorized_scope"][0]
@@ -5581,8 +6529,13 @@ def _validate_goal_acceptance(root, snapshot, receipts, box, verdict, *, source_
                 received_candidate(root, snapshot, {"producer_department": producer, "action_class": "runtime_control",
                                                     "scope": goal["authorized_scope"][0], "candidate": pin}, receipts, require_intake=True)
             continue
+        # A late historical BLOCKED verdict may use only its authenticated
+        # producer/reviewer source prefix, never an arbitrary earlier round.
+        historical_blocked = (historical and _historical_blocked_self_outbox_round(
+            root, snapshot, receipts, box, plan, producer, pin, box_index))
         dispatches = [i for i, row in enumerate(receipts) if row.get("department") == producer
                       and row.get("receipt_type") in {"dispatch_sent", "dispatch_failed"}
+                      and (not historical_blocked or i < box_index)
                       and not (plan and plan.get("producer_department") == producer
                                and _same_original_source_notice(root, snapshot, receipts, row, plan,
                                                                source_pins=source_pins, producer=True))]
@@ -5807,7 +6760,8 @@ def validate_verdict(root: Path, snapshot: dict, receipts: list, receipt: dict) 
         else:
             direct = owner_direct_review_context(root, snapshot, binding)
             if direct is None:
-                original_child = original_condo_faq_child_review_context(root, snapshot, receipts, plan)
+                original_child = (original_condo_faq_child_review_context(root, snapshot, receipts, plan)
+                                  or next12_original_parent_review_context(root, snapshot, receipts, plan))
                 if original_child is None:
                     raise w.WorkflowError("latest actual reviewer dispatch required, or exact inherited delegation/original owner-direct proof")
                 dispatch, ack = original_child["dispatch"], original_child["ack"]
@@ -5845,6 +6799,15 @@ def validate_verdict(root: Path, snapshot: dict, receipts: list, receipt: dict) 
                  and r.get("receipt_type") == "outbox_received"]
     if not boxes:
         raise w.WorkflowError("current exact reviewer outbox required")
+    if receipt.get("verdict") == "blocked":
+        historical_boxes = [row for row in boxes
+                            if any(pin in receipt.get("evidence", [])
+                                   for pin in row.get("evidence", [])
+                                   if pin.get("path", "").endswith(".json"))]
+        if historical_boxes:
+            if len(historical_boxes) != 1:
+                raise w.WorkflowError("one exact historical reviewer outbox required")
+            boxes = historical_boxes
     now = dt.datetime.now(dt.timezone.utc)
     source = direct or inherited_child
     stamp_values = ([source["reviewer_source_created_at"], boxes[-1].get("created_at"), receipt.get("created_at")]
@@ -5857,9 +6820,9 @@ def validate_verdict(root: Path, snapshot: dict, receipts: list, receipt: dict) 
         raise w.WorkflowError("verdict must reference current exact reviewer outbox bytes")
     box = w.read_json(w.safe_path(root, pin["path"]))
     w.validate_outbox(root, [pin], reviewer, plan["task_id"])
-    if (initial_assignment or plan.get("rework_of")) and (binding["pin"] not in box.get("evidence", []) or plan["candidate"] not in box.get("evidence", [])):
+    if (initial_assignment or plan.get("rework_of") or plan.get("business_rework_successor")) and (binding["pin"] not in box.get("evidence", []) or plan["candidate"] not in box.get("evidence", [])):
         raise w.WorkflowError("initially assigned assistant final outbox must freeze the actual review plan and candidate")
-    if plan.get("rework_of") and box.get("revalidation") != {"changed_scope": plan["changed_scope"], "methods": plan["revalidation_methods"]}:
+    if (plan.get("rework_of") or plan.get("business_rework_successor")) and box.get("revalidation") != {"changed_scope": plan["changed_scope"], "methods": plan["revalidation_methods"]}:
         raise w.WorkflowError("rework verdict must state the exact changed scope and revalidation methods")
     reply = box.get("chat_reply", {})
     if (box.get("task_id") != plan["task_id"] or box.get("department") != reviewer
@@ -5879,7 +6842,35 @@ def validate_verdict(root: Path, snapshot: dict, receipts: list, receipt: dict) 
         raise w.WorkflowError("final reviewer outbox must declare the exact original multi-goal source")
     if inherited_child and box.get("parent_initial_child_review") != inherited_child["proof"]:
         raise w.WorkflowError("final child reviewer outbox must declare the exact original first-send source")
-    _validate_goal_acceptance(root, snapshot, receipts, box, receipt.get("verdict"), source_pins=source_pins)
+    if "original_parent_review_source" in plan:
+        if (binding.get("original_parent_review_source") != plan["original_parent_review_source"]
+                or box.get("original_parent_review_source") != plan["original_parent_review_source"]):
+            raise w.WorkflowError("final reviewer outbox must declare exact original parent responsibility")
+    if "business_rework_successor" in plan:
+        if (binding.get("business_rework_successor") != plan["business_rework_successor"]
+                or box.get("business_rework_successor") != plan["business_rework_successor"]):
+            raise w.WorkflowError("final reviewer outbox must declare exact unverdicted business successor")
+    historical_acceptance = box.get("goal_acceptance")
+    historical_results = (historical_acceptance.get("producer_results")
+                          if isinstance(historical_acceptance, dict) else None)
+    if (receipt.get("verdict") == "blocked" and isinstance(historical_results, dict)
+            and plan.get("candidate") == historical_results.get(plan["producer_department"])):
+        original_index = receipts.index(boxes[-1])
+        current_binding = _binding(root, snapshot)
+        current_plan = load_plan(root, snapshot, current_binding) if current_binding != binding else plan
+        for later in receipts[original_index + 1:]:
+            if later.get("department") != reviewer or later.get("receipt_type") not in {"dispatch_sent", "dispatch_failed"}:
+                continue
+            successor_bound = (current_binding != binding
+                               and current_binding["pin"] in later.get("evidence", [])
+                               and current_plan["candidate"] in later.get("evidence", [])
+                               and later.get("chat_task_id") == current_plan["reviewer_thread_id"]
+                               and later.get("scope") == current_plan["scope"])
+            if not (successor_bound or _same_goal_rework_notice(root, snapshot, receipts, later, current_plan)
+                    or _same_goal_functional_result_notice(root, snapshot, receipts, later, current_plan)):
+                raise w.WorkflowError("later reviewer dispatch must retain its own authenticated round")
+    _validate_goal_acceptance(root, snapshot, receipts, box, receipt.get("verdict"),
+                              source_pins=source_pins, plan=plan)
     if plan.get("producer_department") == "operations":
         from native_control_result import independent_verdict
         independent_verdict(root, snapshot, plan, binding, box, receipt, pin)
@@ -5891,6 +6882,11 @@ def validate_verdict(root: Path, snapshot: dict, receipts: list, receipt: dict) 
                       and r.get("receipt_type") == "outbox_received"]
     if not producer_boxes:
         raise w.WorkflowError("original producer outbox required")
+    if (receipt.get("verdict") == "blocked" and plan.get("candidate") in
+            [pin for row in producer_boxes for pin in row.get("evidence", [])]):
+        producer_boxes = [row for row in producer_boxes if plan["candidate"] in row.get("evidence", [])]
+        if len(producer_boxes) != 1:
+            raise w.WorkflowError("one exact historical producer result required")
     producer_pin = next((p for p in producer_boxes[-1].get("evidence", []) if p.get("path", "").endswith(".json")), None)
     producer = w.read_json(w.safe_path(root, producer_pin["path"])) if producer_pin else {}
     if producer.get("candidate_version") != plan["candidate_version"] or not _producer_candidate_bound(root, plan, producer_pin, producer):

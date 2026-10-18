@@ -227,6 +227,13 @@ def authorization_precheck(root, task_id, request):
     producers = goal.get("producer_departments", [])
     if sender not in {"operations", goal["responsible_assistant"], *producers}:
         raise w.WorkflowError("original goal participant required; no authority delegation by metadata")
+    if request.get('action_id') == 'assign-same-task-technical-review:fc-20261017-next12-old-house-development-handoff-v1':
+        from goal_source_recovery import oldhouse_technical_preflight
+        oldhouse_technical_preflight(root,request)
+        if changes:
+            return outcome('authorization_change_required',changes,confirmation=True)
+        return outcome('within_original_authorization',
+                       ['exact_same_task_technical_responsibility_without_business_owner_transfer'])
     is_notice = (request['action_class']=='thread_message'
                  and request['scope']==f'department_result:{task_id}:{sender}'
                  and request.get('action_id','').startswith('notify-result-'))
@@ -684,11 +691,16 @@ def collaboration_route(root, snapshot, requested):
             observed = w._parse_observed_at(live.get("observed_at"))
             targets = [x for x in live.get("threads", []) if x.get("id") == binding["thread_id"]]
             sources = [x for x in live.get("threads", []) if x.get("id") == source.get("task_id")]
+            from goal_source_recovery import actual_target_turn_status
+            target_state = (actual_target_turn_status(root, live, targets[0],
+                            {**binding, 'task_id': binding['thread_id']})
+                            if len(targets) == 1 else 'unknown_target')
             now = dt.datetime.now(dt.timezone.utc)
             if (observed is None or not 0 <= (now - observed).total_seconds() <= 300
                     or len(targets) != 1 or len(sources) != 1
                     or any(targets[0].get(k) != v for k, v in {"projectId": binding["project_id"],
-                           "title": binding["title"], "cwd": binding["cwd"], "status": "idle"}.items())
+                           "title": binding["title"], "cwd": binding["cwd"]}.items())
+                    or target_state != 'idle'
                     or any(sources[0].get(k) != v for k, v in {"projectId": source.get("project_id"),
                            "title": source.get("title"), "cwd": source.get("cwd")}.items())
                     or live.get("target_sidebar_section_id") != requested.get("target_sidebar_section_id")
@@ -886,6 +898,7 @@ def pending(root, role):
     enabled(root)
     from result_coordination import result_lane, notification_plan
     categories = {key: [] for key in ("pending", "followthrough_pending", "collaboration_pending",
+                    "technical_review_pending",
                     "collaboration_not_proven", "HQ_knowledge_pending", "named_due_dependencies",
                     "named_waiting_dependencies", "historical_resolved_control_records", "completion_followthrough")}
     owned, errors, completion_status = [], [], {}
@@ -899,6 +912,11 @@ def pending(root, role):
                 raise w.WorkflowError("current task snapshot identity differs from its exact path")
             if current_owners.get(path.stem, raw.get("goal_delivery", {}).get("responsible_assistant")) == role:
                 owned.append(path.stem)
+            elif (role == 'operations-assistant-2'
+                  and path.stem == 'fc-20261017-next12-old-house-development-handoff-v1'):
+                from goal_source_recovery import read_oldhouse_technical_source
+                if read_oldhouse_technical_source(root) is not None:
+                    owned.append(path.stem)
         except (w.WorkflowError, ValueError, OSError, KeyError, TypeError, AttributeError) as exc:
             errors.append(_task_block(path.stem, "ownership_unresolved", exc))
     for path in sorted((Path(root) / w.RESULT_HANDOFF_DIR).glob('*.jsonl')):
@@ -971,6 +989,16 @@ def pending(root, role):
                 if raw.get('task_id') != task_id:
                     raise w.WorkflowError("current task snapshot identity differs from its exact path")
                 snapshot = restore_goal(root, raw)
+                if (role == 'operations-assistant-2'
+                        and task_id == 'fc-20261017-next12-old-house-development-handoff-v1'):
+                    from goal_source_recovery import read_oldhouse_technical_source
+                    technical=read_oldhouse_technical_source(root)
+                    if technical is not None:
+                        local['technical_review_pending'].append({**technical,
+                            'status':'awaiting_independent_technical_review',
+                            'business_decision_owner':'operations-assistant',
+                            'technical_verdict_recorded':False,
+                            'production_permission_issued':False})
                 if enabled(root, snapshot) and snapshot['goal_delivery']['responsible_assistant'] == role:
                     receipts, invalid = w._validate_receipt_chain(root, task_id)
                     if invalid or w.validate_workflow_events(root, task_id):
@@ -1911,6 +1939,25 @@ def _collaboration_wait_states(root, snapshot):
             native_pin = _validate_collaboration_native(root, action, record)
             state = states.get(action["action_id"])
             if record["status"] == "sent":
+                if (snapshot.get('task_id') == 'fc-20261017-original204-two-renderer-development-handoff-v1'
+                        and action['action_id'] == 'A1-original204-G01-G03-local-renderer-development-20261017-v1'):
+                    from goal_source_recovery import validate as validate_lf_source
+                    reconciliations=[e.get('details',{}).get('approved_dispatch_lf_reconciliation')
+                        for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)
+                        if e.get('task_id')==snapshot['task_id'] and
+                        e.get('details',{}).get('approved_dispatch_lf_reconciliation')]
+                    if len(reconciliations)!=1:
+                        raise CollaborationProofError('approved_dispatch_lf_reconciliation_missing',
+                            'one real original LF source reconciliation required')
+                    source_pin=reconciliations[0]
+                    if w.file_digest(root,source_pin.get('path',''))!=source_pin:
+                        raise CollaborationProofError('approved_dispatch_lf_reconciliation_changed',
+                            'frozen original LF reconciliation changed')
+                    source=w.read_json(w.safe_path(root,source_pin['path']))
+                    validate_lf_source(root,source)
+                    if source.get('original_collaboration_record')!=pin:
+                        raise CollaborationProofError('approved_dispatch_lf_record_mismatch',
+                            'reconciliation must bind this original sent record')
                 if state:
                     raise CollaborationProofError("collaboration_send_replayed", "original collaboration send cannot be replayed")
                 states[action["action_id"]] = {"task_id": snapshot["task_id"], "action_id": action["action_id"],
@@ -2004,6 +2051,84 @@ def _collaboration_pending(root, snapshot, role, include_terminal=False):
     return pending
 
 
+def _original_markdown_candidate_version(root, snapshot, state, returned, result_path):
+    """Read the two original developer returns without minting a new identity.
+
+    This is deliberately limited to the frozen 316/About collaboration tasks.
+    A Markdown SHA is only useful when the original receipt and completed final
+    independently identify the same local candidate.
+    """
+    exact_tasks = {
+        "fc-20261016-industry-product-316-development-handoff-v1": "本地候选",
+        "fc-20261016-industry-about-development-handoff-v1": "本地候选提交",
+    }
+    task_id = snapshot["task_id"]
+    label = exact_tasks.get(task_id)
+    if label is None or result_path.suffix.lower() != ".md":
+        return None
+    receipt_pin = state["result_receipt"]
+    final_pin = state["visible_reply"]
+    native_pin = state["native_result"]
+    if (w.file_digest(root, receipt_pin["path"]) != receipt_pin
+            or w.file_digest(root, final_pin["path"]) != final_pin
+            or w.file_digest(root, native_pin["path"]) != native_pin
+            or returned.get("task_id") != task_id
+            or returned.get("action_id") != state["action_id"]
+            or returned.get("scope") != state["approved_action"]["scope"]
+            or returned.get("status") != "result_received"
+            or returned.get("target_thread_id") != state["threadId"]
+            or returned.get("policy_decision_id") != state["policy_decision_id"]
+            or returned.get("result") != state["result"]
+            or returned.get("visible_reply") != final_pin
+            or returned.get("actual_native_result") != native_pin
+            or returned.get("result_origin_sha256") != state["result"]["sha256"]
+            or returned.get("independent_acceptance_completed") is not False
+            or returned.get("production_deployed") is not False
+            or returned.get("parent_goal_closed") is not False):
+        raise w.WorkflowError("original Markdown collaboration receipt and frozen native source required")
+    version = returned.get("local_candidate_sha")
+    if not isinstance(version, str) or not re.fullmatch(r"[0-9a-f]{40}", version):
+        raise w.WorkflowError("one exact original local candidate SHA required")
+    try:
+        markdown = result_path.read_text(encoding="utf-8")
+        final = w.safe_path(root, final_pin["path"]).read_text(encoding="utf-8")
+        native = w.read_json(w.safe_path(root, native_pin["path"]))
+    except (UnicodeError, OSError, ValueError) as exc:
+        raise w.WorkflowError("complete original Markdown and native final required") from exc
+    matches = re.findall(r"(?m)^\s*-\s*" + re.escape(label) + r"：`([0-9a-f]{40})`", markdown)
+    message = native.get("message", {})
+    selection = native.get("source_selection", {})
+    raw_pin = returned.get("raw_source")
+    if (not isinstance(raw_pin, dict) or native.get("raw_source") != raw_pin
+            or w.file_digest(root, raw_pin.get("path", "")) != raw_pin):
+        raise w.WorkflowError("original complete native collaboration page pin required")
+    raw = _collaboration_native(root, raw_pin)
+    selected_turns = [turn for turn in raw.get("turns", [])
+                      if turn.get("id") == returned.get("source_turn_id")]
+    selected_messages = [item for turn in selected_turns for item in turn.get("items", [])
+                         if item.get("id") == returned.get("source_message_id")]
+    if (matches != [version] or final.count(version[:8]) != 1
+            or any(document.get("isError") is not False for document in (native, raw) if "isError" in document)
+            or any(document.get(flag) is True for document in (native, raw, message, selection)
+                   for flag in ("failed", "superseded", "truncated"))
+            or any(document.get(flag) is True for document in (*selected_turns, *selected_messages)
+                   for flag in ("failed", "superseded", "truncated"))
+            or native.get("status") != "completed" or native.get("error") is not None
+            or message.get("phase") != "final_answer" or message.get("text") != final
+            or message.get("id") != returned.get("source_message_id")
+            or native.get("turn_id") != returned.get("source_turn_id")
+            or selection.get("selected_source_turn_id") != returned.get("source_turn_id")
+            or selection.get("selected_source_message_id") != returned.get("source_message_id")
+            or selection.get("source_thread_id") != state["threadId"]
+            or raw.get("thread", {}).get("id") != state["threadId"]
+            or len(selected_turns) != 1 or selected_turns[0].get("status") != "completed"
+            or selected_turns[0].get("error") is not None
+            or len(selected_messages) != 1 or selected_messages[0].get("phase") != "final_answer"
+            or selected_messages[0].get("text") != final):
+        raise w.WorkflowError("Markdown candidate SHA must agree with original completed final")
+    return version
+
+
 def collaboration_result_source(root, identity):
     """Read a declared collaboration result without inventing a department outbox.
 
@@ -2036,11 +2161,13 @@ def collaboration_result_source(root, identity):
     except (ValueError, UnicodeError):
         result = {}
     result = result if isinstance(result, dict) else {}
-    version = returned.get("candidate_version") or result.get("candidate_version")
+    markdown_version = _original_markdown_candidate_version(root, snapshot, state, returned, result_path)
+    version = returned.get("candidate_version") or result.get("candidate_version") or markdown_version
     if (not isinstance(version, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9+._-]{0,199}", version)
             or version != identity.get("candidate_version")
             or (returned.get("candidate_version") and result.get("candidate_version")
-                and returned["candidate_version"] != result["candidate_version"])):
+                and returned["candidate_version"] != result["candidate_version"])
+            or (markdown_version is not None and version != markdown_version)):
         raise w.WorkflowError("candidate version must come from the original frozen collaboration result")
     allowed_task=(returned.get('original_task_id') if state.get('source_recovered') else snapshot['task_id'])
     if result.get("task_id", allowed_task) != allowed_task or result.get("department", sender) != sender:

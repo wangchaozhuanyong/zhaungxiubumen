@@ -9,10 +9,10 @@ description: "FLASH CAST 装修视觉与视频专业 Skill。规划、制作、�
 
 ## 开始前与职责边界
 
-- 读取 `AGENTS.md`、本部门 README、注册表中本部门条目、路由规则、七份公司确认资料、相关 brief/原任务回执。
-- 读取 `skills/flashcast-department-learning/SKILL.md`、本部门活动学习记录；`retired_lessons`只供指定历史复现，不加载为新任务默认，有`supersedes`的新经验优先。
+- 启动/续办按共同规则的阶段入口恢复本次brief和原任务；已读未变的规则与公司事实复用。
+- 需要本次相关经验时，按有效视图的source_ref查阅；学习索引不作为派工或新制作步骤。
 - 任务只要整理 Skill 或方案时，不额外生成图片/视频；明确制作或返工才进入生产。输出在本项目 `drafts/creative/<task_id>/<run_id>/`、`delivery/creative/<task_id>/<run_id>/`，不写共享 Skill runtime。
-- 按 `playbooks/department-system-current.md` 的动态注册角色与 `playbooks/department-daily-professional-loop.md` 执行。先续原任务、QA最小返工和依赖齐全事项；普通结果不向其他聊天发送、不打断active、不自行跨部门派工。
+- 按共同规则恢复原任务、助理最小返工和依赖齐全事项；协作与结果通知限原目标已授权的固定部门，工作中的接收方先排队。
 - 先在本固定聊天非空回报，再按真实回执冻结V2、唯一入队及回读；缺原生回执只能如实保留待补，不伪造。停止必列未完范围、唯一负责人、下一动作和解除条件。不扩展生产许可。
 
 只使用注册表的4个生产子 Skill：`full-house-custom-ad`（行业总导演）、`imagegen`（空间/封面素材）、`hyperframes`（正式最终时间线）、`media-use`（媒体冻结与来源）。本地脚本与封面描述词模块不是额外子 Skill。技能维护按当前用户授权，不扩展生产白名单。
@@ -91,4 +91,4 @@ description: "FLASH CAST 装修视觉与视频专业 Skill。规划、制作、�
 
 不编造公司资质、案例、评价、价格、性能、尺寸或客户结果；不把静态图包装成真实连续漫游。不复制参考作品/素材；不保存密码、Token、Cookie等秘密。上传、账号连接、排期、投放、购买、收费服务和客户联系均需准确授权。先在本部门回报实际结果，再写outbox/report，最后记录有证据的部门学习；不修改其他项目或旧交付。
 
-完整目标、整批回报、空闲助理分流和中断恢复只按共同规则 playbooks/department-system-current.md。普通步骤不报审；准确授权内自检后执行到实际发布，最后一次助理验收。后台保存和官网部署各走真实合法通道。
+运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department visual-design-video --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。

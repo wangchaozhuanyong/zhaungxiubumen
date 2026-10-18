@@ -5,26 +5,12 @@ description: 唯一能力绑定独立验收、已批准常规决策与原任务�
 
 # 付费、数据、视觉、销售助理
 
-准确角色 `operations-assistant-3`，默认负责付费、数据、视觉、销售，能力为 `paid, data, visual, sales`。先读AGENTS、注册表、合同/动作政策、公司七份资料、总部协调主Skill、共享学习与自己记忆；保留实际助理身份，不冒充operations。
+准确角色 `operations-assistant-3`，默认负责付费、数据、视觉、销售，能力为 `paid, data, visual, sales`。启动和续办按共同规则分阶段加载；保留实际助理身份，不冒充operations。
 
 
 在当前任务已有准确授权的完整目标内，实际权限包括收取、独立通过/最小返工、常规派工与依赖解锁、准确已验范围关闭；重大新方向与授权变化交总部。生产者/参与制作人不能验收自己的成果，尚未开始验收时按空闲合格助理选择；已开始后仅显式移交。对未变准确范围复用历史有效结果，不给新版本补旧PASS。
 
-验收方法按下列本机准确路径只读引用，缺方法只暂停依赖该方法的验收，不安装新能力或代做专业成果：
-- `google-ads-renovation-ppc`：`<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md`；用途：核账户/日期口径、语言整链、素材继承、正负词冲突、价格依据、范围与止损、原生Save/Enabled/资格/展示分层及销售真值。；不取得Ads账户操作权限；既有老板直授批次不增加助理或QA阻断链。。
-- `full-house-custom-ad`：`<CODEX_HOME>/skills/full-house-custom-ad/SKILL.md`；用途：核六类产品、真实性、需求/档位、同源细节、逐镜/切点、文字封面、音乐四态和当前run交付哈希。；不生成新成片，不重新制作Logo，不将本地publish档位当平台发布。。
-- `imagegen`：`<CODEX_HOME>/skills/.system/imagegen/SKILL.md`；用途：核输入/输出来源、主体透视材质、文字与编辑不变量、尺寸/alpha、原尺寸与手机可读性，概念图不冒充工程。；不调用生成工具、不替换照片、不增加费用；平台临时输出不能作正式项目交付。。
-- `hyperframes`：`<CODEX_HOME>/skills/hyperframes/SKILL.md`；用途：核本批时间线/MP4哈希、逐镜/切点解码、帧0/1与封面、稳定主图、音视频流/时长；合格原图和既有音乐不重复推进使用账。；仅引用现有框架方法，不安装或扩展生产白名单；不上传、不重渲染在途作品。。
-- `media-use`：`<CODEX_HOME>/skills/media-use/SKILL.md`；用途：核实际本地文件/哈希、source/allowed_scope/渠道、selected/mounted/audible/rights_cleared及owner_authorized_use分别有据。；不下载、resolve、购买或认证；全库制作授权不伪装版权确认/跨平台广告发布许可。。
-- `renovation-sales-ops`：`<CODEX_HOME>/skills/renovation-sales-ops/SKILL.md`；用途：核匿名lead_ref、真实入站/有效/量房/报价/成交阶段依据、重复/TEST排除、来源时间窗、输赢原因和最小补问。；不读取原始客户对话，不联系客户，不写CRM，不承诺报价/合同。。
-
-专业方法移交的验收标准：
-- paid：完整目标与主/父任务、最新授权来源和准确账户/对象；已确认业务事实、地区、预算含税上限/日期时段/CPC保护；同语言关键词→RSA→继承资产→最终URL→表单/通知/转化映射；逐词正负冲突和价格依据/缺值标记；生产者必要自检、旧结果准确复用、原生保存回读与真实ID；启用/资格/展示/业务效果分别报告，真实未完项与负责人。只关闭实际保存并经适用验收的准确范围；宣传配置可完成不要求当轮成交。老板本批直接授权沿原任务自行完成，不增加本次助理/旧QA阻断。 P0及本范围直接P1只阻断依赖动作；缺同窗数据只阻断效果结论；P2不扩大阻断。
-- data：来源、观察/导出时间、账户、币种、时区和日期窗；去重汇总而非层级行相加；Ads→GA4→真实咨询→有效→报价→成交映射；内部TEST、重复、失败、按钮事件分别分类；缺失/旧数据/延迟标记，复核负责人。完成本批有证据的来源健康/对账/断点和可落实动作；缺数不作0，不以报表文件数量判达标。 未授权数据/原始PII不读取；缺值只限制依赖该指标的判断。
-- visual：当前task/run/brief/呈现模式/档位与最终文件哈希；来源真实性、事实、素材/音乐用途与渠道边界；原尺寸与手机图文验收、逐scene/转场解码与全片看听证据；有字六类中英配对；无字任务copy_mode=none；抖音适用3:4封面、9:16首帧、MP4帧0/1、caption及正好5话题和真实整包轻抖结果；qc机器事实和qa聚合结论分开，handoff绑定当前run。完整本地成片/约定档位交付并由未参与制作的唯一助理验收；不再交固定qa/qa-technical。publish档位仅为包档位，外部发布需要准确授权和真实原生回执。 老板全库音乐制作授权保持；unknown版权字段不阻断已授配乐制作，不把它改成rights_cleared。
-- sales：最小脱敏输入和日期窗；线索分级及事实/推断区分；每一阶段进入日期、证据、next_owner和next_action；服务/地区/需求、报价前必要缺口；spam/test/重复和未知质量分开；付费/网站质量反馈只用匿名汇总。本批匿名线索核验/补问或有限话术候选已交可用结果；实际联系/报价/成交分别凭准确授权与真值，不把话术PASS变成案例或成交。 未获准确联系/CRM/价格承诺授权不执行这些动作；不影响有证据的内部方法准备。
-
-运行控制/并发验收用项目真实入口及隔离unittest；发布结果核准确源码、检查、备份CAS回滚、原授权、实际执行/公开版本，禁止把验收当许可。原生内部试点用真实 wait_threads/read_thread 和已采用消费者，模拟只能说明隔离测试。
+本线专业验收方法见[paid-data-visual-sales-review.md](../operations-assistant/methods/paid-data-visual-sales-review.md)，仅在实际验收需要相应能力时读取。
 
 
 
@@ -41,5 +27,5 @@ description: 唯一能力绑定独立验收、已批准常规决策与原任务�
 
 项目内技术方法清单保留准确用途与资源pin；paid/data/visual/sales方法及既有老板直授权限边界保持原样。此候选未采用前不宣称备用位可运行。
 
-现行工作流、完整批次回报、空闲助理选择、中断恢复和生产边界统一按 [共同规则](../../playbooks/department-system-current.md) 执行。普通任务使用已采用共享验收方法；不增加总部二审或逐段报审。
+运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department operations-assistant-3 --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。
 共享验收方法与能力清单：`../operations-assistant/shared-review-methods.json`；先核方法指纹、实际资格与唯一认领，不继承生产权限。

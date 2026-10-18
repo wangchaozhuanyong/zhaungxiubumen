@@ -4,11 +4,13 @@
 
 现行模式为 `goal_delivery_assistant_v1`。开始工作读取唯一共同规则正文 [department-system-current.md](playbooks/department-system-current.md)；本文不复制另一套共同流程。历史包、旧学习和未采用候选不作为新任务指令。
 
-开始时读取 README、当前角色注册表、任务合同、动作与委派政策、本部门主 Skill/学习，以及公司七份确认资料：company-context.md、service-area.md、services-and-pricing.md、customer-personas.md、brand-guidelines.md、case-studies.md、faq.md。公司案例、资质、价格和客户/广告数据以真实确认和来源为准，不自行补造。
+首次进入项目时读取README、当前注册表/合同/政策、本部门主Skill和必要公司资料；同任务续办按共同规则的读取时机直接恢复未完处，已读且未变的资料复用。公司七份确认资料为company-context.md、service-area.md、services-and-pricing.md、customer-personas.md、brand-guidelines.md、case-studies.md、faq.md；对外事实使用本次相关的真实确认与来源。
 
 用一次只读有效学习入口读取本部门当前视图：
 
-`python3 tools/flashcast_ops.py department-learning-effective --department <注册部门ID>`
+`python3 tools/flashcast_ops.py department-learning-effective --department <注册部门ID> --phase startup`
+
+续办使用`--phase resume`；上次实际读取的视图可用`--known-rules <项目内视图.json>`识别变化。按rule_context.sources_to_read读取相关正文；实时指派、队列、权限和发布状态仍由原入口核验。
 
 专业方法按注册表白名单；助理验收方法不得用于生产者自审。原学习JSON和旧 next_action 只供追溯。涉及固定聊天通信时，按当前注册表与实际项目、聊天、标题、目录、分组、健康和精确动作许可核对，真实发送与回报后记录，保护原任务和幂等性。
 

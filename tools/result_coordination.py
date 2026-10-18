@@ -543,6 +543,9 @@ def _knowledge_events(root, task_id):
     selected = [event for event in events if event.get('task_id') == task_id]
     if not selected or selected[0].get('state') != 'planned':
         _fail('original planned task and native knowledge source commits required')
+    if (any(event.get('details', {}).get('same_state_formal_qa_commit') for event in selected)
+            and w.validate_workflow_events(Path(root), task_id)):
+        _fail('semantically valid original workflow event order required')
     return selected
 
 
@@ -725,7 +728,9 @@ def _hq_knowledge_source(root, identity, *, require_transport=False):
                 or box.get('review_identity') != {key: plan.get(key) for key in
                     ('task_id', 'action_id', 'action_class', 'scope', 'candidate_version', 'candidate_sha256')}):
             _fail('latest exact formal independent acceptance required; revoked/replaced source rejected')
-        commits = [event for event in events if event.get('state') == 'qa_passed'
+        commits = [event for event in events if (event.get('state') == 'qa_passed'
+                   or (event.get('state') == 'closed'
+                       and event.get('details', {}).get('same_state_formal_qa_commit') is True))
                    and event.get('details', {}).get('qa_receipt_id') == latest['receipt_id']
                    and event.get('details', {}).get('qa_receipt_hash') == latest['receipt_hash']]
         if not commits:
@@ -734,8 +739,24 @@ def _hq_knowledge_source(root, identity, *, require_transport=False):
         accepted_at = w._parse_observed_at(latest.get('created_at'))
         committed_at = w._parse_observed_at(commits[-1].get('created_at'))
         queued_at = w._parse_observed_at(source.get('created_at'))
-        if (any(value is None for value in (bound_at, accepted_at, committed_at, queued_at))
-                or not bound_at <= accepted_at <= committed_at <= queued_at <= dt.datetime.now(dt.timezone.utc)
+        ordinary_order = (all(value is not None for value in
+                    (bound_at, accepted_at, committed_at, queued_at))
+                    and bound_at <= accepted_at <= committed_at <= queued_at <= dt.datetime.now(dt.timezone.utc))
+        # One historical V7 queue was frozen after the real PASS but before the
+        # missing source event could be recovered. Its original hash and ID are
+        # immutable; a real later same-state commit is allowed only for it.
+        original_v7_late_commit = (
+            identity['task_id'] == 'fc-20261015-schema3-qa-outbox-consumer-repair-v1'
+            and source.get('record_id') == '58fd7a4f-bd66-42e6-a9ed-0d9cd62e3321'
+            and source.get('record_hash') == '8390a5670909d9e3c692f3791672f29440d1f816c64e648d58abf43971cd6981'
+            and source.get('result_sha256') == '8c692d924c900d92f6bd00ec2d4ed29017da5e28871ad0c0b80a1bdc53d60b9b'
+            and latest.get('receipt_id') == 'e8bec2bb-152d-4bcc-955e-2ced62516d52'
+            and commits[-1].get('state') == 'closed'
+            and commits[-1].get('details', {}).get('same_state_formal_qa_commit') is True
+            and all(value is not None for value in
+                    (bound_at, accepted_at, committed_at, queued_at))
+            and bound_at <= accepted_at <= queued_at < committed_at <= dt.datetime.now(dt.timezone.utc))
+        if (not (ordinary_order or original_v7_late_commit)
                 or events.index(bound[-1]) >= events.index(commits[-1])):
             _fail('original binding, formal acceptance, native commit and knowledge queue must be ordered')
         candidate = plan.get('candidate', {})
@@ -1825,12 +1846,43 @@ def _received_delivery(root, identity, route):
     return None
 
 
+def _native_queue_identity(root, pin, identity, exact):
+    """Queue delivery needs canonical identities, never history-derived idle."""
+    w = _w()
+    from department_event_dispatcher import native_queue_capability
+    from goal_delivery_runtime import _collaboration_native
+    native_queue_capability(root)
+    if not isinstance(pin, dict) or w.file_digest(root, pin.get('path', '')) != pin:
+        _fail('exact native queue identity observation required')
+    observed = w.read_json(w.safe_path(root, pin['path']))
+    at = w._parse_observed_at(observed.get('observed_at'))
+    if (observed.get('schema') != 'official-native-queue-identities/v1'
+            or at is None or not 0 <= (dt.datetime.now(dt.timezone.utc)-at).total_seconds() <= 300
+            or observed.get('identity') != identity or observed.get('target_thread_id') != exact['target_thread_id']):
+        _fail('fresh original result-specific queue identities required')
+    registry = w.department_registry(root)
+    for role in (identity['sender_department'], exact['target_department']):
+        binding = registry[role]['chat_binding']
+        page = _collaboration_native(root, observed.get('canonical_sources', {}).get(role))
+        thread = page.get('thread', {})
+        if (page.get('source_transport') != 'official_app_server_readonly_history'
+                or any(thread.get(k) != binding.get(v) for k,v in
+                       {'id':'task_id','title':'title','cwd':'cwd'}.items())
+                or Path(binding.get('cwd','')).resolve() != Path(root).resolve()
+                or thread.get('projectId') not in {None, binding.get('project_id')}
+                or not page.get('turns')):
+            _fail('original fixed sender/recipient queue identity differs')
+    return observed
+
+
 def validate_notification_delivery(root, identity):
     """Internal policy hook verifies the lease; public inventory omits its token."""
     identity = exact_identity(identity); route = result_lane(root, identity)
     if route.get('lane') == 'HQ_knowledge':
         hq_knowledge_source(root, identity)
     current = _w().read_json(_notification_path(root, identity))
+    if current.get('native_queue_transport', {}).get('state') in {'sending', 'uncertain', 'accepted'}:
+        _fail('official queue already owns this exact notice; recover original effect, never send twice')
     exact = delivery_identity(root, identity, route=route)
     if (current.get('state') != 'prepared' or current.get('delivery_identity') != exact
             or current.get('delivery_owner') != identity['sender_department']
@@ -1841,25 +1893,28 @@ def validate_notification_delivery(root, identity):
     live_pin = current.get('live_identity', {})
     if _w().file_digest(root, live_pin.get('path', '')) != live_pin:
         _fail('prepared sender live identity changed')
-    live = _w().read_json(_w().safe_path(root, live_pin['path']))
-    observed = _w()._parse_observed_at(live.get('observed_at'))
-    from goal_delivery_runtime import _collaboration_native
-    from qa_review_plan import _review_native_containers
-    _review_native_containers(live)
-    native = _collaboration_native(root, live.get('actual_native_observation'))
-    _review_native_containers(native)
-    targets = [row for row in [*native.get('threads', []), *native.get('pinnedThreads', [])]
-               if row.get('id') == exact['target_thread_id']]
-    binding = _w().department_registry(root)[exact['target_department']]['chat_binding']
-    if (observed is None or not 0 <= (dt.datetime.now(dt.timezone.utc)-observed).total_seconds() <= 300
-            or len(targets) != 1
-            or any(targets[0].get(k) != binding.get(v) for k, v in
-                   {'projectId':'project_id','title':'title','cwd':'cwd'}.items())):
-        _fail('current fresh exact native idle target required before policy or send')
-    from goal_source_recovery import actual_target_turn_status
-    if actual_target_turn_status(root,live,targets[0],binding) != 'idle':
-        _fail('current fresh exact native idle target required before policy or send')
-    _review_native_containers(targets[0])
+    if current.get('delivery_mode') == 'official_native_queue':
+        _native_queue_identity(root, live_pin, identity, exact)
+    else:
+        live = _w().read_json(_w().safe_path(root, live_pin['path']))
+        observed = _w()._parse_observed_at(live.get('observed_at'))
+        from goal_delivery_runtime import _collaboration_native
+        from qa_review_plan import _review_native_containers
+        _review_native_containers(live)
+        native = _collaboration_native(root, live.get('actual_native_observation'))
+        _review_native_containers(native)
+        targets = [row for row in [*native.get('threads', []), *native.get('pinnedThreads', [])]
+                   if row.get('id') == exact['target_thread_id']]
+        binding = _w().department_registry(root)[exact['target_department']]['chat_binding']
+        if (observed is None or not 0 <= (dt.datetime.now(dt.timezone.utc)-observed).total_seconds() <= 300
+                or len(targets) != 1
+                or any(targets[0].get(k) != binding.get(v) for k, v in
+                       {'projectId':'project_id','title':'title','cwd':'cwd'}.items())):
+            _fail('current fresh exact native idle target required before policy or send')
+        from goal_source_recovery import actual_target_turn_status
+        if actual_target_turn_status(root,live,targets[0],binding) != 'idle':
+            _fail('current fresh exact native idle target required before policy or send')
+        _review_native_containers(targets[0])
     store = DeliveryStore(root)
     try:
         store._lease(exact, identity['sender_department'], current.get('coordinator_owner'), current.get('delivery_claim'))
@@ -1962,16 +2017,30 @@ def notification_plan(root, role=None):
             if record.get('next_check_at') and due is None:
                 _fail('notification next check time must be an exact timestamp')
             state = record.get('state')
+            native_queue = record.get('native_queue_transport', {})
+            queue_owned = native_queue.get('state') in {'sending', 'uncertain', 'accepted'}
+            queue_at = _w()._parse_observed_at(native_queue.get('updated_at', native_queue.get('started_at')))
+            queue_recovery_due = (queue_owned and (native_queue.get('state') != 'accepted'
+                or queue_at is None or (dt.datetime.now(dt.timezone.utc)-queue_at).total_seconds() >= 900))
             busy_wait = state == 'deferred' and record.get('defer_reason') == 'actual_target_busy'
             actionable = (not busy_wait and (due is None or due <= dt.datetime.now(dt.timezone.utc))
                           and (state != 'deferred' or due is not None
                                or record.get('defer_reason') == 'actual_target_busy')
                           and (route.get('lane') != 'HQ_knowledge' or route.get('notification_proven') is True))
+            if queue_owned:
+                actionable = queue_recovery_due
             pending.append({**public, 'delivery_identity': exact, 'dedupe_key': key,
-                            'delivery_owner': identity['sender_department'], 'recovery_owner': identity['sender_department'],
+                            'delivery_owner': identity['sender_department'],
+                            'recovery_owner': 'operations' if queue_owned else identity['sender_department'],
                             'purpose': exact['purpose'], 'actionable': actionable,
                             'waiting_for_native_completion': busy_wait,
-                            'next_action': 'record_exact_original_assistant_conclusion'
+                            'waiting_for_actual_intake': queue_owned,
+                            'queue_acceptance_is_intake': False,
+                            'next_action': 'read_exact_native_queue_effect_then_resume_existing_once_if_actually_idle'
+                                           if queue_owned and queue_recovery_due
+                                           else 'await_original_queue_intake_no_resend'
+                                           if queue_owned
+                                           else 'record_exact_original_assistant_conclusion'
                                            if route.get('lane') == 'HQ_knowledge' and not route.get('notification_proven')
                                            else 'read_actual_native_effect' if state == 'sending'
                                            else 'refresh_busy_target_at_next_legal_opportunity'
@@ -1992,12 +2061,15 @@ def notification_plan(root, role=None):
             'native_wakeup_guaranteed': False, 'queue_is_delivery': False, 'no_new_polling_or_automation': True}
 
 
-def notification_claim(root, identity, role, owner, request_id, live_identity, payload, *, recovery_reason='', ttl_seconds=900):
+def notification_claim(root, identity, role, owner, request_id, live_identity, payload, *, recovery_reason='', ttl_seconds=900,
+                       delivery_mode='ordinary'):
     """Only the actual sender prepares delivery; the receiver keeps its review claim."""
     identity = exact_identity(identity); w = _w()
     route = result_lane(root, identity); exact = delivery_identity(root, identity, route=route)
     if role != identity['sender_department']:
         _fail('notification role must be its actual sender, not the accepting assistant')
+    if delivery_mode not in {'ordinary', 'official_native_queue'}:
+        _fail('unknown notification delivery mode')
     queued = notification_enqueue(root, identity)
     intake = _received_delivery(root, identity, route)
     if intake:
@@ -2005,35 +2077,49 @@ def notification_claim(root, identity, role, owner, request_id, live_identity, p
                 'native_record_id': intake['record_id'], 'delivered': queued.get('delivered', False)}
     if queued.get('delivered'):
         return {'result': 'duplicate_ignored', 'delivered': True, 'native_transport': queued['native_transport']}
+    native_queue = queued.get('native_queue_transport', {})
+    if native_queue.get('state') in {'sending', 'uncertain', 'accepted'}:
+        return {'result': 'native_queue_pending', 'delivered': False,
+                'recovery_owner': 'department_event_dispatcher',
+                'native_message_id': native_queue.get('native_message_id'),
+                'notification_responsibility_retained': True, 'native_send_executed': False}
     if route['lane'] == 'HQ_knowledge' and not route.get('notification_proven'):
         _fail('exact formal assistant conclusion required before HQ knowledge delivery')
     if (not isinstance(live_identity, dict) or w.file_digest(root, live_identity.get('path', '')) != live_identity
             or not isinstance(payload, dict) or w.file_digest(root, payload.get('path', '')) != payload):
         _fail('frozen native live identity and exact message bytes required')
-    live = w.read_json(w.safe_path(root, live_identity['path']))
-    observed = w._parse_observed_at(live.get('observed_at')); native_pin = live.get('actual_native_observation')
-    if not isinstance(native_pin, dict) or w.file_digest(root, native_pin.get('path', '')) != native_pin:
-        _fail('original actual native observation pin required')
-    from goal_delivery_runtime import _collaboration_native
-    from qa_review_plan import _review_native_containers
-    _review_native_containers(live)
-    native = _collaboration_native(root, native_pin)
-    _review_native_containers(native)
     binding = w.department_registry(root).get(exact['target_department'], {}).get('chat_binding', {})
-    target = [row for row in [*native.get('threads', []), *native.get('pinnedThreads', [])]
-              if row.get('id') == exact['target_thread_id']]
-    if (observed is None or not 0 <= (dt.datetime.now(dt.timezone.utc)-observed).total_seconds() <= 300
-            or len(target) != 1 or any(target[0].get(k) != binding.get(v) for k,v in
-                 {'projectId':'project_id','title':'title','cwd':'cwd'}.items())
-            or ('sidebarSectionId' in target[0] and target[0]['sidebarSectionId'] != binding.get('sidebar_section_id'))):
-        _fail('fresh exact actual native fixed target identity required')
-    _review_native_containers(target[0])
+    native_queue = delivery_mode == 'official_native_queue'
+    if native_queue:
+        _native_queue_identity(root, live_identity, identity, exact)
+    else:
+        live = w.read_json(w.safe_path(root, live_identity['path']))
+        observed = w._parse_observed_at(live.get('observed_at')); native_pin = live.get('actual_native_observation')
+        if not isinstance(native_pin, dict) or w.file_digest(root, native_pin.get('path', '')) != native_pin:
+            _fail('original actual native observation pin required')
+        from goal_delivery_runtime import _collaboration_native
+        from qa_review_plan import _review_native_containers
+        _review_native_containers(live)
+        native = _collaboration_native(root, native_pin)
+        _review_native_containers(native)
+        target = [row for row in [*native.get('threads', []), *native.get('pinnedThreads', [])]
+                  if row.get('id') == exact['target_thread_id']]
+        if (observed is None or not 0 <= (dt.datetime.now(dt.timezone.utc)-observed).total_seconds() <= 300
+                or len(target) != 1 or any(target[0].get(k) != binding.get(v) for k,v in
+                     {'projectId':'project_id','title':'title','cwd':'cwd'}.items())
+                or ('sidebarSectionId' in target[0] and target[0]['sidebarSectionId'] != binding.get('sidebar_section_id'))):
+            _fail('fresh exact actual native fixed target identity required')
+        _review_native_containers(target[0])
     with coordination_lock(root):
         current = w.read_json(_notification_path(root, identity))
         if _received_delivery(root, identity, route):
             return {'result': 'duplicate_ignored', 'resolved_by_actual_intake': True, 'delivered': current.get('delivered', False)}
         if current.get('delivered'):
             return {'result': 'duplicate_ignored', 'delivered': True, 'native_transport': current['native_transport']}
+        if current.get('native_queue_transport', {}).get('state') in {'sending', 'uncertain', 'accepted'}:
+            return {'result': 'native_queue_pending', 'delivered': False,
+                    'recovery_owner': 'department_event_dispatcher',
+                    'notification_responsibility_retained': True, 'native_send_executed': False}
         if current.get('state') in {'sending', 'sent'} or current.get('call_started_at') or current.get('attempts'):
             _fail('native send effect uncertain/already sent; read its original actual effect before retry')
         if current.get('state') == 'prepared' and current.get('schema_version') != '2.0':
@@ -2041,8 +2127,8 @@ def notification_claim(root, identity, role, owner, request_id, live_identity, p
         if current.get('payload') and current['payload'] != payload:
             _fail('prepared notification exact message cannot be replaced')
         from goal_source_recovery import actual_target_turn_status
-        status = actual_target_turn_status(root,live,target[0],binding)
-        if status != 'idle':
+        status = 'native_queue' if native_queue else actual_target_turn_status(root,live,target[0],binding)
+        if not native_queue and status != 'idle':
             known_busy = status in {'active', 'inProgress', 'running', 'busy'}
             current.update(state='deferred' if known_busy else 'unknown_target', route=route,
                            live_identity=live_identity,
@@ -2061,12 +2147,18 @@ def notification_claim(root, identity, role, owner, request_id, live_identity, p
         current = w.read_json(_notification_path(root, identity))
         if _received_delivery(root, identity, route) or current.get('delivered'):
             return {'result': 'duplicate_ignored', 'delivered': current.get('delivered', False)}
+        if current.get('native_queue_transport', {}).get('state') in {'sending', 'uncertain', 'accepted'}:
+            return {'result': 'native_queue_pending', 'delivered': False,
+                    'recovery_owner': 'department_event_dispatcher',
+                    'notification_responsibility_retained': True, 'native_send_executed': False}
         if current.get('state') in {'sending', 'sent'} or current.get('call_started_at'):
             _fail('native send effect requires actual readback before retry')
         current.update(schema_version='2.0', state='prepared', route=route, delivery_identity=exact,
                        dedupe_key=_delivery_key(exact), purpose=exact['purpose'], live_identity=live_identity,
                        payload=payload, delivery_claim=claim, claim=claim, delivery_owner=role, recovery_owner=role,
                        coordinator_owner=owner, target_thread_id=exact['target_thread_id'], defer_reason='')
+        if native_queue:
+            current['delivery_mode'] = 'official_native_queue'
         w.atomic_write_json(_notification_path(root, identity), current)
     source = w.department_registry(root).get(role, {}).get('chat_binding', {})
     return {'result': 'ready', 'identity': identity, 'delivery_identity': exact,

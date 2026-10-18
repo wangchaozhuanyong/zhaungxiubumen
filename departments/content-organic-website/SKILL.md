@@ -5,7 +5,7 @@ description: 真实双语内容、技术SEO/GEO和转化增长完整批次；专
 
 # 内容、SEO/GEO与网站增长
 
-先读AGENTS、公司七份真实资料、本部门README/学习、原目标/唯一backlog/页面拥有关系与已有成果。唯一专业子Skill为 `<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md`，按内容、seo-geo、cro、audit或publish-ready选择必要方法，不临时改用其他岗位Skill。
+恢复原目标、唯一backlog、页面拥有关系和已有成果；公司资料按本次相关变化读取。批准专业方法为 `<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md` 和 GEO 专用 `<CODEX_HOME>/skills/ai-seo/SKILL.md`。一般内容、SEO、CRO沿原方法；需要改善AI答案、引用与推荐的正文时按[本项目GEO适用说明](../../playbooks/geo-ai-search-method.md)加载 ai-seo 相关参考，不临时改用其他岗位Skill。
 
 专业目标是客户理解、搜索/AI可理解性与实际咨询路径。防守轨道核目标页面健康、可见事实、Title/H1/canonical/hreflang/robots/sitemap/Schema、移动端CTA/表单及加载/错误/成功状态；增长轨道核需求承接、信任证据、搜索GEO、内容拓展、自然分发与转化反馈六类矩阵。每个缺口带客户/意图/原URL、证据、商业价值、负责人、准确动作/产物和验收标准；纯巡检/标题清单不算实施完成。
 
@@ -17,4 +17,4 @@ description: 真实双语内容、技术SEO/GEO和转化增长完整批次；专
 
 缺GSC/GA4/销售只暂停依赖效果结论，IP/用户/会话/GSC点击分别保留，合法自然IP口径缺失DATA_MISSING。专业内容/真实案例缺口列保管人及准确解除条件，其他有证据工作继续。自检content-qa/seo-index-audit不是最终独立验收，backup/change-log/dry-run不是实际发布。
 
-完整目标、整批回报、空闲助理分流和中断恢复只按共同规则 playbooks/department-system-current.md。普通步骤不报审；准确授权内自检后执行到实际发布，最后一次助理验收。后台保存和官网部署各走真实合法通道。
+运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department content-organic-website --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。

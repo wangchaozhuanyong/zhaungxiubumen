@@ -933,15 +933,17 @@ class DailySourceContractTests(unittest.TestCase):
         target.parent.mkdir(parents=True)
         target.write_text(json.dumps(self.contract))
 
-    def test_seven_observed_sources_route_to_one_assistant(self):
+    def test_all_admitted_observed_sources_route_to_one_assistant(self):
         self.seed()
         sources = self.contract["result_handoff_contract"]["scheduled_daily_sources"]
-        self.assertEqual(len(sources), 7)
         observed = {"flash-cast-4": "fc-20261010-website-growth-daily", "automation": "fc-20261010-douyin-music-scout",
                     "flash-cast-3": "fc-20260920-google-ads-rm100-budget-plan",
                     "flash-cast-2": "fc-20261008-sales-template-p2-wording-rework-v2",
                     "flash-cast-5": "fc-20261010-visual-design-video-daily-professional-loop-v1",
-                    "seo-geo-2": "fc-20261010-seo-content-research-daily", "seo-geo-3-seo": "fc-20261010-local-seo-maps-daily"}
+                    "seo-geo-2": "fc-20261010-seo-content-research-daily", "seo-geo-3-seo": "fc-20261010-local-seo-maps-daily",
+                    "flash-cast-19-100": "fc-20261015-renovation-100ep-001"}
+        self.assertEqual({source["automation_id"] for source in sources}, set(observed))
+        self.assertEqual(len({source["automation_id"] for source in sources}), len(sources))
         for source in sources:
             with self.subTest(automation=source["automation_id"]):
                 resolved = ops.workflow.scheduled_result_source(self.root, observed[source["automation_id"]], source["department"])

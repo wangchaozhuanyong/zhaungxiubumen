@@ -91,6 +91,22 @@ def validate_model(contract):
                            ("fixed_qa_new_dispatch_enabled", False), ("single_acceptance_owner", True)):
         if name in current and current[name] is not expected:
             raise ValueError("Obsolete or self-review runtime setting: " + name)
+    reader = current.get("rule_execution")
+    if reader is not None and (not isinstance(reader, dict)
+            or reader.get("model") != "conditional_rule_context_v1"
+            or reader.get("normal_flow_source") != "playbooks/department-system-current.md"
+            or reader.get("reference_source") != "playbooks/department-system-runtime-reference.md"
+            or reader.get("reader") != "tools/department_rule_context.py"
+            or reader.get("default_reference_loading") != "index_only"
+            or reader.get("instruction_reuse_grants_permission") is not False
+            or reader.get("live_assignment_and_action_gates_unchanged") is not True):
+        raise ValueError("Invalid conditional rule-loading contract")
+
+
+def rule_context_dependencies(contract):
+    if contract.get("goal_delivery_runtime", {}).get("rule_execution"):
+        return {"tools/department_rule_context.py", "playbooks/department-system-runtime-reference.md"}
+    return set()
 
 
 def validate_registry(registry, available):
@@ -224,7 +240,11 @@ def validate_payloads(payloads, roles, retired_roles, non_runtime_files):
     historical = non_runtime_paths(payloads, registry)
     if sorted(non_runtime_files) != historical or len(set(non_runtime_files)) != len(non_runtime_files):
         raise ValueError("Manifest non-runtime classification mismatch")
-    validate_model(parse_json(payloads["examples/task-contract.example.json"], "task-contract"))
+    contract = parse_json(payloads["examples/task-contract.example.json"], "task-contract")
+    validate_model(contract)
+    missing_context = rule_context_dependencies(contract).difference(payloads)
+    if missing_context:
+        raise ValueError("Missing conditional rule context dependency: " + ", ".join(sorted(missing_context)))
     for name in CONFIG_NAMES + ("agent-role-policy",):
         value = parse_json(payloads["examples/" + name + ".example.json"], name)
         if not isinstance(value, dict):
@@ -262,12 +282,12 @@ def validate_payloads(payloads, roles, retired_roles, non_runtime_files):
         for node in ast.walk(ast.parse(payloads[rel].decode("utf-8"))):
             if isinstance(node, ast.ImportFrom) and node.module:
                 module = node.module.split(".")[0]
-                if module in {"workflow_control", "department_reply", "goal_delivery_runtime", "department_system_package"} and "tools/" + module + ".py" not in payloads:
+                if module in {"workflow_control", "department_reply", "goal_delivery_runtime", "department_system_package", "department_rule_context"} and "tools/" + module + ".py" not in payloads:
                     raise ValueError("Missing startup module: " + module)
             elif isinstance(node, ast.Import):
                 for alias in node.names:
                     module = alias.name.split(".")[0]
-                    if module in {"workflow_control", "department_reply", "goal_delivery_runtime", "department_system_package"} and "tools/" + module + ".py" not in payloads:
+                    if module in {"workflow_control", "department_reply", "goal_delivery_runtime", "department_system_package", "department_rule_context"} and "tools/" + module + ".py" not in payloads:
                         raise ValueError("Missing startup module: " + module)
     return registry
 
@@ -323,6 +343,8 @@ def validate_current(root):
     root = Path(root)
     contract = parse_json(_normal_file(root, "data/task-contract.json").read_bytes(), "current task-contract")
     validate_model(contract)
+    for rel in rule_context_dependencies(contract):
+        _normal_file(root, rel)
     registry = parse_json(_normal_file(root, "data/department-registry.json").read_bytes(), "current registry")
     if not isinstance(registry, dict) or not isinstance(registry.get("departments"), list):
         raise ValueError("Invalid current dynamic departments")

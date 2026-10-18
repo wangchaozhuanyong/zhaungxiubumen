@@ -38,6 +38,9 @@ def _task(root, task):
 
 
 def _dispatch_source(root, item):
+    if item.get('source_kind') == 'official_native_queue':
+        from goal_source_recovery import queued_assignment_source
+        return queued_assignment_source(root, item)
     if item.get('source_kind') in {'owner_direct_native','historical_native_send'}:
         from goal_source_recovery import validate
         return validate(root,item)
@@ -136,6 +139,13 @@ def record_assignment(root, item, input_pin):
             if not sources:
                 w.append_workflow_event(root,item['task_id'],_task(root,item['task_id'])['current_state'],
                     {'initial_responsibility_assignment_source':input_pin,'external_permission_issued':False})
+        if item.get('source_kind') == 'official_native_queue' and item.get('restore_position') == 'suspended':
+            stack = current.setdefault('suspended_assignments', {}).setdefault(role, [])
+            if input_pin in stack:
+                return {'result':'duplicate_ignored','actual_message_delivered':True}
+            stack.append(input_pin)
+            w.atomic_write_json(path, current)
+            return {'result':'recorded','restore_position':'suspended','actual_message_delivered':True}
         if prior == input_pin: return {'result':'duplicate_ignored','actual_message_delivered':True}
         if prior:
             old = pin_document(root, prior)
@@ -165,6 +175,197 @@ def current_assignment(root, role, pin):
             'native_workflow_state':snapshot.get('current_state'),
             'dispatch_receipt_id':dispatch['receipt_id'],
             'actual_source_receipt':dispatch if dispatch.get('receipt_type')=='native_source_recovered' else None}
+
+
+_THREE_FAMILY_QUEUE_INTENT = {
+    'path': 'logs/handoffs/2026-10-17-assistant1-business-resume-v1/A2-independent/source-candidate-v1-independent/actual-original-SYS-six-findings-native-queue-v1/native-queue-intent.json',
+    'sha256': '76c404a0b403e5397dbf227880525a55392ec2a30c5ee8c0e3e9a79f2b31223e',
+    'size': 316,
+}
+_THREE_FAMILY_QUEUE_RESULT = {
+    'path': 'logs/handoffs/2026-10-17-assistant1-business-resume-v1/A2-independent/source-candidate-v1-independent/actual-original-SYS-six-findings-native-queue-v1/native-queue-result.json',
+    'sha256': 'ab4f2b4767c2364e993cc881a99d323e1a288b2931041cc9b51416ff764f1cbd',
+    'size': 521,
+}
+
+
+def _three_family_original_queue_document(root, pin, fields):
+    """Strictly read the original, frozen raw queue artifact, including flags."""
+    if w.file_digest(root, pin['path']) != pin:
+        raise w.WorkflowError('original three-family queue bytes changed')
+    def unique(pairs):
+        row = {}
+        for key, value in pairs:
+            if key in row:
+                raise ValueError('duplicate original queue field')
+            row[key] = value
+        return row
+    try:
+        value = json.loads(w.validation_bytes(w.safe_path(root, pin['path'])),
+                           object_pairs_hook=unique,
+                           parse_constant=lambda _: (_ for _ in ()).throw(ValueError('nonfinite queue value')))
+    except (TypeError, ValueError) as error:
+        raise w.WorkflowError('unambiguous original queue JSON required') from error
+    if (not isinstance(value, dict) or set(value) != fields
+            or any(value.get(flag) is not None for flag in ('error', 'errors'))
+            or any(flag in value and value[flag] is not False
+                   for flag in ('failed', 'truncated', 'superseded', 'isError'))):
+        raise w.WorkflowError('complete original queue artifact required')
+    return value
+
+
+def _three_family_late_registered_source(root, request, fixed_id, observed, prior, rows):
+    """Authenticate the one original queue/ACK whose receipts were registered later.
+
+    The exception is about receipt registration time only.  The original send,
+    recipient turn and ACK must all precede the frozen V2 READY declaration.
+    """
+    task = 'fc-20261017-assistant1-original-source-recovery-v1'
+    if (request.get('task_id') != task or fixed_id != '<LOCAL_TASK_ID>'
+            or request.get('candidate_version') != 'assistant1-three-family-source-recovery-v2-20261017'
+            or request.get('result_sha256') != '17990308ffd05675e953eb6481bf1b1a1b73b5570b40d27c8554c9ab9ed4b0ca'
+            or request.get('source_turn_id') != 'example-native-0b26ee911b581d91'
+            or request.get('source_message_id') != 'msg_dd72e912662084235c829af3350462d3e199f1a032ae49ec2877f2598f844b60'
+            or observed != w._parse_observed_at('2026-10-17T11:26:18.793148+00:00')):
+        return False
+    queue_time = w._parse_observed_at(request.get('created_at'))
+    if request.get('record_id') != '4755e642-e547-48ee-a610-bfaa49355b29' or queue_time is None:
+        return False
+    late = [r for r in prior if w._parse_observed_at(r.get('created_at')) > observed]
+    ids = {'e81c834c-5165-4d76-8e48-b5944fa4813a',
+           '2d8be56f-6197-4941-873a-1a91550e0ac4'}
+    original = [r for r in late if r.get('receipt_id') in ids]
+    future = [r for r in late if r.get('receipt_id') not in ids]
+    if (len(original) != 2 or {r.get('receipt_id') for r in original} != ids
+            or any(w._parse_observed_at(r.get('created_at')) <= queue_time or
+                   r.get('action_id') == 'A2-three-family-v1-six-findings-original-SYS-rework-20261017-v1'
+                   for r in future)):
+        return False
+    dispatch, ack = original
+    scope = 'project:flashcast:assistant1-original-source-recovery:v1'
+    action = 'A2-three-family-v1-six-findings-original-SYS-rework-20261017-v1'
+    # This narrow late-registration exception cannot reuse an older success if
+    # the same action failed or was sent again before the frozen READY.
+    if any(row.get('department') == 'system-development'
+           and row.get('chat_task_id') == fixed_id and row.get('action_id') == action
+           and row.get('receipt_type') in {'dispatch_failed', 'dispatch_sent'}
+           and row.get('receipt_id') not in ids
+           and (stamp := w._parse_observed_at(row.get('created_at'))) is not None
+           and stamp <= observed for row in rows):
+        return False
+    if (dispatch.get('receipt_id') != 'e81c834c-5165-4d76-8e48-b5944fa4813a'
+            or ack.get('receipt_id') != '2d8be56f-6197-4941-873a-1a91550e0ac4'
+            or dispatch.get('receipt_type') != 'dispatch_sent' or ack.get('receipt_type') != 'chat_ack'
+            or ack.get('ack_nonempty') is not True
+            or any(row.get(k) != value for row in (dispatch, ack) for k, value in
+                   {'task_id':task,'department':'system-development','chat_task_id':fixed_id,
+                    'scope':scope,'action_id':action,'policy_decision_id':'pol-06dc64236bfb49a78f93'}.items())
+            or dispatch.get('evidence') != ack.get('evidence')
+            or any(w.file_digest(root, p.get('path','')) != p for p in dispatch['evidence'])):
+        return False
+    evidence = {p['sha256']:p for p in dispatch['evidence']}
+    if set(evidence) != {
+            '51346f461d10b0028c1f3ddf3b95702c20fb671ec79e9e75d25352b08813aef0',
+            '59413b59022ebdb30172559ffcb75d03b4242c687d4838764242a25f162aa917',
+            '2747eb597239b7b2444b6877e41cfd217e120fc7b07959eadd63881a7c17f52c'}:
+        return False
+    source = pin_document(root,evidence['51346f461d10b0028c1f3ddf3b95702c20fb671ec79e9e75d25352b08813aef0'])
+    action_source = pin_document(root,evidence['2747eb597239b7b2444b6877e41cfd217e120fc7b07959eadd63881a7c17f52c'])
+    payload = source.get('payload')
+    if (source.get('task_id') != task or source.get('action_id') != action
+            or source.get('message_resent') is not False
+            or source.get('actual_receiving_turn') != request['source_turn_id']
+            or source.get('actual_userMessage_id') != 'example-native-53bf67606361950b'
+            or source.get('actual_nonempty_ACK_id') != 'msg_1018be03882170dcbf2d42f309191a4b5486c741bf7e8867922a29eac1af6ab6'
+            or not isinstance(source.get('actual_nonempty_ACK_UTF8'),str)
+            or not source['actual_nonempty_ACK_UTF8'].strip()
+            or not isinstance(payload,dict) or w.file_digest(root,payload.get('path','')) != payload
+            or action_source.get('payload') != payload
+            or any(action_source.get(k) != value for k,value in
+                   {'task_id':task,'action_id':action,'scope':scope,
+                    'target_thread_id':fixed_id,'target_department':'system-development',
+                    'decision_record_id':'983445f4-27df-4353-8bb3-8366f6207ee8'}.items())):
+        return False
+    intent = _three_family_original_queue_document(root, _THREE_FAMILY_QUEUE_INTENT,
+        {'started_at', 'thread_id', 'payload_sha256', 'policy_decision_id', 'transport', 'intake_claimed'})
+    result = _three_family_original_queue_document(root, _THREE_FAMILY_QUEUE_RESULT,
+        {'started_at', 'thread_id', 'payload_sha256', 'policy_decision_id', 'transport',
+         'intake_claimed', 'finished_at', 'exit_code', 'stdout', 'stderr'})
+    start = w._parse_observed_at(intent.get('started_at'))
+    finish = w._parse_observed_at(result.get('finished_at'))
+    if (intent.get('thread_id') != fixed_id or intent.get('payload_sha256') != payload['sha256']
+            or intent.get('policy_decision_id') != dispatch['policy_decision_id']
+            or intent.get('transport') != 'official_codex_queue' or intent.get('intake_claimed') is not False
+            or result.get('thread_id') != fixed_id or result.get('payload_sha256') != payload['sha256']
+            or result.get('policy_decision_id') != dispatch['policy_decision_id']
+            or result.get('started_at') != intent.get('started_at')
+            or result.get('transport') != intent.get('transport')
+            or result.get('intake_claimed') is not False
+            or type(result.get('exit_code')) is not int or result.get('exit_code') != 0
+            or result.get('stderr') != ''
+            or result.get('stdout') != 'Queued message example-native-e1b2c472568d116b for thread '+fixed_id+'.\n'
+            or start is None or finish is None or start > finish or finish > observed):
+        return False
+    sender_page = native(root,evidence['59413b59022ebdb30172559ffcb75d03b4242c687d4838764242a25f162aa917'])
+    receiver_page = native(root,source['actual_native_recipient'])
+    registry = w.department_registry(root)
+    source_binding = registry['operations-assistant-2']['chat_binding']
+    target_binding = registry['system-development']['chat_binding']
+    policies = [p for p in w.read_jsonl(Path(root) / w.POLICY_DECISIONS)
+                if p.get('decision_id') == dispatch['policy_decision_id']]
+    if len(policies) != 1:
+        return False
+    policy = policies[0]
+    checked_at = w._parse_observed_at(policy.get('checked_at'))
+    expected_policy = {
+        'status': 'allow', 'routing_status': 'routing_allowed',
+        'action_class': 'thread_message', 'task_id': task,
+        'department': 'operations-assistant-2', 'target_department': 'system-development',
+        'action_id': action, 'scope': scope, 'payload_sha256': payload['sha256'],
+        'source_project_id': source_binding['project_id'],
+        'target_project_id': target_binding['project_id'],
+        'target_thread_id': fixed_id, 'target_thread_title': target_binding['title'],
+        'target_cwd': target_binding['cwd'],
+        'target_sidebar_section_id': target_binding['sidebar_section_id'],
+    }
+    if (any(policy.get(key) != value for key, value in expected_policy.items())
+            or checked_at is None or start is None or checked_at > start):
+        return False
+    for page, role in ((sender_page,'operations-assistant-2'),(receiver_page,'system-development')):
+        binding = registry[role]['chat_binding']
+        if any(page.get('thread',{}).get(k) != binding.get(v) for k,v in
+               {'id':'task_id','title':'title','cwd':'cwd'}.items()):
+            return False
+    calls = [(turn,item) for turn in sender_page.get('turns',[]) for item in turn.get('items',[])
+             if item.get('id') == 'exec-58330fd9-4e3d-4858-9e2c-40f00bf2c0ea']
+    if (len(calls) != 1 or calls[0][0].get('status') not in {'completed','inProgress'}
+            or calls[0][0].get('error') or calls[0][1].get('type') != 'commandExecution'
+            or calls[0][1].get('status') != 'completed' or calls[0][1].get('exitCode') != 0
+            or calls[0][1].get('cwd') != action_source.get('target_cwd')
+            or type(calls[0][0].get('startedAt')) not in {int,float}
+            or not calls[0][0]['startedAt'] <= checked_at.timestamp() <= start.timestamp()
+            or not start <= finish):
+        return False
+    turns = [turn for turn in receiver_page.get('turns',[])
+             if turn.get('id') == source['actual_receiving_turn']]
+    if len(turns) != 1 or turns[0].get('status') not in {'completed','inProgress'} or turns[0].get('error'):
+        return False
+    turn = turns[0]
+    messages = [(i,item) for i,item in enumerate(turn.get('items',[]))
+                if item.get('id') in {source['actual_userMessage_id'],source['actual_nonempty_ACK_id'],
+                                      request['source_message_id']}]
+    if (len(messages) != 3 or [item.get('id') for _,item in messages] !=
+            [source['actual_userMessage_id'],source['actual_nonempty_ACK_id'],request['source_message_id']]
+            or messages[0][1].get('type') != 'userMessage'
+            or messages[0][1].get('content') != [{'type':'text','text':w.safe_path(root,payload['path']).read_text(encoding='utf-8')}]
+            or messages[1][1].get('type') != 'agentMessage'
+            or messages[1][1].get('phase') not in {'commentary','final_answer'}
+            or messages[1][1].get('text') != source['actual_nonempty_ACK_UTF8']
+            or messages[2][1].get('type') != 'agentMessage'
+            or type(turn.get('startedAt')) not in {int,float}
+            or not finish.timestamp() <= turn['startedAt'] <= observed.timestamp()):
+        return False
+    return True
 
 
 def ready_source(root, request, fixed_id, *, scheduled=False):
@@ -241,9 +442,12 @@ def ready_source(root, request, fixed_id, *, scheduled=False):
                       and inherited.get('production_permissions_inherited') is False
                       and all(w._parse_observed_at(inherited[k]['created_at']) <= observed
                               for k in ('dispatch','ack')))
+    late_prior = any(w._parse_observed_at(r['created_at'])>observed for r in prior) if observed else True
+    recovered = (not scheduled and late_prior and not bad and prior_ok and
+                 _three_family_late_registered_source(root,request,fixed_id,observed,prior,rows))
     if (bad or (not scheduled and not prior_ok) or observed is None or observed>dt.datetime.now(dt.timezone.utc)
             or type(start) not in {int,float} or start>observed.timestamp()
-            or any(w._parse_observed_at(r['created_at'])>observed for r in prior)):
+            or (late_prior and not recovered)):
         raise w.WorkflowError('ready declaration requires preceding actual task dispatch/ACK')
     return {**{k:request[k] for k in ('source_turn_id','source_thread_id','source_message_id',
                 'source_reply_sha256','reply_observed_at','actual_native_completion','visible_reply')},

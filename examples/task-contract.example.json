@@ -832,6 +832,16 @@
         "selfcheck_candidate_backup_CAS_protected_preview_single_use_required": true,
         "final_independent_assistant_acceptance": "after_actual_Save_version_readback_and_public_proof"
       }
+    },
+    "rule_execution": {
+      "model": "conditional_rule_context_v1",
+      "normal_flow_source": "playbooks/department-system-current.md",
+      "reference_source": "playbooks/department-system-runtime-reference.md",
+      "reader": "tools/department_rule_context.py",
+      "default_reference_loading": "index_only",
+      "unchanged_instruction_read_reuse": true,
+      "instruction_reuse_grants_permission": false,
+      "live_assignment_and_action_gates_unchanged": true
     }
   },
   "public_template": true

@@ -54,10 +54,12 @@
       "role_config": ".codex/agents/paid-growth-data.toml",
       "department_readme": "departments/paid-growth-data/README.md",
       "approved_subskills": [
-        "google-ads-renovation-ppc"
+        "google-ads-renovation-ppc",
+        "chatgpt-ads"
       ],
       "approved_subskill_paths": [
-        "<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md"
+        "<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md",
+        "<CODEX_HOME>/skills/chatgpt-ads/SKILL.md"
       ],
       "input_paths": [
         "data/google-ads/",
@@ -94,10 +96,12 @@
       "role_config": ".codex/agents/content-organic-website.toml",
       "department_readme": "departments/content-organic-website/README.md",
       "approved_subskills": [
-        "renovation-seo-geo"
+        "renovation-seo-geo",
+        "ai-seo"
       ],
       "approved_subskill_paths": [
-        "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md"
+        "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md",
+        "<CODEX_HOME>/skills/ai-seo/SKILL.md"
       ],
       "input_paths": [
         "company-context.md",
@@ -225,10 +229,12 @@
       "role_config": ".codex/agents/seo-content-research.toml",
       "department_readme": "departments/seo-content-research/README.md",
       "approved_subskills": [
-        "renovation-seo-geo"
+        "renovation-seo-geo",
+        "ai-seo"
       ],
       "approved_subskill_paths": [
-        "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md"
+        "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md",
+        "<CODEX_HOME>/skills/ai-seo/SKILL.md"
       ],
       "input_paths": [
         "company-context.md",
@@ -271,10 +277,12 @@
       "role_config": ".codex/agents/local-seo-maps.toml",
       "department_readme": "departments/local-seo-maps/README.md",
       "approved_subskills": [
-        "renovation-seo-geo"
+        "renovation-seo-geo",
+        "ai-seo"
       ],
       "approved_subskill_paths": [
-        "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md"
+        "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md",
+        "<CODEX_HOME>/skills/ai-seo/SKILL.md"
       ],
       "input_paths": [
         "company-context.md",
@@ -433,8 +441,8 @@
         "production_write_allowed": false,
         "shared_review_methods": {
           "path": "departments/operations-assistant/shared-review-methods.json",
-          "sha256": "ab35e5662efe6c9f16255edfd4414b60c94a460a33ae3be02ea54c2709021adf",
-          "size": 5498
+          "sha256": "74b7d0242efc68f7466273575d35a65bca6fccb14f1cda0d58413d00d9cdc798",
+          "size": 5776
         },
         "ordinary_result_selection": "idle_qualified_then_primary_match_queue_registry_order"
       },
@@ -537,8 +545,8 @@
         "production_write_allowed": false,
         "shared_review_methods": {
           "path": "departments/operations-assistant/shared-review-methods.json",
-          "sha256": "ab35e5662efe6c9f16255edfd4414b60c94a460a33ae3be02ea54c2709021adf",
-          "size": 5498
+          "sha256": "74b7d0242efc68f7466273575d35a65bca6fccb14f1cda0d58413d00d9cdc798",
+          "size": 5776
         },
         "ordinary_result_selection": "idle_qualified_then_primary_match_queue_registry_order"
       },
@@ -627,7 +635,7 @@
           ],
           "explicit_transfer_required": true,
           "production_write_allowed": false,
-          "professional_skill_sha256": "9ccff6d253023bf609abff8d422e084db37b213a4276f758bffd7256887f8e47",
+          "professional_skill_sha256": "43fec8bddfaa545ec7a176b6098713847b3167632b6895d6e0b83006d3c59daa",
           "method_manifest": {
             "path": "departments/operations-assistant-3/technical-backup-methods.json",
             "sha256": "8a48fcca8eed78ceeffcf0ef065e92a48f4d071d132e31284519498614e13e7f",
@@ -636,8 +644,8 @@
         },
         "shared_review_methods": {
           "path": "departments/operations-assistant/shared-review-methods.json",
-          "sha256": "ab35e5662efe6c9f16255edfd4414b60c94a460a33ae3be02ea54c2709021adf",
-          "size": 5498
+          "sha256": "74b7d0242efc68f7466273575d35a65bca6fccb14f1cda0d58413d00d9cdc798",
+          "size": 5776
         },
         "ordinary_result_selection": "idle_qualified_then_primary_match_queue_registry_order"
       },

@@ -14,6 +14,38 @@ class NumericPrivacyTests(unittest.TestCase):
     write = fixtures.ExportTests.write
     write_json = fixtures.ExportTests.write_json
 
+    def test_shared_review_resource_paths_are_portable_and_pins_match(self):
+        import hashlib
+        method = 'departments/operations-assistant-2/methods/review.md'
+        self.write(method, '# Independent review method\n')
+        raw = (self.root / method).read_bytes()
+        pin = {'path': method, 'sha256': hashlib.sha256(raw).hexdigest(), 'size': len(raw)}
+        shared = 'departments/operations-assistant-2/shared-review-methods.json'
+        private = '<CODEX_HOME>/skills/example-review/SKILL.md'
+        self.write_json(shared, {'schema': 'ordinary-shared-review-methods/v1',
+            'methods': {'development': [pin]}, 'production_permissions_inherited': False,
+            'producer_self_review_allowed': False,
+            'resources': {'example-review': {'path': private, 'sha256': '0' * 64, 'size': 1}}})
+        registry = json.loads((self.root / 'data/department-registry.json').read_text())
+        for row in registry['departments']:
+            if row['id'] == 'operations-assistant-2':
+                data = (self.root / shared).read_bytes()
+                row['coordination_authority']['shared_review_methods'] = {
+                    'path': shared, 'sha256': hashlib.sha256(data).hexdigest(), 'size': len(data)}
+        self.write_json('data/department-registry.json', registry)
+        original = (self.root / shared).read_bytes()
+        export.prepare(self.root, self.target)
+        package.validate_release(self.target)
+        exported = (self.target / shared).read_bytes()
+        document = json.loads(exported)
+        self.assertEqual(document['resources']['example-review']['path'],
+                         '<CODEX_HOME>/skills/example-review/SKILL.md')
+        public_registry = json.loads((self.target / 'examples/department-registry.example.json').read_text())
+        reviewer = next(row for row in public_registry['departments'] if row['id'] == 'operations-assistant-2')
+        self.assertEqual(reviewer['coordination_authority']['shared_review_methods']['sha256'],
+                         hashlib.sha256(exported).hexdigest())
+        self.assertEqual((self.root / shared).read_bytes(), original)
+
     def test_consistent_native_formats_and_csv(self):
         # Assembly keeps public re-exports from rewriting the test's source data.
         original = "12345" + "678901"

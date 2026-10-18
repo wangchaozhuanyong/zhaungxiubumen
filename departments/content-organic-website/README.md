@@ -2,7 +2,7 @@
 
 这是一个合并部门，统一承接原来的内容营销部、SEO/GEO 部和网站转化部。
 
-固定专业子 Skill：`<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md`。涉及内容、SEO/GEO 或 CRO 时必须加载，不自行挑选其他 Skill。
+批准专业方法：`<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md`及GEO专用`<CODEX_HOME>/skills/ai-seo/SKILL.md`。按[本项目GEO适用说明](../../playbooks/geo-ai-search-method.md)和本次任务选择相关方法，不自行扩展白名单。
 
 ## 负责什么
 

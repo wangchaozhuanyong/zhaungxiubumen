@@ -1,6 +1,6 @@
 # 付费增长与转化数据部
 
-统一负责Google Ads/PPC、数据与转化分析和追踪诊断。固定专业子Skill：`<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md`。
+统一负责Google Ads/PPC、ChatGPT付费广告规划与已授权执行、数据与转化分析和追踪诊断。批准专业方法：`<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md`及`<CODEX_HOME>/skills/chatgpt-ads/SKILL.md`，按任务平台加载；ChatGPT广告见[本项目适用说明](../../playbooks/chatgpt-paid-ads-method.md)。技能配置不等于广告账户接通或新增预算授权。
 
 ## 唯一入口
 

@@ -13,6 +13,129 @@ import managed_cms_permit_issuer as cms
 import test_goal_runtime_consumers as fixture
 
 
+class OfficialQueueAssignmentTests(unittest.TestCase):
+    setUp=fixture.GoalRuntimeConsumerTests.setUp
+    write=fixture.GoalRuntimeConsumerTests.write
+    initialize=fixture.GoalRuntimeConsumerTests.initialize
+    make_goal=fixture.GoalRuntimeConsumerTests.make_goal
+    snapshot=fixture.GoalRuntimeConsumerTests.snapshot
+    requested=fixture.GoalRuntimeConsumerTests.requested
+
+    def queued(self):
+        registry=w.read_json(self.root/'data/department-registry.json')
+        for row in registry['departments']:
+            if row['id']==fixture.ASSISTANT:
+                row['chat_binding']['task_id']='11111111-1111-4111-8111-111111111111'
+        w.atomic_write_json(self.root/'data/department-registry.json',registry)
+        self.initialize();goal=self.snapshot()['goal_delivery'];contract=self.snapshot()['goal_contract']
+        payload='reports/queued-assignment.txt'
+        (self.root/payload).write_text(self.task_id+' contract '+contract['path'])
+        request=self.requested(sender='operations',target=fixture.ASSISTANT,
+                               scope=goal['authorized_scope'][0],payload=w.file_digest(self.root,payload))
+        fixed=w.department_registry(self.root)[fixture.ASSISTANT]['chat_binding']
+        source=w.department_registry(self.root)['operations']['chat_binding']
+        now=dt.datetime.now(dt.timezone.utc)-dt.timedelta(seconds=1)
+        native=self.write('reports/queue-target.json',{'thread':{'id':fixed['task_id'],
+            'title':fixed['title'],'cwd':fixed['cwd']},'turns':[{'status':'inProgress'}]})
+        request.update(action_id='assign-goal-review:'+self.task_id,delivery_mode='official_native_queue',
+            assignment_record_required=True,authorization_changes=[],actual_target_state=w.file_digest(self.root,native))
+        with mock.patch('department_event_dispatcher.native_queue_capability',return_value='/fixture/cli'), \
+                mock.patch.object(w,'utc_timestamp',return_value=(now-dt.timedelta(seconds=10)).isoformat()):
+            prepared=recovery.prepare_message(self.root,request)
+        self.assertEqual(prepared['status'],'ready_to_queue',prepared)
+        rp=self.write('reports/original-prepare.json',request)
+        pp=self.write('reports/original-prepared-result.json',prepared)
+        qid='22222222-2222-4222-8222-222222222222'
+        intent={'started_at':now.isoformat(),'thread_id':fixed['task_id'],
+            'payload_sha256':request['payload_sha256'],'policy_decision_id':prepared['policy_decision']['decision_id'],
+            'transport':'official_codex_queue','intake_claimed':False}
+        ip=self.write('reports/original-queue/native-queue-intent.json',intent)
+        result={**intent,'finished_at':now.isoformat(),'exit_code':0,'stderr':'',
+                'stdout':f"Queued message {qid} for thread {fixed['task_id']}.\n"}
+        qp=self.write('reports/original-queue/native-queue-result.json',result)
+        call={'type':'commandExecution','id':'actual-original-queue-call','status':'completed','exitCode':0,
+            'cwd':source['cwd'],'command':f"OfficialQueueTransport(...).enqueue(...) # reports/original-queue {rp} {pp}"}
+        sender=self.write('reports/queue-sender-native.json',{'thread':{'id':source['task_id'],
+            'title':source['title'],'cwd':source['cwd']},'turns':[{'id':'sending-turn','status':'completed',
+            'startedAt':now.timestamp()-2,'completedAt':now.timestamp()+0.1,'items':[call]}]})
+        recipient=self.write('reports/queue-recipient-native.json',{'thread':{'id':fixed['task_id'],
+            'title':fixed['title'],'cwd':fixed['cwd']},'turns':[{'id':'receiving-turn','status':'inProgress',
+            'startedAt':now.timestamp()+0.2,'items':[{'type':'userMessage','id':'different-user-message-id',
+                'content':[{'type':'text','text':(self.root/payload).read_text()}]},
+                {'type':'agentMessage','id':'actual-ACK','phase':'commentary','text':'Accepted the complete fixture task.'}]}]})
+        item={'schema':continuity.ASSIGNMENT_SCHEMA,'task_id':self.task_id,'department':fixture.ASSISTANT,
+            'sender_department':'operations','scope':goal['authorized_scope'][0],
+            'source_kind':'official_native_queue','goal_contract':contract,'authorization_pin':goal['authorization_pin'],
+            'payload':request['payload'],'original_prepare_request':w.file_digest(self.root,rp),
+            'original_prepare_result':w.file_digest(self.root,pp),'actual_queue_intent':w.file_digest(self.root,ip),
+            'actual_queue_result':w.file_digest(self.root,qp),'actual_native_invocation':w.file_digest(self.root,sender),
+            'actual_native_recipient':w.file_digest(self.root,recipient),'source_call_id':call['id'],
+            'queue_message_id':qid,'receiver_turn_id':'receiving-turn','receiver_message_id':'different-user-message-id',
+            'ack_message_id':'actual-ACK','restore_position':'suspended'}
+        item['dispatch_idempotency_key']='queue-assignment-'+w.sha256_value([
+            self.task_id,fixture.ASSISTANT,qid,intent['policy_decision_id'],request['payload']])
+        return self.write('reports/queue-assignment-recovery.json',item),item
+
+    def test_delivered_queue_recovers_once_and_normal_initial_review_reads_it(self):
+        import qa_review_plan as review
+        path,item=self.queued()
+        original={'assignments':{fixture.ASSISTANT:{'preserved':'other-task'}}}
+        w.atomic_write_json(self.root/'data/department-current-assignment.json',original)
+        with mock.patch.object(w,'policy_check',side_effect=AssertionError('must not reissue policy')):
+            first=recovery.recover_queued_assignment(self.root,path)
+            before=w.read_jsonl(w.receipts_path(self.root,self.task_id))
+            second=recovery.recover_queued_assignment(self.root,path)
+        self.assertEqual(first['dispatch_receipt_id'],second['dispatch_receipt_id'])
+        self.assertEqual(first['result'],'recorded')
+        self.assertEqual(first['ack_receipt_id'],second['ack_receipt_id'])
+        self.assertEqual(second['result'],'duplicate_ignored')
+        self.assertEqual(before,w.read_jsonl(w.receipts_path(self.root,self.task_id)))
+        current=w.read_json(self.root/'data/department-current-assignment.json')
+        self.assertEqual(current['assignments'],original['assignments'])
+        self.assertEqual(current['suspended_assignments'][fixture.ASSISTANT],[w.file_digest(self.root,path)])
+        rows,bad=w._validate_receipt_chain(self.root,self.task_id);self.assertEqual(bad,[])
+        self.assertTrue(review._initial_assignment(self.root,self.snapshot(),rows[0]))
+        self.assertTrue(recovery.initial_assignment_source(self.root,self.snapshot(),rows[0],item['goal_contract']))
+        self.assertGreaterEqual(w._parse_observed_at(rows[0]['created_at']),
+                                w._parse_observed_at(w.read_json(self.root/item['actual_queue_result']['path'])['finished_at']))
+
+    def test_accepted_queue_without_real_receiver_and_ack_cannot_record(self):
+        path,item=self.queued()
+        for key,value in [('receiver_message_id','absent'),('ack_message_id','absent'),
+                          ('receiver_turn_id','another-turn'),('source_call_id','another-call'),
+                          ('department',fixture.PRODUCER),('scope','wrong-scope'),
+                          ('queue_message_id','33333333-3333-4333-8333-333333333333')]:
+            with self.subTest(key=key),self.assertRaises(w.WorkflowError):
+                recovery.queued_assignment_source(self.root,{**item,key:value},require_dispatch=False)
+        self.assertFalse(w.read_jsonl(w.receipts_path(self.root,self.task_id)))
+
+    def test_changed_source_policy_native_and_transport_are_rejected_even_with_new_pin(self):
+        _,item=self.queued()
+        cases=[('original_prepare_request',lambda d:d.update(authorization_changes=['new_fee'])),
+               ('original_prepare_result',lambda d:d['policy_decision'].update(decision_id='wrong-policy')),
+               ('actual_queue_result',lambda d:d.update(exit_code=1)),
+               ('actual_queue_result',lambda d:d.update(stderr='uncertain failure')),
+               ('actual_native_invocation',lambda d:d['turns'][0]['items'][0].update(exitCode=1)),
+               ('actual_native_invocation',lambda d:d['turns'][0]['items'][0].update(truncated=True)),
+               ('actual_native_invocation',lambda d:d['thread'].update(id='wrong-sender')),
+               ('actual_native_recipient',lambda d:d['turns'][0]['items'][0]['content'][0].update(text='different assignment')),
+               ('actual_native_recipient',lambda d:d['turns'][0]['items'][1].update(text='  ')),
+               ('actual_native_recipient',lambda d:d['turns'][0].update(startedAt=0))]
+        for key,mutate in cases:
+            with self.subTest(key=key,mutate=mutate):
+                doc=copy.deepcopy(w.read_json(self.root/item[key]['path']));mutate(doc)
+                path=self.write('reports/changed-source.json',doc)
+                with self.assertRaises(w.WorkflowError):
+                    recovery.queued_assignment_source(self.root,{**item,key:w.file_digest(self.root,path)},require_dispatch=False)
+
+    def test_uncommitted_or_modified_queue_assignment_does_not_become_current(self):
+        path,item=self.queued()
+        with self.assertRaises(w.WorkflowError):continuity._dispatch_source(self.root,item)
+        recovery.recover_queued_assignment(self.root,path)
+        (self.root/item['payload']['path']).write_text('tampered')
+        with self.assertRaises(w.WorkflowError):continuity._dispatch_source(self.root,item)
+
+
 class RecoveryTests(unittest.TestCase):
     setUp=fixture.GoalRuntimeConsumerTests.setUp
     write=fixture.GoalRuntimeConsumerTests.write
@@ -106,6 +229,33 @@ class RecoveryTests(unittest.TestCase):
         with mock.patch.object(w,'policy_check') as policy:
             self.assertEqual(recovery.prepare_message(self.root,req)['status'],'blocked');policy.assert_not_called()
 
+    def test_busy_native_queue_requires_capability_and_consumes_exact_policy(self):
+        import department_event_dispatcher as dispatcher
+        self.initialize();req=self.requested(sender='operations')
+        b=w.department_registry(self.root)[fixture.PRODUCER]['chat_binding']
+        p=self.write('reports/busy-queue-target.json',{'thread':{'id':b['task_id'],'title':b['title'],'cwd':b['cwd']},
+                   'turns':[{'id':'actual-busy-turn','status':'inProgress'}]})
+        req.update(actual_target_state=w.file_digest(self.root,p),delivery_mode='official_native_queue')
+        with mock.patch.object(dispatcher,'native_queue_capability',return_value='/admitted/cli') as capability, \
+                mock.patch.object(w,'policy_check',return_value=({'status':'allow','decision_id':'exact-policy'},[])) as policy:
+            result=recovery.prepare_message(self.root,req)
+            self.assertEqual(result['status'],'ready_to_queue')
+            self.assertFalse(result['ordinary_send_allowed'])
+            self.assertFalse(result['message_sent'])
+            capability.assert_called_once_with(self.root);policy.assert_called_once()
+        with mock.patch.object(dispatcher,'native_queue_capability',side_effect=ValueError('unproven capability')), \
+                mock.patch.object(w,'policy_check') as policy:
+            with self.assertRaisesRegex(ValueError,'unproven'):
+                recovery.prepare_message(self.root,req)
+            policy.assert_not_called()
+        with mock.patch.object(dispatcher,'native_queue_capability',return_value='/admitted/cli'), \
+                mock.patch.object(w,'policy_check',return_value=({'status':'deny'},[])):
+            self.assertEqual(recovery.prepare_message(self.root,req)['status'],'blocked')
+        req['authorization_changes']=['new_fee']
+        with mock.patch.object(dispatcher,'native_queue_capability') as capability:
+            self.assertEqual(recovery.prepare_message(self.root,req)['status'],'blocked')
+            capability.assert_not_called()
+
     def test_partial_frozen_result_without_invented_ACK_enters_normal_intake(self):
         path,item,_=self.source();recovery.record(self.root,path)
         candidate=self.write('reports/finite-candidate.json',{'synthetic':True})
@@ -172,6 +322,54 @@ class RecoveryTests(unittest.TestCase):
         result=recovery.prepare_message(self.root,request)
         self.assertEqual(result['status'],'ready_to_send',result)
         self.assertEqual(before,w.read_json(self.root/'data/department-registry.json'))
+
+    def test_external_notLoaded_consumes_completed_native_turn_without_rewriting_inventory(self):
+        request,binding=fixture.GoalRuntimeConsumerTests.collaboration(self)
+        snapshot=self.snapshot();goal=snapshot['goal_delivery']
+        snapshot['goal_delivery']={**goal,'collaboration_scopes':[{
+            'sender_department':goal['primary_owner'],'target_department':'designated-development',
+            'scope':request['scope']}]}
+        w.append_workflow_event(self.root,self.task_id,snapshot['current_state'],{'goal_delivery':snapshot['goal_delivery']})
+        w.atomic_write_json(w.snapshot_path(self.root,self.task_id),snapshot)
+        live=w.read_json(self.root/request['live_identity']['path'])
+        live['threads'][0].update(status='notLoaded',updatedAt=2)
+        inventory=self.write('reports/unloaded-external-inventory.json',{'threads':live['threads']})
+        native=self.write('reports/completed-external-turn.json',
+            {'thread':{'id':binding['thread_id'],'title':binding['title'],'cwd':binding['cwd'],'updatedAt':3},
+             'turns':[{'id':'completed-external','status':'completed','error':None}]})
+        request.update(actual_target_state=w.file_digest(self.root,native),
+                       actual_live_inventory=w.file_digest(self.root,inventory),
+                       live_observed_at=dt.datetime.now(dt.timezone.utc).isoformat())
+        result=recovery.prepare_message(self.root,request)
+        self.assertEqual(result['status'],'ready_to_send',result)
+        snapshot=self.snapshot();proof=snapshot['goal_delivery']['current_route_observations'][request['action_id']]
+        observed=w.read_json(self.root/proof['path'])
+        target=next(row for row in observed['threads'] if row['id']==binding['thread_id'])
+        self.assertEqual(target['status'],'notLoaded')
+        self.assertEqual(observed['actual_native_target_turns'][binding['thread_id']],request['actual_target_state'])
+        self.assertEqual(w.file_digest(self.root,inventory),request['actual_live_inventory'])
+
+    def test_external_idle_resolution_rejects_active_stale_wrong_and_missing_turn_proofs(self):
+        request,binding=fixture.GoalRuntimeConsumerTests.collaboration(self)
+        original=w.read_json(self.root/request['live_identity']['path'])
+        original['threads'][0].update(status='notLoaded',updatedAt=2)
+        for name,changes in [('active',{'turn_status':'inProgress'}),
+                             ('stale',{'updatedAt':1}),('wrong',{'id':'another-thread'}),
+                             ('missing',{'no_native':True}),('tampered',{'tampered':True})]:
+            with self.subTest(name=name):
+                page={'thread':{'id':changes.get('id',binding['thread_id']),
+                      'title':binding['title'],'cwd':binding['cwd'],'updatedAt':changes.get('updatedAt',3)},
+                      'turns':[{'id':'exact-turn','status':changes.get('turn_status','completed')}]}
+                path=self.write('reports/'+name+'-native.json',page)
+                pin=w.file_digest(self.root,path)
+                if changes.get('tampered'):pin={**pin,'sha256':'0'*64}
+                live={**original,'actual_native_target_turns':{} if changes.get('no_native') else {binding['thread_id']:pin}}
+                lp=self.write('reports/'+name+'-observation.json',live)
+                snapshot=self.snapshot();snapshot['goal_delivery']={**snapshot['goal_delivery'],
+                    'current_route_observations':{request['action_id']:w.file_digest(self.root,lp)}}
+                reasons=runtime.collaboration_route(self.root,snapshot,{k:v for k,v in request.items()
+                    if k not in {'payload','live_identity'}})
+                self.assertTrue(reasons,(name,reasons))
 
 
 class AdoptionNoticeTests(unittest.TestCase):

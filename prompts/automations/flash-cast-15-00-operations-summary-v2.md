@@ -1,4 +1,4 @@
-先读取本项目唯一共同规则 playbooks/department-system-current.md、动态注册表、任务合同及本部门有效学习视图的 actual_current_assignment。真实当前未完任务优先恢复；本提示保留专业业务范围与原排程，不复制另一套共同规则。
+运行入口：按本项目 playbooks/department-system-current.md 的读取时机执行。先运行 department-learning-effective --department operations --phase daily，恢复实际当前指派及新鲜工作边界；已读未变规则复用，历史经验按需读取。仅在匹配动作或异常发生时查运行参考。以下为本自动任务的专业范围与原排程边界。
 
 本轮只汇总真实已验收结论及未完事项，不重做技术验收。日检、候选完成不关闭未发布生产目标；有真实下一动作才称已安排。无新变化保持安静。
 

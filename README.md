@@ -6,11 +6,13 @@
 
 公司七份确认资料：company-context.md、service-area.md、services-and-pricing.md、customer-personas.md、brand-guidelines.md、case-studies.md、faq.md。资料中待确认的事实保持待确认，正式证据与老板实际补充沿原引用使用，不能当成已发布成果。
 
-开始工作读取本部门主 Skill，并运行一次当前有效学习视图：
+首次进入项目读取本部门主Skill并运行一次当前视图；后续按实际阶段恢复任务和读取变化：
 
-`python3 tools/flashcast_ops.py department-learning-effective --department <注册部门ID>`
+`python3 tools/flashcast_ops.py department-learning-effective --department <注册部门ID> --phase startup`
 
-当前学习视图提供授权预检入口；提出重复授权问题前先核原目标。`python3 tools/goal_delivery_runtime.py authorization-precheck --task-id <原任务ID> --input <准确动作JSON>` 只读解释范围，不能替代发送或生产许可。实际消息通过 `goal_source_recovery.py prepare-message` 同时消费授权及精确policy-check；现代任务普通消息的policy入口也强制消费授权预检。老板直派或历史实际发送恢复使用该工具的 `recover-source`，不补造旧dispatch/ACK。具体规则只维护在共同正文中。
+续办使用`--phase resume`，已有视图可传`--known-rules <项目内视图.json>`，仅加载变化的规则正文。历史经验默认引用索引，需要原文时用`--include-reference-details`；规则读取复用不缓存权限。
+
+正常派工只用goal_source_recovery.py prepare-message，它已包含原授权和准确policy检查。范围不清或准备提出新增授权时再单独使用authorization-precheck；来源恢复只在缺真实绑定时使用recover-source。接口细节按[运行参考](playbooks/department-system-runtime-reference.md)对应章节查阅。
 
 ## 源码导出与安装
 
@@ -26,3 +28,7 @@
 历史 packet/step-a 导出副本是非运行R0兼容示例，不是新goal模板。外部方法需本机核验，不打包机器私有Skill或继承账号权限。详见 [源码导出与安装](playbooks/department-system-source-release.md)。源码导出、实际采用、远端推送和业务发布分别记录，不能凭候选或本地检查宣称上线。
 
 结果、恢复、停止与清理统一按共同正文执行。其他历史playbook仅在准确旧任务兼容范围内追溯，不能恢复旧QA、总部二审或守候链。现行入口更新不改写历史授权、回执或正式交付证据。
+
+## 交付事件接续试点
+
+[事件接续程序](playbooks/department-event-dispatcher-pilot.md)已接通应用自带的官方消息队列，实际启动原助理2、3并完成两份原成果收取。当前登录会话使用项目后台事件进程；激活后的完整目标及合同准入日检结果沿原来源、路由和通知许可接续，两份指定旧成果单独恢复，其他旧来源不自动重放。日检路径已通过隔离检查，重启电脑后的自启动仍未接通。队列接受不等于收取、验收或发布，原有每日兜底与各部门权限保留。

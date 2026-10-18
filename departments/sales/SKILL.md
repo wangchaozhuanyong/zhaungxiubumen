@@ -20,8 +20,7 @@ description: "FLASH CAST 销售与线索专业 Skill；用于装修询盘脱敏�
 
 ## 开始前读取
 
-- `AGENTS.md`、`departments/sales/README.md`；
-- `skills/flashcast-department-learning/SKILL.md`、`data/learning/departments/sales.json`、继承通知；
+- 按共同规则的阶段入口恢复原任务；规则已读未变直接复用，历史经验按本次source_ref查询；
 - `data/leads/` 的脱敏线索、Ads/GA4 对账、FAQ、服务和量房/报价规则；
 - 总控指定的落地页、搜索词和销售历史报告。
 
@@ -46,4 +45,4 @@ description: "FLASH CAST 销售与线索专业 Skill；用于装修询盘脱敏�
 
 输出匿名线索表、优先级、需求摘要、补问清单、跟进话术草案、销售阶段、输赢原因、来源质量反馈、交给付费增长与转化数据部及内容/SEO/网站增长部的字段和待老板确认项。不得自动发送邮件、WhatsApp 或电话；完成后先在销售部门聊天回复，再写 outbox/report 和学习事件。
 
-完整目标、整批回报、空闲助理分流和中断恢复只按共同规则 playbooks/department-system-current.md。普通步骤不报审；准确授权内自检后执行到实际发布，最后一次助理验收。后台保存和官网部署各走真实合法通道。
+运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department sales --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。

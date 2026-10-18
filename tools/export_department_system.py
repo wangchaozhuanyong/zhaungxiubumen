@@ -410,7 +410,7 @@ def prepare(root: Path, target: Path):
                     raw = payloads[pin['path']]
                     rebuilt[capability].append({'path':pin['path'],'sha256':hashlib.sha256(raw).hexdigest(),'size':len(raw)})
             public_methods = {**methods,'methods':rebuilt,'production_permissions_inherited':False}
-            add(method_path, json.dumps(public_methods,ensure_ascii=False,indent=2)+'\n', original)
+            add(method_path, public_text(json.dumps(public_methods,ensure_ascii=False,indent=2)+'\n', root), original)
             raw = payloads[method_path]
             authority['shared_review_methods']={'path':method_path,'sha256':hashlib.sha256(raw).hexdigest(),'size':len(raw)}
             safe['coordination_authority']=authority

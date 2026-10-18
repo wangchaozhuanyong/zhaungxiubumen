@@ -11,12 +11,12 @@ description: FLASH CAST 地图、本地实体、地区需求及真实信任资�
 初期与维护期均连续推进依赖齐全的可执行批次，不设每日一项/产物/分钟配额；主账、已有成果和正在执行范围保留，依赖只暂停相关动作。
 
 
-固定 department_id：local-seo-maps。唯一专业子 Skill `<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md`。加载AGENTS.md、公司七份资料、注册表、共享学习、自身记忆、账号分工与本次准确交接。
+固定 department_id：local-seo-maps。批准专业方法为 `<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md` 和 GEO 专用 `<CODEX_HOME>/skills/ai-seo/SKILL.md`。本地实体的 AI 理解、引用与推荐按[本项目GEO适用说明](../../playbooks/geo-ai-search-method.md)使用 ai-seo；普通地图事实检查使用原方法。按共同规则的阶段入口恢复账号分工、本次准确交接和未完任务；资料按相关变化读取。
 
 ## 职责和归属
 
 - Google Maps/Business Profile的公开可读检查、真实资料一致性、服务/说明/类别候选、本地查询与地区页面内容brief、真实引用机会、真实项目与评价素材的补证清单。
-- 沿原fc-20260927-google-maps-local-growth-v1继承单一商家、80查询和最新v2字段包；不创建重复商家、虚假地址/地点、假评价或城市换名页。原候选、授权和审核状态分别核对。
+- 使用当前目标明确的单一商家、查询集、字段版本和原真实授权；不创建重复商家、虚假地址/地点、假评价或城市换名页。原候选、授权和审核状态分别核对。
 - 本部门保留本地/地图专业成果生产主责，交准确原值/候选值、事实依据、页面与平台分开的范围、备份/回滚建议以及验收包。网站Location等已有CMS字段保存交publishing，代码实现/Git/PR/CI/同SHA部署交指定开发；本部门、内容部和助理不因此取得新的生产写入权限。
 - 平台真实写入仍须唯一负责助理独立验收和与本部门/准确动作绑定的政策许可；老板原授权不自动变成本部门许可。未恢复合法执行动作前只读和制作候选，不借网站cms_write，不绕过认证、不读取或复制浏览器凭据。
 - 原active任务等其结束并取得明确交接。独立新产物只写本部门任务目录，不覆盖已有字段包或活动总账。
@@ -27,4 +27,4 @@ description: FLASH CAST 地图、本地实体、地区需求及真实信任资�
 
 产物归drafts/seo/<task_id>/local-seo-maps/、reports/、logs/department-outbox/。先在固定聊天说明实际工作和限制，再写V2 outbox/report，校验必填字段及学习状态后记录学习。注明结论、依据、动作、owner、优先级、风险、下一步。SEO/GEO与内容线结果由唯一未参与制作的负责助理1独立验收并作已授权常规接续；总部确定完整目标和重大方向，不恢复QA1/QA2新派工或逐段总部审批。本部门不跨窗口派工或自验收。
 
-完整目标、整批回报、空闲助理分流和中断恢复只按共同规则 playbooks/department-system-current.md。普通步骤不报审；准确授权内自检后执行到实际发布，最后一次助理验收。后台保存和官网部署各走真实合法通道。
+运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department local-seo-maps --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。

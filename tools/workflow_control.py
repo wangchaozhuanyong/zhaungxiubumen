@@ -1240,6 +1240,33 @@ def validate_workflow_events(root: Path, task_id: str) -> list[str]:
             last_rank = rank["execution_completed"]
             continue
         details = event.get("details", {}) if isinstance(event.get("details"), dict) else {}
+        if details.get("same_state_formal_qa_commit"):
+            earlier = task_events[:index]
+            prior_formal = next((row for row in reversed(earlier)
+                                 if row.get("state") == "qa_passed"
+                                 and row.get("details", {}).get("qa_receipt_id")), None)
+            qa_source = qa_by_id.get(str(details.get("qa_receipt_id") or ""), {})
+            prior_close = next((row for row in reversed(earlier)
+                                if row.get("state") == "closed"), None)
+            if (state not in {"qa_passed", "closed"} or last_rank != rank[state]
+                    or details.get("reconciled") is not True
+                    or not matching_qa_verdict(event, "pass")
+                    or not prior_formal or not qa_source
+                    or _parse_observed_at(prior_formal.get("created_at")) is None
+                    or _parse_observed_at(qa_source.get("created_at")) is None
+                    or _parse_observed_at(prior_formal["created_at"])
+                    >= _parse_observed_at(qa_source["created_at"])
+                    or (state == "closed" and (not prior_close
+                        or _parse_observed_at(prior_close.get("created_at")) is None
+                        or _parse_observed_at(qa_source["created_at"])
+                        > _parse_observed_at(prior_close["created_at"])))
+                    or any(row.get("state") == "qa_passed"
+                           and row.get("details", {}).get("qa_receipt_id") == details.get("qa_receipt_id")
+                           for row in earlier)
+                    or any(row.get("details", {}).get("same_state_formal_qa_commit")
+                           and row.get("details", {}).get("qa_receipt_id") == details.get("qa_receipt_id")
+                           for row in earlier)):
+                invalid.append("event_order:unverified_same_state_qa_commit")
         if authorized_qa_only_execution_stage(event):
             authorized_execution_handoff = True
         if (authorized_execution_handoff and current_rank < last_rank
@@ -2280,10 +2307,15 @@ def _record_approval_impl(
     source_message_ref: str = "",
     revoke: bool = False,
     cas_validation=None,
+    source_evidence: str = "",
 ) -> tuple[dict[str, Any], list[Path]]:
     task_id = validate_task_id(task_id)
     if not action_id.strip() or not action_class.strip() or not scope.strip():
         raise WorkflowError("approval-record 需要精确的 action_id、action_class 和 scope")
+    if source_evidence:
+        from wardrobe_site_publish_runtime import applies as wardrobe_applies
+        if not wardrobe_applies(task_id, action_class) or revoke:
+            raise WorkflowError("source evidence is only for the original active wardrobe site release")
     workflow_snapshot = read_json(snapshot_path(root, task_id))
     if not workflow_snapshot:
         raise WorkflowError(f"工作流不存在：{task_id}")
@@ -2291,32 +2323,44 @@ def _record_approval_impl(
     exact_condo = None if revoke else _exact_condo_faq_original_publishing_approval(
         root, workflow_snapshot, task_id, action_id, action_class, scope,
         source_thread_id, source_message_ref, cas_validation)
+    from wardrobe_site_publish_runtime import applies as wardrobe_applies, validate as validate_wardrobe
+    exact_wardrobe = (validate_wardrobe(root, workflow_snapshot, action_id, scope,
+                       source_thread_id, source_message_ref, source_evidence)
+                      if not revoke and wardrobe_applies(task_id, action_class) else None)
     if (
         not revoke
         and not read_only_account_approval
         and exact_condo is None
+        and exact_wardrobe is None
         and workflow_snapshot.get("current_state") != "waiting_owner_approval"
     ):
         raise WorkflowError("批准记录被阻止：工作流必须先通过 QA 并进入 waiting_owner_approval")
     generated_id = approval_id.strip() or "apr-" + sha256_value(
         [task_id, action_id, action_class, scope, source_thread_id, source_message_ref]
     )[:20]
-    if exact_condo is not None:
+    if exact_condo is not None or exact_wardrobe is not None:
         expected_id = "apr-" + sha256_value(
             [task_id, action_id, action_class, scope, source_thread_id, source_message_ref]
         )[:20]
         if generated_id != expected_id:
-            raise WorkflowError("original condo FAQ approval ID must be the exact source-derived single use ID")
+            raise WorkflowError("original exact approval ID must be source-derived and single-use")
     with workflow_lock(root):
         current_snapshot = read_json(snapshot_path(root, task_id))
         if exact_condo is not None:
             if (current_snapshot != workflow_snapshot or cas_validation is None):
                 raise WorkflowError("original condo FAQ approval source changed before single-use CAS")
             cas_validation.recheck()
+        if exact_wardrobe is not None:
+            if current_snapshot != workflow_snapshot:
+                raise WorkflowError("original wardrobe goal changed before issuance")
+            if validate_wardrobe(root, current_snapshot, action_id, scope,
+                    source_thread_id, source_message_ref, source_evidence) != exact_wardrobe:
+                raise WorkflowError("original wardrobe source changed before issuance")
         if (
             not revoke
             and not read_only_account_approval
             and exact_condo is None
+            and exact_wardrobe is None
             and current_snapshot.get("current_state") != "waiting_owner_approval"
         ):
             raise WorkflowError("批准记录被阻止：工作流状态在写入前已变更")
@@ -2327,6 +2371,12 @@ def _record_approval_impl(
             and row.get("approval_id") != generated_id for row in approvals.values()
         ):
             raise WorkflowError("original condo FAQ already has another single-use approval identity")
+        if exact_wardrobe is not None and any(
+            row.get("task_id") == task_id and row.get("action_class") == "site_publish"
+            and row.get("status") in {"active", "consumed"}
+            and row.get("approval_id") != generated_id for row in approvals.values()
+        ):
+            raise WorkflowError("original wardrobe already has an active or used site approval")
         existing = approvals.get(generated_id)
         if revoke:
             if not existing:
@@ -2348,6 +2398,8 @@ def _record_approval_impl(
                 "scope": scope,
             }
             if existing:
+                if exact_wardrobe is not None and existing.get("status") != "active":
+                    raise WorkflowError("original wardrobe site approval already used or revoked")
                 if any(existing.get(key) != value for key, value in identity.items()):
                     raise WorkflowError("批准编号已绑定不同动作")
                 return {**existing, "result": "duplicate_ignored"}, [root / APPROVAL_LEDGER]
@@ -2367,6 +2419,14 @@ def _record_approval_impl(
                 record.update(approval_basis="original_exact_condo_publishing_v1",
                               original_human_authorization_pin=exact_condo["authorization_pin"],
                               candidate_acceptance_record_id=exact_condo["candidate_acceptance_record_id"])
+            if exact_wardrobe is not None:
+                record.update(approval_basis="original_wardrobe_r3_source_preflight_v1",
+                              original_human_authorization_pin=exact_wardrobe["authorization_pin"],
+                              source_preflight=exact_wardrobe["request"],
+                              expected_main_sha=exact_wardrobe["expected_main_sha"],
+                              deployment_object=exact_wardrobe["object"],
+                              execution_department=exact_wardrobe["department"],
+                              platform_run_permission_issued=False)
         append_jsonl_locked(root / APPROVAL_LEDGER, record)
     result = {**record, "result": "revoked" if revoke else "recorded"}
     return result, [root / APPROVAL_LEDGER]
@@ -2375,13 +2435,14 @@ def _record_approval_impl(
 def record_approval(
     root: Path, *, task_id: str, action_id: str, action_class: str, scope: str,
     approval_id: str = "", source_thread_id: str = "", source_message_ref: str = "",
-    revoke: bool = False,
+    revoke: bool = False, source_evidence: str = "",
 ) -> tuple[dict[str, Any], list[Path]]:
     """For the exact condo action, preserve one read baseline through commit."""
     kwargs = dict(task_id=task_id, action_id=action_id, action_class=action_class,
                   scope=scope, approval_id=approval_id,
                   source_thread_id=source_thread_id,
-                  source_message_ref=source_message_ref, revoke=revoke)
+                  source_message_ref=source_message_ref, revoke=revoke,
+                  source_evidence=source_evidence)
     if (not revoke and task_id == "fc-20261014-condo-faq-v7-cms-publishing-v1"
             and action_class == "cms_write"):
         with request_validation_context() as validation:
@@ -2906,6 +2967,16 @@ def _routing_precheck(
     routing = policy.get("routing_policy", {})
     if not isinstance(routing, dict):
         return ["routing_policy_missing"], ["routing_precheck:exact_live_identity"]
+    if action_id == 'assign-same-task-technical-review:fc-20261017-next12-old-house-development-handoff-v1':
+        from goal_source_recovery import oldhouse_technical_preflight
+        oldhouse_technical_preflight(root,{
+            'task_id':task_id,'action_id':action_id,'action_class':action_class,'scope':scope,
+            'sender_department':sender_department,'source_project_id':source_project_id,
+            'target_project_id':target_project_id,'target_department':target_department,
+            'target_thread_id':target_thread_id,'target_thread_title':target_thread_title,
+            'target_cwd':target_cwd,'target_sidebar_section_id':target_sidebar_section_id,
+            'payload_sha256':payload_sha256})
+        return [],['same_task_technical_responsibility:exact_original_sources']
     if action_class == "thread_message":
         notification_route = _queued_notification_route(root, {
             "sender_department": sender_department, "source_project_id": source_project_id,
@@ -3643,6 +3714,19 @@ def _ordinary_thread_dispatch_precheck(
     Read the same snapshot and receipt chain used by record_receipt. This
     check creates no workflow, refreshes no binding and grants no authority.
     """
+    if action_id == 'assign-same-task-technical-review:fc-20261017-next12-old-house-development-handoff-v1':
+        from goal_source_recovery import oldhouse_technical_preflight
+        registry=department_registry(root)
+        source=registry[sender_department]['chat_binding']
+        target=registry[target_department]['chat_binding']
+        oldhouse_technical_preflight(root,{
+            'task_id':task_id,'action_id':action_id,'action_class':'thread_message','scope':scope,
+            'sender_department':sender_department,'source_project_id':source['project_id'],
+            'target_project_id':target['project_id'],'target_department':target_department,
+            'target_thread_id':target_thread_id,'target_thread_title':target['title'],
+            'target_cwd':target['cwd'],'target_sidebar_section_id':target['sidebar_section_id'],
+            'payload_sha256':payload_sha256})
+        return []
     reasons: list[str] = []
     from original_task_publisher_handover import dispatch_precheck
     reasons.extend(dispatch_precheck(root, snapshot, target_department, target_thread_id, action_id, scope))
@@ -3826,7 +3910,8 @@ def policy_check(
     reasons: list[str] = []
     required_receipts: list[str] = []
     allow = True
-    if not department_item:
+    if not department_item and not (task_id == "fc-20261014-builtin-wardrobe-layout-cms-publication-v1"
+            and department == "designated-development" and action_class == "site_publish"):
         allow = False
         reasons.append("department_not_registered")
     class_policy = policy.get("action_classes", {}).get(action_class)
@@ -4065,7 +4150,10 @@ def policy_check(
             and not ("human_authorization:exact_direct_internal_repair" in required_receipts and not routing_reasons)
             and not (goal_enabled(root, snapshot) and target_department in read_json(root / "data/department-registry.json").get("collaboration_bindings", {}) and not routing_reasons)
             and not (scope in {"owner_paid_final_qa:example-ads-account:v39", "owner_paid_final_qa:example-ads-account:v40"} and not routing_reasons)):
-        required_receipts.append("dispatch_precheck:planned_fixed_target_and_unsent_action")
+        required_receipts.append(
+            "same_task_technical_responsibility:exact_target_and_unsent_action"
+            if action_id == 'assign-same-task-technical-review:fc-20261017-next12-old-house-development-handoff-v1'
+            else "dispatch_precheck:planned_fixed_target_and_unsent_action")
         dispatch_reasons = _ordinary_thread_dispatch_precheck(
             root, snapshot=snapshot, task_id=task_id,
             target_department=target_department, target_thread_id=target_thread_id,
@@ -4079,6 +4167,7 @@ def policy_check(
     standing_authorization: dict[str, Any] = {}
     effective_approval_id = approval_id
     qa_risk_level = ""
+    wardrobe_approval_valid = False
     retry_receipt_id = retry_blocked_execution_receipt_id.strip()
     retry_requested = bool(retry_receipt_id)
     if retry_requested and (action_class not in EXTERNAL_ACTION_CLASSES or consume_approval):
@@ -4089,6 +4178,7 @@ def policy_check(
         goal_preflight = None
         if action_class in EXTERNAL_ACTION_CLASSES and goal_enabled(root, snapshot or {}):
             try:
+                from wardrobe_site_publish_runtime import applies as wardrobe_applies, validate_issued as validate_wardrobe_issued
                 from paid_three_page_bounded_cms import MODEL as bounded_model, exact_tuple
                 bounded = (cms_goal_context is not None
                            and cms_goal_context.get("acceptance_model") == bounded_model
@@ -4104,8 +4194,16 @@ def policy_check(
                     and cms_goal_context.get("scope") == scope
                     and cms_goal_context.get("payload_sha256") == payload_sha256
                     and cms_goal_context.get("goal_completion_claimed") is False)
-                goal_preflight = (cms_goal_context["preflight"] if bounded or condo_candidate else
-                                  execution_preflight(root, snapshot, action_id, action_class, scope, department))
+                if wardrobe_applies(task_id, action_class):
+                    exact_issued = effective_approvals(root).get(approval_id, {}) if approval_id else {}
+                    if (department != "designated-development"
+                            or exact_issued.get("status") != "active"):
+                        raise WorkflowError("original wardrobe WEB active approval required")
+                    goal_preflight = validate_wardrobe_issued(root, snapshot, exact_issued, action_id, scope)
+                    wardrobe_approval_valid = True
+                else:
+                    goal_preflight = (cms_goal_context["preflight"] if bounded or condo_candidate else
+                                      execution_preflight(root, snapshot, action_id, action_class, scope, department))
                 qa_risk_level = goal_preflight["risk_level"]
                 required_receipts += ["self_check:exact_pass", "facts_backup_rollback:exact_pins",
                                       "assistant_acceptance:bounded_candidate_only" if bounded else
@@ -4196,6 +4294,8 @@ def policy_check(
                     allow = False
                     reasons.append("gbp_current_exact_valid_qa_required")
             allowed_states = {"qa_passed", "waiting_owner_approval", "owner_approved", "execution_completed", "verified"}
+            if wardrobe_approval_valid:
+                allowed_states.add("dispatched")
             if exact_cms_qa:
                 allowed_states.add("closed")
                 from original_task_publisher_handover import progress
@@ -4488,6 +4588,9 @@ def _validate_receipt_prerequisite(
             if direct_review is None:
                 from qa_review_plan import original_condo_faq_child_review_context
                 direct_review = original_condo_faq_child_review_context(root, snapshot, receipts)
+            if direct_review is None and snapshot.get("task_id") == "fc-20261016-industry-keyword-next-twelve-pages-v1":
+                from qa_review_plan import next12_normal_reviewer_source
+                direct_review = next12_normal_reviewer_source(root, snapshot, receipts)
     control_producer = False
     if root is not None and department == "operations" and receipt_type == "outbox_received":
         from native_control_result import context
@@ -5570,6 +5673,220 @@ def tnew_adopted_completion_context(root, parent, adoption):
             "business_goal_closed": False, "external_permission_issued": False}
 
 
+def _wardrobe_original_w_pilot(root, w_pilot):
+    """Re-read the original A2 native W pilot and its current WEB source."""
+    import wardrobe_site_publish_runtime as wardrobe
+    from goal_delivery_runtime import _native_document
+    if not isinstance(w_pilot, dict) or w_pilot.get("task_id") != wardrobe.TASK:
+        raise WorkflowError("original W identity required")
+    preflight = _completion_pin(root, w_pilot.get("source_preflight"))
+    sha = preflight.get("expected_main_sha")
+    action = wardrobe.action_for(sha)
+    w_snapshot = read_json(snapshot_path(root, wardrobe.TASK))
+    context = wardrobe.validate(root, w_snapshot, action, wardrobe.SCOPE,
+                                wardrobe.SOURCE_THREAD, wardrobe.SOURCE_MESSAGE,
+                                w_pilot["source_preflight"]["path"])
+    if context.get("request") != w_pilot["source_preflight"]:
+        raise WorkflowError("current original WEB source differs")
+    base = "logs/handoffs/2026-10-16-wardrobe-issuer-runtime-continuation-v1/A2-independent/"
+    facts_pin = {"path": base + "actual-W-fresh-source-normal-pilot-native-execution-facts-v1.json",
+                 "sha256": "55f794fe066ec639b3b25d15749459cd04fa7149cfe2defb0a65f20bc523e0da", "size": 4098}
+    result_pin = {"path": base + "actual-installed-normal-W-fresh-real-source-zero-write-pilot-v1.json",
+                  "sha256": "7049a34f3057f6880e1d955295c7bd2949059b5d81121c5a913d57c4deb423d4", "size": 2864}
+    if (w_pilot.get("execution_facts") != facts_pin or w_pilot.get("normal_pilot_result") != result_pin
+            or w_pilot["source_preflight"] != {"path": base + "actual-original-WEB-fresh-R3-source-preflight-envelope-v1.json",
+                    "sha256": "c807c5e26dadee51080ae221ff4c534adebc2151fde9bc3b2a80c7fe13657e12", "size": 2630}):
+        raise WorkflowError("exact existing A2 W pilot source pins required")
+    facts = _completion_pin(root, facts_pin)
+    result = _completion_pin(root, result_pin)
+    if (facts.get("schema") != "actual-installed-readonly-W-pilot-native-execution-facts/v1"
+            or facts.get("normal_pilot_result") != result_pin
+            or facts.get("actual_native_execution") != w_pilot.get("actual_native_execution")
+            or facts.get("native_execution_id") != w_pilot.get("native_execution_id")
+            or facts.get("execution_output") != w_pilot.get("execution_output")
+            or facts.get("external_writes") != 0 or facts.get("real_apr_or_run_id_generated") is not False
+            or facts.get("formal_N_completion_claimed") is not False):
+        raise WorkflowError("authentic original A2 W pilot execution facts required")
+    native = _native_document(root, facts["actual_native_execution"])
+    from qa_review_plan import _review_native_containers
+    _review_native_containers(native)
+    fixed = department_registry(root)["operations-assistant-2"]["chat_binding"]
+    if (native.get("thread", {}).get("id") != fixed["task_id"]
+            or any(native.get("thread", {}).get(key) != fixed[key] for key in ("title", "cwd"))):
+        raise WorkflowError("actual original A2 fixed W pilot execution required")
+    executions = [(turn, item) for turn in native.get("turns", []) for item in turn.get("items", [])
+                  if item.get("type") == "commandExecution" and item.get("id") == facts["native_execution_id"]]
+    output = facts["execution_output"]
+    if len(executions) != 1 or not isinstance(output, dict):
+        raise WorkflowError("one real complete W pilot execution required")
+    turn, executed = executions[0]
+    raw = validation_bytes(safe_path(root, output.get("path", "")))
+    if (file_digest(root, output["path"]) != output or executed.get("status") != "completed"
+            or executed.get("exitCode") != 0 or executed.get("cwd") != str(Path(root).resolve())
+            or turn.get("id") != facts.get("execution_turn_id")
+            or executed.get("command") != facts.get("execution_command")
+            or _completion_execution_output(executed) != raw):
+        raise WorkflowError("actual successful no-write W command and full output required")
+    try:
+        returned = json.loads(raw)
+    except ValueError as error:
+        raise WorkflowError("one exact W pilot JSON result required") from error
+    if (returned.get("report") != result_pin or returned.get("outcome") != result
+            or result.get("schema") != "A2-actual-normal-installed-W-fresh-source-readonly-pilot/v1"
+            or result.get("status") != "PASS_ZERO_WRITE_SOURCE_READINESS"
+            or result.get("context") != context
+            or result.get("source_envelope") != context["request"]
+            or result.get("installed_runtime") != file_digest(root, "tools/wardrobe_site_publish_runtime.py")
+            or result.get("ledgers_before") != result.get("ledgers_after")
+            or result.get("ledger_sizes_unchanged") is not True
+            or result.get("permissions_issued") is not False
+            or result.get("external_writes") != 0 or result.get("CMS_Save") != 0):
+        raise WorkflowError("original W read-only result must match current source and no-write facts")
+    follow_pin = {"path": base + "actual-W-real-fresh-WEB-source-PASS-original-operations-exact-issuer-next-followthrough-v1-record.json",
+                  "sha256": "75b9a721c46cf202c067acd0b692a8d43139b37246cec99c27a283f3f7fa5c0c", "size": 10753}
+    if w_pilot.get("next_action_record") != follow_pin:
+        raise WorkflowError("actual original W named next action required")
+    follow = _completion_pin(root, follow_pin)
+    rows = _result_handoff_rows(root, wardrobe.TASK)
+    matches = [row for row in rows if row.get("record_id") == follow.get("record_id")]
+    if (len(matches) != 1 or matches[0].get("record_hash") != follow.get("record_hash")
+            or matches[0].get("event") != "controller_followthrough"
+            or matches[0].get("followthrough_status") != "blocked_with_owner"
+            or result_pin not in matches[0].get("evidence", [])
+            or not matches[0].get("unblock_condition")
+            or not matches[0].get("next_check_at")
+            or matches[0].get("business_goal_closed") is not False):
+        raise WorkflowError("original W next issuer/platform dependency has no actual followthrough")
+
+
+
+def _wardrobe_existing_w_t_pilot(root, snapshot, requirement, accepted, journal):
+    """The frozen N criterion 2: prove the two original tasks, not a fabricated child."""
+    import result_coordination as coordination
+
+    task = "fc-20261016-wardrobe-issuer-and-receipt-runtime-v1"
+    scope = "project:flashcast:wardrobe-issuer-and-receipt-runtime:v1"
+    contract = {"path": "logs/handoffs/2026-10-16-wardrobe-issuer-runtime-continuation-v1/complete-runtime-goal.json",
+                "sha256": "51b75fe1bcf29756de10c4aa39dd4ca36f9c36db505c159751d5cfa2c807c5e3", "size": 4693}
+    authority = {"path": "logs/handoffs/2026-10-16-wardrobe-issuer-runtime-continuation-v1/actual-original-runtime-plan-human-authorization.json",
+                 "sha256": "e3024e819f8b3858390af62ca5400c1ef34115ac6fb56d93b17797685f6eb6fc", "size": 9573}
+    if (snapshot.get("task_id") != task or snapshot.get("goal_contract") != contract
+            or snapshot.get("goal_delivery", {}).get("authorization_pin") != authority
+            or snapshot["goal_delivery"].get("responsible_assistant") != "operations-assistant-2"
+            or requirement != next((row for row in _completion_pin(root, contract)["completion_requirements"]
+                                    if row.get("requirement_id") == "wardrobe-runtime-internal_pilot"), None)
+            or requirement.get("criterion_index") != 2 or requirement.get("scope") != scope
+            or accepted.get("identity", {}).get("task_id") != task
+            or accepted["identity"].get("sender_department") != "system-development"
+            or journal.get("schema") != "wardrobe-existing-W-T-readonly-pilot/v1"
+            or journal.get("task_id") != task or journal.get("scope") != scope
+            or journal.get("identity") != accepted["identity"]
+            or journal.get("source_fingerprint") != accepted["source_fingerprint"]
+            or journal.get("external_writes") != 0
+            or journal.get("permissions_issued") is not False
+            or journal.get("business_goal_closed") is not False):
+        raise WorkflowError("exact frozen N existing-W-and-T pilot contract required")
+    _completion_pin(root, authority)
+
+    # The first installation and the current accepted successor must both be real CAS effects.
+    v4_pin = {"path": "backups/fc-20261016-wardrobe-issuer-and-receipt-runtime-v1/A2-V4-85466589-eea6-4c9f-9e74-eae865a4995b/journal.json",
+              "sha256": "b0b982a939e0627842c6004f2bb7be7e396784290bf33d81856a7e66984fb95a", "size": 2986}
+    if journal.get("v4_adoption_journal") != v4_pin:
+        raise WorkflowError("exact original V4 adoption journal required")
+    original = _completion_pin(root, v4_pin)
+    if (original.get("schema") != "wardrobe-four-file-source-adoption/v1"
+            or original.get("state") != "adopted"
+            or original.get("actor") != "operations-assistant-2"
+            or original.get("candidate_fingerprint") != "ebb3f3bda2bce79c6274d3ffe94dfc7beedad49078065aea33d7f5c2c4c8359a"
+            or original.get("authorized_source") != authority
+            or original.get("external_writes") != 0 or original.get("permissions_issued") is not False
+            or {row.get("path") for row in original.get("source_operations", [])} != {
+                "tools/workflow_control.py", "tools/result_coordination.py", "tools/flashcast_ops.py",
+                "tools/wardrobe_site_publish_runtime.py"}):
+        raise WorkflowError("actual original V4 four-file adoption required")
+    for operation in original["source_operations"]:
+        if operation.get("applied") is not True:
+            raise WorkflowError("original V4 CAS operation incomplete")
+        if operation["path"] != "tools/workflow_control.py":
+            if file_digest(root, operation["path"])["sha256"] != operation.get("after_sha256"):
+                raise WorkflowError("original V4 installed runtime has changed")
+    current = _completion_pin(root, journal.get("current_adoption_journal"))
+    manifest = _completion_pin(root, journal.get("current_manifest"))
+    accepted_box = _completion_pin(root, accepted.get("producer_outbox"))
+    if (current.get("state") != "adopted" or current.get("actor") != "operations-assistant-2"
+            or current.get("authorized_source") != authority
+            or current.get("candidate_manifest") != journal["current_manifest"]
+            or current.get("candidate_fingerprint") != accepted["source_fingerprint"]
+            or current.get("external_writes") != 0 or current.get("permissions_issued") is not False
+            or manifest.get("candidate_fingerprint") != accepted["source_fingerprint"]
+            or manifest.get("task_id") != task or manifest.get("scope") != scope
+            or manifest.get("changes") is None
+            or accepted.get("candidate") != journal["current_manifest"]
+            or accepted_box.get("evidence", {}).get("manifest") != journal["current_manifest"]
+            or accepted_box.get("candidate_fingerprint") != accepted["source_fingerprint"]):
+        raise WorkflowError("current independently accepted source adoption missing")
+    changes = manifest["changes"]
+    operations = current.get("source_operations")
+    if (not isinstance(changes, list) or not changes or not isinstance(operations, list)
+            or [row.get("path") for row in changes] != [row.get("path") for row in operations]):
+        raise WorkflowError("current exact reviewed CAS change set required")
+    for change, operation in zip(changes, operations):
+        if (operation.get("applied") is not True
+                or operation.get("after_sha256") != change.get("candidate", {}).get("sha256")
+                or file_digest(root, operation["path"])["sha256"] != operation["after_sha256"]):
+            raise WorkflowError("current accepted source live readback differs")
+    source_requirement = next((row for row in _completion_pin(root, contract)["completion_requirements"]
+                               if row.get("requirement_id") == "wardrobe-runtime-source_adoption"), None)
+    source_proof = goal_typed_completion_proof(root, snapshot, [], source_requirement, accepted,
+                                               proof_pin=journal.get("source_adoption_proof"))
+    if (source_proof.get("state") != "PROVEN"
+            or journal.get("current_adoption_journal") not in source_proof.get("evidence", [])):
+        raise WorkflowError("current source must have real native independently adopted proof")
+
+    t = journal.get("T")
+    t_task = "fc-20261015-schema3-qa-outbox-consumer-repair-v1"
+    if not isinstance(t, dict) or t.get("task_id") != t_task:
+        raise WorkflowError("original T identity required")
+    t_snapshot = read_json(snapshot_path(root, t_task))
+    rows, invalid = _validate_receipt_chain(root, t_task)
+    if invalid or validate_workflow_events(root, t_task) or t_snapshot.get("current_state") != "closed":
+        raise WorkflowError("actual original T closed source chain required")
+    qa = [row for row in rows if row.get("receipt_id") == t.get("qa_receipt_id")
+          and row.get("receipt_type") == "qa_verdict" and row.get("verdict") == "pass"]
+    events = [row for row in read_jsonl(root / WORKFLOW_EVENTS)
+              if row.get("task_id") == t_task and row.get("event_id") == t.get("marker_event_id")]
+    if (t.get("qa_receipt_id") != "e8bec2bb-152d-4bcc-955e-2ced62516d52"
+            or t.get("qa_receipt_hash") != "8c97547842255adaaa2af7ddd0136198492c01f62abf3c54bdc172b0dbded384"
+            or t.get("marker_event_id") != "e722d993-7ed4-4c54-a4a6-d762bf8aee03"
+            or t.get("marker_event_hash") != "001ce21db913edb4342c3f867251bad4f9b6002d7c28676e56b17aab6796e468"
+            or t.get("original_queue_id") != "58fd7a4f-bd66-42e6-a9ed-0d9cd62e3321"
+            or t.get("original_queue_hash") != "8390a5670909d9e3c692f3791672f29440d1f816c64e648d58abf43971cd6981"
+            or len(qa) != 1 or qa[0].get("receipt_hash") != t.get("qa_receipt_hash")
+            or len(events) != 1 or events[0].get("event_hash") != t.get("marker_event_hash")
+            or events[0].get("state") != "closed"
+            or events[0].get("details") != {"qa_receipt_id": qa[0]["receipt_id"],
+                                               "qa_receipt_hash": qa[0]["receipt_hash"],
+                                               "reconciled": True, "same_state_formal_qa_commit": True}):
+        raise WorkflowError("actual original T PASS and same-state marker required")
+    identity = coordination.exact_identity(t.get("notification_identity", {}))
+    knowledge = coordination.hq_knowledge_source(root, identity)
+    queue = knowledge.get("queued_source", {})
+    if (identity.get("task_id") != t_task or identity.get("sender_department") != "operations-assistant-2"
+            or identity.get("result_sha256") != "8c692d924c900d92f6bd00ec2d4ed29017da5e28871ad0c0b80a1bdc53d60b9b"
+            or knowledge.get("acceptance_proven") is not True
+            or knowledge.get("notification_proven") is not True
+            or knowledge.get("HQ_second_review_required") is not False
+            or knowledge.get("qa_receipt") != qa[0]
+            or knowledge.get("source_commit") != events[0]
+            or queue.get("record_id") != t.get("original_queue_id")
+            or queue.get("record_hash") != t.get("original_queue_hash")
+            or queue.get("event") != "notification_queued"
+            or queue.get("outbox") != knowledge.get("outbox")):
+        raise WorkflowError("original T queue source or QA recovery differs")
+
+    _wardrobe_original_w_pilot(root, journal.get("W"))
+
+
 def goal_typed_completion_proof(root, snapshot, receipts, requirement, accepted, *, proof_pin=None):
     """Read actual typed effect journals; never infer adoption or pilot from PASS."""
     try:
@@ -5698,49 +6015,52 @@ def goal_typed_completion_proof(root, snapshot, receipts, requirement, accepted,
                     if backup != baseline or backup["sha256"] != operation["before_sha256"]:
                         raise WorkflowError("exact recoverable CAS before backup required")
         elif kind == "internal_pilot":
-            import result_coordination as c
-            task = validate_task_id(journal.get("pilot_task_id", ""))
-            pilot = read_json(snapshot_path(root, task))
-            if (pilot.get("goal_delivery", {}).get("parent_task_id") != snapshot["task_id"]
-                    or pilot["goal_delivery"].get("required_execution_actions")
-                    or pilot["goal_delivery"].get("responsible_assistant") != role):
-                raise WorkflowError("real no-external-write same-parent pilot contract required")
-            rows, invalid = _validate_receipt_chain(root, task)
-            if invalid:
-                raise WorkflowError("actual pilot source chain invalid")
-            for kind_name, id_key in (("outbox_received", "producer_receipt_id"), ("qa_verdict", "qa_receipt_id")):
-                matches = [row for row in rows if row.get("receipt_id") == journal.get(id_key)
-                           and row.get("receipt_type") == kind_name]
-                if len(matches) != 1 or (kind_name == "qa_verdict" and matches[0].get("verdict") != "pass"):
-                    raise WorkflowError("real pilot delivered and independently accepted evidence missing")
-            handoffs = _result_handoff_rows(root, task)
-            by_id = {row["record_id"]: row for row in handoffs}
-            for key, event in (("received_record_id", "controller_received"),
-                               ("decision_record_id", "controller_decision"),
-                               ("notification_record_id", "notification_sent")):
-                record = by_id.get(journal.get(key), {})
-                if record.get("event") != event:
-                    raise WorkflowError("real pilot intake/decision/notification required")
-                from scoped_candidate_adoption import _committed
-                if event in c.FINAL_EVENTS:
-                    _committed(root, record)
-            decision = by_id[journal["decision_record_id"]]
-            if decision.get("decision") != "close_scope":
-                follow = by_id.get(journal.get("followthrough_record_id"), {})
-                if follow.get("followthrough_status") != "dispatch_sent":
-                    raise WorkflowError("actual exact pilot next send or accepted scope close required")
-                _validate_collaboration_followthrough_receipt(root, task, decision, follow)
-            recovery_pin=journal.get("duplicate_recovery_native")
-            recovery=_completion_pin(root,recovery_pin)
-            import qa_review_plan as q
-            q._review_native_containers(recovery)
-            result=q._review_raw_native_result(recovery.get("actual_tool_result",{}))
-            original=by_id.get(journal.get("duplicate_recovery_record_id"),{})
-            if (not original or result.get("record_id")!=original.get("record_id")
-                    or result.get("result")!="duplicate_ignored" or result.get("task_id")!=task
-                    or result.get("event")!=original.get("event")):
-                raise WorkflowError("actual duplicate recovery must return the original effect without another append")
-            _committed(root,original)
+            if journal.get("schema") == "wardrobe-existing-W-T-readonly-pilot/v1":
+                _wardrobe_existing_w_t_pilot(root, snapshot, requirement, accepted, journal)
+            else:
+                import result_coordination as c
+                task = validate_task_id(journal.get("pilot_task_id", ""))
+                pilot = read_json(snapshot_path(root, task))
+                if (pilot.get("goal_delivery", {}).get("parent_task_id") != snapshot["task_id"]
+                        or pilot["goal_delivery"].get("required_execution_actions")
+                        or pilot["goal_delivery"].get("responsible_assistant") != role):
+                    raise WorkflowError("real no-external-write same-parent pilot contract required")
+                rows, invalid = _validate_receipt_chain(root, task)
+                if invalid:
+                    raise WorkflowError("actual pilot source chain invalid")
+                for kind_name, id_key in (("outbox_received", "producer_receipt_id"), ("qa_verdict", "qa_receipt_id")):
+                    matches = [row for row in rows if row.get("receipt_id") == journal.get(id_key)
+                               and row.get("receipt_type") == kind_name]
+                    if len(matches) != 1 or (kind_name == "qa_verdict" and matches[0].get("verdict") != "pass"):
+                        raise WorkflowError("real pilot delivered and independently accepted evidence missing")
+                handoffs = _result_handoff_rows(root, task)
+                by_id = {row["record_id"]: row for row in handoffs}
+                for key, event in (("received_record_id", "controller_received"),
+                                   ("decision_record_id", "controller_decision"),
+                                   ("notification_record_id", "notification_sent")):
+                    record = by_id.get(journal.get(key), {})
+                    if record.get("event") != event:
+                        raise WorkflowError("real pilot intake/decision/notification required")
+                    from scoped_candidate_adoption import _committed
+                    if event in c.FINAL_EVENTS:
+                        _committed(root, record)
+                decision = by_id[journal["decision_record_id"]]
+                if decision.get("decision") != "close_scope":
+                    follow = by_id.get(journal.get("followthrough_record_id"), {})
+                    if follow.get("followthrough_status") != "dispatch_sent":
+                        raise WorkflowError("actual exact pilot next send or accepted scope close required")
+                    _validate_collaboration_followthrough_receipt(root, task, decision, follow)
+                recovery_pin=journal.get("duplicate_recovery_native")
+                recovery=_completion_pin(root,recovery_pin)
+                import qa_review_plan as q
+                q._review_native_containers(recovery)
+                result=q._review_raw_native_result(recovery.get("actual_tool_result",{}))
+                original=by_id.get(journal.get("duplicate_recovery_record_id"),{})
+                if (not original or result.get("record_id")!=original.get("record_id")
+                        or result.get("result")!="duplicate_ignored" or result.get("task_id")!=task
+                        or result.get("event")!=original.get("event")):
+                    raise WorkflowError("actual duplicate recovery must return the original effect without another append")
+                _committed(root,original)
         elif kind == "result_notification":
             import result_coordination as c
             identity = c.exact_identity(journal.get("notification_identity", {}))
@@ -6013,6 +6333,34 @@ def _state_sequence(
     return sequence[start:end] if end >= start else []
 
 
+def _same_state_formal_qa_commit(receipts, task_events, reviewer, current_state="qa_passed"):
+    """Return a commit only for a newer actual PASS absent from the event log."""
+    latest = next((row for row in reversed(receipts)
+                   if row.get("receipt_type") == "qa_verdict"
+                   and row.get("department") == reviewer), None)
+    prior = next((row for row in reversed(task_events)
+                  if row.get("state") == "qa_passed"
+                  and row.get("details", {}).get("qa_receipt_id")), None)
+    if not latest or latest.get("verdict") != "pass" or not prior:
+        return None
+    if any(row.get("details", {}).get("qa_receipt_id") == latest.get("receipt_id")
+           and row.get("details", {}).get("qa_receipt_hash") == latest.get("receipt_hash")
+           for row in task_events):
+        return None
+    earlier = _parse_observed_at(prior.get("created_at"))
+    new = _parse_observed_at(latest.get("created_at"))
+    if earlier is None or new is None or earlier >= new:
+        return None
+    if current_state == "closed":
+        prior_close = next((row for row in reversed(task_events)
+                            if row.get("state") == "closed"), None)
+        closed_at = _parse_observed_at(prior_close.get("created_at")) if prior_close else None
+        if closed_at is None or new > closed_at:
+            return None
+    return {"reconciled": True, "same_state_formal_qa_commit": True,
+            "qa_receipt_id": latest["receipt_id"], "qa_receipt_hash": latest["receipt_hash"]}
+
+
 def reconcile_workflow(root: Path, *, task_id: str, shadow: bool = False) -> tuple[dict[str, Any], list[Path]]:
     task_id = validate_task_id(task_id)
     if shadow:
@@ -6192,6 +6540,17 @@ def reconcile_workflow(root: Path, *, task_id: str, shadow: bool = False) -> tup
                 )
             else:
                 raise WorkflowError("已关闭工作流缺少经 QA 与精确批准的新动作，禁止重新打开")
+        elif previous_state == target and target in {"qa_passed", "closed"} and not invalid:
+            # A new formal PASS may arrive while the goal is already waiting
+            # at qa_passed for other completion obligations. Commit that real
+            # receipt once; a state transition is not required to establish
+            # the native QA source for downstream knowledge delivery.
+            reviewer = _final_qa_department(root, snapshot, preparation_only=True)
+            task_events = [row for row in read_jsonl(root / WORKFLOW_EVENTS)
+                           if row.get("task_id") == task_id]
+            commit = _same_state_formal_qa_commit(receipts, task_events, reviewer, target)
+            if commit:
+                append_workflow_event(root, task_id, target, commit)
         else:
             latest_qa_receipt = next(
                 (row for row in reversed(receipts)
