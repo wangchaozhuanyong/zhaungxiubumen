@@ -147,9 +147,9 @@
     },
     {
       "path": "README.md",
-      "source_sha256": "bb4d4fca2b7ffc7bd1b11c7f12a04909e83524180174b6506a4cf7b33899e9b8",
-      "release_sha256": "bb4d4fca2b7ffc7bd1b11c7f12a04909e83524180174b6506a4cf7b33899e9b8",
-      "bytes": 4517
+      "source_sha256": "b1c94abe88cc94a265fc4ef95aa255b7370ec520d829d1cb6b63a1e19b914db8",
+      "release_sha256": "b1c94abe88cc94a265fc4ef95aa255b7370ec520d829d1cb6b63a1e19b914db8",
+      "bytes": 4659
     },
     {
       "path": "ci/department-system-checks.yml.example",
@@ -858,6 +858,12 @@
       "source_sha256": "ea45762bf89c68d29c5b560f2f5b8eeaed8dc429f4f8fd8262853bd6fbc0e9af",
       "release_sha256": "ea45762bf89c68d29c5b560f2f5b8eeaed8dc429f4f8fd8262853bd6fbc0e9af",
       "bytes": 15571
+    },
+    {
+      "path": "playbooks/department-system-release-inventory.md",
+      "source_sha256": "cc9de84f123df1e10e5d1e9541a937e3d0a0fe837dda586770a40c754e90aa33",
+      "release_sha256": "cc9de84f123df1e10e5d1e9541a937e3d0a0fe837dda586770a40c754e90aa33",
+      "bytes": 2834
     },
     {
       "path": "playbooks/department-system-runtime-adoption.md",
@@ -1870,5 +1876,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "961cc0276cb098d7237186a0d2c7a923c6c91254a3c9e4e7396cd3104c0e9097"
+  "fingerprint": "f5668150330d18163ba5da40a57c520d2425c62ccd8d0113054c481ebef39d9d"
 }
