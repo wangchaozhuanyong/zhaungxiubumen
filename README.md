@@ -14,6 +14,10 @@
 
 正常派工只用goal_source_recovery.py prepare-message，它已包含原授权和准确policy检查。范围不清或准备提出新增授权时再单独使用authorization-precheck；来源恢复只在缺真实绑定时使用recover-source。接口细节按[运行参考](playbooks/department-system-runtime-reference.md)对应章节查阅。
 
+## 发布接续
+
+代码与后台的职责、提前规划、依赖顺序、及时执行、阻断修复及真实关闭，只按 [发布计划与及时接续](playbooks/department-system-current.md#发布计划与及时接续) 执行。发布部跟进两条线，代码由原指定开发部署、CMS由发布部保存；各可独立批次推进，不等待无关任务。旧决策、审批矩阵与网站发布入口只保留链接，重复规则正文已退出。
+
 ## 源码导出与安装
 
 运行环境为 Python 3.9以上标准库。本项目业务协调目录不是 Git 根目录；源码仓库、官网和业务输出各自隔离。

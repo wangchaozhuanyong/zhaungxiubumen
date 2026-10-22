@@ -1,9 +1,7 @@
-完整目标一次给清完成标准、原task、主负责人、授权、协作部门、默认助理和已批准continuation_actions；需要上线的目标声明completion_kind、completion_requirements和required_execution_actions。共同流程只读playbooks/department-system-current.md。
+# 完整目标与发布接续
 
-真实发送后assignment-record登记原生调用与派工回执；所有启动先恢复actual_current_assignment。
+执行只读 [现行共同规则](../playbooks/department-system-current.md)，需要发布时读取其中“发布计划与及时接续”，接口只在匹配动作/异常时查运行参考。
 
-整项或完整批次做完，冻结V2及最终hash，在真实当前聊天声明FLASHCAST_DELIVERY_READY和准确task_id/sender_department/candidate_version/result_sha256/outbox_path/batch_complete:true，以delivery_ready交接；聊天结束另补turn-completed，不新增审核。ACK、进度或prepared不能冒充交付。
+一次给清原task与父引用、目标和完成标准、主负责人、唯一助理、协作固定目标、已有成果、授权/预算/期限及不可扩大范围。提前明确代码/CMS执行者、批次与依赖、准确发布通道和必要回执，并沿实际goal入口登记。
 
-先result-select选择空闲合格助理；全忙共享排队。助理手头任务完成立即读shared-pending，以at_work_boundary接取合格结果，精确选责、唯一认领、一次验收，直接落实下一已批准任务或准确关闭；总部只读结论不二审。忙通知事件等待，中断保留未完位置。
-
-主负责人连续完成制作、自检、开发及发布协作、实际保存或部署、公开核对。未变有效成果复用。范围外、费用或重大安全变化升级，其他独立授权工作继续。不恢复旧质检、守候、逐步骤报审、高频轮询。
+恢复原指派和原未完位置。优先收取真实已到成果、消化已就绪发布与解除关键阻断；给出实际发布/保存/采用范围、未完、唯一下一负责人和解除动作，不按测试或候选数量声称交付完成。不在本提示词另设审批链或轮询。

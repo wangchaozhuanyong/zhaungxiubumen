@@ -9,6 +9,10 @@ description: "执行 FLASH CAST 官网已有准确授权的整项CMS内容保存
 
 接管状态以 data/publishing/department-onboarding.json 为准。新部门建立或技能校验不等于生产权限；接管前只做内部准备。当前原任务归属、旧许可和一次性消费记录保留，新部门不得继承或重放以 content-organic-website 绑定的许可。
 
+## 提前跟进发布计划
+
+提前规划、代码/CMS先后顺序及及时接续只按 [共同发布流程](../../playbooks/department-system-current.md#发布计划与及时接续)。本技能只维护实际CMS通道、字段/版本保护和保存核对方法。发布部跟进原开发的线上版本；代码变化不默认增加CMS Save，后台只读结果完成后按原责任实际归回，不能长期停在准备或排队。
+
 ## 接收一个准确发布包
 
 核原task_id、candidate_version、action、company.example: scope、EN/ZH字段、真实CMS记录ID、冻结候选hash与来源；必须锁定 cms_content_candidate → cms_write。读取 data/task-contract.json、data/action-policy.json、playbooks/site-release-risk-boundary.md 和原workflow、准确原授权、必要自检、许可及执行回执。合法来源可以是总部原完整目标、老板准确直接任务，或已绑定负责助理/主负责人在原完整目标内落实的准确常规协作；均核现场身份、健康、scope与policy，未变版本按幂等键去重。新goal不要求QA1/QA2或总部二审，缺goal的历史任务只读其原准确链，不补新PASS。

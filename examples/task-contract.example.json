@@ -348,7 +348,7 @@
       "close_scope"
     ],
     "controller_decision_rule": "状态分别为执行中、待助理验收、返工中、已完成范围、下一任务真实已安排、具体依赖等待、暂时无可执行工作。验收PASS必须关联实际下一动作或准确范围关闭；prepared不算sent，passed不算adopted，子任务结束不关闭父目标。缺输入只暂停依赖它的动作，其他独立合法工作继续。停止时列已完成、未完成、唯一负责人、下一动作、解除条件和复查时间；自然去重IP口径缺失记DATA_MISSING，AI效果未实测记NOT_MEASURED。",
-    "controller_followthrough_rule": "实际主体为负责助理。决定后必须关联真实下一派工、准确授权执行/公开复核，或独立验收后的准确范围关闭；具名外部等待保留解除条件和未来复查时间。无真实回执不伪造sent/Saved/部署。既有完成结果复用原来源与hash，变化范围单独复验。",
+    "controller_followthrough_rule": "实际主体为负责助理；准确派工、执行、阻断修复与发布及时接续统一按playbooks/department-system-current.md的发布计划与及时接续。决定后关联真实动作或准确范围关闭；仅排队不算接单，内部登记缺口交原系统负责人修复，条件齐全不等每日兜底。保留原状态/回执语义、唯一负责人及复查事件，不伪造sent/Saved/部署。",
     "idempotency": "同一原任务、发送部门、候选版本、结果哈希和通知/收取/决策阶段只允许一次记录；已送达或已收取的旧结果不得补入队，已入队结果不得重复入队。controller_followthrough是追加式状态链，仅未解除的阻断/等待允许凭新证据复查或转成真实动作；相同证据与幂等键不得重复。历史漏入队发现由有效原始回执链按原任务/部门/候选版本/outbox SHA确定性去重；完成现场核验后只补总控fallback收取与决策，不回写虚假部门通知。结果变更必须产生新的outbox哈希或候选版本，不因定时任务唤醒复制旧通知。",
     "workflow_closed_is_business_goal_closed": false,
     "read_only_qa_pass_is_publication": false,
@@ -586,7 +586,7 @@
     "code_publication_owner": {
       "project_id": "<LOCAL_PROJECT_ID>",
       "project_name": "装修网站开发",
-      "thread_id": "<LOCAL_THREAD_ID>",
+      "thread_id": "example-native-25e4a2ebb5d53084",
       "title": "FLASH CAST｜专用开发部｜网站与部门系统",
       "cwd": "<WEBSITE_PROJECT_ROOT>",
       "existing_authorization_required": true
@@ -756,7 +756,7 @@
     "adoption_and_native_pilot_required_for_system_completion": true,
     "legacy_without_goal_delivery": "readable_using_original_consumers; no_fabricated_new_goal_receipts",
     "authority": {
-      "source_thread_id": "<LOCAL_TASK_ID>",
+      "source_thread_id": "example-native-0d0689f4e3a4c895",
       "message_id": "example-native-9cd231a5daaebe45",
       "evidence_path": "<PROJECT_ROOT>/logs/handoffs/2026-10-10-goal-delivery-assistant-runtime-v1/developer/human-authority.json"
     },
@@ -798,7 +798,7 @@
         "version_or_send_count_requires_new_authorization": false,
         "internal_binding_health_receipt_repair_requires_new_authorization": false,
         "precheck_grants_execution_permission": false,
-        "escalation": "only_actual_scope_fee_account_irreversible_or_major_security_change; real_platform_owner_verification_requires_actual_evidence"
+        "escalation": "current_actual_owner_delegates_project_routine_nonpayment_decisions_to_original_roles_and_HQ; payment_to_human; actual_action_policy_protected_scope_and_platform_owner_steps_remain"
       }
     },
     "work_boundary_entry": "goal_continuity work-boundary; department-learning-effective.work_boundary",

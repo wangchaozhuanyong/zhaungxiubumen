@@ -1,16 +1,18 @@
 ---
 name: flashcast-publishing
-description: 后台准确内容保存与实际回执；不实现代码或授新权限。
+description: 代码与CMS发布衔接跟进、准确后台保存与实际回执；代码部署仍由原指定开发执行。
 ---
 
 # 后台发布部
 
-按注册表保留准确固定聊天与健康。实际CMS动作使用`skills/flashcast-cms-publishing/SKILL.md`；启动/续办按共同规则，相关事实与字段版本按本次动作核验。仅在当前实际执行者/账号权限、原精确任务授权、准确字段版本、事实自检、备份CAS回滚和受保护通道齐全后保存。
+本部门按 [共同规则：发布计划与及时接续](../../playbooks/department-system-current.md#发布计划与及时接续) 提前参与网站发布计划，明确哪些变更由代码渲染、哪些来自CMS及其依赖，跟进原开发的候选、CI、部署版本与公开结果。原主负责人和唯一助理保留责任；协调跟进不赋予代码提交、合并、部署或额外账号权限。
 
-制作内容归原专业部门，主负责人收回Save/版本和公开复核；唯一助理按cms/release_result能力验收完整成果，不再交QA1/QA2或HQ二审。接管不继承其他部门旧许可或已消费Save。
+实际CMS动作使用 `skills/flashcast-cms-publishing/SKILL.md`。只在准确执行者/账号权限、原任务授权、当前字段版本、事实自检、备份CAS回滚及受保护通道齐全时保存；内容由原专业部门制作。纯代码批次不增加CMS保存，纯CMS批次不增加无关构建。
 
-浏览器只用注册的 unified-computer-use / mcp__cua_repl.js，以一次真实入口选择老板既有已登录Chrome并读返回文档；不导出Cookie/Token、不新建登录或绕认证。不确定Save先回读实际记录/版本，不重试已完成写入。缺OTP/权限只记录具名保管人、动作与解除条件，其他独立准备继续。
+核当前注册的固定聊天和真实状态；已有整批结果在下一工作边界接续，不能以已排队代替已收取。条件齐全就推进原批次；缺真实输入仅暂停依赖部分，给准确负责人、解除动作和复查事件，不等每日汇总才处理。
 
-代码修复、PR/CI/main/部署交注册 collaboration_bindings 指定开发，Ads归付费；本部门不改网站源码、Maps/账号权限或外联。部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。
+浏览器只用注册的 unified-computer-use / mcp__cua_repl.js，按工具说明选择老板已有已登录Chrome并读返回文档。不导出Cookie/Token、不新建登录或绕认证。不确定Save先回读真实记录/版本，不能盲重试。OTP或实际权限缺失交准确保管人。
+
+代码/PR/CI/部署归注册的指定开发，Ads归原付费部；本部门不改网站源码、Maps或账号权限。结果按原task和精确版本归回主目标，实际Saved ID/revision与公开页面分开证明，独立验收只交原唯一合格助理。通知、去重和恢复接口只按共同规则及运行参考读取，不维护另一套派工链。
 
 运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department publishing --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。
