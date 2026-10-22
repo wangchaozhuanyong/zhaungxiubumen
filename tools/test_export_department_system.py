@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 import export_department_system as export
 import department_system_package as package
@@ -104,11 +105,42 @@ def main():
         self.write(rel, "# 历史自动任务提示词已退出\n不可创建或恢复此自动任务。\n")
         export.prepare(self.root, self.target)
         self.assertFalse((self.target / rel).exists())
-        self.assertEqual((self.target / "backups/withdrawn-source" / rel).read_bytes(), original)
+        self.assertFalse((self.target / "backups/withdrawn-source" / rel).exists())
         manifest = json.loads((self.target / "release-manifest.json").read_text())
         self.assertNotIn(rel, [row["path"] for row in manifest["files"]])
         package.validate_release(self.target)
         self.assertTrue((self.root / rel).exists())  # Original local evidence preserved.
+
+    def test_old_common_rule_redirect_is_removed_without_a_new_backup(self):
+        rel = "playbooks/site-release-risk-boundary.md"
+        self.write(rel, "# Old generated rule entry\n")
+        with mock.patch.object(export, "retired_rule_stub", return_value=False):
+            export.prepare(self.root, self.target)
+        self.assertTrue((self.target / rel).is_file())
+        export.prepare(self.root, self.target)
+        self.assertFalse((self.target / rel).exists())
+        self.assertFalse((self.target / "backups").exists())
+        package.validate_release(self.target)
+
+    def test_edited_retired_rule_is_preserved_before_any_output_changes(self):
+        rel = "playbooks/approval-matrix.md"
+        self.write(rel, "# Old generated rule entry\n")
+        with mock.patch.object(export, "retired_rule_stub", return_value=False):
+            export.prepare(self.root, self.target)
+        original_manifest = (self.target / "release-manifest.json").read_bytes()
+        (self.target / rel).write_text("User work in progress\n")
+        with self.assertRaises(ValueError):
+            export.prepare(self.root, self.target)
+        self.assertEqual((self.target / rel).read_text(), "User work in progress\n")
+        self.assertEqual((self.target / "release-manifest.json").read_bytes(), original_manifest)
+
+    def test_non_rule_withdrawal_still_preserves_generated_source(self):
+        rel = "tools/withdrawn_helper.py"
+        self.write(rel, "VALUE = 1\n")
+        export.prepare(self.root, self.target)
+        (self.root / rel).unlink()
+        export.prepare(self.root, self.target)
+        self.assertEqual((self.target / "backups/withdrawn-source" / rel).read_text(), "VALUE = 1\n")
 
     def test_positive_obsolete_professional_qa_hq_chain_rejected_before_output(self):
         surfaces = ("AGENTS.md", "README.md", "departments/future-specialist/SKILL.md",

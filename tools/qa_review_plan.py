@@ -5669,6 +5669,121 @@ def _original_paid2_frozen_plan_read(root, snapshot, binding, plan):
     return True
 
 
+def _original_next20_frozen_plan_read(root, snapshot, binding, plan):
+    """Authenticate the unchanged next20 plan as historical read-only evidence.
+
+    The original IDs are returned unchanged. Current receipt writers execute
+    after this context has ended and retain all current identity/policy guards.
+    """
+    from department_rotation import historical_assignment_validator, validation_registry, _records, _id
+    task = 'fc-20261015-industry-keywords-site-coverage-plan-v1'
+    if snapshot.get('task_id') != task or validation_registry(root) is not None:
+        return False
+    plan_pin = {'path': 'logs/handoffs/2026-10-16-industry-keywords-real-execution-v1/assistant3-V5-limited-intake-v1/exact-original-A1-review-plan-restore.json',
+                'sha256': 'e71269b96b8d7f76f653edb9f0ddaaccbab02cce616edffe77a0f8a2ac15c8b3', 'size': 1074}
+    if binding.get('pin') != plan_pin:
+        return False
+    w = _workflow()
+    contract_pin = {'path': 'logs/handoffs/2026-10-15-industry-keywords-site-coverage-plan-v1/complete-coverage-planning-goal.json',
+                    'sha256': '8ed04e1b6e188cd946b3312a46d76e57408cf19b39d1102e580734bbc8177a93', 'size': 5649}
+    original = _review_source_document(root, contract_pin)
+    goal = _goal(root, snapshot)
+    fixed = {'operations-assistant': ('example-native-51808768551cf834', '<LOCAL_TASK_ID>'),
+             'local-seo-maps': ('example-native-f7d06776a6331200', '<LOCAL_TASK_ID>')}
+    planned = {x.get('department'): x for x in snapshot.get('departments', [])}
+    if (snapshot.get('goal_contract') != contract_pin or plan != _review_source_document(root, plan_pin)
+            or goal is None or any(goal.get(k) != original.get(k) for k in (*GOAL_IDENTITY, 'human_authorization'))
+            or goal.get('responsible_assistant') != 'operations-assistant'
+            or any(len([x for x in snapshot.get('departments', []) if x.get('department') == role]) != 1
+                   or planned[role].get('chat_task_id') != ids[0] for role, ids in fixed.items())
+            or plan.get('reviewer_thread_id') != fixed['operations-assistant'][0]
+            or plan.get('controller_thread_id') != fixed['operations-assistant'][0]):
+        raise w.WorkflowError('exact original next20 plan/goal and historical role fields required')
+    mappings = [row for row in _records(root) if row['role'] in fixed]
+    if (len(mappings) != 2 or any((_id(row['old_binding']), _id(row['new_binding'])) != fixed[row['role']]
+                                  for row in mappings)):
+        raise w.WorkflowError('two actual trusted same-role next20/reviewer rotations required')
+    prefix = 'logs/handoffs/2026-10-16-industry-keywords-real-execution-v1/assistant1-V4-limited-review/rework-preparation/'
+    source_pin = {'path': prefix + 'Root-actual-department3-rework-assignment-input.json',
+                  'sha256': '3c351ae7b3bf2dcf351b100286da7d98014ccb7abaf5dd5d4ef9f983952c8715', 'size': 1389}
+    item = _review_source_document(root, source_pin)
+
+    @historical_assignment_validator
+    def validate_original(root, item):
+        from goal_continuity import _dispatch_source
+        from goal_delivery_runtime import _collaboration_native
+        historical = validation_registry(root)
+        if (historical is None or any(historical[role]['chat_binding']['task_id'] != ids[0]
+                                      for role, ids in fixed.items())):
+            raise w.WorkflowError('authenticated original next20 read-only assignment context required')
+        original_snapshot, sent = _dispatch_source(root, item)
+        if (original_snapshot.get('goal_contract') != contract_pin
+                or sent.get('receipt_id') != '8687d9f6-f4d7-47c7-ac7d-705355736baa'
+                or sent.get('receipt_hash') != 'b793c6c2414f41565103dc5afb3de839b7827735c9d7ee2d6f7b06319a39bfb8'):
+            raise w.WorkflowError('exact actual original next20 dispatch required')
+        rows, bad = w._validate_receipt_chain(root, task, through_receipt_id='65be5574-960b-446d-9cd7-8aeb5cac7f10')
+        acks = [row for row in rows if row.get('receipt_id') == '65be5574-960b-446d-9cd7-8aeb5cac7f10']
+        if (bad or len(acks) != 1 or sent not in rows or rows.index(sent) >= rows.index(acks[0])
+                or acks[0].get('receipt_hash') != '8be1eb6977183a58dc6cbd6853902f0107e8a046c816c2551fb9bb83b0e863fe'
+                or acks[0].get('ack_nonempty') is not True
+                or acks[0].get('chat_task_id') != fixed['local-seo-maps'][0]
+                or acks[0].get('department') != 'local-seo-maps'):
+            raise w.WorkflowError('unaltered original next20 dispatch/ACK prefix required')
+        ack = acks[0]
+        native = _collaboration_native(root, ack['evidence'][0])
+        replies = [(turn, message) for turn in native.get('turns', [])
+                   if turn.get('id') == 'example-native-3b9a7b5266c269ce'
+                   for message in turn.get('items', [])
+                   if message.get('id') == 'msg_ffb7ea5f57d1dc6cc61420e4f8f0b16632785f778bb6da693253aae659067d1f' and message.get('type') == 'agentMessage']
+        if (native.get('thread', {}).get('id') != fixed['local-seo-maps'][0] or len(replies) != 1
+                or not str(replies[0][1].get('text', '')).strip()):
+            raise w.WorkflowError('actual nonempty original next20 native ACK required')
+        _review_native_containers(replies[0][0]); _review_native_containers(replies[0][1])
+        sent_at, ack_at = (_review_observed_at(x.get('created_at')) for x in (sent, ack))
+        started = replies[0][0].get('startedAt')
+        if (not sent_at or not ack_at or not sent_at <= ack_at <= dt.datetime.now(dt.timezone.utc)
+                or type(started) not in {int, float} or started > ack_at.timestamp()):
+            raise w.WorkflowError('actual original next20 dispatch/ACK chronology required')
+        validate_plan(root, snapshot, plan)
+
+    validate_original(root, item)
+    return True
+
+
+def _original_two_receipt_plan_snapshot(root, snapshot, binding):
+    """Recognize only the two normal authenticated in-memory dispatch views.
+
+    The authoritative original is used solely to read its frozen QA plan.
+    No caller field is trusted, no snapshot is written and the current receipt
+    writer retains its projected target and exact routing policy.
+    """
+    from department_rotation import current_dispatch_snapshot, validation_registry
+    if validation_registry(root) is not None:
+        return snapshot
+    allowed = {
+        'fc-20261019-chatgpt-paid2-execution-followthrough-v1': (
+            '572db3953d568011528ad5f5d99a41719d6c4790bba3e3903df5da6396e1991e',
+            ('paid-growth-data-2', 'operations-assistant')),
+        'fc-20261015-industry-keywords-site-coverage-plan-v1': (
+            'e71269b96b8d7f76f653edb9f0ddaaccbab02cce616edffe77a0f8a2ac15c8b3',
+            ('local-seo-maps', 'operations-assistant')),
+    }
+    expected = allowed.get(snapshot.get('task_id'))
+    if expected is None or binding.get('pin', {}).get('sha256') != expected[0]:
+        return snapshot
+    w = _workflow()
+    original = w.read_json(w.snapshot_path(root, snapshot['task_id']))
+    if original.get('qa_review_plan') != binding:
+        raise w.WorkflowError('actual original two-receipt plan binding required')
+    if snapshot == original:
+        return original
+    for role in expected[1]:
+        projected = current_dispatch_snapshot(root, original, role)
+        if projected != original and snapshot == projected:
+            return original
+    raise w.WorkflowError('only exact authenticated same-role current dispatch read view accepted')
+
+
 def load_plan(root: Path, snapshot: dict, binding: dict | None = None) -> dict | None:
     w = _workflow()
     snapshot = _review_context(root, snapshot)
@@ -5695,7 +5810,9 @@ def load_plan(root: Path, snapshot: dict, binding: dict | None = None) -> dict |
                 snapshot["departments"] = details["departments"]
                 if "owner_approval_required" in details:
                     snapshot["owner_approval_required"] = details["owner_approval_required"]
-    if not _original_paid2_frozen_plan_read(root, snapshot, binding, plan):
+    original_read_snapshot = _original_two_receipt_plan_snapshot(root, snapshot, binding)
+    if not (_original_paid2_frozen_plan_read(root, original_read_snapshot, binding, plan)
+            or _original_next20_frozen_plan_read(root, original_read_snapshot, binding, plan)):
         validate_plan(root, snapshot, plan)
     if binding.get("reviewer_department") != plan["reviewer_department"]:
         raise w.WorkflowError("reviewer binding differs from frozen plan")

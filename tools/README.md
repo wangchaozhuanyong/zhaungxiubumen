@@ -559,4 +559,4 @@ python3 tools/flashcast_ops.py result-handoff-pending
 
 ## 总控结束前进度检查
 
-`python3 tools/controller_progress.py --live-proof <项目内真实现场快照> --json-output data/controller-current-progress.json --report-output reports/company-current-work-status.md` 汇总全部注册角色、原业务主账及准确结果/决策后待办。现场快照须含真实 observed_at/threads/sections；缺 projectId 不补造，超过5分钟重读现场（不建立五分钟排程）。退出码0仅表示本次无待接续控制项；2表示仍需接续/事件等待；3表示证据读取阻断。它不发送消息、不改业务主账、不授予权限，不是应用硬锁或结束后自动唤醒功能。配套规则见 `playbooks/controller-result-continuation-and-checkout.md`。
+`python3 tools/controller_progress.py --live-proof <项目内真实现场快照> --json-output data/controller-current-progress.json --report-output reports/company-current-work-status.md` 汇总全部注册角色、原业务主账及准确结果/决策后待办。现场快照须含真实 observed_at/threads/sections；缺 projectId 不补造，超过5分钟重读现场（不建立五分钟排程）。退出码0仅表示本次无待接续控制项；2表示仍需接续/事件等待；3表示证据读取阻断。它不发送消息、不改业务主账、不授予权限，不是应用硬锁或结束后自动唤醒功能。配套规则见 `playbooks/department-system-current.md` 的当前任务与连续接续、收尾与规则维护章节。

@@ -15,7 +15,7 @@ description: "执行 FLASH CAST 官网已有准确授权的整项CMS内容保存
 
 ## 接收一个准确发布包
 
-核原task_id、candidate_version、action、company.example: scope、EN/ZH字段、真实CMS记录ID、冻结候选hash与来源；必须锁定 cms_content_candidate → cms_write。读取 data/task-contract.json、data/action-policy.json、playbooks/site-release-risk-boundary.md 和原workflow、准确原授权、必要自检、许可及执行回执。合法来源可以是总部原完整目标、老板准确直接任务，或已绑定负责助理/主负责人在原完整目标内落实的准确常规协作；均核现场身份、健康、scope与policy，未变版本按幂等键去重。新goal不要求QA1/QA2或总部二审，缺goal的历史任务只读其原准确链，不补新PASS。
+核原task_id、candidate_version、action、company.example: scope、EN/ZH字段、真实CMS记录ID、冻结候选hash与来源；必须锁定 cms_content_candidate → cms_write。读取 data/task-contract.json、data/action-policy.json、playbooks/department-system-current.md 的发布计划及生产归属章节和原workflow、准确原授权、必要自检、许可及执行回执。合法来源可以是总部原完整目标、老板准确直接任务，或已绑定负责助理/主负责人在原完整目标内落实的准确常规协作；均核现场身份、健康、scope与policy，未变版本按幂等键去重。新goal不要求QA1/QA2或总部二审，缺goal的历史任务只读其原准确链，不补新PASS。
 
 内容已发布或执行状态不明时先回读原记录与Saved ID，不能重复保存。常规新goal发布前同时具备：真实已有准确授权来源、原范围必要自检、执行者为本固定发布部的当次单次精确许可、当前before/版本防覆盖证据、受保护零写入预演、写前备份及逐字段回滚和变更日志。R0草稿不能冒充发布；整项保存、版本读回及公开核对后交空闲合格助理一次验收，验收不授账号权限。历史AUTO_RELEASE/QA只说明原任务，不作为新goal的强制前置，也不重放旧许可。缺项只报告最小缺口、唯一保管人、恢复动作和复查时间，继续依赖齐全项；不凭技能或概括授权扩大门禁范围。
 

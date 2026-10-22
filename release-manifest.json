@@ -17,7 +17,7 @@
     "examples/packet.json",
     "examples/step-a-result.json"
   ],
-  "version": "2026.10.22.full-system-v1",
+  "version": "2026.10.22.current-rules-v2",
   "artifact_type": "department_system_source",
   "roles": [
     "operations",
@@ -147,9 +147,9 @@
     },
     {
       "path": "README.md",
-      "source_sha256": "b1c94abe88cc94a265fc4ef95aa255b7370ec520d829d1cb6b63a1e19b914db8",
-      "release_sha256": "b1c94abe88cc94a265fc4ef95aa255b7370ec520d829d1cb6b63a1e19b914db8",
-      "bytes": 4659
+      "source_sha256": "875c9f597579e3c24c129cba74916e4453c777c8ed82bba1b3b4aed164dbf61d",
+      "release_sha256": "875c9f597579e3c24c129cba74916e4453c777c8ed82bba1b3b4aed164dbf61d",
+      "bytes": 4825
     },
     {
       "path": "ci/department-system-checks.yml.example",
@@ -339,9 +339,9 @@
     },
     {
       "path": "departments/qa/references/content-seo-website-gate.md",
-      "source_sha256": "c2dc92f66b602ecfbfb3b9691b3b2fed43accfa128ed7e0e54d4f07b5a096848",
-      "release_sha256": "c2dc92f66b602ecfbfb3b9691b3b2fed43accfa128ed7e0e54d4f07b5a096848",
-      "bytes": 1172
+      "source_sha256": "e0b663c865d919fd48a9e8b4d0fbe71b738c0bc844e9ff559789c3f96b27c1fb",
+      "release_sha256": "e0b663c865d919fd48a9e8b4d0fbe71b738c0bc844e9ff559789c3f96b27c1fb",
+      "bytes": 1243
     },
     {
       "path": "departments/qa/references/data-evidence-gate.md",
@@ -800,12 +800,6 @@
       "bytes": 956
     },
     {
-      "path": "playbooks/approval-matrix.md",
-      "source_sha256": "a843f82f183cb6aee1baf2e3b473769d4ddeef7e209a56092ab7397f732fb73f",
-      "release_sha256": "a843f82f183cb6aee1baf2e3b473769d4ddeef7e209a56092ab7397f732fb73f",
-      "bytes": 540
-    },
-    {
       "path": "playbooks/chatgpt-paid-ads-method.md",
       "source_sha256": "4e6def0c789d9c688bc36929196419b1eea771cfbd54630c0193a7c6a390712c",
       "release_sha256": "8a8454f86d123568225034138ab91e2fdb57dd728ccc308322e11fd8bd841df9",
@@ -818,12 +812,6 @@
       "bytes": 3728
     },
     {
-      "path": "playbooks/controller-result-continuation-and-checkout.md",
-      "source_sha256": "df922baec48a43dd21b9a5d4d4e02df0e32d4088b7d50f03f9e7af822bf436db",
-      "release_sha256": "df922baec48a43dd21b9a5d4d4e02df0e32d4088b7d50f03f9e7af822bf436db",
-      "bytes": 540
-    },
-    {
       "path": "playbooks/controller-workflow-recovery.md",
       "source_sha256": "a01d16dccb24e737aa4a7ac78269ad722d13d2413fa176651946d9c5177d113b",
       "release_sha256": "a01d16dccb24e737aa4a7ac78269ad722d13d2413fa176651946d9c5177d113b",
@@ -834,12 +822,6 @@
       "source_sha256": "5aedd43cfd5709c3cf3912eff444176b5d4d543728d9e487a488a9c8a2e544a6",
       "release_sha256": "5aedd43cfd5709c3cf3912eff444176b5d4d543728d9e487a488a9c8a2e544a6",
       "bytes": 919
-    },
-    {
-      "path": "playbooks/department-decision-authority.md",
-      "source_sha256": "784aad3aab1ef1f5f87bf8a407ad8065eb77aead03f5751876f8e9e3937bb2c1",
-      "release_sha256": "784aad3aab1ef1f5f87bf8a407ad8065eb77aead03f5751876f8e9e3937bb2c1",
-      "bytes": 561
     },
     {
       "path": "playbooks/department-event-dispatcher-pilot.md",
@@ -855,15 +837,15 @@
     },
     {
       "path": "playbooks/department-system-current.md",
-      "source_sha256": "ea45762bf89c68d29c5b560f2f5b8eeaed8dc429f4f8fd8262853bd6fbc0e9af",
-      "release_sha256": "ea45762bf89c68d29c5b560f2f5b8eeaed8dc429f4f8fd8262853bd6fbc0e9af",
-      "bytes": 15571
+      "source_sha256": "e3f5a8eecda5f97265cae3a5c7d2159c35ba72a1fb536f5f84cb0717bb9c7b4b",
+      "release_sha256": "e3f5a8eecda5f97265cae3a5c7d2159c35ba72a1fb536f5f84cb0717bb9c7b4b",
+      "bytes": 16137
     },
     {
       "path": "playbooks/department-system-release-inventory.md",
-      "source_sha256": "cc9de84f123df1e10e5d1e9541a937e3d0a0fe837dda586770a40c754e90aa33",
-      "release_sha256": "cc9de84f123df1e10e5d1e9541a937e3d0a0fe837dda586770a40c754e90aa33",
-      "bytes": 2834
+      "source_sha256": "504c33af35ad920356a7baf2438bce3bef656764dd1bf2643e3eba628f461e32",
+      "release_sha256": "504c33af35ad920356a7baf2438bce3bef656764dd1bf2643e3eba628f461e32",
+      "bytes": 3379
     },
     {
       "path": "playbooks/department-system-runtime-adoption.md",
@@ -879,9 +861,9 @@
     },
     {
       "path": "playbooks/department-system-source-release.md",
-      "source_sha256": "87aa222d9e6dfcf22a939bfc47b4bcfb6161a19dfeb177ae408ad7a617396a12",
-      "release_sha256": "87aa222d9e6dfcf22a939bfc47b4bcfb6161a19dfeb177ae408ad7a617396a12",
-      "bytes": 5487
+      "source_sha256": "ab77043d8895c8b23e6db3815d310758cc5e0e5d3ca6cca8d0c1909522b20f73",
+      "release_sha256": "ab77043d8895c8b23e6db3815d310758cc5e0e5d3ca6cca8d0c1909522b20f73",
+      "bytes": 5785
     },
     {
       "path": "playbooks/flashcast-growth-data-and-backend-operations.md",
@@ -936,18 +918,6 @@
       "source_sha256": "6a7d4b0e901391a9be2eeeaf3ec1a4a02ead81017bb76e73ae2c1444199bf587",
       "release_sha256": "6a7d4b0e901391a9be2eeeaf3ec1a4a02ead81017bb76e73ae2c1444199bf587",
       "bytes": 1524
-    },
-    {
-      "path": "playbooks/single-primary-task-dispatch-and-undone-report.md",
-      "source_sha256": "53105856d4b1f98ac13910198671a4cc9493601aa17de55dbb1f45391fbb09c3",
-      "release_sha256": "53105856d4b1f98ac13910198671a4cc9493601aa17de55dbb1f45391fbb09c3",
-      "bytes": 561
-    },
-    {
-      "path": "playbooks/site-release-risk-boundary.md",
-      "source_sha256": "324ec04b59ca35fcb1cee691c8d0b7a31c15ad1aad890a39217a3c9d3136a882",
-      "release_sha256": "324ec04b59ca35fcb1cee691c8d0b7a31c15ad1aad890a39217a3c9d3136a882",
-      "bytes": 531
     },
     {
       "path": "playbooks/unified-social-publishing.md",
@@ -1071,9 +1041,9 @@
     },
     {
       "path": "skills/flashcast-cms-publishing/SKILL.md",
-      "source_sha256": "fe8663b3f7f796fb2abeff76e820a5e8c71b240daf11c8fc3448365a06e975c2",
-      "release_sha256": "1caaa662fd34f36b49cc8c9769c27ecf6381fc9f3b533af23a47d69f4622c1ee",
-      "bytes": 5662
+      "source_sha256": "19f6788f4fc111f5b7f2f7f811fa0630c473874def5db2676026cb5a7bea43de",
+      "release_sha256": "83339715f5e81eab373c31fa77556f24bba8e798f8dec91806d91952226e81f2",
+      "bytes": 5697
     },
     {
       "path": "skills/flashcast-department-learning/SKILL.md",
@@ -1095,9 +1065,9 @@
     },
     {
       "path": "tools/README.md",
-      "source_sha256": "6a9b9954beb000197999234d96d8094fdbaa4529831efd11e0d7c82980302a7d",
-      "release_sha256": "50ceeb86b2647ad25a4f4efe12c535d22bc236e7b39982cbc1c02be81b185322",
-      "bytes": 33665
+      "source_sha256": "a0ffceccd5f0e2460fe32e50d0c3ce2f2b9e7a27dfeb9b4edb75a4af8ba8c46a",
+      "release_sha256": "8d7477cfeefbb580adee2ff3367e44de697bfba0c7f61edd4937ff45723c11f1",
+      "bytes": 33708
     },
     {
       "path": "tools/__init__.py",
@@ -1227,9 +1197,9 @@
     },
     {
       "path": "tools/export_department_system.py",
-      "source_sha256": "3c649634d9ffc47be86b57589591b40d28cb412dcebbe1bcc3f5b37eb264b786",
-      "release_sha256": "cc5c572bd869d533707995698bdd4d7f096f9e1bfa58200af28e4ec00bc09b95",
-      "bytes": 34096
+      "source_sha256": "3cba5c5a3b40447191854a9fda967a7bed601ca7de891f03fbbaa63dbf55bcaa",
+      "release_sha256": "ba19ea7d5c69853166fa2772f7ee7744282458a9b00ee9f98f2ccbfa63adfcda",
+      "bytes": 34949
     },
     {
       "path": "tools/flashcast_ops.py",
@@ -1401,9 +1371,9 @@
     },
     {
       "path": "tools/qa_review_plan.py",
-      "source_sha256": "3be5fe0eff4cf325ea0b9e9c03240914af6600fb68f4f4716fe44869d9c729c5",
-      "release_sha256": "4d16305607e468da0fc931ef977619daa03e3eeacfe3e6792a0cf58ff20785e6",
-      "bytes": 536051
+      "source_sha256": "24a42d9f9ebd4725c51dc20149800fc1844da057f7e228c0708c4abbdddaded4",
+      "release_sha256": "f0b183a6d287e7e06b8db26c45f3fa8925e5d66c1058ffe6b052190e0140e309",
+      "bytes": 543900
     },
     {
       "path": "tools/result_coordination.py",
@@ -1587,9 +1557,9 @@
     },
     {
       "path": "tools/test_export_department_system.py",
-      "source_sha256": "59b375b62e959dd0d1a1f3cb2c9fdd93d36484ab9527c28d04f5717f29563154",
-      "release_sha256": "1facc763f1bf07e197839171e28b2f2934ce22f6a2d7ac2dab2199bef34aa0a6",
-      "bytes": 20323
+      "source_sha256": "20f09045aaf4bd6029442b703ecc4fcad3b907e6fac9d4d4c34cef177b3a068d",
+      "release_sha256": "16e31becd1ba23c4169b453c3ece5c958ed34d84bf742c0434168cd61883149b",
+      "bytes": 22045
     },
     {
       "path": "tools/test_export_numeric_privacy.py",
@@ -1876,5 +1846,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "f5668150330d18163ba5da40a57c520d2425c62ccd8d0113054c481ebef39d9d"
+  "fingerprint": "e8a783a417fb4a2e781f592eb21b7525357e9bfe51c3b78839d1da6829bb79a7"
 }

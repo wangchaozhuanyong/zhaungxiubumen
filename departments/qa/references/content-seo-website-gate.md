@@ -1,6 +1,6 @@
 # 内容、SEO/GEO 与网站门禁
 
-先按 `playbooks/site-release-risk-boundary.md` 判定 R1/R2/R3，再只检查与本次改动相关的门禁：公司事实、服务/地区、双语一致、搜索意图和页面拥有关系、目标字段或文件 diff、相关 title/H1/canonical/hreflang/sitemap/robots/Schema、概念图标注、案例/评价证据、受影响 CTA/表单/移动端、备份/变更/回滚和生产目标。
+历史任务的 R1/R2/R3 沿原准确授权与回执解释；现行发布职责和条件读取 `playbooks/department-system-current.md`，再只检查与本次改动相关的门禁：公司事实、服务/地区、双语一致、搜索意图和页面拥有关系、目标字段或文件 diff、相关 title/H1/canonical/hreflang/sitemap/robots/Schema、概念图标注、案例/评价证据、受影响 CTA/表单/移动端、备份/变更/回滚和生产目标。
 
 以下情况不得放行：虚构价格/工期/案例/资质；假城市门页；概念图冒充完工；关键页面 noindex/robots/canonical 错误；表单不可用；中文和英文承诺不一致；没有明确生产目标或回滚。
 

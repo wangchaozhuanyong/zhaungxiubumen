@@ -30,10 +30,19 @@ SECRET_PATTERNS = (
     re.compile(r"\bBearer\s+[A-Za-z0-9_.-]{25,}"),
     re.compile(r"(?i)(?:password|access_token|api_key)\s*[=:]\s*[\"'][^\"']{16,}[\"']"),
 )
+RETIRED_COMMON_RULE_PATHS = frozenset({
+    "playbooks/approval-matrix.md",
+    "playbooks/controller-result-continuation-and-checkout.md",
+    "playbooks/department-decision-authority.md",
+    "playbooks/single-primary-task-dispatch-and-undone-report.md",
+    "playbooks/site-release-risk-boundary.md",
+})
 
 
 def retired_rule_stub(rel, raw):
-    """Retired local evidence stays local; never re-export its dead entry point."""
+    """Never export a retired rule, including former redirect-only entries."""
+    if rel in RETIRED_COMMON_RULE_PATHS:
+        return True
     first = raw.decode("utf-8").splitlines()[:1]
     return bool(first and (
         (rel.startswith("prompts/automations/") and first[0] == "# 历史自动任务提示词已退出")
@@ -498,7 +507,7 @@ def prepare(root: Path, target: Path):
     validate_payloads(payloads, ids, retired_roles, historical)
     manifest = seal_manifest({
         "schema_version": SCHEMA, "runtime_model": MODEL, "non_runtime_files": historical,
-        "version": "2026.10.22.full-system-v1", "artifact_type": "department_system_source",
+        "version": "2026.10.22.current-rules-v2", "artifact_type": "department_system_source",
         "roles": ids, "files": sorted(tracked, key=lambda row: row["path"]),
         "retired_roles": retired_roles,
         "live_bindings_exported": False, "live_health_exported": False, "live_ledgers_exported": False,
@@ -529,8 +538,14 @@ def prepare(root: Path, target: Path):
             raise ValueError("Invalid previous release path")
         if hashlib.sha256(path.read_bytes()).hexdigest() != row["release_sha256"]:
             raise ValueError("Previous generated file was edited; preserve and review: " + rel)
-        recovery = target / "backups/withdrawn-source" / rel
-        if recovery.exists() and recovery.read_bytes() != path.read_bytes():
+        # Withdraw generated retired rules without creating another rule copy.
+        # Other generated source keeps the existing recovery behavior.
+        source = root / rel
+        retired_rule = (retired_rule_stub(rel, path.read_bytes())
+                        or (source.is_file() and retired_rule_stub(rel, source.read_bytes())))
+        recovery = (None if retired_rule
+                    else target / "backups/withdrawn-source" / rel)
+        if recovery is not None and recovery.exists() and recovery.read_bytes() != path.read_bytes():
             raise ValueError("Recovery file conflict: " + rel)
         withdrawn.append((path, recovery))
     target.mkdir(parents=True, exist_ok=True)
@@ -539,6 +554,9 @@ def prepare(root: Path, target: Path):
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(raw)
     for path, recovery in withdrawn:
+        if recovery is None:
+            path.unlink()
+            continue
         recovery.parent.mkdir(parents=True, exist_ok=True)
         if not recovery.exists():
             path.rename(recovery)
