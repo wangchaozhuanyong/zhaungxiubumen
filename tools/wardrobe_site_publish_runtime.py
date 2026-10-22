@@ -27,10 +27,10 @@ ORIGINAL_REVIEW_SHA = "d2d53165fb0dc2a188d7c173610cda0c35265cd68fda29c783e32a33d
 ORIGINAL_INDEX_REL = ("reports/builtin-wardrobe-protected-channel-20261015-v1/"
                       "release-v2/frozen-result-index.json")
 ORIGINAL_INDEX_SHA = "854fe35aa810d19331c5652f077a9716ce0b41df257a55feadfeaff34639f63a"
-SOURCE_THREAD = "<LOCAL_TASK_ID>"
+SOURCE_THREAD = "example-native-0bec6d516b372cb9"
 SOURCE_MESSAGE = "example-native-8b2eedaf7db63344"
 WEB = "designated-development"
-WEB_THREAD = "<LOCAL_THREAD_ID>"
+WEB_THREAD = "example-native-25e4a2ebb5d53084"
 WEB_TITLE = "FLASH CAST｜专用开发部｜网站与部门系统"
 WEB_CWD = "<WEBSITE_PROJECT_ROOT>"
 SELF_CHECK_MARKER = "FLASHCAST_WARDROBE_R3_SELFCHECK_READY "

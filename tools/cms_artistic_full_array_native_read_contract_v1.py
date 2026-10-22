@@ -28,7 +28,7 @@ METADATA = []
 
 RECORD_ID = 'd862312d-d5f3-4bb7-9bf0-137ed71c87be'
 
-PUBLISHER = '<LOCAL_TASK_ID>'
+PUBLISHER = 'example-native-f4ba16119c32b000'
 
 REQUEST_PATH = 'drafts/operations/fc-20261007-artistic-full-array-source-control-v1/artistic-full-array-five-field-read-control-v1-20261007/exact-native-read-request.json'
 

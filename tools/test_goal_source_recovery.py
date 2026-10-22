@@ -21,23 +21,23 @@ class OfficialQueueAssignmentTests(unittest.TestCase):
     snapshot=fixture.GoalRuntimeConsumerTests.snapshot
     requested=fixture.GoalRuntimeConsumerTests.requested
 
-    def queued(self):
+    def queued(self, department=fixture.ASSISTANT):
         registry=w.read_json(self.root/'data/department-registry.json')
         for row in registry['departments']:
-            if row['id']==fixture.ASSISTANT:
+            if row['id']==department:
                 row['chat_binding']['task_id']='11111111-1111-4111-8111-111111111111'
         w.atomic_write_json(self.root/'data/department-registry.json',registry)
         self.initialize();goal=self.snapshot()['goal_delivery'];contract=self.snapshot()['goal_contract']
         payload='reports/queued-assignment.txt'
         (self.root/payload).write_text(self.task_id+' contract '+contract['path'])
-        request=self.requested(sender='operations',target=fixture.ASSISTANT,
+        request=self.requested(sender='operations',target=department,
                                scope=goal['authorized_scope'][0],payload=w.file_digest(self.root,payload))
-        fixed=w.department_registry(self.root)[fixture.ASSISTANT]['chat_binding']
+        fixed=w.department_registry(self.root)[department]['chat_binding']
         source=w.department_registry(self.root)['operations']['chat_binding']
         now=dt.datetime.now(dt.timezone.utc)-dt.timedelta(seconds=1)
         native=self.write('reports/queue-target.json',{'thread':{'id':fixed['task_id'],
             'title':fixed['title'],'cwd':fixed['cwd']},'turns':[{'status':'inProgress'}]})
-        request.update(action_id='assign-goal-review:'+self.task_id,delivery_mode='official_native_queue',
+        request.update(action_id=('assign-goal-review:' if department==fixture.ASSISTANT else 'HQ-producer:')+self.task_id,delivery_mode='official_native_queue',
             assignment_record_required=True,authorization_changes=[],actual_target_state=w.file_digest(self.root,native))
         with mock.patch('department_event_dispatcher.native_queue_capability',return_value='/fixture/cli'), \
                 mock.patch.object(w,'utc_timestamp',return_value=(now-dt.timedelta(seconds=10)).isoformat()):
@@ -63,8 +63,8 @@ class OfficialQueueAssignmentTests(unittest.TestCase):
             'startedAt':now.timestamp()+0.2,'items':[{'type':'userMessage','id':'different-user-message-id',
                 'content':[{'type':'text','text':(self.root/payload).read_text()}]},
                 {'type':'agentMessage','id':'actual-ACK','phase':'commentary','text':'Accepted the complete fixture task.'}]}]})
-        item={'schema':continuity.ASSIGNMENT_SCHEMA,'task_id':self.task_id,'department':fixture.ASSISTANT,
-            'sender_department':'operations','scope':goal['authorized_scope'][0],
+        item={'schema':continuity.ASSIGNMENT_SCHEMA,'task_id':self.task_id,'department':department,
+            'sender_department':'operations','action_id':request['action_id'],'scope':goal['authorized_scope'][0],
             'source_kind':'official_native_queue','goal_contract':contract,'authorization_pin':goal['authorization_pin'],
             'payload':request['payload'],'original_prepare_request':w.file_digest(self.root,rp),
             'original_prepare_result':w.file_digest(self.root,pp),'actual_queue_intent':w.file_digest(self.root,ip),
@@ -73,7 +73,7 @@ class OfficialQueueAssignmentTests(unittest.TestCase):
             'queue_message_id':qid,'receiver_turn_id':'receiving-turn','receiver_message_id':'different-user-message-id',
             'ack_message_id':'actual-ACK','restore_position':'suspended'}
         item['dispatch_idempotency_key']='queue-assignment-'+w.sha256_value([
-            self.task_id,fixture.ASSISTANT,qid,intent['policy_decision_id'],request['payload']])
+            self.task_id,department,qid,intent['policy_decision_id'],request['payload']])
         return self.write('reports/queue-assignment-recovery.json',item),item
 
     def test_delivered_queue_recovers_once_and_normal_initial_review_reads_it(self):
@@ -134,6 +134,265 @@ class OfficialQueueAssignmentTests(unittest.TestCase):
         recovery.recover_queued_assignment(self.root,path)
         (self.root/item['payload']['path']).write_text('tampered')
         with self.assertRaises(w.WorkflowError):continuity._dispatch_source(self.root,item)
+
+
+class ProducerOfficialQueueTests(unittest.TestCase):
+    setUp=OfficialQueueAssignmentTests.setUp
+    write=OfficialQueueAssignmentTests.write
+    initialize=OfficialQueueAssignmentTests.initialize
+    make_goal=OfficialQueueAssignmentTests.make_goal
+    snapshot=OfficialQueueAssignmentTests.snapshot
+    requested=OfficialQueueAssignmentTests.requested
+
+    def queued(self):
+        return OfficialQueueAssignmentTests.queued(self, department=fixture.PRODUCER)
+
+    def test_actual_producer_queue_registers_current_and_preserves_prior_once(self):
+        path,item=self.queued()
+        prior=self.write('reports/prior-original-assignment.json',{'task_id':'prior-original-goal'})
+        prior_pin=w.file_digest(self.root,prior)
+        w.atomic_write_json(self.root/'data/department-current-assignment.json',
+            {'assignments':{fixture.PRODUCER:prior_pin}})
+        item.pop('restore_position');self.write(path,item)
+        first=recovery.recover_queued_assignment(self.root,path)
+        before=w.read_jsonl(w.receipts_path(self.root,self.task_id))
+        second=recovery.recover_queued_assignment(self.root,path)
+        self.assertEqual(second['result'],'duplicate_ignored')
+        self.assertEqual(first['dispatch_receipt_id'],second['dispatch_receipt_id'])
+        self.assertEqual(before,w.read_jsonl(w.receipts_path(self.root,self.task_id)))
+        current=w.read_json(self.root/'data/department-current-assignment.json')
+        self.assertEqual(current['assignments'][fixture.PRODUCER],w.file_digest(self.root,path))
+        self.assertEqual(current['suspended_assignments'][fixture.PRODUCER],[prior_pin])
+        events=w.read_jsonl(self.root/w.WORKFLOW_EVENTS)
+        self.assertFalse(any(e.get('details',{}).get('initial_responsibility_assignment_source') for e in events))
+
+    def test_wrong_role_action_goal_and_source_do_not_register(self):
+        _,item=self.queued()
+        for key,value in [('department',fixture.ASSISTANT),('action_id','assign-goal-review:'+self.task_id),
+                          ('action_id','different-action'),('goal_contract',{}),('authorization_pin',{}),
+                          ('queue_message_id','different-queue'),('source_call_id','absent'),
+                          ('ack_message_id','absent')]:
+            with self.subTest(key=key),self.assertRaises(w.WorkflowError):
+                recovery.queued_assignment_source(self.root,{**item,key:value},require_dispatch=False)
+        self.assertFalse(w.read_jsonl(w.receipts_path(self.root,self.task_id)))
+
+    def test_changed_original_precheck_is_not_new_producer_authority(self):
+        _,item=self.queued()
+        for key,value in [('status','authorization_change_required'),('original_authorization',{}),
+                          ('external_permission_issued',True),('actual_action_allowed',True)]:
+            doc=copy.deepcopy(w.read_json(self.root/item['original_prepare_result']['path']))
+            doc['authorization_precheck'][key]=value
+            p=self.write('reports/changed-producer-precheck.json',doc)
+            with self.subTest(key=key),self.assertRaises(w.WorkflowError):
+                recovery.queued_assignment_source(self.root,{**item,'original_prepare_result':w.file_digest(self.root,p)},require_dispatch=False)
+
+    def test_completed_call_inside_unfinished_source_round_still_waits(self):
+        _,item=self.queued();doc=w.read_json(self.root/item['actual_native_invocation']['path'])
+        doc['turns'][0]['status']='inProgress'
+        p=self.write('reports/unfinished-producer-source.json',doc)
+        with self.assertRaises(w.WorkflowError):
+            recovery.queued_assignment_source(self.root,{**item,'actual_native_invocation':w.file_digest(self.root,p)},require_dispatch=False)
+
+    def test_altered_transport_receiver_or_chronology_is_rejected(self):
+        _,item=self.queued()
+        for key,mutate in [('actual_queue_result',lambda d:d.update(exit_code=1)),
+                           ('actual_native_recipient',lambda d:d['thread'].update(id='different-receiver')),
+                           ('actual_native_recipient',lambda d:d['turns'][0]['items'][0]['content'][0].update(text='wrong task')),
+                           ('actual_native_recipient',lambda d:d['turns'][0]['items'][1].update(text='')),
+                           ('actual_native_recipient',lambda d:d['turns'][0].update(startedAt=0))]:
+            doc=copy.deepcopy(w.read_json(self.root/item[key]['path']));mutate(doc)
+            p=self.write('reports/changed-producer-source.json',doc)
+            with self.subTest(key=key),self.assertRaises(w.WorkflowError):
+                recovery.queued_assignment_source(self.root,{**item,key:w.file_digest(self.root,p)},require_dispatch=False)
+
+
+class PreparedResultQueueAssignmentTests(OfficialQueueAssignmentTests):
+    """The frozen prepared-result form, through the unchanged normal recovery entry."""
+    def queued(self):
+        path,item=super().queued()
+        native=w.read_json(self.root/item['actual_native_invocation']['path'])
+        native['turns'][0]['items'][0]['command']=(
+            "python3 - <<'PY'\nimport json\nfrom pathlib import Path\n"
+            "from department_event_dispatcher import OfficialQueueTransport\n"
+            +"r=Path("+repr(str(self.root))+");s=r/'reports'\n"
+            +"p=json.loads((s/'original-prepared-result.json').read_text())\n"
+            +"directory=s/'original-queue'\n"
+            +"OfficialQueueTransport(r,None).enqueue({'directory':directory,"
+            "'thread_id':p['policy_decision']['target_thread_id'],"
+            "'payload_sha256':p['payload']['sha256'],"
+            "'policy_decision_id':p['policy_decision']['decision_id'],"
+            "'message':(r/p['payload']['path']).read_text()})\nPY")
+        # The original frozen observation was in progress. Its real later
+        # native read may finish the turn without altering the original call.
+        original=copy.deepcopy(native)
+        original['turns'][0].update(status='inProgress',completedAt=None)
+        reference=self.write('reports/frozen-original-queue-invocation.json',original)
+        sender=self.write('reports/real-later-completed-sender.json',native)
+        item['actual_native_invocation']=w.file_digest(self.root,sender)
+        expected={key:copy.deepcopy(item[key]) for key in (
+            'scope','department','source_call_id','queue_message_id','original_prepare_request',
+            'original_prepare_result','actual_queue_intent','actual_queue_result')}
+        expected['original_native']=w.file_digest(self.root,reference)
+        patch=mock.patch.object(recovery,'_PREPARED_RESULT_QUEUE_SOURCES',{self.task_id:expected})
+        patch.start();self.addCleanup(patch.stop)
+        self.write(path,item)
+        self.assertNotIn(Path(item['original_prepare_request']['path']).name,native['turns'][0]['items'][0]['command'])
+        return path,item
+
+    def test_prepared_result_without_request_literal_reads_exact_original_call(self):
+        _,item=self.queued()
+        snapshot,source=recovery.queued_assignment_source(self.root,item,require_dispatch=False)
+        self.assertEqual(snapshot['task_id'],self.task_id)
+        self.assertEqual(source['idempotency_key'],item['dispatch_idempotency_key'])
+        self.assertFalse(w.read_jsonl(w.receipts_path(self.root,self.task_id)))
+
+    def test_request_name_annotation_cannot_replace_changed_original_command(self):
+        _,item=self.queued();doc=w.read_json(self.root/item['actual_native_invocation']['path'])
+        doc['turns'][0]['items'][0]['command']+='\n# '+Path(item['original_prepare_request']['path']).name
+        pin=self.write('reports/changed-call-with-request-name.json',doc)
+        with self.assertRaises(w.WorkflowError):
+            recovery.queued_assignment_source(self.root,{**item,'actual_native_invocation':w.file_digest(self.root,pin)},require_dispatch=False)
+
+    def test_copied_or_renamed_packet_files_are_not_original_source(self):
+        _,item=self.queued()
+        for key in ('original_prepare_request','original_prepare_result','actual_queue_intent','actual_queue_result'):
+            pin=self.write('reports/renamed-'+key+'.json',w.read_json(self.root/item[key]['path']))
+            with self.subTest(key=key),self.assertRaises(w.WorkflowError):
+                recovery.queued_assignment_source(self.root,{**item,key:w.file_digest(self.root,pin)},require_dispatch=False)
+
+    def test_source_in_progress_remains_a_real_event_wait_without_effects(self):
+        _,item=self.queued();doc=w.read_json(self.root/item['actual_native_invocation']['path'])
+        doc['turns'][0].update(status='inProgress',completedAt=None)
+        pin=self.write('reports/source-still-in-progress.json',doc)
+        before=w.read_json(self.root/'data/department-current-assignment.json')
+        with self.assertRaises(w.WorkflowError):
+            recovery.queued_assignment_source(self.root,{**item,'actual_native_invocation':w.file_digest(self.root,pin),
+                'source_turn_completed':True},require_dispatch=False)
+        self.assertFalse(w.read_jsonl(w.receipts_path(self.root,self.task_id)))
+        self.assertEqual(before,w.read_json(self.root/'data/department-current-assignment.json'))
+
+    def test_original_call_turn_and_timestamp_cannot_move_to_another_round(self):
+        _,item=self.queued()
+        for change in ({'id':'another-source-turn'},{'startedAt':0}):
+            doc=w.read_json(self.root/item['actual_native_invocation']['path']);doc['turns'][0].update(change)
+            pin=self.write('reports/another-round.json',doc)
+            with self.subTest(change=change),self.assertRaises(w.WorkflowError):
+                recovery.queued_assignment_source(self.root,{**item,'actual_native_invocation':w.file_digest(self.root,pin)},require_dispatch=False)
+
+    def test_tampered_frozen_original_source_pin_cannot_be_replaced(self):
+        _,item=self.queued();profile=recovery._PREPARED_RESULT_QUEUE_SOURCES[self.task_id]
+        (self.root/profile['original_native']['path']).write_text('{}')
+        with self.assertRaises(w.WorkflowError):recovery.queued_assignment_source(self.root,item,require_dispatch=False)
+
+    def test_complete_source_without_genuine_recipient_ack_does_not_admit(self):
+        _,item=self.queued();doc=w.read_json(self.root/item['actual_native_recipient']['path'])
+        doc['turns'][0]['items']=doc['turns'][0]['items'][:1]
+        pin=self.write('reports/only-queued-user-message.json',doc)
+        with self.assertRaises(w.WorkflowError):
+            recovery.queued_assignment_source(self.root,{**item,'actual_native_recipient':w.file_digest(self.root,pin)},require_dispatch=False)
+        self.assertFalse(w.read_jsonl(w.receipts_path(self.root,self.task_id)))
+
+    def test_queue_and_receipt_times_keep_the_original_causal_guards(self):
+        _,item=self.queued()
+        for key,change in [('actual_native_invocation',{'completedAt':0}),
+                           ('actual_native_recipient',{'startedAt':0})]:
+            doc=w.read_json(self.root/item[key]['path']);doc['turns'][0].update(change)
+            pin=self.write('reports/wrong-chronology.json',doc)
+            with self.subTest(key=key),self.assertRaises(w.WorkflowError):
+                recovery.queued_assignment_source(self.root,{**item,key:w.file_digest(self.root,pin)},require_dispatch=False)
+
+    def test_unprofiled_other_task_does_not_gain_prepared_result_exemption(self):
+        _,item=self.queued()
+        with mock.patch.object(recovery,'_PREPARED_RESULT_QUEUE_SOURCES',{}),self.assertRaises(w.WorkflowError):
+            recovery.queued_assignment_source(self.root,item,require_dispatch=False)
+
+    def test_authorization_goal_policy_and_queue_identity_tampering_rejected(self):
+        _,item=self.queued()
+        for key,value in [('authorization_pin',{'path':'reports/absent.json','sha256':'0'*64,'size':0}),
+                          ('goal_contract',{'path':'reports/absent.json','sha256':'0'*64,'size':0})]:
+            with self.subTest(key=key),self.assertRaises(w.WorkflowError):
+                recovery.queued_assignment_source(self.root,{**item,key:value},require_dispatch=False)
+        for key,mutate in [('actual_queue_result',lambda d:d.update(stdout='Queued message 33333333-3333-4333-8333-333333333333 for thread 11111111-1111-4111-8111-111111111111.\n')),
+                           ('actual_queue_intent',lambda d:d.update(policy_decision_id='forged')),
+                           ('actual_queue_intent',lambda d:d.update(thread_id='wrong-target'))]:
+            doc=w.read_json(self.root/item[key]['path']);mutate(doc);path=self.write('reports/tampered-original-identity.json',doc)
+            with self.subTest(key=key),self.assertRaises(w.WorkflowError):
+                recovery.queued_assignment_source(self.root,{**item,key:w.file_digest(self.root,path)},require_dispatch=False)
+
+    def test_recovered_dispatch_receipt_hash_tampering_is_rejected(self):
+        path,item=self.queued();recovery.recover_queued_assignment(self.root,path)
+        rows=w.read_jsonl(w.receipts_path(self.root,self.task_id));rows[0]['receipt_hash']='0'*64
+        w.receipts_path(self.root,self.task_id).write_text(''.join(json.dumps(row)+'\n' for row in rows))
+        with self.assertRaises(w.WorkflowError):recovery.queued_assignment_source(self.root,item)
+
+    def test_real_policy_target_tampering_is_rejected(self):
+        _,item=self.queued();path=self.root/w.POLICY_DECISIONS;rows=w.read_jsonl(path)
+        policy=w.read_json(self.root/item['original_prepare_result']['path'])['policy_decision']['decision_id']
+        next(row for row in rows if row['decision_id']==policy)['target_thread_id']='wrong-target'
+        path.write_text(''.join(json.dumps(row)+'\n' for row in rows))
+        with self.assertRaises(w.WorkflowError):recovery.queued_assignment_source(self.root,item,require_dispatch=False)
+
+    def recovery_preparer(self):
+        import runpy
+        script=Path(w.__file__).resolve().parents[1]/'logs/handoffs/2026-10-20-clean-department-window-rotation-v1/operations/unfinished-business-followthrough-20261021-v1/KL-review-queue-source-technical-followthrough-v1/system-development-v1/PREPARE-ORIGINAL-RECOVERY-v1.py'
+        if (Path(w.__file__).resolve().parents[1] / 'release-manifest.json').is_file() and not script.is_file():
+            self.skipTest('Native company recovery preparer is excluded from the public package')
+        return runpy.run_path(str(script))['prepare']
+
+    def test_delivered_preparer_uses_actual_facts_then_normal_recovery_once(self):
+        _,item=self.queued();prepare=self.recovery_preparer()
+        result=prepare(self.root,item['actual_native_invocation']['path'],item['actual_native_recipient']['path'],
+                       'reports/operator-inputs',task_id=self.task_id)
+        self.assertEqual(result['state'],'READY_NOT_RECOVERED')
+        self.assertFalse(w.read_jsonl(w.receipts_path(self.root,self.task_id)))
+        first=recovery.recover_queued_assignment(self.root,result['input']['path'])
+        before=w.receipts_path(self.root,self.task_id).read_bytes()
+        after=prepare(self.root,item['actual_native_invocation']['path'],item['actual_native_recipient']['path'],
+                      'reports/operator-inputs',task_id=self.task_id)
+        self.assertEqual(after['state'],'ALREADY_RECOVERED_NO_REPLAY')
+        self.assertEqual(after['dispatch_receipt_id'],first['dispatch_receipt_id'])
+        self.assertEqual(before,w.receipts_path(self.root,self.task_id).read_bytes())
+
+    def test_delivered_preparer_reports_true_wait_and_emits_no_fake_input(self):
+        _,item=self.queued();prepare=self.recovery_preparer()
+        native=w.read_json(self.root/item['actual_native_invocation']['path'])
+        native['turns'][0].update(status='inProgress',completedAt=None)
+        path=self.write('reports/real-source-not-finished.json',native)
+        before=w.read_json(self.root/'data/department-current-assignment.json')
+        result=prepare(self.root,path,None,'reports/operator-inputs',task_id=self.task_id)
+        self.assertEqual(result['state'],'WAIT_REAL_EVENTS');self.assertEqual(len(result['pending']),2)
+        self.assertFalse((self.root/'reports/operator-inputs').exists())
+        self.assertFalse(w.read_jsonl(w.receipts_path(self.root,self.task_id)))
+        self.assertEqual(before,w.read_json(self.root/'data/department-current-assignment.json'))
+
+    def test_preparer_rejects_wrong_identity_and_call_before_classifying_wait(self):
+        _,item=self.queued();prepare=self.recovery_preparer()
+        for part in ('identity','command'):
+            doc=w.read_json(self.root/item['actual_native_invocation']['path'])
+            doc['turns'][0].update(status='inProgress',completedAt=None)
+            if part=='identity':doc['thread']['id']='another-source'
+            else:doc['turns'][0]['items'][0]['command']+=' # modified'
+            path=self.write('reports/invalid-pending-source.json',doc)
+            with self.subTest(part=part),self.assertRaises(w.WorkflowError):
+                prepare(self.root,path,None,'reports/operator-inputs',task_id=self.task_id)
+        self.assertFalse((self.root/'reports/operator-inputs').exists())
+
+    def test_preparer_retains_same_input_for_interrupted_local_recovery(self):
+        import argparse
+        _,item=self.queued();prepare=self.recovery_preparer()
+        result=prepare(self.root,item['actual_native_invocation']['path'],item['actual_native_recipient']['path'],
+                       'reports/operator-inputs',task_id=self.task_id)
+        source_item=w.read_json(self.root/result['input']['path'])
+        _,source=recovery.queued_assignment_source(self.root,source_item,require_dispatch=False)
+        args=dict(task_id=self.task_id,department=item['department'],evidence=result['input']['path'],ack_nonempty=False,**source)
+        first,_=w.record_receipt(self.root,argparse.Namespace(**args,receipt_type='dispatch_sent'))
+        waiting=prepare(self.root,item['actual_native_invocation']['path'],item['actual_native_recipient']['path'],
+                        'reports/operator-inputs',task_id=self.task_id)
+        self.assertEqual(waiting['state'],'READY_TO_FINISH_EXISTING_RECOVERY')
+        self.assertEqual(waiting['input'],result['input'])
+        recovered=recovery.recover_queued_assignment(self.root,waiting['input']['path'])
+        self.assertEqual(first['receipt_id'],recovered['dispatch_receipt_id'])
+        self.assertEqual(len(w.read_jsonl(w.receipts_path(self.root,self.task_id))),2)
 
 
 class RecoveryTests(unittest.TestCase):

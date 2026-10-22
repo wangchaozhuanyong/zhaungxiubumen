@@ -13,6 +13,7 @@ import re
 import sqlite3
 import time
 import workflow_control as w
+from department_rotation import historical_assignment_validator
 
 ASSIGNMENT_SCHEMA = 'goal-current-assignment/v2'
 READY_MARKER = 'FLASHCAST_DELIVERY_READY '
@@ -37,6 +38,7 @@ def _task(root, task):
     return snapshot
 
 
+@historical_assignment_validator
 def _dispatch_source(root, item):
     if item.get('source_kind') == 'official_native_queue':
         from goal_source_recovery import queued_assignment_source
@@ -46,7 +48,8 @@ def _dispatch_source(root, item):
         return validate(root,item)
     task, role = item['task_id'], item['department']
     snapshot = _task(root, task)
-    registry = w.department_registry(root)
+    from department_rotation import historical_registry
+    registry = historical_registry(root, item)
     binding = registry.get(role, {}).get('chat_binding', {})
     goal = snapshot['goal_delivery']
     if role not in {*goal['producer_departments'], goal['responsible_assistant']}:
@@ -221,7 +224,7 @@ def _three_family_late_registered_source(root, request, fixed_id, observed, prio
     recipient turn and ACK must all precede the frozen V2 READY declaration.
     """
     task = 'fc-20261017-assistant1-original-source-recovery-v1'
-    if (request.get('task_id') != task or fixed_id != '<LOCAL_TASK_ID>'
+    if (request.get('task_id') != task or fixed_id != 'example-native-66fec1ff8ab60fd7'
             or request.get('candidate_version') != 'assistant1-three-family-source-recovery-v2-20261017'
             or request.get('result_sha256') != '17990308ffd05675e953eb6481bf1b1a1b73b5570b40d27c8554c9ab9ed4b0ca'
             or request.get('source_turn_id') != 'example-native-0b26ee911b581d91'
@@ -368,6 +371,40 @@ def _three_family_late_registered_source(root, request, fixed_id, observed, prio
     return True
 
 
+def _ready_receipt_prefix(source_rows, observed):
+    """Select the causal source before READY from the intact full receipt chain.
+
+    A later continuation cannot change this prefix. Its timestamps must still be
+    valid and ordered; no late row may be backdated into the original prefix.
+    """
+    if observed is None:
+        return None, False
+    previous = None
+    prefix = []
+    now = dt.datetime.now(dt.timezone.utc)
+    for row in source_rows:
+        stamp = w._parse_observed_at(row.get('created_at'))
+        if stamp is None or stamp > now or (previous is not None and stamp < previous):
+            return None, True
+        previous = stamp
+        if stamp <= observed:
+            prefix.append(row)
+    dispatch, pair = None, None
+    for row in prefix:
+        kind = row.get('receipt_type')
+        if kind == 'dispatch_sent':
+            dispatch, pair = row, None
+        elif kind == 'dispatch_failed':
+            dispatch, pair = None, None
+        elif kind == 'chat_ack' and dispatch is not None and row.get('ack_nonempty') is True:
+            # Original task ACKs may omit action labels. If supplied, their
+            # exact action/policy/scope must belong to this preceding dispatch.
+            if all(not row.get(key) or row.get(key) == dispatch.get(key)
+                   for key in ('action_id', 'action_class', 'scope', 'policy_decision_id')):
+                pair = dispatch, row
+    return pair, False
+
+
 def ready_source(root, request, fixed_id, *, scheduled=False):
     """A frozen batch declaration can be handed off before its turn terminates."""
     task=request['task_id'];sender=request['sender_department']
@@ -383,6 +420,9 @@ def ready_source(root, request, fixed_id, *, scheduled=False):
         raise w.WorkflowError('ready source outside original goal')
     page=native(root,request['actual_native_completion'])
     binding=w.department_registry(root)[sender]['chat_binding']
+    if fixed_id != binding.get('task_id'):
+        from department_rotation import frozen_ready_binding
+        binding=frozen_ready_binding(root,request,fixed_id)
     if any(page.get('thread',{}).get(k)!=binding.get(v) for k,v in
            {'id':'task_id','title':'title','cwd':'cwd'}.items()):
         raise w.WorkflowError('ready fixed source identity differs')
@@ -417,10 +457,12 @@ def ready_source(root, request, fixed_id, *, scheduled=False):
     observed=w._parse_observed_at(request.get('reply_observed_at'))
     start=turn.get('startedAt')
     rows,bad=w._validate_receipt_chain(root,task)
-    prior=[r for r in rows if r.get('department')==sender and r.get('chat_task_id')==fixed_id
-           and r.get('receipt_type') in {'dispatch_sent','chat_ack'}]
-    prior_ok=bool(prior)
-    if not scheduled and not prior_ok:
+    source_rows=[r for r in rows if r.get('department')==sender and r.get('chat_task_id')==fixed_id
+                 and r.get('receipt_type') in {'dispatch_sent','chat_ack','dispatch_failed'}]
+    prior=[r for r in source_rows if r.get('receipt_type') != 'dispatch_failed']
+    prefix, source_chronology_bad = _ready_receipt_prefix(source_rows, observed)
+    prior_ok=bool(prefix)
+    if not scheduled and not prior_ok and not source_rows:
         assignment=w.read_json(Path(root)/'data/department-current-assignment.json')
         pins=[assignment.get('assignments',{}).get(sender),
               *assignment.get('suspended_assignments',{}).get(sender,[])]
@@ -436,20 +478,29 @@ def ready_source(root, request, fixed_id, *, scheduled=False):
         from qa_review_plan import load_plan, original_condo_faq_child_review_context
         plan=load_plan(root,snapshot)
         inherited=(original_condo_faq_child_review_context(root,snapshot,rows,plan)
-                   if isinstance(plan,dict) and fixed_id=='<LOCAL_TASK_ID>'
+                   if isinstance(plan,dict) and fixed_id=='example-native-51808768551cf834'
                    else None)
         prior_ok=bool(observed is not None and inherited
                       and inherited.get('production_permissions_inherited') is False
                       and all(w._parse_observed_at(inherited[k]['created_at']) <= observed
                               for k in ('dispatch','ack')))
-    late_prior = any(w._parse_observed_at(r['created_at'])>observed for r in prior) if observed else True
-    recovered = (not scheduled and late_prior and not bad and prior_ok and
+    late_prior = (not prefix and any((stamp := w._parse_observed_at(r.get('created_at'))) is not None
+                                   and stamp > observed for r in prior)) if observed else True
+    from department_rotation import continued_ready_prefix
+    continuation = (continued_ready_prefix(root,request,fixed_id,observed,rows)
+                    if not scheduled and not bad else None)
+    if continuation is not None:
+        prior_ok, late_prior = True, False
+    recovered = (not scheduled and late_prior and not bad and bool(prior) and
                  _three_family_late_registered_source(root,request,fixed_id,observed,prior,rows))
-    if (bad or (not scheduled and not prior_ok) or observed is None or observed>dt.datetime.now(dt.timezone.utc)
+    if recovered:
+        prior_ok = True  # This existing narrow path authenticates the real original native prefix.
+    if (bad or source_chronology_bad or (not scheduled and not prior_ok) or observed is None or observed>dt.datetime.now(dt.timezone.utc)
             or type(start) not in {int,float} or start>observed.timestamp()
             or (late_prior and not recovered)):
         raise w.WorkflowError('ready declaration requires preceding actual task dispatch/ACK')
-    return {**{k:request[k] for k in ('source_turn_id','source_thread_id','source_message_id',
+    return {**({'original_rotation_continuation':continuation} if continuation is not None else {}),
+            **{k:request[k] for k in ('source_turn_id','source_thread_id','source_message_id',
                 'source_reply_sha256','reply_observed_at','actual_native_completion','visible_reply')},
             'result_source_phase':'delivery_ready','batch_delivery_frozen':True,
             'source_turn_completed':turn.get('status')=='completed'}

@@ -57,7 +57,7 @@
       "requires_exact_goal_scope_and_live_binding": true,
       "generic_cross_project_allowed": false,
       "authority": {
-        "source_thread_id": "<LOCAL_TASK_ID>",
+        "source_thread_id": "example-native-0d0689f4e3a4c895",
         "message_id": "example-native-9cd231a5daaebe45",
         "evidence_path": "<PROJECT_ROOT>/logs/handoffs/2026-10-10-goal-delivery-assistant-runtime-v1/developer/human-authority.json"
       }
@@ -293,7 +293,7 @@
     "exact_channel_backup_and_actual_effect_required": true,
     "candidate_adoption_is_external_permission": false,
     "authority": {
-      "source_thread_id": "<LOCAL_TASK_ID>",
+      "source_thread_id": "example-native-0d0689f4e3a4c895",
       "message_id": "example-native-9cd231a5daaebe45",
       "evidence_path": "<PROJECT_ROOT>/logs/handoffs/2026-10-10-goal-delivery-assistant-runtime-v1/developer/human-authority.json"
     },

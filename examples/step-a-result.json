@@ -23,7 +23,7 @@
   },
   "step_binding": {
     "schema_version": 1,
-    "workpack_sha256": "ab03cc92ef6a93e541d3bf7e27140d70cc46630bfd953f276e3be1ac37b95c27",
+    "workpack_sha256": "605b0270f2a1fa3e32f3674fba0a382ef5b463bac6051de0ec46bb1cb805bdaa",
     "step_sha256": "1b9afc581f75c2fa220fb7aae3d97e8615ffd12fd5a74942e1352c2819c98607",
     "step_identity": {
       "task_id": "fc-synthetic-scoped-r0-json-example-v1",

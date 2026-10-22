@@ -139,6 +139,10 @@ def validate_contract(contract: dict[str, Any], final_media: Path | None, contra
     elif stage != "planned":
         warnings.append(f"unrecognized_stage:{stage}")
 
+    # The narration evidence validator repeats the base contract checks by
+    # design; report each actionable blocker once to keep HOLD diagnostics clear.
+    errors = list(dict.fromkeys(errors))
+
     return {
         "status": "PASS" if not errors else "FAIL",
         "presentation_mode": presentation,

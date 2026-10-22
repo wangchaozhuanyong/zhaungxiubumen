@@ -492,6 +492,183 @@ class ContinuityTests(unittest.TestCase):
         self.assertEqual(row['status'],'uncertain')
 
 
+class ReadyReceiptPrefixTests(unittest.TestCase):
+    """Isolated causal-prefix regression; these are never live business receipts."""
+    setUp=ContinuityTests.setUp
+    ready=ContinuityTests.ready
+
+    def source(self):
+        self.now=dt.datetime.now(dt.timezone.utc)
+        self.observed=self.now-dt.timedelta(seconds=20)
+        with mock.patch.object(w,'utc_timestamp',return_value=(self.now-dt.timedelta(seconds=60)).isoformat()):
+            identity,request,page=self.ready()
+        page['turns'][0]['startedAt']=self.observed.timestamp()-1
+        request.update(reply_observed_at=self.observed.isoformat(),
+            actual_native_completion=w.file_digest(self.root,self.t.write('reports/prefix-ready-native.json',page)))
+        return identity,request,page
+
+    def append(self,offset=5,ack=True,failed=False,label='later'):
+        request=self.t.requested(sender='operations',target=fixture.PRODUCER)
+        request['action_id']='normal-continuation-'+label
+        stamp=(self.observed+dt.timedelta(seconds=offset)).isoformat()
+        with mock.patch.object(w,'utc_timestamp',return_value=stamp):
+            policy=self.t.policy(request);self.assertEqual(policy['status'],'allow',policy)
+            fields=dict(action_id=request['action_id'],action_class='thread_message',scope=request['scope'],
+                        chat_task_id=w.department_registry(self.root)[fixture.PRODUCER]['chat_binding']['task_id'],
+                        policy_decision_id=policy['decision_id'])
+            sent=self.t.fixture.receipt('dispatch_sent',fixture.PRODUCER,label+'-sent',**fields)
+            if failed:
+                evidence=self.t.write('reports/failed-source-'+label+'.json',{'fixture_only':True,'failure':'original transport failed'})
+                return self.t.fixture.receipt('dispatch_failed',fixture.PRODUCER,label+'-failed',evidence=evidence,
+                    supersedes_receipt_id=sent['receipt_id'],replacement_reason='actual-fixture-transport-failed',**fields)
+            if ack:self.t.fixture.receipt('chat_ack',fixture.PRODUCER,label+'-ack',**fields)
+            return sent
+
+    def rewrite_fixture_rows(self,mutate):
+        rows=w.read_jsonl(w.receipts_path(self.root,self.t.task_id));rows=mutate(rows)
+        previous=''
+        for row in rows:
+            row['previous_hash']=previous;row['receipt_hash']=w.sha256_value(w._receipt_payload_for_hash(row));previous=row['receipt_hash']
+        w.receipts_path(self.root,self.t.task_id).write_text(''.join(json.dumps(x)+'\n' for x in rows))
+
+    def validate(self,request):
+        return w._validate_goal_completed_result(self.root,request,request['source_thread_id'])
+
+    def test_legal_prefix_survives_later_ordinary_dispatch_ACK_without_writes(self):
+        _,request,_=self.source();self.append()
+        before=w.receipts_path(self.root,self.t.task_id).read_bytes()
+        self.assertTrue(self.validate(request)['batch_delivery_frozen'])
+        self.assertEqual(w.receipts_path(self.root,self.t.task_id).read_bytes(),before)
+
+    def test_later_pending_dispatch_does_not_erase_frozen_source(self):
+        _,request,_=self.source();self.append(ack=False)
+        self.assertTrue(self.validate(request)['batch_delivery_frozen'])
+
+    def test_later_failed_continuation_does_not_rewrite_the_earlier_source(self):
+        _,request,_=self.source();self.append(failed=True)
+        self.assertTrue(self.validate(request)['batch_delivery_frozen'])
+
+    def test_normal_queue_then_actual_intake_survives_later_continuation_once(self):
+        identity,request,_=self.source();w.record_result_handoff(self.root,request);self.append()
+        store=r.CoordinationStore(self.root);self.addCleanup(store.close)
+        claim=store.claim(identity,fixture.ASSISTANT,'prefix-a2','claim-prefix')
+        receive={**request,'event':'controller_received','idempotency_key':'receive-prefix',
+                 'intake_mode':'queue','coordinator_role':fixture.ASSISTANT,'coordinator_owner':'prefix-a2','coordination_claim':claim}
+        first,_=w.record_result_handoff(self.root,receive)
+        second,_=w.record_result_handoff(self.root,receive)
+        self.assertEqual(first['record_id'],second['record_id'])
+        self.assertEqual(second['result'],'duplicate_ignored')
+
+    def test_only_late_task_dispatch_ACK_cannot_authorize_old_READY(self):
+        _,request,_=self.source()
+        self.rewrite_fixture_rows(lambda rows:[x for x in rows if not (x.get('department')==fixture.PRODUCER and x.get('receipt_type') in {'dispatch_sent','chat_ack'})])
+        self.append()
+        with self.assertRaises(w.WorkflowError):self.validate(request)
+
+    def test_missing_original_dispatch_is_rejected(self):
+        _,request,_=self.source()
+        self.rewrite_fixture_rows(lambda rows:[x for x in rows if not (x.get('department')==fixture.PRODUCER and x.get('receipt_type')=='dispatch_sent')])
+        with self.assertRaises(w.WorkflowError):self.validate(request)
+
+    def test_missing_original_ACK_is_rejected_even_with_later_ACK(self):
+        _,request,_=self.source()
+        self.rewrite_fixture_rows(lambda rows:[x for x in rows if not (x.get('department')==fixture.PRODUCER and x.get('receipt_type')=='chat_ack')])
+        self.append()
+        with self.assertRaises(w.WorkflowError):self.validate(request)
+
+    def test_missing_all_sources_cannot_be_replaced_by_caller_flags(self):
+        _,request,_=self.source()
+        self.rewrite_fixture_rows(lambda rows:[x for x in rows if not (x.get('department')==fixture.PRODUCER and x.get('receipt_type') in {'dispatch_sent','chat_ack'})])
+        with self.assertRaises(w.WorkflowError):self.validate({**request,'allow_late_source':True,'ignore_late_receipts':True})
+
+    def test_newer_dispatch_before_READY_requires_its_own_ACK(self):
+        _,request,_=self.source();self.append(offset=-2,ack=False)
+        with self.assertRaises(w.WorkflowError):self.validate(request)
+
+    def test_failure_before_READY_cannot_reuse_an_older_success(self):
+        _,request,_=self.source();self.append(offset=-2,failed=True)
+        with self.assertRaises(w.WorkflowError):self.validate(request)
+
+    def test_latest_successful_pre_READY_pair_is_selected(self):
+        _,request,_=self.source();sent=self.append(offset=-2)
+        rows,_=w._validate_receipt_chain(self.root,self.t.task_id)
+        sources=[x for x in rows if x.get('department')==fixture.PRODUCER and x.get('receipt_type') in {'dispatch_sent','chat_ack','dispatch_failed'}]
+        pair,bad=c._ready_receipt_prefix(sources,self.observed)
+        self.assertFalse(bad);self.assertEqual(pair[0]['receipt_id'],sent['receipt_id'])
+        self.assertTrue(self.validate(request)['batch_delivery_frozen'])
+
+    def test_action_or_policy_mismatched_ACK_is_not_the_dispatch_ACK(self):
+        _,request,_=self.source();original=w.read_jsonl(w.receipts_path(self.root,self.t.task_id))
+        for field in ('action_id','policy_decision_id','scope'):
+            with self.subTest(field=field):
+                self.rewrite_fixture_rows(lambda _:copy.deepcopy(original))
+                def alter(rows):
+                    for row in rows:
+                        if row.get('department')==fixture.PRODUCER and row.get('receipt_type')=='chat_ack':row[field]='wrong-exact-source'
+                    return rows
+                self.rewrite_fixture_rows(alter)
+                with self.assertRaises(w.WorkflowError):self.validate(request)
+
+    def test_empty_ACK_is_not_a_nonempty_source(self):
+        _,request,_=self.source()
+        def alter(rows):
+            for row in rows:
+                if row.get('department')==fixture.PRODUCER and row.get('receipt_type')=='chat_ack':row['ack_nonempty']=False
+            return rows
+        self.rewrite_fixture_rows(alter)
+        with self.assertRaises(w.WorkflowError):self.validate(request)
+
+    def test_later_backdated_source_cannot_be_filtered_into_the_old_prefix(self):
+        _,request,_=self.source();self.append(label='first')
+        def alter(rows):
+            rows[-1]['created_at']=(self.observed-dt.timedelta(seconds=1)).isoformat();return rows
+        self.rewrite_fixture_rows(alter)
+        with self.assertRaises(w.WorkflowError):self.validate(request)
+
+    def test_ACK_before_its_dispatch_is_rejected_even_with_equal_timestamps(self):
+        _,request,_=self.source()
+        def reorder(rows):
+            send=next(i for i,x in enumerate(rows) if x.get('department')==fixture.PRODUCER and x.get('receipt_type')=='dispatch_sent')
+            ack=next(i for i,x in enumerate(rows) if x.get('department')==fixture.PRODUCER and x.get('receipt_type')=='chat_ack')
+            rows[send],rows[ack]=rows[ack],rows[send];return rows
+        self.rewrite_fixture_rows(reorder)
+        with self.assertRaises(w.WorkflowError):self.validate(request)
+
+    def test_reordered_source_timestamps_are_rejected(self):
+        _,request,_=self.source()
+        def alter(rows):
+            for row in rows:
+                if row.get('department')==fixture.PRODUCER and row.get('receipt_type')=='chat_ack':row['created_at']=(self.now-dt.timedelta(seconds=61)).isoformat()
+            return rows
+        self.rewrite_fixture_rows(alter)
+        with self.assertRaises(w.WorkflowError):self.validate(request)
+
+    def test_malformed_or_future_late_time_is_not_ignored(self):
+        _,request,_=self.source();self.append();original=w.read_jsonl(w.receipts_path(self.root,self.t.task_id))
+        for stamp in ('not-a-real-time',(self.now+dt.timedelta(minutes=2)).isoformat()):
+            def alter(_):
+                rows=copy.deepcopy(original);rows[-1]['created_at']=stamp;return rows
+            self.rewrite_fixture_rows(alter)
+            with self.subTest(stamp=stamp),self.assertRaises(w.WorkflowError):self.validate(request)
+
+    def test_late_receipt_hash_corruption_remains_a_full_chain_error(self):
+        _,request,_=self.source();self.append()
+        rows=w.read_jsonl(w.receipts_path(self.root,self.t.task_id));rows[-1]['receipt_hash']='0'*64
+        w.receipts_path(self.root,self.t.task_id).write_text(''.join(json.dumps(x)+'\n' for x in rows))
+        with self.assertRaises(w.WorkflowError):self.validate(request)
+
+    def test_wrong_fixed_identity_project_version_SHA_and_payload_still_reject(self):
+        _,request,page=self.source();self.append()
+        for change in ({'candidate_version':'forged-version'},{'result_sha256':'0'*64},{'sender_department':'operations'}):
+            with self.subTest(change=change),self.assertRaises(w.WorkflowError):self.validate({**request,**change})
+        for field,value in [('id','wrong-fixed-person'),('cwd',str(self.root/'other-project')),('title','wrong-fixed-title')]:
+            altered=copy.deepcopy(page);altered['thread'][field]=value
+            path=self.t.write('reports/wrong-native-source.json',altered)
+            with self.subTest(field=field),self.assertRaises(w.WorkflowError):self.validate({**request,'actual_native_completion':w.file_digest(self.root,path)})
+        (self.root/request['visible_reply']['path']).write_text('altered source bytes')
+        with self.assertRaises(w.WorkflowError):self.validate(request)
+
+
 class ContinuationFaultTests(unittest.TestCase):
     """The three observed failures, in disposable project-local fixtures."""
     def setUp(self):

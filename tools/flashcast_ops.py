@@ -2610,6 +2610,12 @@ def department_learning_effective(root: Path, department: str, *, phase: str = "
 
 
 def department_learning_record(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any], list[Path]]:
+    # Shared department windows serialize memory and event updates together.
+    with workflow.workflow_lock(root):
+        return _department_learning_record_locked(root, args)
+
+
+def _department_learning_record_locked(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any], list[Path]]:
     department = str(args.department).strip()
     config = department_learning_config(root, department)
     evidence = [item.strip() for item in str(args.evidence).split(";") if item.strip()]
@@ -2662,8 +2668,8 @@ def department_learning_record(root: Path, args: argparse.Namespace) -> tuple[di
     memory_path = resolve_path(root, memory_path_value)
     memory = read_json(memory_path)
     memory["schema_version"] = "2.0"
-    memory["department"] = department
-    memory["display_name"] = config.get("name", memory.get("display_name", department))
+    memory["department"] = config.get("shared_memory_department", department)
+    memory["display_name"] = config.get("shared_memory_display_name", config.get("name", memory.get("display_name", department)))
     memory["status"] = "active"
     memory["skill_path"] = "skills/flashcast-department-learning/SKILL.md"
     memory["professional_skill"] = str(config.get("professional_skill") or memory.get("professional_skill") or "")
@@ -2702,7 +2708,9 @@ def department_learning_record(root: Path, args: argparse.Namespace) -> tuple[di
     if not duplicate and not any(item.get("lesson_id") == event["event_id"] for item in memory[bucket]):
         memory[bucket].append(lesson_entry)
 
-    department_events = [row for row in events if row.get("department") == department]
+    shared_roles = {item["id"] for item in department_learning_configs(root)
+                    if item.get("memory_path") == memory_path_value}
+    department_events = [row for row in events if row.get("department") in shared_roles]
     memory["event_count"] = len(department_events)
     memory["last_updated_at"] = timestamp()
     memory["latest_event"] = lesson_entry

@@ -5,9 +5,13 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+import hashlib
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import narration_audio as audio
-from narration_contract import validate_narration, validate_narration_evidence, validate_subtitle_cues, validate_subtitle_html, SUBTITLE_POLICY
+from narration_contract import (validate_narration, validate_narration_evidence, validate_experience_review,
+    build_tempo_calibration_report, validate_final_mix_mount, validate_subtitle_cues, validate_subtitle_html, SUBTITLE_POLICY, EXPERIENCE_REVIEW_POLICY,
+    EXPERIENCE_REVIEW_CHECKS)
+import validate_video_contract
 
 class NarrationContractTests(unittest.TestCase):
     def contract(self):
@@ -45,8 +49,10 @@ class NarrationContractTests(unittest.TestCase):
             self.assertEqual(validate_narration(c),[])
     def test_final_requires_actual_audio_alignment_and_mix_references(self):
         errors=validate_narration(self.contract(),final=True)
-        self.assertEqual(len(errors),6)
+        self.assertEqual(len(errors),8)
         self.assertIn("narration_full_burned_in_bilingual_subtitles_required", errors)
+        self.assertIn("narration_missing_tempo_calibration_path", errors)
+        self.assertIn("narration_missing_experience_review_path", errors)
     def test_single_unchanged_picture_rejected(self):
         scene={"id":"s","source_asset_ids":["a"],"narration_line_ids":["n"],"spoken_visual_evidence":"柜体同一全景"}
         self.assertIn("narration_cannot_use_one_unchanged_visual_for_entire_voice",
@@ -59,6 +65,56 @@ class NarrationContractTests(unittest.TestCase):
         self.assertTrue(validate_narration(self.contract(),{"scenes":[{},{}]}))
     def test_final_cannot_claim_complete_from_paths_without_hashes(self):
         self.assertTrue(validate_narration_evidence(self.contract(),audio.ROOT))
+
+    def test_experience_review_requires_all_checks_and_exact_artifact_hashes(self):
+        review={"policy_version":EXPERIENCE_REVIEW_POLICY,"status":"PASS","review_id":"review-20261019-01",
+            "reviewed_at":"2026-10-19T13:00:00+08:00",
+            "reviewer":{"role":"independent_qa","id":"qa-17"},
+            "playback":{"mode":"full_realtime_final_video","speed":1.0,"reviewed_duration_seconds":52.0},
+            "reviewed_artifacts":{"final_video_sha256":"1"*64,"voice_audio_sha256":"a"*64,"mixed_audio_sha256":"b"*64},
+            "checks":{key:"PASS" for key in EXPERIENCE_REVIEW_CHECKS}}
+        kwargs={"final_video_sha256":"1"*64,"voice_sha256":"a"*64,"mixed_audio_sha256":"b"*64,"video_duration_seconds":52.0}
+        self.assertEqual(validate_experience_review(review,**kwargs),[])
+        review["reviewed_artifacts"]["final_video_sha256"]="2"*64
+        self.assertIn("narration_experience_review_artifact_mismatch:final_video_sha256",
+            validate_experience_review(review,**kwargs))
+
+    def test_experience_review_rejects_partial_or_malformed_receipts(self):
+        self.assertTrue(validate_experience_review(None,final_video_sha256="v",voice_sha256="a",
+            mixed_audio_sha256="m",video_duration_seconds=50))
+        review={"policy_version":EXPERIENCE_REVIEW_POLICY,"status":"PASS","review_id":"review-01",
+            "reviewed_at":"2026-10-19T13:00:00+08:00",
+            "reviewer":{"role":"owner","id":"owner"},
+            "playback":{"mode":"full_realtime_final_video","speed":1.2,"reviewed_duration_seconds":40},
+            "reviewed_artifacts":{},"checks":{}}
+        errors=validate_experience_review(review,final_video_sha256="v",voice_sha256="a",
+            mixed_audio_sha256="m",video_duration_seconds=50)
+        self.assertIn("narration_experience_review_full_realtime_playback_required",errors)
+        self.assertIn("narration_experience_review_incomplete_playback",errors)
+        self.assertTrue(any(item.startswith("narration_experience_review_check_missing:") for item in errors))
+
+    def test_e006_v1_remains_a_blocked_regression_candidate(self):
+        root=audio.ROOT/"delivery/creative/fc-20261014-renovation-100ep-006/production-v1/final"
+        if (audio.ROOT / "release-manifest.json").is_file() and not (root / "production-contract.json").is_file():
+            self.skipTest("Native E006 business artifacts are excluded from the public package")
+        contract=validate_video_contract.load_contract(root/"production-contract.json")
+        result=validate_video_contract.validate_contract(contract,root/"video.mp4",root)
+        self.assertEqual(result["status"],"FAIL")
+        self.assertIn("final_candidate_requires_music_audible",result["errors"])
+        self.assertIn("narration_missing_tempo_calibration_path",result["errors"])
+        self.assertIn("narration_missing_experience_review_path",result["errors"])
+
+    def test_e006_old_pace_fails_and_revised_audio_matches_selected_audition(self):
+        root=audio.ROOT/"drafts/creative/fc-20261014-renovation-100ep-006"
+        copy=root/"production-v1/public-text/spoken-copy.txt"
+        if (audio.ROOT / "release-manifest.json").is_file() and not copy.is_file():
+            self.skipTest("Native E006 audition recordings are excluded from the public package")
+        legacy=build_tempo_calibration_report(root/"production-v1/assets/voice-final.wav",copy)
+        revised=build_tempo_calibration_report(root/"production-v2/assets/voice-final.wav",copy)
+        self.assertEqual(legacy["status"],"HOLD_PACE_OUTSIDE_OWNER_AUDITION_RANGE")
+        self.assertEqual(revised["status"],"PASS_PACE_MATCHED_TO_OWNER_AUDITION")
+        self.assertAlmostEqual(legacy["pace_ratio_vs_owner_selected_audition"],0.872668,places=5)
+        self.assertAlmostEqual(revised["pace_ratio_vs_owner_selected_audition"],1.047151,places=5)
 
 class NarrationSubtitleTests(unittest.TestCase):
     def timing(self):
@@ -121,8 +177,21 @@ class AudioBoundaryTests(unittest.TestCase):
     def test_path_cannot_escape_project(self):
         with self.assertRaisesRegex(ValueError,"path_must_belong"):
             audio.project_path("/private/tmp/no-audio-write")
+
+    def test_final_hyperframes_audio_must_mount_the_exact_reviewed_mix(self):
+        mix=self.root/"assets/final-mix.wav";mix.parent.mkdir()
+        mix.write_bytes(b"exact-mix")
+        composition=self.root/"index.html"
+        html='<audio id="narration-mixed" class="clip" data-duration="47.18" src="assets/final-mix.wav"></audio>'
+        digest=hashlib.sha256(mix.read_bytes()).hexdigest()
+        self.assertEqual(validate_final_mix_mount(html,composition,digest,47.181),[])
+        (self.root/"assets/other.wav").write_bytes(b"wrong-mix")
+        self.assertIn("narration_final_mix_source_does_not_match_reviewed_mix",
+            validate_final_mix_mount(html.replace("final-mix.wav","other.wav"),composition,digest,47.181))
+        self.assertTrue(validate_final_mix_mount(html.replace('data-duration="47.18"','data-duration="40"'),composition,digest,47.181))
     def test_disk_keep_eight_gib_after_all_pending_bytes(self):
-        with mock.patch.object(audio.shutil,"disk_usage",return_value=mock.Mock(free=9*audio.GIB)):
+        with mock.patch.object(audio, "load_json", return_value={"minimum_remaining_disk_gib": 8}), \
+                mock.patch.object(audio.shutil,"disk_usage",return_value=mock.Mock(free=9*audio.GIB)):
             with self.assertRaisesRegex(ValueError,"KEEP_8_GIB"):
                 audio.reserve_disk(2*audio.GIB)
             self.assertGreater(audio.reserve_disk()["free_bytes"],8*audio.GIB)

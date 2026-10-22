@@ -3359,8 +3359,163 @@ def _modern_original_goal_continuation(root, snapshot, receipts, dispatch, plan)
         raise w.WorkflowError("original goal continuation: complete exact native sources required") from exc
 
 
+def _owner_original_resume_bound_prefix(root, snapshot, receipts, dispatch, plan):
+    """Revalidate an actually bound pre-verdict successor back to its origin.
+
+    Recomputes the writer's source metadata with its actual receipt prefix.
+    No verdict, binding, event, time or dispatch is manufactured.
+    """
+    w = _workflow()
+    binding = _binding(root, snapshot)
+    if (not isinstance(binding, dict) or plan != _review_source_document(root, binding.get('pin'))
+            or w.validate_workflow_events(root, snapshot['task_id'])):
+        return False
+    events = [e for e in w.read_jsonl(root / w.WORKFLOW_EVENTS) if e.get('task_id') == snapshot['task_id']]
+    selected = [(i, e) for i, e in enumerate(events)
+                if e.get('details', {}).get('qa_review_plan_bound') == binding]
+    if len(selected) != 1:
+        return False
+    index, event = selected[0]
+    proof = event['details'].get('original_pre_verdict_successor')
+    if not isinstance(proof, dict) or proof.get('prior_plan') == binding['pin']:
+        return False
+    previous = [e['details']['qa_review_plan_bound'] for e in events[:index]
+                if e.get('details', {}).get('qa_review_plan_bound', {}).get('pin') == proof.get('prior_plan')]
+    producers = [i for i, row in enumerate(receipts) if row.get('receipt_id') == proof.get('producer_outbox_receipt_id')]
+    if len(previous) != 1 or len(producers) != 1:
+        return False
+    historical = {**snapshot, 'qa_review_plan': previous[0]}
+    computed = _validate_rework(root, historical, receipts[:producers[0] + 1], previous[0], plan)
+    if computed != proof:
+        return False
+    rows = w._result_handoff_rows(root, snapshot['task_id'])
+    intake = [row for row in rows if row.get('record_id') == proof['controller_received_record_id']]
+    if len(intake) != 1:
+        return False
+    received, bound = (_review_observed_at(x) for x in (intake[0].get('created_at'), event.get('created_at')))
+    return bool(received and bound and received <= bound <= dt.datetime.now(dt.timezone.utc))
+
+
+def _owner_original_producer_HQ_resume(root, snapshot, receipts, dispatch, plan):
+    """Read one true later HQ responsibility resume, retaining its accepted prefix.
+
+    This only classifies the frozen native notice. Current-result, independent
+    acceptance, source/adoption, authority and production guards remain outside.
+    """
+    task = 'fc-20261021-owner-delegated-nonpayment-decisions-repair-v1'
+    if (snapshot.get('task_id') != task or dispatch.get('receipt_id') != '1a3ac28a-f06c-42ce-a14b-1b9a1d785b69'):
+        return False
+    w = _workflow()
+    base = 'logs/handoffs/2026-10-20-clean-department-window-rotation-v1/operations/unfinished-business-followthrough-20261021-v1/'
+    evidence_base = base + 'owner-delegated-nonpayment-decisions-system-repair-v1/operations-assistant-2-independent-review-v1/'
+    frozen_pin = {'path': evidence_base + 'OWNER-PARENT-FINAL-QA-LATER-HQ-RESUME-EXACT-REJECTION-v1.json',
+                  'sha256':'9174401f50d5e6f09e77b34448adbd8025a48f482e472e5a6e4466e0a22196a2','size':6444}
+    try:
+        # Exact immutable triage proves which real dispatch/ACK is being read;
+        # flags or a newly supplied plan cannot manufacture a resume.
+        frozen = _review_source_document(root, frozen_pin)
+        goal = _goal(root, snapshot); scope = 'project:flashcast:owner-delegated-nonpayment-decisions:20261021:v1'
+        if (goal is None or goal['primary_owner'] != 'system-development'
+                or goal['producer_departments'] != ['system-development']
+                or goal['responsible_assistant'] != 'operations-assistant-2' or goal['authorized_scope'] != [scope]
+                or any(plan.get(k) != v for k,v in {'task_id':task,'scope':scope,'producer_department':'system-development',
+                    'reviewer_department':'operations-assistant-2'}.items())
+                or dispatch != frozen['actual_later_HQ_ordinary_resume_dispatch']):return False
+        rows = _strict_source_rows(root,task)
+        if not receipts or receipts != rows[:len(receipts)]:return False
+        previous = ''; seen = set()
+        for row in rows:
+            if (row.get('task_id') != task or not row.get('receipt_id') or row['receipt_id'] in seen
+                    or row.get('previous_hash','') != previous
+                    or row.get('receipt_hash') != w.sha256_value(w._receipt_payload_for_hash(row))):return False
+            for pin in row.get('evidence',[]):
+                if w.file_digest(root,pin.get('path','')) != pin:return False
+            previous=row['receipt_hash'];seen.add(row['receipt_id'])
+        if sum(row == dispatch for row in receipts) != 1:return False
+        ack = frozen['actual_later_nonempty_ACK']; anchor_id = 'c20280b2-946e-4674-abb1-bc2e5e872cad'
+        anchors=[(i,row)for i,row in enumerate(receipts)if row.get('receipt_id')==anchor_id]
+        acknowledgements=[row for row in receipts if row.get('department')=='system-development'
+            and row.get('action_id')==dispatch['action_id']and row.get('receipt_type')=='chat_ack']
+        if (len(anchors)!=1 or anchors[0][1].get('receipt_hash')!='88129ccb02765a74943e0a858907c51aa251c492a0fea64c207c259696408262'
+                or acknowledgements != [ack] or receipts.index(dispatch)>=receipts.index(ack)
+                or any(row.get('supersedes_receipt_id') in {dispatch['receipt_id'],ack['receipt_id']}for row in rows)):return False
+        original_plan_pin={'path':evidence_base+'OWNER-V2-NORMAL-REVIEW-PLAN-v1.json',
+            'sha256':'e16275f817ab8be407e09fc5dbe5bae447fb60e0ebcb6983374e0b397fc5394b','size':1263}
+        original_plan=_review_source_document(root,original_plan_pin)
+        if plan != original_plan or snapshot.get('qa_review_plan',{}).get('pin')!=original_plan_pin:
+            return _owner_original_resume_bound_prefix(root, snapshot, receipts, dispatch, plan)
+        # Reuse the already committed original independent source prefix only.
+        # No later parent QA is recursively required to authenticate itself.
+        accepted=w._goal_bounded_candidate_subject(root,snapshot,receipts[:anchors[0][0]+1],original_plan,'system-development')
+        if (accepted.get('state')!='PROVEN' or accepted.get('source_fingerprint')!='e65e1cdeb1c8f9eb1f3629f609513a3e1eb2c1a06e47be61dc463c1fe192b522'
+                or anchors[0][0]>=receipts.index(dispatch)):return False
+        from goal_continuity import _dispatch_source
+        original_assignment_pin={'path':base+'owner-delegated-nonpayment-decisions-system-repair-v1/system-development-v1/actual-SYS-assignment-input-v1.json',
+            'sha256':'a80ade54485e5abea5143759473cf8bce328d6ea8827a603b140c609fa715171','size':4156}
+        original_snapshot, original_dispatch=_dispatch_source(root,_review_source_document(root,original_assignment_pin))
+        if (original_snapshot.get('goal_contract')!=snapshot.get('goal_contract')
+                or any(original_snapshot['goal_delivery'].get(k)!=goal.get(k) for k in
+                       (*GOAL_IDENTITY,'source_mode','human_authorization','authorization_pin','required_execution_actions'))
+                or original_snapshot['goal_delivery']['authorization_pin']!=goal['authorization_pin']
+                or original_dispatch['receipt_id']!='42a56fc4-8b45-4443-9f3c-e1b820a35462'
+                or original_dispatch not in receipts[:anchors[0][0]]):return False
+        pins=dispatch['evidence']; source=_review_source_document(root,pins[0]); prepared=_review_source_document(root,pins[1])
+        request_pin={'path':base+'owner-departments-stopped-work-resume-20261021-v1/system-development-resume-prepare-request-v1.json',
+            'sha256':'ad7ea51710f0467c9cb3151ccbcf00911d5e4a7a4d097e1df2d1672939e7c1a6','size':1669}
+        request=_review_source_document(root,request_pin);registry=w.department_registry(root)
+        fixed=registry['system-development']['chat_binding'];hq=registry['operations']['chat_binding']
+        from department_rotation import _current_metadata_identity
+        original_binding={**fixed,'sidebar_section_id':request['target_sidebar_section_id']}
+        if (not _current_metadata_identity(root,'system-development',fixed,original_binding)
+                or source.get('task_id')!=task or source.get('role')!='system-development'
+                or source.get('actual_sent_payload_sha256')!=request['payload_sha256']
+                or request.get('authorization_changes')!=[]or request.get('assignment_record_required')is not False
+                or any(request.get(k)!=v for k,v in {'task_id':task,'scope':scope,'sender_department':'operations',
+                    'action_id':dispatch['action_id'],'action_class':'thread_message','source_project_id':hq['project_id'],
+                    'target_department':'system-development','target_thread_id':fixed['task_id'],'target_thread_title':fixed['title'],
+                    'target_project_id':fixed['project_id'],'target_cwd':fixed['cwd']}.items())
+                or hq['project_id']!=fixed['project_id']or fixed['cwd']!=str(Path(root).resolve())):return False
+        payload=request['payload'];body=w.safe_path(root,payload['path']).read_text()
+        if w.file_digest(root,payload['path'])!=payload or request['payload_sha256']!=payload['sha256']:return False
+        policy=prepared.get('policy_decision',{});pre=prepared.get('authorization_precheck',{})
+        policies=[x for x in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if x.get('decision_id')==dispatch['policy_decision_id']]
+        if (policies != [policy]or prepared.get('status')!='ready_to_send'or prepared.get('payload')!=payload
+                or any(policy.get(k)!=v for k,v in {**{k:request[k]for k in ['task_id','scope','action_id','action_class','source_project_id',
+                    'target_department','target_thread_id','target_thread_title','target_project_id','target_cwd','target_sidebar_section_id','payload_sha256']},
+                    'department':'operations','status':'allow','routing_status':'routing_allowed'}.items())
+                or any(pre.get(k)!=v for k,v in {'status':'within_original_authorization','original_authorization':goal['authorization_pin'],
+                    'external_permission_issued':False,'actual_action_allowed':False}.items())):return False
+        from goal_delivery_runtime import _collaboration_native
+        sender=_collaboration_native(root,source['actual_native_sender']);receiver=_collaboration_native(root,source['actual_native_recipient'])
+        for page,binding in [(sender,hq),(receiver,fixed)]:
+            if any(page.get('thread',{}).get(k)!=binding[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()):return False
+        calls=[(t,c)for t in sender.get('turns',[])for c in t.get('items',[])if c.get('id')==source.get('native_send_call_id')]
+        if len(calls)!=1:return False
+        turn,call=calls[0];_review_native_containers(turn);_review_native_containers(call)
+        if (turn.get('status')not in {'inProgress','completed'}or call.get('type')!='mcpToolCall'or call.get('server')!='codex_app'
+                or call.get('tool')!='send_message_to_thread'or call.get('status')!='completed'
+                or call.get('arguments')!={'threadId':fixed['task_id'],'prompt':body}
+                or _review_raw_native_result(_review_source_document(root,source['actual_send_return']))!={'threadId':fixed['task_id']}):return False
+        turns=[t for t in receiver.get('turns',[])if t.get('id')==source.get('receiver_turn_id')]
+        if len(turns)!=1:return False
+        received=turns[0];_review_native_containers(received)
+        messages=[m for m in received.get('items',[])if m.get('id')==source.get('ack_message_id')]
+        if (received.get('status')not in {'inProgress','completed'}or len(messages)!=1
+                or messages[0].get('type')!='agentMessage'or not str(messages[0].get('text','')).strip()):return False
+        _review_native_containers(messages[0])
+        times=[_review_observed_at(row.get('created_at'))for row in [original_dispatch,receipts[anchors[0][0]],dispatch,ack]]
+        checked=_review_observed_at(policy.get('checked_at'));started=received.get('startedAt')
+        if (not all(times)or times!=sorted(times)or checked is None or not times[1]<=checked<=times[2]<=times[3]<=dt.datetime.now(dt.timezone.utc)
+                or type(started)not in {int,float}or not checked.timestamp()<=started<=times[3].timestamp()):return False
+        return True
+    except (w.WorkflowError,OSError,ValueError,TypeError,KeyError,AttributeError):
+        return False
+
+
 def _same_original_source_notice(root, snapshot, receipts, dispatch, plan, *, source_pins=(), producer=False):
     """Authenticate existing clarification/routine rework without a new round."""
+    if producer and _owner_original_producer_HQ_resume(root,snapshot,receipts,dispatch,plan):
+        return True
     w = _workflow()
     if not producer and (_modern_original_goal_continuation(root, snapshot, receipts, dispatch, plan) is not None
                          or _hq_original_goal_continuation(root, snapshot, receipts, dispatch, plan) is not None):
@@ -4479,8 +4634,8 @@ def _actual_original_hq_20261013_notice(root, snapshot, receipts, dispatch, plan
     # commentary in their original append-only sessions to establish order.
     import html
     sessions = Path.home() / ".codex/sessions"
-    hq_session = sessions / "2026/10/06/rollout-2026-10-06T00-58-55-<LOCAL_TASK_ID>_example-native-9d841697a48914a9.jsonl"
-    a2_session = sessions / "2026/10/08/rollout-2026-10-08T05-34-43-<LOCAL_TASK_ID>.jsonl"
+    hq_session = sessions / "2026/10/06/rollout-2026-10-06T00-58-55-example-native-0d0689f4e3a4c895_example-native-9d841697a48914a9.jsonl"
+    a2_session = sessions / "2026/10/08/rollout-2026-10-08T05-34-43-example-native-2ab501c514875e3b.jsonl"
     def native_rows(path, wanted):
         require(path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(sessions.resolve()),
             "actual native session locator required")
@@ -4641,7 +4796,7 @@ def original_condo_faq_child_review_context(root, snapshot, receipts=None, plan=
     reviewer = "operations-assistant"
     fixed = w.department_registry(root)
     reviewer_thread = fixed.get(reviewer, {}).get("chat_binding", {}).get("task_id")
-    if (reviewer_thread != "<LOCAL_TASK_ID>"
+    if (reviewer_thread != "example-native-51808768551cf834"
             or plan is not None and any(plan.get(k) != value for k, value in {
                 "task_id": task, "scope": scope, "reviewer_department": reviewer,
                 "reviewer_thread_id": reviewer_thread, "producer_department": producer,
@@ -5164,6 +5319,9 @@ def _assigned_review_round(root, snapshot, receipts, plan, *, source_pins=None):
         if receipts != _strict_source_rows(root, snapshot["task_id"]):
             raise w.WorkflowError("complete current original responsibility receipts required")
         return current["responsibility_windows"][-1]
+    from owner_adopted_pilot_consumer import review_context as adopted_pilot_review
+    adopted = adopted_pilot_review(root, snapshot, receipts, plan)
+    if adopted is not None:return adopted
     ordinary=_current_goal_assignment_round(root,snapshot,receipts,plan)
     if ordinary is not None:return ordinary
     original_child = original_condo_faq_child_review_context(root, snapshot, receipts, plan)
@@ -5433,6 +5591,84 @@ def validate_cms_candidate_acceptance(root, snapshot, target, operation="publish
     return acceptance(root, snapshot, target, operation)
 
 
+def _original_paid2_frozen_plan_read(root, snapshot, binding, plan):
+    """Validate the original plan only under authenticated historical read identities.
+
+    Returns the original IDs. Context ends before the current consumer resumes;
+    historical context prohibits policy, receipt and all control writes.
+    """
+    from department_rotation import historical_assignment_validator, validation_registry, _records, _id
+    task = 'fc-20261019-chatgpt-paid2-execution-followthrough-v1'
+    if snapshot.get('task_id') != task or validation_registry(root) is not None:
+        return False
+    base = 'logs/handoffs/2026-10-19-chatgpt-paid2-task-transfer/'
+    plan_pin = {'path': base + 'current-account-prelaunch-v1/A1-review-plan-v3-20261019.json',
+                'sha256': '572db3953d568011528ad5f5d99a41719d6c4790bba3e3903df5da6396e1991e', 'size': 1939}
+    if binding.get('pin') != plan_pin:
+        return False
+    w = _workflow()
+    contract_pin = {'path': base + 'goal-input.json', 'sha256': 'e4af34666428400f894bcd0644c92b3843477b5aa32c3354550ef883f48b2422', 'size': 2988}
+    original = _review_source_document(root, contract_pin)
+    goal = _goal(root, snapshot)
+    fixed = {'operations-assistant': ('example-native-51808768551cf834', '<LOCAL_TASK_ID>'),
+             'paid-growth-data-2': ('example-native-0e339895a5d2c6da', '<LOCAL_TASK_ID>')}
+    planned = {x.get('department'): x for x in snapshot.get('departments', [])}
+    if (snapshot.get('goal_contract') != contract_pin or plan != _review_source_document(root, plan_pin)
+            or goal is None or any(goal.get(k) != original.get(k) for k in (*GOAL_IDENTITY, 'human_authorization') if k != 'responsible_assistant')
+            or goal.get('responsible_assistant') != 'operations-assistant'
+            or binding.get('goal_identity') != {k: goal[k] for k in GOAL_IDENTITY}
+            or any(len([x for x in snapshot.get('departments', []) if x.get('department') == role]) != 1
+                   or planned[role].get('chat_task_id') != ids[0] for role, ids in fixed.items())
+            or plan.get('reviewer_thread_id') != fixed['operations-assistant'][0]
+            or plan.get('controller_thread_id') != fixed['operations-assistant'][0]):
+        raise w.WorkflowError('exact original Paid2 frozen plan and four historical identity fields required')
+    mappings = [row for row in _records(root) if row['role'] in fixed]
+    if (len(mappings) != 2 or any((_id(row['old_binding']), _id(row['new_binding'])) != fixed[row['role']]
+                                  for row in mappings)):
+        raise w.WorkflowError('two actual trusted same-role Paid2/reviewer rotations required')
+    source_pin = {'path': base + 'actual-assignment-input.json', 'sha256': '9be46f67998f3d80e74e139cd777d3603edc297702792573ea692bc562eee22d', 'size': 1146}
+    item = _review_source_document(root, source_pin)
+
+    @historical_assignment_validator
+    def validate_original(root, item):
+        from goal_continuity import _dispatch_source
+        from goal_delivery_runtime import _collaboration_native
+        if validation_registry(root) is None:
+            raise w.WorkflowError('actual frozen assignment rotation context required; read-only only')
+        original_snapshot, sent = _dispatch_source(root, item)
+        if (original_snapshot.get('goal_contract') != contract_pin
+                or sent.get('receipt_id') != '79351c68-0c27-414e-ab3d-0e561fd500fd'
+                or sent.get('receipt_hash') != '3693b95b2d9892ce2c61b0f9b8fd240841037044f78e045fc9ba9ec802973bca'):
+            raise w.WorkflowError('exact actual original Paid2 dispatch required')
+        rows, bad = w._validate_receipt_chain(root, task, through_receipt_id='7e523d8c-d5be-4813-a5ec-0c826fd4cedf')
+        acks = [row for row in rows if row.get('receipt_id') == '7e523d8c-d5be-4813-a5ec-0c826fd4cedf']
+        if (bad or len(acks) != 1 or sent not in rows or rows.index(sent) >= rows.index(acks[0])
+                or acks[0].get('receipt_hash') != '0344d9ad200a3a3bcf056ae1e7fc1cb711f0f3c1bfab7c5ba3b8dba203818689'
+                or acks[0].get('ack_nonempty') is not True
+                or acks[0].get('chat_task_id') != fixed['paid-growth-data-2'][0]
+                or acks[0].get('department') != 'paid-growth-data-2'):
+            raise w.WorkflowError('unchanged original Paid2 dispatch/ACK prefix required')
+        ack = acks[0]
+        native = _collaboration_native(root, ack['evidence'][0])
+        replies = [(turn, message) for turn in native.get('turns', [])
+                   if turn.get('id') == 'example-native-0ace1340a8febd65'
+                   for message in turn.get('items', [])
+                   if message.get('id') == 'msg_ab00802bc503f9dcd433bcf97afff8ff2c173a66f96d6272f7e05e2d60789311' and message.get('type') == 'agentMessage']
+        if (native.get('thread', {}).get('id') != fixed['paid-growth-data-2'][0] or len(replies) != 1
+                or not str(replies[0][1].get('text', '')).strip()):
+            raise w.WorkflowError('actual nonempty original Paid2 native ACK required')
+        _review_native_containers(replies[0][0]); _review_native_containers(replies[0][1])
+        sent_at, ack_at = (_review_observed_at(x.get('created_at')) for x in (sent, ack))
+        started = replies[0][0].get('startedAt')
+        if (not sent_at or not ack_at or not sent_at <= ack_at <= dt.datetime.now(dt.timezone.utc)
+                or type(started) not in {int, float} or started > ack_at.timestamp()):
+            raise w.WorkflowError('actual original dispatch/ACK chronology required')
+        validate_plan(root, snapshot, plan)
+
+    validate_original(root, item)
+    return True
+
+
 def load_plan(root: Path, snapshot: dict, binding: dict | None = None) -> dict | None:
     w = _workflow()
     snapshot = _review_context(root, snapshot)
@@ -5459,7 +5695,8 @@ def load_plan(root: Path, snapshot: dict, binding: dict | None = None) -> dict |
                 snapshot["departments"] = details["departments"]
                 if "owner_approval_required" in details:
                     snapshot["owner_approval_required"] = details["owner_approval_required"]
-    validate_plan(root, snapshot, plan)
+    if not _original_paid2_frozen_plan_read(root, snapshot, binding, plan):
+        validate_plan(root, snapshot, plan)
     if binding.get("reviewer_department") != plan["reviewer_department"]:
         raise w.WorkflowError("reviewer binding differs from frozen plan")
     return plan
@@ -5511,12 +5748,229 @@ def _verdict_binding(root, snapshot, receipts, receipt):
     return candidates[0]
 
 
+def _owner_original_pre_verdict_successor(root,snapshot,receipts,old_binding,plan):
+    """Admit this actual received same-goal delta before any formal parent QA.
+
+    No blocked/pass receipt is manufactured; the normal changed-scope and exact
+    current producer checks in _validate_rework continue to apply.
+    """
+    if snapshot.get('task_id')!='fc-20261021-owner-delegated-nonpayment-decisions-repair-v1':return False
+    w=_workflow()
+    try:
+        if (any(row.get('receipt_type')=='qa_verdict'for row in receipts)or 'rework_of'in plan
+                or old_binding!=snapshot.get('qa_review_plan')):return False
+        old=load_plan(root,snapshot,old_binding)
+        if any(plan.get(k)!=old.get(k)for k in ('task_id','scope','producer_department','reviewer_department',
+                'reviewer_thread_id','controller_department','controller_thread_id','risk_level',
+                'single_final_reviewer','production_write_allowed','external_permission_issued')):return False
+        notices=[row for row in receipts if row.get('receipt_id')=='1a3ac28a-f06c-42ce-a14b-1b9a1d785b69']
+        if len(notices)!=1 or not _owner_original_producer_HQ_resume(root,snapshot,receipts,notices[0],old):return False
+        producer=[row for row in receipts if row.get('department')=='system-development'and row.get('receipt_type')=='outbox_received']
+        if not producer or receipts.index(producer[-1])<=receipts.index(notices[0]):return False
+        pins=[pin for pin in producer[-1].get('evidence',[])if pin.get('path','').endswith('.json')]
+        if len(pins)!=1:return False
+        pin=pins[0];box=_review_source_document(root,pin)
+        if (box.get('candidate_version')!=plan.get('candidate_version')
+                or not _producer_candidate_bound(root,plan,pin,box)):return False
+        rows=w._result_handoff_rows(root,snapshot['task_id'])
+        identity={'task_id':snapshot['task_id'],'sender_department':'system-development',
+                  'candidate_version':box['candidate_version'],'result_sha256':pin['sha256']}
+        matches=lambda row:all(row.get(k)==v for k,v in identity.items())and row.get('outbox')==pin
+        queued=[row for row in rows if matches(row)and row.get('event')=='notification_queued'
+                and row.get('target_department')=='operations-assistant-2']
+        received=[row for row in rows if matches(row)and row.get('event')=='controller_received'
+                  and row.get('coordinator_role')=='operations-assistant-2'
+                  and row.get('responsible_assistant')=='operations-assistant-2']
+        if len(queued)!=1 or len(received)!=1:return False
+        from scoped_candidate_adoption import _committed
+        _committed(root,received[0])
+        fixed=w.department_registry(root)['system-development']['chat_binding']['task_id']
+        w._validate_goal_completed_result(root,queued[0],fixed,through_receipt_id=producer[-1]['receipt_id'])
+        observed=_review_observed_at(queued[0].get('reply_observed_at'))
+        sent=_review_observed_at(notices[0].get('created_at'));at=_review_observed_at(received[0].get('created_at'))
+        if not (sent and observed and at and sent<=observed<=at<=dt.datetime.now(dt.timezone.utc)):
+            return False
+        return {'schema_version':1, 'prior_plan':old_binding['pin'],
+                'producer_outbox_receipt_id':producer[-1]['receipt_id'], 'producer_outbox':pin,
+                'notification_queued_record_id':queued[0]['record_id'],
+                'notification_queued_record_hash':queued[0]['record_hash'],
+                'controller_received_record_id':received[0]['record_id'],
+                'controller_received_record_hash':received[0]['record_hash']}
+    except (w.WorkflowError,OSError,ValueError,TypeError,KeyError,AttributeError):
+        return False
+
+
+def _fe689_original_pre_verdict_successor(root, snapshot, receipts, old_binding, plan):
+    """Read the actual V3→V4 correction, without inventing a formal verdict.
+
+    This exact frozen local candidate keeps its original authorization and A1.
+    Queue acceptance alone is insufficient: native receipt, committed intake,
+    original rework decision and causal producer dispatch/ACK are all required.
+    """
+    task = 'fc-20261022-chatgpt-fe689-paused-draft-admission-repair-v1'
+    if snapshot.get('task_id') != task:
+        return False
+    w = _workflow()
+    try:
+        if (snapshot.get('current_state') in w.TERMINAL_STATES
+                or any(row.get('receipt_type') == 'qa_verdict' for row in receipts)
+                or 'rework_of' in plan or old_binding != snapshot.get('qa_review_plan')):
+            return False
+        base = ('logs/handoffs/2026-10-19-chatgpt-paid2-task-transfer/'
+                'offer-account-preparation-20261021-v1/resume-20261021-v1/authorized-dispatch-v1/')
+
+        def document(path, digest):
+            pin = w.file_digest(root, base + path)
+            if pin['sha256'] != digest:
+                raise w.WorkflowError('exact original fe689 source bytes required')
+            return pin, _review_source_document(root, pin)
+
+        old_pin, old = document('operations-assistant-independent-review-fe689-v3/exact-current-local-review-plan-v1.json',
+                               '05560d0039d8772bc060a331d68acde3cc3358db3d857411e416b73fa556ceee')
+        new_pin, exact_plan = document('operations-assistant-independent-review-fe689-v4/exact-current-local-review-plan-v1.json',
+                                      '7911a7c0e0b43e3bb560fcf33a80a6fe414cb57d4bde2a3bc54b7c45bae66d45')
+        contract_pin, _ = document('system-admission-repair-goal-fe689-v31.json',
+                                  'c17f2bbc8f28a6dc260b7aa4ee7bea3d66d9e173148f9e67f40e43bedeab7f99')
+        auth_pin, _ = document('owner-system-admission-repair-send-authorized-v31.json',
+                              'c6a485833e516d7b5e137b925071dcae27312cf15f42d986f75f8e0bc56e4fa4')
+        goal = _goal(root, snapshot)
+        if (old_binding.get('pin') != old_pin or plan != exact_plan
+                or snapshot.get('goal_contract') != contract_pin or goal.get('authorization_pin') != auth_pin
+                or goal.get('responsible_assistant') != 'operations-assistant'
+                or old_binding.get('goal_identity') != {k: goal[k] for k in GOAL_IDENTITY}
+                or any(plan.get(k) != old.get(k) for k in ('task_id', 'action_id', 'action_class', 'scope',
+                    'producer_department', 'reviewer_department', 'reviewer_thread_id',
+                    'controller_department', 'controller_thread_id', 'risk_level', 'single_final_reviewer',
+                    'production_write_allowed', 'external_permission_issued'))):
+            return False
+        events = [e for e in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS)
+                  if e.get('task_id') == task and e.get('details', {}).get('qa_review_plan_bound') == old_binding]
+        if len(events) != 1:
+            return False
+        review = _assigned_review_round(root, snapshot, receipts, plan)
+        if review is None:
+            return False
+
+        def one(rows, field, value):
+            found = [row for row in rows if row.get(field) == value]
+            if len(found) != 1:
+                raise w.WorkflowError('one actual original fe689 source required')
+            return found[0]
+
+        handoffs = w._result_handoff_rows(root, task)
+        decision = one(handoffs, 'record_id', '27a1df52-ae38-4bac-ac96-d71f40723161')
+        if (decision.get('event') != 'controller_decision' or decision.get('decision') != 'rework'
+                or decision.get('coordinator_role') != 'operations-assistant'
+                or decision.get('next_owner') != 'system-development'):
+            return False
+        from scoped_candidate_adoption import _committed
+        _committed(root, decision)
+        dispatch = one(receipts, 'receipt_id', 'b2dbe241-918f-4b91-bc9e-7c1a2bc1c231')
+        ack = one(receipts, 'receipt_id', '6fca0e8e-237e-4bab-9161-02680a340389')
+        fixed = w.department_registry(root)['system-development']['chat_binding']
+        if (dispatch.get('receipt_type') != 'dispatch_sent' or ack.get('receipt_type') != 'chat_ack'
+                or ack.get('ack_nonempty') is not True or receipts.index(dispatch) >= receipts.index(ack)
+                or any(row.get(k) != value for row in (dispatch, ack) for k, value in {
+                    'task_id': task, 'department': 'system-development', 'chat_task_id': fixed['task_id'],
+                    'scope': plan['scope'], 'action_class': 'thread_message',
+                    'action_id': 'A1-fe689-two-current-hooks-CAS-local-rebase-original-SYS-20261022-v1'}.items())
+                or any(row.get('supersedes_receipt_id') in {dispatch['receipt_id'], ack['receipt_id']}
+                       for row in receipts)):
+            return False
+        for row in (dispatch, ack):
+            for pin in row.get('evidence', []):
+                _review_source_document(root, pin)
+        prefix = 'operations-assistant-whole-package-review-fe689-v4/'
+        prepared_pin, prepared = document(prefix + 'actual-original-SYS-two-hook-normal-prepare-result-v1.json',
+                                         '3fb49a016ee160214a258afb0bfaf39761cd80545ab00fea7e1d93296241a347')
+        _, request = document(prefix + 'actual-original-SYS-two-hook-normal-prepare-request-v1.json',
+                              '8d250b9928f1f03b6194ce2cc6b9ce94cc0ddee35bd76ebd7d2ba12511bb1db8')
+        intent_pin, intent = document(prefix + 'original-SYS-two-hook-rebase-official-queue-v1/native-queue-intent.json',
+                                     'dce0c1b44bdfe19900f179f64f23a0116adc3e5cc97f1168ee384b9cb5d67ca4')
+        transport_pin, transport = document(prefix + 'original-SYS-two-hook-rebase-official-queue-v1/native-queue-result.json',
+                                           '327f2f6d4d6dd20fa6d73ce1a6bb4993b473629c694ab11403271cfea1ff7301')
+        native_pin, _ = document(prefix + 'actual-original-SYS-rebase-received-ACK-native-v1.json',
+                                 'ff13123f6db2a366a11cd8c40eaabe8bffaaca6a44758394c517fa565fd0a1ba')
+        policy = one(w.read_jsonl(Path(root) / w.POLICY_DECISIONS), 'decision_id', dispatch['policy_decision_id'])
+        payload = prepared.get('payload')
+        if (prepared.get('status') != 'ready_to_queue' or prepared.get('policy_decision') != policy
+                or request.get('payload') != payload or request.get('authorization_changes') != []
+                or prepared.get('authorization_precheck', {}).get('original_authorization') != auth_pin
+                or prepared.get('authorization_precheck', {}).get('status') != 'within_original_authorization'
+                or any(policy.get(k) != v for k, v in {'status': 'allow', 'task_id': task,
+                    'department': 'operations-assistant', 'target_department': 'system-development',
+                    'target_thread_id': fixed['task_id'], 'scope': plan['scope'],
+                    'action_id': dispatch['action_id'], 'payload_sha256': payload['sha256']}.items())
+                or any(p not in dispatch.get('evidence', []) for p in (prepared_pin, intent_pin, transport_pin, native_pin))
+                or native_pin not in ack.get('evidence', []) or ack.get('policy_decision_id') != policy['decision_id']
+                or transport.get('exit_code') != 0 or transport.get('stderr') != ''
+                or transport.get('stdout') != 'Queued message example-native-4bf104b27cee8dc8 for thread ' + fixed['task_id'] + '.\n'
+                or any(value.get(k) != v for value in (intent, transport) for k, v in {
+                    'thread_id': fixed['task_id'], 'payload_sha256': payload['sha256'],
+                    'policy_decision_id': policy['decision_id'], 'transport': 'official_codex_queue'}.items())):
+            return False
+        if w.file_digest(root, payload.get('path', '')) != payload:
+            return False
+        from goal_delivery_runtime import _collaboration_native
+        native = _collaboration_native(root, native_pin)
+        if any(native.get('thread', {}).get(k) != fixed[v] for k, v in {'id': 'task_id', 'title': 'title', 'cwd': 'cwd'}.items()):
+            return False
+        turn = one(native.get('turns', []), 'id', 'example-native-452bbdf84916283f')
+        user = one(turn['items'], 'id', 'example-native-8eb89c171e6da8fc')
+        message = one(turn['items'], 'id', 'msg_d97dd9fbe70a5ba00bedcd4bf0c82425bd7d2534154d40a75b8fedcf076ddab2')
+        if (turn.get('error') or turn.get('status') not in {'inProgress', 'completed'}
+                or user.get('type') != 'userMessage' or user.get('content') != [{'type': 'text',
+                    'text': w.safe_path(root, payload['path']).read_text(encoding='utf-8')}]
+                or message.get('type') != 'agentMessage' or message.get('phase') != 'commentary'
+                or not str(message.get('text', '')).strip() or turn['items'].index(user) >= turn['items'].index(message)):
+            return False
+        producer = [row for row in receipts if row.get('department') == 'system-development'
+                    and row.get('receipt_type') == 'outbox_received'][-1]
+        pins = [p for p in producer.get('evidence', []) if p.get('path', '').endswith('.json')]
+        if len(pins) != 1 or receipts.index(producer) <= receipts.index(ack):
+            return False
+        box = _review_source_document(root, pins[0])
+        if box.get('candidate_version') != plan['candidate_version'] or not _producer_candidate_bound(root, plan, pins[0], box):
+            return False
+        identity = {'task_id': task, 'sender_department': 'system-development',
+                    'candidate_version': plan['candidate_version'], 'result_sha256': pins[0]['sha256'], 'outbox': pins[0]}
+        matching = [row for row in handoffs if all(row.get(k) == v for k, v in identity.items())]
+        queued = one(matching, 'event', 'notification_queued')
+        intake = one(matching, 'event', 'controller_received')
+        if (queued.get('target_department') != 'operations-assistant'
+                or intake.get('coordinator_role') != 'operations-assistant'
+                or intake.get('responsible_assistant') != 'operations-assistant'):
+            return False
+        _committed(root, intake)
+        w._validate_goal_completed_result(root, queued, fixed['task_id'], through_receipt_id=producer['receipt_id'])
+        stamps = [_review_observed_at(x) for x in (events[0]['created_at'], review['dispatch']['created_at'],
+            review['ack']['created_at'], decision['created_at'], policy['checked_at'], transport['started_at'],
+            transport['finished_at'])]
+        stamps += [dt.datetime.fromtimestamp(turn['startedAt'], dt.timezone.utc)]
+        stamps += [_review_observed_at(x) for x in (dispatch['created_at'], ack['created_at'], producer['created_at'],
+            queued['reply_observed_at'], queued['created_at'], intake['created_at'])]
+        if any(x is None for x in stamps) or stamps != sorted(stamps) or stamps[-1] > dt.datetime.now(dt.timezone.utc):
+            return False
+        return {'schema_version': 1, 'kind': 'original_fe689_V3_V4_pre_verdict', 'prior_plan': old_pin,
+                'prior_binding_event_id': events[0]['event_id'], 'review_plan': new_pin,
+                'original_rework_record_id': decision['record_id'], 'original_rework_record_hash': decision['record_hash'],
+                'producer_dispatch_receipt_id': dispatch['receipt_id'], 'producer_ack_receipt_id': ack['receipt_id'],
+                'producer_outbox_receipt_id': producer['receipt_id'], 'producer_outbox': pins[0],
+                'notification_queued_record_id': queued['record_id'], 'notification_queued_record_hash': queued['record_hash'],
+                'controller_received_record_id': intake['record_id'], 'controller_received_record_hash': intake['record_hash'],
+                'actual_native_ACK': native_pin, 'production_permissions_inherited': False}
+    except (w.WorkflowError, OSError, ValueError, TypeError, KeyError, IndexError, AttributeError):
+        return False
+
+
 def _validate_rework(root, snapshot, receipts, old_binding, plan):
     w = _workflow()
     goal = _goal(root, snapshot)
     old = load_plan(root, snapshot, old_binding)
     verdicts = [row for row in receipts if row.get("receipt_type") == "qa_verdict"]
-    if (goal is None or not verdicts or verdicts[-1].get("verdict") != "blocked"
+    original_pre_verdict = (_owner_original_pre_verdict_successor(root,snapshot,receipts,old_binding,plan)
+                            or _fe689_original_pre_verdict_successor(root,snapshot,receipts,old_binding,plan))
+    if not original_pre_verdict and (goal is None or not verdicts or verdicts[-1].get("verdict") != "blocked"
             or plan.get("rework_of") != verdicts[-1].get("receipt_id")
             or verdicts[-1].get("department") != plan["reviewer_department"]):
         raise w.WorkflowError("rework requires the latest exact blocked verdict; PASS cannot reopen")
@@ -5538,7 +5992,7 @@ def _validate_rework(root, snapshot, receipts, old_binding, plan):
         raise w.WorkflowError("exact changed scope, candidate evidence diff and revalidation methods required")
     producer_rows = [row for row in receipts if row.get("department") == plan["producer_department"]
                      and row.get("receipt_type") == "outbox_received"]
-    if not producer_rows or receipts.index(producer_rows[-1]) <= receipts.index(verdicts[-1]):
+    if not producer_rows or (not original_pre_verdict and receipts.index(producer_rows[-1]) <= receipts.index(verdicts[-1])):
         raise w.WorkflowError("new producer result after blocked review required for rework binding")
     pin = next((p for p in producer_rows[-1].get("evidence", []) if p.get("path", "").endswith(".json")), None)
     box = w.read_json(w.safe_path(root, pin["path"])) if pin else {}
@@ -5548,6 +6002,7 @@ def _validate_rework(root, snapshot, receipts, old_binding, plan):
            and row.get("receipt_type") in {"dispatch_sent", "dispatch_failed"} for row in receipts):
         if _assigned_review_round(root, snapshot, receipts, plan) is None:
             raise w.WorkflowError("rework must retain the complete original reviewer dispatch/ACK window")
+    return original_pre_verdict
 
 
 def _validate_next12_business_rework_successor(root, snapshot, receipts, old_binding, plan):
@@ -6028,6 +6483,11 @@ def validate_plan(root: Path, snapshot: dict, plan: dict, *, transfer_from=None)
     w = _workflow()
     goal = _goal(root, snapshot)
     modern = goal is not None
+    if "original_rotation_remaining_stage" in plan:
+        if any(key in plan for key in ("rework_of", "adopted_source_continuation", "post_pass_remaining_stage",
+                "owner_direct_review", "native_multi_goal_review", "parent_initial_child_review",
+                "business_rework_successor", "original_parent_review_source")):
+            raise w.WorkflowError("one exact original rotation remaining-stage admission required")
     if "adopted_source_continuation" in plan:
         _tnew_source_goal(root, snapshot)
         if "rework_of" in plan or any(key in plan for key in
@@ -6120,6 +6580,10 @@ def validate_plan(root: Path, snapshot: dict, plan: dict, *, transfer_from=None)
                 or plan.get("risk_level") != "R0"
                 or not _producer_candidate_bound(root, plan, producer_pin, original)):
             raise w.WorkflowError("child review must bind its exact read-only producer candidate/version/result")
+    if "pre_admission_rework" in plan:
+        from owner_adopted_pilot_consumer import admission_rework, _rows as adopted_pilot_rows
+        admission_rework(root, snapshot, adopted_pilot_rows(root,snapshot['task_id']),
+                         _binding(root,snapshot), plan)
     if "original_parent_review_source" in plan:
         if (any(name in plan for name in ("owner_direct_review", "native_multi_goal_review",
                                           "parent_initial_child_review", "review_delegation"))
@@ -6143,6 +6607,9 @@ def bind_plan(root: Path, *, task_id: str, plan_path: str, coordinator_role: str
         if coordinator_role != "operations" and (not modern or coordinator_role != _goal_reviewer(root, snapshot)):
             raise w.WorkflowError("only the assigned assistant or operations binds this exact reviewer plan")
         plan = w.read_json(w.safe_path(root, plan_path))
+        if ("original_rotation_remaining_stage" in plan
+                and coordinator_role != _goal_reviewer(root, snapshot)):
+            raise w.WorkflowError("only original assigned assistant binds this remaining completion stage")
         validate_plan(root, snapshot, plan)
         old = _binding(root, snapshot)
         binding = {"pin": pin, "reviewer_department": plan["reviewer_department"]}
@@ -6150,6 +6617,8 @@ def bind_plan(root: Path, *, task_id: str, plan_path: str, coordinator_role: str
             binding["adopted_source_continuation"] = plan["adopted_source_continuation"]
         if "post_pass_remaining_stage" in plan:
             binding["post_pass_remaining_stage"] = plan["post_pass_remaining_stage"]
+        if "original_rotation_remaining_stage" in plan:
+            binding["original_rotation_remaining_stage"] = plan["original_rotation_remaining_stage"]
         if "owner_direct_review" in plan:
             binding["owner_direct_review"] = plan["owner_direct_review"]
         if "native_multi_goal_review" in plan:
@@ -6160,6 +6629,8 @@ def bind_plan(root: Path, *, task_id: str, plan_path: str, coordinator_role: str
             binding["original_parent_review_source"] = plan["original_parent_review_source"]
         if "business_rework_successor" in plan:
             binding["business_rework_successor"] = plan["business_rework_successor"]
+        if "pre_admission_rework" in plan:
+            binding["pre_admission_rework"] = plan["pre_admission_rework"]
         if modern:
             binding["goal_identity"] = {key: _goal(root, snapshot)[key] for key in GOAL_IDENTITY}
         if old is not None:
@@ -6186,18 +6657,26 @@ def bind_plan(root: Path, *, task_id: str, plan_path: str, coordinator_role: str
         review_history = [(i, r) for i, r in enumerate(receipts) if r.get("department") in
                           ({plan["reviewer_department"], "qa", "qa-technical"} if modern else {"qa", "qa-technical"})]
         if old is not None:
-            if "adopted_source_continuation" in plan:
+            if "pre_admission_rework" in plan:
+                from owner_adopted_pilot_consumer import admission_rework
+                admission_stage = admission_rework(root, snapshot, receipts, old, plan)
+            elif "adopted_source_continuation" in plan:
                 source_continuation = _validate_tnew_adopted_source_continuation(root, snapshot, receipts, old, plan)
             elif "post_pass_remaining_stage" in plan:
                 remaining_stage = _validate_post_pass_remaining_stage(root, snapshot, receipts, old, plan)
+            elif "original_rotation_remaining_stage" in plan:
+                from rotation_completion import remaining_review_stage
+                rotation_stage = remaining_review_stage(root, snapshot, receipts, old, plan)
             elif "business_rework_successor" in plan:
                 business_successor = _validate_next12_business_rework_successor(root, snapshot, receipts, old, plan)
             else:
-                _validate_rework(root, snapshot, receipts, old, plan)
+                original_pre_verdict = _validate_rework(root, snapshot, receipts, old, plan)
         elif "adopted_source_continuation" in plan:
             raise w.WorkflowError("actual previous immutable source binding required")
         elif "business_rework_successor" in plan:
             raise w.WorkflowError("original frozen next12 V1 plan required")
+        elif "original_rotation_remaining_stage" in plan:
+            raise w.WorkflowError("original rotation prior PASS binding required")
         elif plan.get("rework_of"):
             raise w.WorkflowError("original frozen plan required for rework")
         elif review_history:
@@ -6220,12 +6699,18 @@ def bind_plan(root: Path, *, task_id: str, plan_path: str, coordinator_role: str
             history = [row for row in _bindings(root, snapshot) if row != binding]
             snapshot["qa_review_plan_history"] = history
             details.update(qa_review_plan_history=history, old_verdict_migrated=False)
-            if "adopted_source_continuation" in plan:
+            if "pre_admission_rework" in plan:
+                details["pre_admission_rework"] = admission_stage
+            elif "adopted_source_continuation" in plan:
                 details["adopted_source_continuation"] = source_continuation
             elif "post_pass_remaining_stage" in plan:
                 details["post_pass_remaining_stage"] = remaining_stage
+            elif "original_rotation_remaining_stage" in plan:
+                details["original_rotation_remaining_stage"] = rotation_stage
             elif "business_rework_successor" in plan:
                 details["business_rework_successor"] = business_successor
+            elif original_pre_verdict:
+                details["original_pre_verdict_successor"] = original_pre_verdict
             else:
                 details["rework_of"] = plan["rework_of"]
         snapshot["qa_review_plan"] = binding
@@ -6728,6 +7213,7 @@ def validate_verdict(root: Path, snapshot: dict, receipts: list, receipt: dict) 
     direct = None
     native = None
     inherited_child = None
+    adopted_parent = None
     if "parent_initial_child_review" in plan:
         if binding.get("parent_initial_child_review") != plan["parent_initial_child_review"]:
             raise w.WorkflowError("bound original parent-linked child source changed")
@@ -6758,8 +7244,10 @@ def validate_verdict(root: Path, snapshot: dict, receipts: list, receipt: dict) 
                 raise w.WorkflowError("latest actual reviewer dispatch required, or exact inherited delegation")
             dispatch, ack = inherited["dispatch"], inherited["ack"]
         else:
-            direct = owner_direct_review_context(root, snapshot, binding)
-            if direct is None:
+            from owner_adopted_pilot_consumer import review_context as adopted_pilot_review
+            adopted_parent = adopted_pilot_review(root, snapshot, receipts, plan)
+            direct = None if adopted_parent else owner_direct_review_context(root, snapshot, binding)
+            if direct is None and adopted_parent is None:
                 original_child = (original_condo_faq_child_review_context(root, snapshot, receipts, plan)
                                   or next12_original_parent_review_context(root, snapshot, receipts, plan))
                 if original_child is None:
@@ -6809,7 +7297,7 @@ def validate_verdict(root: Path, snapshot: dict, receipts: list, receipt: dict) 
                 raise w.WorkflowError("one exact historical reviewer outbox required")
             boxes = historical_boxes
     now = dt.datetime.now(dt.timezone.utc)
-    source = direct or inherited_child
+    source = adopted_parent or direct or inherited_child
     stamp_values = ([source["reviewer_source_created_at"], boxes[-1].get("created_at"), receipt.get("created_at")]
                     if source else [r.get("created_at") for r in (dispatch, ack, boxes[-1], receipt)])
     stamps = [w._parse_observed_at(value) for value in stamp_values]

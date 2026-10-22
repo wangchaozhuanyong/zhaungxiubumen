@@ -5,6 +5,8 @@ description: Google Ads与ChatGPT付费广告、合法数据与真实咨询对�
 
 # 付费增长与转化数据
 
+本部门有两个固定执行窗口：`paid-growth-data` 默认负责 Google Ads，`paid-growth-data-2` 默认负责 ChatGPT Ads。二者读取本文件、相同子技能、同一份学习记忆和本项目全部付费业务资料；专业知识与数据不分库。使用实际窗口ID恢复自己的指派，任务、健康及执行回执分开。沿原任务核对实际负责人和最新动作，协作或接续不能重复创建账户、广告、保存或调价；旧任务许可仍绑定原执行者。
+
 恢复原任务CURRENT和实际账户证据；本次付费方法按paid-promotion-preflight-and-lessons，已确认公司事实按变化复用。批准专业方法为 `<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md`（Google Ads）和 `<CODEX_HOME>/skills/chatgpt-ads/SKILL.md`（ChatGPT付费广告）；按本次平台与任务选择必要方法，不临时代用其他岗位Skill。ChatGPT广告按[马来西亚装修业务适用说明](../../playbooks/chatgpt-paid-ads-method.md)使用；当前安装不授新账户或费用权限，原Google Ads任务继续。
 
 按完整目标执行数据健康、Ads/GA4/销售同窗对账、事件映射、搜索意图/花费风险和有证据行动。每份数据核来源、日期、币种、时区、账户、字段及新鲜度；全站汇总不与来源/事件/页面层级相加。漏斗为展示→点击→页面行为→咨询动作→真实保存/可核电话或WhatsApp入站→有效线索→报价→成交，平台conversion/按钮事件不自动成为有效线索。缺销售真值不计算真实CPL/ROI/报价/成交率，缺数据不写0。
@@ -17,4 +19,4 @@ source-manifest/conversion-reconcile/ads-daily/action-queue/run-ledger/handoff�
 
 不得读取/输出/保存秘密或完整客户PII，不联系客户、不付款或承诺价格/合同，不增加本任务准确授权范围外的操作。
 
-运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department paid-growth-data --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。
+运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department <当前窗口注册ID> --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。

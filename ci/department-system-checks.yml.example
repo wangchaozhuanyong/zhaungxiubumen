@@ -18,6 +18,11 @@ jobs:
       - name: Run control and handoff checks
         env:
           PYTHONDONTWRITEBYTECODE: '1'
+          FLASHCAST_TEST_RUNTIME: ${{ github.workspace }}/logs/test-runtime
         run: |
           cd tools
-          python -m unittest test_workflow_control test_flashcast_ops test_department_reply test_result_handoff_key test_result_handoff_readback test_qa_dispatch_priority test_controller_progress test_controller_event_state test_controller_stop_hook test_department_next_work test_department_next_work_rework test_result_coordination test_runtime_continuation test_runtime_qa_admission test_department_system_distribution
+          python -m unittest test_workflow_control test_flashcast_ops test_department_reply test_result_handoff_key test_result_handoff_readback test_qa_dispatch_priority test_controller_progress test_controller_event_state test_controller_stop_hook test_department_next_work test_department_next_work_rework test_result_coordination test_runtime_continuation test_runtime_qa_admission test_department_system_distribution test_export_department_system test_assistant_responsibility_resume test_department_rotation test_rotation_completion test_rotation_post_pass test_paid_shared_windows test_worker_pure_health_compat test_direct_system_close test_goal_authorization_precheck test_goal_continuity test_goal_source_recovery test_goal_runtime_consumers test_parent_initial_dispatch test_parent_initial_child_review test_goal_result_coordination test_goal_completion_evidence test_goal_work_boundary
+      - name: Run portable narration contracts
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python -m unittest discover -s departments/visual-design-video/tests -p 'test_narration_mode.py'

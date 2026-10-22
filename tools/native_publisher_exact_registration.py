@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 PROJECT = '<LOCAL_PROJECT_ID>'
-PUBLISHER = '<LOCAL_TASK_ID>'
+PUBLISHER = 'example-native-f4ba16119c32b000'
 BUSINESS_TASK = 'fc-20260928-keyword-page-answer-implementation-v1'
 MANIFEST = 'drafts/operations/fc-20261005-publishing-exact-executor-handover-control-v1/publisher-postdeploy-three-row-staged-control-v2-20261006/candidate.json'
 MANIFEST_SHA = '091dbf92cd0a2953f15b772fae73e201d8cb12ab53588a3d7fd5472e07f7a870'

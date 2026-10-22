@@ -551,10 +551,22 @@ class WorkflowControlTests(unittest.TestCase):
             workflow.repair_dispatch_plan(self.root, self.task_id)
 
     def health_args(self, observed_at: str = "") -> argparse.Namespace:
+        observed_at = observed_at or workflow.utc_timestamp()
+        text = "Synthetic completed health reply."
+        native = {"thread": {"id": "fixed-content-organic-website",
+            "title": "content-organic-website", "cwd": str(self.root),
+            "projectId": "flashcast-test-project"}, "turns": [{"id": "health-turn",
+            "status": "completed", "completedAt": observed_at, "items": [{
+                "type": "agentMessage", "phase": "final_answer", "id": "msg-health-test", "text": text}]}]}
+        path = self.root / "reports/health-native.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(native), encoding="utf-8")
         return argparse.Namespace(department="content-organic-website", task_id="fixed-content-organic-website",
             project_id="flashcast-test-project", cwd=str(self.root), title="content-organic-website",
-            sidebar_section_id="flashcast-departments", reply_ref="msg-health-test", reply_sha256="e" * 64,
-            reply_nonempty=True, reply_observed_at=observed_at, live_status="idle", last_run_status="success",
+            sidebar_section_id="flashcast-departments", reply_ref="msg-health-test",
+            reply_sha256=hashlib.sha256(text.encode()).hexdigest(),
+            native_reply_evidence="reports/health-native.json", reply_nonempty=True,
+            reply_observed_at=observed_at, live_status="idle", last_run_status="success",
             failure_class="", next_retry_at="")
 
     def test_same_health_observation_is_idempotent(self) -> None:
@@ -1692,7 +1704,7 @@ class WorkflowControlTests(unittest.TestCase):
                     "reply_observed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
         self.assertEqual(workflow.record_result_handoff(self.root, received)[0]["result"], "recorded")
 
-    def test_stale_binding_blocks_dispatch_but_exact_health_probe_is_allowed(self) -> None:
+    def test_stale_legacy_binding_cannot_probe_without_exact_goal_and_native_identity(self) -> None:
         registry_path = self.root / "data/department-registry.json"
         registry = json.loads(registry_path.read_text(encoding="utf-8"))
         registry["departments"][1]["chat_binding"]["last_health_check_at"] = "2000-01-01T00:00:00+00:00"
@@ -1719,7 +1731,8 @@ class WorkflowControlTests(unittest.TestCase):
             target_sidebar_section_id=str(binding["sidebar_section_id"]),
             payload_sha256="d" * 64,
         )
-        self.assertEqual(probe["status"], "allow")
+        self.assertEqual(probe["status"], "deny")
+        # Probe classification alone is not an authorized send.
         self.assertTrue(probe["routing_health_probe_mode"])
 
     def test_department_health_record_restores_exact_registered_binding(self) -> None:
@@ -1730,24 +1743,7 @@ class WorkflowControlTests(unittest.TestCase):
         binding["dispatch_eligible"] = False
         registry_path.write_text(json.dumps(registry), encoding="utf-8")
 
-        payload, artifacts = ops.department_health_record(
-            self.root,
-            argparse.Namespace(
-                department="content-organic-website",
-                task_id="fixed-content-organic-website",
-                project_id="flashcast-test-project",
-                cwd=str(self.root),
-                title="content-organic-website",
-                sidebar_section_id="flashcast-departments",
-                reply_ref="msg-content-health-001",
-                reply_sha256="e" * 64,
-                reply_nonempty=True,
-                live_status="idle",
-                last_run_status="success",
-                failure_class="",
-                next_retry_at="",
-            ),
-        )
+        payload, artifacts = ops.department_health_record(self.root, self.health_args())
         self.assertTrue(payload["dispatch_eligible"])
         self.assertFalse(payload["chat_body_stored"])
         saved = workflow.department_registry(self.root)["content-organic-website"]["chat_binding"]
@@ -3996,7 +3992,7 @@ class WorkflowControlTests(unittest.TestCase):
             department="paid-growth-data",
             action_id="inspect-other-account",
             action_class="account_read",
-            scope="google-ads:example-ads-account:readonly:campaign-consolidation",
+            scope="google-ads:other-synthetic-account:readonly:campaign-consolidation",
         )
         self.assertEqual(wrong_scope["status"], "deny")
         self.assertIn("account_read_scope_not_allowed", wrong_scope["reason"])
@@ -4098,6 +4094,12 @@ class WorkflowControlTests(unittest.TestCase):
         self.assertFalse(workflow.snapshot_path(self.root, legacy_id).exists())
 
     def test_learning_v2_marks_stale_and_keeps_legacy_visible(self) -> None:
+        role = self.root / ".codex/agents/content-organic-website.toml"
+        role.parent.mkdir(parents=True, exist_ok=True)
+        role.write_text("# Synthetic role configuration\n")
+        skill = self.root / "departments/content-organic-website/SKILL.md"
+        skill.parent.mkdir(parents=True, exist_ok=True)
+        skill.write_text("Synthetic registered learning method.\n")
         registry = self.root / "data/learning/department-learning-registry.json"
         registry.parent.mkdir(parents=True, exist_ok=True)
         registry.write_text(
@@ -4108,7 +4110,7 @@ class WorkflowControlTests(unittest.TestCase):
                             "id": "content-organic-website",
                             "name": "content",
                             "memory_path": "data/learning/departments/content.json",
-                            "professional_skill": "",
+                            "professional_skill": "departments/content-organic-website/SKILL.md",
                         }
                     ]
                 }

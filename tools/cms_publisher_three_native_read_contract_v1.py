@@ -4,7 +4,7 @@ import workflow_control as w
 import original_task_publisher_handover as handover
 ROOT=Path('<PROJECT_ROOT>')
 TASK='fc-20260928-keyword-page-answer-implementation-v1'
-PUBLISHER='<LOCAL_TASK_ID>'
+PUBLISHER='example-native-f4ba16119c32b000'
 QA='<LOCAL_TASK_ID>'
 PROJECT='<LOCAL_PROJECT_ID>'
 QA_TASK='fc-20261007-publisher-three-native-read-control-qa-v1'

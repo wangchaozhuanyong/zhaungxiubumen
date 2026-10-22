@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = "<PROJECT_ROOT>"
 PROJECT = "<LOCAL_PROJECT_ID>"
-SOURCE = "<LOCAL_TASK_ID>"
+SOURCE = "example-native-0bec6d516b372cb9"
 QA = "<LOCAL_TASK_ID>"
 TASK = "fc-20260920-google-ads-rm100-budget-plan"
 AUTH_TURN = 'synthetic-evidence-not-native'
@@ -26,7 +26,7 @@ CONTROL_SCOPE = "project:flashcast:owner-paid-logo-one-shot-control:v1"
 IDENTITY = ("task_id", "action_id", "action_class", "scope", "candidate_version", "candidate_sha256")
 HISTORICAL_QA1_BLOCKED_PIN = {}
 HISTORICAL_REVIEW_ATTEMPT_PATH = 'synthetic-evidence-not-native'
-HEADQUARTERS = "<LOCAL_TASK_ID>"
+HEADQUARTERS = "example-native-0d0689f4e3a4c895"
 QA_TECHNICAL = "<LOCAL_TASK_ID>"
 TOOL_REQUEST_FORMAT = "read_thread.codex_delegation.functionCallOutput.v1"
 HISTORICAL_LOGO_PACKET_PIN = {}

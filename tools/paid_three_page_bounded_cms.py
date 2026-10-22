@@ -3656,7 +3656,7 @@ EN2_VERSION = "publishing-english-kitchen-en2-actual-publication-v1-20261011"
 EN2_SCOPE = "cms:services:kitchen:english-two-fields:publication:v1"
 EN2_RECORD = "ce4156db-9034-42c8-ba29-b35724ea7d6d"
 EN2_FIELDS = ("title_en", "excerpt_en")
-EN2_PUBLISHER = "<LOCAL_TASK_ID>"
+EN2_PUBLISHER = "example-native-f4ba16119c32b000"
 EN2_CANDIDATE = {"path": "drafts/publishing/fc-20261011-english-kitchen-actual-publication-goal-v1/publishing-production-input-candidate-v1.json",
                  "sha256": "fcc055acb530d2debdb86469321b61c28c124200c7d045155798f575b55ed7c8", "size": 12221}
 EN2_HANDOFF = {"path": "drafts/publishing/fc-20261011-english-kitchen-actual-publication-goal-v1/production-input-exact-original-dependency-handoff-v1.json",
@@ -3886,7 +3886,7 @@ def two_original_material_source_contract(root):
     require(summary.get("parent_task_id") == MATERIAL_PARENT
             and summary.get("merge_candidate_version") == MATERIAL_MERGE_VERSION
             and summary.get("Save") == 0 and summary.get("parent_goal_closed") is False
-            and authority.get("source_thread_id") == "<LOCAL_TASK_ID>"
+            and authority.get("source_thread_id") == "example-native-2ab501c514875e3b"
             and authority.get("message", {}).get("type") == "userMessage"
             and "允许这两项最小补齐及部门系统精确采用"
                 in authority["message"]["content"][0]["text"]
@@ -4055,7 +4055,7 @@ def build_two_original_material_targets(rows):
             "task_id": task, "action_id": action, "candidate_version": version,
             "scope": scope, "table": "materials", "record_id": row["record_id"],
             "slug": slug, "content_type": "material", "changed_fields": list(MATERIAL_FIELDS),
-            "execution_owner": owner, "execution_thread_id": "<LOCAL_TASK_ID>",
+            "execution_owner": owner, "execution_thread_id": "example-native-f4ba16119c32b000",
             "candidate_shape": "two_original_material_body_registration_only_v1",
             "candidate": (row["candidate"]["path"], row["candidate"]["sha256"]),
             "rollback": (row["backup"]["path"], row["backup"]["sha256"]),

@@ -19,7 +19,7 @@ QA_CANDIDATE = 'bathroom-v6-exact-source-read-control-v1-20261006'
 FIELDS = []
 METADATA = []
 RECORD_ID = '0f294e6d-2e2c-4f13-a93f-096728ccc6af'
-PUBLISHER = '<LOCAL_TASK_ID>'
+PUBLISHER = 'example-native-f4ba16119c32b000'
 
 
 def validate_request(request: dict) -> list[str]:

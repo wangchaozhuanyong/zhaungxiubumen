@@ -7,6 +7,7 @@ Ordinary business tasks retain their original sole-assistant acceptance path.
 from __future__ import annotations
 
 from pathlib import Path
+from contextlib import contextmanager
 import datetime as dt
 
 import workflow_control as w
@@ -25,15 +26,22 @@ def _doc(root, pin):
 
 
 def _human(root, authorization):
+    # Current execution admission never resolves historical window bindings.
+    binding = w.department_registry(root)["operations"]["chat_binding"]
+    return _human_source(root, authorization, binding)
+
+
+def _human_source(root, authorization, binding):
+    """Validate the unchanged native human bytes against an explicit identity."""
     from qa_review_plan import _review_raw_native_result, _review_native_containers
     native = _doc(root, authorization["native"])
     if "content" in native:
         native = _review_raw_native_result(native)
     _review_native_containers(native)
-    binding = w.department_registry(root)["operations"]["chat_binding"]
     thread = native.get("thread", {})
-    if any(thread.get(k) != binding[v] for k, v in
-           (("id", "task_id"), ("title", "title"), ("cwd", "cwd"))):
+    if (any(thread.get(k) != binding[v] for k, v in
+            (("id", "task_id"), ("title", "title"), ("cwd", "cwd")))
+            or (thread.get("projectId") is not None and thread["projectId"] != binding.get("project_id"))):
         raise w.WorkflowError("direct repair requires its actual fixed headquarters human source")
     messages = [(turn, item) for turn in native.get("turns", []) for item in turn.get("items", [])
                 if item.get("type") == "userMessage" and item.get("id") == authorization.get("message_id")
@@ -101,6 +109,48 @@ def source_chain(root, reports, task_id, *, verify_live=True):
 
 
 def context(root, task_id):
+    """Current execution admission; historical HQ approval grants no new writes."""
+    return _context(root, task_id)
+
+
+def _read_context(root, task_id):
+    """Consume this exact closed repair, retaining its real historical owner/source."""
+    return _context(root, task_id, read_closed=True)
+
+
+def _closed_human(root, authorization):
+    from department_rotation import _records
+    rotations = [row for row in _records(root) if row["role"] == "operations"]
+    if not rotations:
+        return _human(root, authorization)
+    if len(rotations) != 1:
+        raise w.WorkflowError("one trusted same-role historical headquarters rotation required")
+    old = rotations[0]["old_binding"]
+    if Path(old["cwd"]).resolve() != Path(root).resolve():
+        raise w.WorkflowError("historical headquarters must belong to this exact project")
+    return _human_source(root, authorization, old)
+
+
+@contextmanager
+def _closed_read_validation(root):
+    """Validate a closed event chain's frozen review identities with write guards.
+
+    The old review plan is historical evidence too. Reuse rotation's task-local
+    read-only guard; never replace the persisted registry or return authority.
+    """
+    import department_rotation as rotation
+    registry = w.department_registry(root)
+    for row in rotation._records(root):
+        if row['role'] in {'operations', 'system-development', 'operations-assistant-2'} and row['role'] in registry:
+            registry[row['role']]['chat_binding'] = row['old_binding']
+    token = rotation._VALIDATION.set((str(Path(root).resolve()), registry))
+    try:
+        yield
+    finally:
+        rotation._VALIDATION.reset(token)
+
+
+def _context(root, task_id, *, read_closed=False):
     if task_id != TASK:
         return None
     config = w.read_json(Path(root) / "data/task-contract.json").get("goal_delivery_runtime", {})
@@ -113,15 +163,12 @@ def context(root, task_id):
             or document.get("external_permission_issued") is not False
             or document.get("business_permissions_changed") is not False):
         raise w.WorkflowError("only this exact internal direct-execution takeover is allowed")
-    _human(root, document["human_authorization"])
     snapshot = w.read_json(w.snapshot_path(root, task_id))
     original = snapshot.get("goal_delivery", {})
     if (original.get("authorized_scope") != [SCOPE]
             or original.get("primary_owner") != "system-development"
             or original.get("required_execution_actions")):
         raise w.WorkflowError("frozen internal goal scope cannot expand through takeover")
-    if w.validate_workflow_events(root, task_id):
-        raise w.WorkflowError("intact original workflow events required")
     events = [row for row in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS)
               if row.get("task_id") == task_id and row.get("details", {}).get("owner_direct_execution") == pin]
     if len(events) != 1:
@@ -131,10 +178,22 @@ def context(root, task_id):
         extension = event.get("details", {}).get("direct_source_adoption")
         if event.get("task_id") == TASK and isinstance(extension, dict) and extension.get("takeover") == pin:
             reports.append(extension["report"])
-    closed = any(e.get("task_id") == TASK and e.get("state") == "closed"
-                 and e.get("details", {}).get("owner_direct_completion") == pin
-                 and e.get("details", {}).get("closed_scope_only") is True
-                 for e in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS))
+    closures = [e for e in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS)
+                if e.get("task_id") == TASK and e.get("state") == "closed"
+                and e.get("details", {}).get("owner_direct_completion") == pin
+                and e.get("details", {}).get("closed_scope_only") is True]
+    closed = bool(closures)
+    if read_closed and closed:
+        if len(closures) != 1 or snapshot.get("current_state") != "closed":
+            raise w.WorkflowError("one exact committed closed repair required for historical reading")
+        _closed_human(root, document["human_authorization"])
+        with _closed_read_validation(root):
+            invalid = w.validate_workflow_events(root, task_id)
+    else:
+        _human(root, document["human_authorization"])
+        invalid = w.validate_workflow_events(root, task_id)
+    if invalid:
+        raise w.WorkflowError("intact original workflow events required")
     adopted = source_chain(root, reports, task_id, verify_live=not closed)
     return {"pin": pin, "document": document, "original_goal": original,
             "executor": "operations", "historical_responsible_assistant": original["responsible_assistant"],
@@ -143,7 +202,7 @@ def context(root, task_id):
 
 def owners(root):
     try:
-        active = context(root, TASK)
+        active = _read_context(root, TASK)
         return {TASK: "operations"} if active else {}
     except (w.WorkflowError, ValueError, KeyError, TypeError, OSError):
         # Inventory reports this exact task error. A failed historical repair
@@ -267,7 +326,7 @@ def receive_original_knowledge(root, source_pin, next_action_pin, idempotency_ke
 
 def received_original_knowledge(root, identity):
     from result_coordination import ORIGINAL_A3_CONCLUSION
-    if identity != ORIGINAL_A3_CONCLUSION or context(root,TASK) is None:
+    if identity != ORIGINAL_A3_CONCLUSION or _read_context(root,TASK) is None:
         return None
     events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS) if e.get("task_id")==TASK
             and e.get("details",{}).get("direct_recovered_knowledge",{}).get("identity")==identity]
@@ -294,7 +353,7 @@ def existing_result_resolution(root,identity):
     if identity.get('candidate_version') not in {'assistant3-remaining-business-continuation-v2-20261010',
                                                  'sales-original-goals-actual-continuation-v2-20261011'}:
         return None
-    if context(root,TASK) is None:return None
+    if _read_context(root,TASK) is None:return None
     events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS) if e.get('task_id')==TASK
             and e.get('details',{}).get('direct_existing_result_associations')]
     matches=[]

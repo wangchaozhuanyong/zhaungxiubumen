@@ -150,6 +150,13 @@ def record_completion_contract(root, task_id, input_path, role):
 
 
 def enabled(root, snapshot=None):
+    # Legacy snapshots have no goal contract; retain their original read path.
+    # A real goal or a fresh startup still requires the intact global contract.
+    if snapshot is not None:
+        if "goal_delivery" not in snapshot and "goal_contract" not in snapshot:
+            return False
+        if not isinstance(snapshot.get("goal_delivery"), dict):
+            raise w.WorkflowError("goal snapshot must retain its goal delivery object")
     try:
         document = json.loads(w.validation_bytes(Path(root) / "data/task-contract.json"))
     except (OSError, ValueError, TypeError) as exc:
@@ -161,6 +168,35 @@ def enabled(root, snapshot=None):
         raise w.WorkflowError("goal delivery runtime configuration object required")
     return (config.get("model") == MODEL and config.get("assistant_decisions_enabled") is True
             and (snapshot is None or isinstance(snapshot.get("goal_delivery"), dict)))
+
+
+# The current owner delegated decision responsibility, not execution permission.
+# Keep its actual human source; caller flags and other project copies cannot grant it.
+_OWNER_DECISION_SOURCE = {'pin': {'path': 'logs/handoffs/2026-10-20-clean-department-window-rotation-v1/operations/unfinished-business-followthrough-20261021-v1/owner-delegated-nonpayment-decisions-system-repair-v1/owner-current-human-native-v1.json', 'sha256': '5568a10ef0e63fc7558695704a4e10d500605a7340de31cc35012edc25aab0df', 'size': 1207}, 'source_thread_id': '<LOCAL_TASK_ID>', 'source_turn_id': 'example-native-71a5d7233e137670', 'source_message_id': 'example-native-29f0cb9317eec26b', 'project_id': '<LOCAL_PROJECT_ID>', 'cwd': '<PROJECT_ROOT>'}
+
+
+def _owner_decision_delegation(root):
+    source = _OWNER_DECISION_SOURCE
+    if Path(root).resolve() != Path(source['cwd']).resolve():
+        return None
+    pin = source['pin']
+    if w.file_digest(root, pin['path']) != pin:
+        raise w.WorkflowError('unchanged actual owner decision delegation source required')
+    document = w.read_json(w.safe_path(root, pin['path']))
+    message = document.get('message', {})
+    native = document.get('actual_native_thread', {})
+    binding = w.department_registry(root)['operations']['chat_binding']
+    if (document.get('source_thread_id') != source['source_thread_id']
+            or document.get('source_turn_id') != source['source_turn_id']
+            or message.get('type') != 'userMessage' or message.get('id') != source['source_message_id']
+            or native.get('id') != source['source_thread_id'] or native.get('cwd') != source['cwd']
+            or binding.get('project_id') != source['project_id'] or binding.get('cwd') != source['cwd']
+            or not any(c.get('type') == 'text' and str(c.get('text', '')).strip()
+                       for c in message.get('content', []) if isinstance(c, dict))):
+        raise w.WorkflowError('actual same-project human decision delegation required')
+    return {'source': pin, 'scope': 'current_project_routine_nonpayment_decisions',
+            'source_thread_id': source['source_thread_id'], 'source_message_id': source['source_message_id'],
+            'payment_owner': 'human_owner', 'execution_authority_unchanged': True}
 
 
 def authorization_precheck(root, task_id, request):
@@ -198,14 +234,26 @@ def authorization_precheck(root, task_id, request):
               "required_internal_checks": ["exact_current_identity_and_health", "exact_policy_check",
                                             "deduplicate_actual_effects", "existing_production_channel"]}
 
+    delegation = None
+
     def outcome(state, reasons, confirmation=False):
-        return {**result, "status": state, "reasons": sorted(set(reasons)),
-                "needs_human_confirmation": confirmation,
-                "next_owner": "operations" if confirmation else request["sender_department"],
-                "next_action": "escalate_only_changed_scope" if confirmation
-                else "read_actual_completion_and_preserve_remaining_scope" if state == "completed_scope_readback_required"
-                else "repair_internal_binding_then_exact_preflight" if state != "within_original_authorization"
-                else "continue_original_goal_with_existing_action_gates"}
+        # Changed authority still blocks actual execution. Route its ordinary
+        # nonpayment decision to HQ instead of inventing another owner prompt.
+        payment = bool({'new_fee', 'budget_exceeded'}.intersection(reasons))
+        needs_human = confirmation and (delegation is None or payment)
+        next_owner = ('human_owner' if payment and delegation else 'operations') if confirmation else request['sender_department']
+        next_action = ('ask_owner_for_exact_payment' if needs_human and delegation else
+                       'escalate_only_changed_scope' if needs_human else
+                       'coordinate_exact_nonpayment_change_preserve_action_gates') if confirmation else (
+            'read_actual_completion_and_preserve_remaining_scope' if state == 'completed_scope_readback_required'
+            else 'repair_internal_binding_then_exact_preflight' if state != 'within_original_authorization'
+            else 'continue_original_goal_with_existing_action_gates')
+        value = {**result, 'status': state, 'reasons': sorted(set(reasons)),
+                 'needs_human_confirmation': needs_human, 'next_owner': next_owner, 'next_action': next_action}
+        if delegation is not None:
+            value.update(decision_delegation=delegation, decision_owner=next_owner,
+                         blocks_only_dependent_action=state != 'within_original_authorization')
+        return value
 
     snapshot = w.read_json(w.snapshot_path(root, task_id))
     if not snapshot or not enabled(root, snapshot):
@@ -225,8 +273,12 @@ def authorization_precheck(root, task_id, request):
     registry = w.department_registry(root)
     sender = request["sender_department"]
     producers = goal.get("producer_departments", [])
-    if sender not in {"operations", goal["responsible_assistant"], *producers}:
+    from brand_v4_issuer_executor import action_context as brand_action_context
+    brand_executor = (brand_action_context(root, snapshot, request.get('action_id'), request.get('action_class'),
+                      request.get('scope'), sender) if request.get('action_class') in w.EXTERNAL_ACTION_CLASSES else None)
+    if sender not in {"operations", goal["responsible_assistant"], *producers} and not brand_executor:
         raise w.WorkflowError("original goal participant required; no authority delegation by metadata")
+    delegation = _owner_decision_delegation(root)
     if request.get('action_id') == 'assign-same-task-technical-review:fc-20261017-next12-old-house-development-handoff-v1':
         from goal_source_recovery import oldhouse_technical_preflight
         oldhouse_technical_preflight(root,request)
@@ -277,7 +329,7 @@ def authorization_precheck(root, task_id, request):
             # Cannot infer a new production action from broad prose or a PASS.
             return outcome("original_action_binding_required", ["recover_exact_authorized_production_action"] + changes,
                            confirmation=bool(changes))
-        if request.get("department") not in producers:
+        if request.get("department",sender) not in producers and not brand_executor:
             raise w.WorkflowError("original declared production executor required")
     elif request["action_class"] != "internal_control_candidate":
         raise w.WorkflowError("known original action class required")
@@ -324,13 +376,17 @@ def validate_goal(root, goal, *, task_id=None):
     actions = result.setdefault("required_execution_actions", [])
     if not isinstance(actions, list) or len(actions) > 100:
         raise w.WorkflowError("bounded declared production actions required")
+    from brand_v4_issuer_executor import context as brand_executor_context
+    brand_executor = brand_executor_context(root, result)
     identities = []
     for action in actions:
         if (not isinstance(action, dict) or not action.get("action_id")
                 or action.get("action_class") not in w.EXTERNAL_ACTION_CLASSES
                 or action.get("scope") not in result["authorized_scope"]
-                or action.get("department") not in producers):
+                or (action.get("department") not in producers and not brand_executor)):
             raise w.WorkflowError("declared production action must use exact existing scope/producer/channel")
+        if brand_executor:
+            brand_executor_context(root, result, action)
         identities.append(tuple(action.get(k) for k in ("action_id", "action_class", "scope", "department")))
     if len(set(identities)) != len(identities):
         raise w.WorkflowError("unique production action identities required")
@@ -815,7 +871,9 @@ def execution_preflight(root, snapshot, action_id, action_class, scope, departme
     from paid_three_page_bounded_cms import exact_tuple, preflight
     if exact_tuple(snapshot.get("task_id"), action_id, scope, department, action_class):
         return preflight(root, snapshot, action_id, action_class, scope, department)
-    if scope not in goal["authorized_scope"] or department not in goal["producer_departments"]:
+    from brand_v4_issuer_executor import action_context as brand_action_context
+    brand_executor = brand_action_context(root, snapshot, action_id, action_class, scope, department)
+    if scope not in goal["authorized_scope"] or (department not in goal["producer_departments"] and not brand_executor):
         raise w.WorkflowError("execution outside complete-goal authorized scope")
     declared = goal.get("required_execution_actions", [])
     if declared and not any(all(x.get(k) == v for k, v in
@@ -836,6 +894,9 @@ def execution_preflight(root, snapshot, action_id, action_class, scope, departme
     if check.get("status") != "PASS" or any(check.get(k) != item[k] for k in
             ("action_id", "action_class", "scope", "department")):
         raise w.WorkflowError("exact successful production self-check required")
+    if brand_executor:
+        from brand_v4_issuer_executor import preflight as brand_preflight
+        brand_preflight(root, snapshot, item)
     return item
 
 

@@ -19,7 +19,7 @@ QA_CANDIDATE = 'artistic-v7p2-raw-CAS-read-control-v1-20261006'
 FIELDS = []
 METADATA = []
 RECORD_ID = 'd862312d-d5f3-4bb7-9bf0-137ed71c87be'
-PUBLISHER = '<LOCAL_TASK_ID>'
+PUBLISHER = 'example-native-f4ba16119c32b000'
 
 
 def validate_request(request: dict) -> list[str]:

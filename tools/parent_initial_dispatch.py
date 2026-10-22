@@ -414,6 +414,53 @@ def _responsibility_approval_document(root, pin):
     return value
 
 
+def _queued_responsibility_action_source(root, child, action, proof, approval, dispatch, ack, rows):
+    """Consume the real original queue plus the uniquely frozen unsent intent.
+
+    The native HQ payload delegates this whole goal and names the SYS task file;
+    it does not contain a future action tuple. Keep these two sources distinct.
+    No caller flag, reconstructed MCP output or new business dispatch is used.
+    """
+    import qa_review_plan as q
+    from goal_source_recovery import queued_assignment_source
+    task='fc-20261021-two-original-post-intake-receipt-followthrough-v1'
+    base='logs/handoffs/2026-10-20-clean-department-window-rotation-v1/operations/unfinished-business-followthrough-20261021-v1/two-original-post-intake-receipt-followthrough-v1/'
+    original_pin={'path':base+'operations-assistant-2-independent-review-v1/A2-TWO-FIRST-SYS-ACTION-ACTUAL-QUEUED-RESPONSIBILITY-INPUT-v1.json',
+                  'sha256':'60fe6568887edbbcfd75640a57eaed0656ae3bcd1eb8b95b442db0b2e371a996','size':4125}
+    original=q._review_source_document(root,original_pin)
+    if (child.get('task_id')!=task or set(action)!=set(original)
+            or any(action.get(k)!=v for k,v in original.items()if k!='live_identity')
+            or proof!=original['goal_responsibility_dispatch']):
+        _fail('only the exact frozen original queued responsibility action may resume')
+    source_pin=proof.get('actual_queued_assignment')
+    if (source_pin not in dispatch.get('evidence',[])or source_pin not in ack.get('evidence',[])
+            or ack.get('idempotency_key')!=dispatch.get('idempotency_key','')+'-ack'
+            or ack.get('policy_decision_id')!=dispatch.get('policy_decision_id')
+            or any(row.get('supersedes_receipt_id')in{dispatch['receipt_id'],ack['receipt_id']}for row in rows)):
+        _fail('original actual queued dispatch/ACK source and uniqueness required')
+    item=q._review_source_document(root,source_pin)
+    # This existing validator proves actual command/transport, exact policy,
+    # immutable human/contract/payload, receiving userMessage/ACK and time order.
+    snapshot,actual_dispatch=queued_assignment_source(root,item)
+    if (snapshot.get('task_id')!=child['task_id']or snapshot.get('goal_contract')!=child['goal_contract']
+            or actual_dispatch!=dispatch or item.get('sender_department')!='operations'
+            or item.get('department')!=child['goal_delivery']['responsible_assistant']
+            or item.get('scope')!=action['scope']or item.get('authorization_pin')!=child['goal_delivery']['authorization_pin']
+            or proof.get('actual_native_approval')!=item.get('actual_native_recipient')
+            or proof.get('approval_turn_id')!=item.get('receiver_turn_id')
+            or proof.get('approval_item_id')!=item.get('receiver_message_id')):
+        _fail('same original HQ queue, receiving approval and real receipt links required')
+    turns=[t for t in approval.get('turns',[])if t.get('id')==item['receiver_turn_id']]
+    messages=[m for t in turns for m in t.get('items',[])if m.get('id')==item['receiver_message_id']and m.get('type')=='userMessage']
+    body=w.safe_path(root,_pin(root,item['payload'])['path']).read_text(encoding='utf-8')
+    if (len(turns)!=1 or len(messages)!=1 or messages[0].get('content')!=[{'type':'text','text':body}]
+            or str(w.safe_path(root,child['goal_contract']['path']))not in body
+            or '同目录'+Path(action['payload']['path']).name not in body
+            or Path(action['payload']['path']).parent!=Path(item['payload']['path']).parent):
+        _fail('actual original whole-goal queue must name this exact original producer task')
+    _pin(root,action['payload'])
+
+
 def validate_responsibility_action(root, snapshot, action, phase="prepare"):
     """First routine producer send under the actually assigned whole goal.
 
@@ -472,34 +519,38 @@ def validate_responsibility_action(root, snapshot, action, phase="prepare"):
     approval = _responsibility_approval_document(root, proof.get("actual_native_approval"))
     if approval.get("thread", {}).get("id") != registry[role]["chat_binding"]["task_id"]:
         _fail("approval must arrive in this actual responsible assistant chat")
-    turn = [row for row in approval.get("turns", []) if row.get("id") == proof.get("approval_turn_id")]
-    items = [item for row in turn for item in row.get("items", [])
-             if item.get("id") == proof.get("approval_item_id") and item.get("type") == "functionCallOutput"]
-    if len(turn) != 1 or len(items) != 1:
-        _fail("one actual native HQ approval turn/item required")
-    try:
-        q._review_native_containers(turn[0])
-        q._review_native_containers(items[0])
-    except (ValueError, TypeError):
-        _fail("successful complete selected native HQ approval source required")
-    output = items[0].get("output", {})
-    text = output.get("text") if isinstance(output, dict) else output
-    from re import fullmatch, escape
-    match = fullmatch(r"\s*<codex_delegation>\s*<source_thread_id>(" +
-        escape(registry["operations"]["chat_binding"]["task_id"]) +
-        r")</source_thread_id>\s*<input>([\s\S]+)</input>\s*</codex_delegation>\s*", text or "")
-    if not match or (isinstance(output, dict) and output.get("truncated") is not False):
-        _fail("actual nontruncated current HQ delegation required")
-    body = match[2]
-    import hashlib
-    exact_contract_body = hashlib.sha256(body.encode("utf-8")).hexdigest()==child["goal_contract"]["sha256"]
-    if (any(value not in body for value in (child["task_id"],action["scope"]))
-            or (not exact_contract_body and child["goal_contract"]["sha256"] not in body)):
-        _fail("HQ approval must pin this exact whole task/scope/contract")
+    queued = proof.get("source_kind") == "official_native_queue"
+    if queued:
+        _queued_responsibility_action_source(root,child,action,proof,approval,dispatch,ack,rows)
+    else:
+        turn = [row for row in approval.get("turns", []) if row.get("id") == proof.get("approval_turn_id")]
+        items = [item for row in turn for item in row.get("items", [])
+                 if item.get("id") == proof.get("approval_item_id") and item.get("type") == "functionCallOutput"]
+        if len(turn) != 1 or len(items) != 1:
+            _fail("one actual native HQ approval turn/item required")
+        try:
+            q._review_native_containers(turn[0])
+            q._review_native_containers(items[0])
+        except (ValueError, TypeError):
+            _fail("successful complete selected native HQ approval source required")
+        output = items[0].get("output", {})
+        text = output.get("text") if isinstance(output, dict) else output
+        from re import fullmatch, escape
+        match = fullmatch(r"\s*<codex_delegation>\s*<source_thread_id>(" +
+            escape(registry["operations"]["chat_binding"]["task_id"]) +
+            r")</source_thread_id>\s*<input>([\s\S]+)</input>\s*</codex_delegation>\s*", text or "")
+        if not match or (isinstance(output, dict) and output.get("truncated") is not False):
+            _fail("actual nontruncated current HQ delegation required")
+        body = match[2]
+        import hashlib
+        exact_contract_body = hashlib.sha256(body.encode("utf-8")).hexdigest()==child["goal_contract"]["sha256"]
+        if (any(value not in body for value in (child["task_id"],action["scope"]))
+                or (not exact_contract_body and child["goal_contract"]["sha256"] not in body)):
+            _fail("HQ approval must pin this exact whole task/scope/contract")
     payload = _pin(root, action.get("payload"))
     if payload["sha256"] != action.get("payload_sha256"):
         _fail("exact current prepared payload required")
-    if payload != child["goal_contract"] and any(value not in body for value in (
+    if not queued and payload != child["goal_contract"] and any(value not in body for value in (
             payload["sha256"], action["action_id"], action["target_thread_id"])):
         _fail("non-contract payload needs exact native HQ action/target/payload approval")
     # Live evidence is action-specific and required for the actual opportunity.

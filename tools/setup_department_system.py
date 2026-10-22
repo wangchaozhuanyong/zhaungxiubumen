@@ -93,10 +93,21 @@ def setup(root: Path):
     roles = []
     for role in rows:
         role_id = role["id"]
-        memory_path = "data/learning/departments/" + role_id + ".json"
-        contents[memory_path] = _json({"department": role_id, "lessons": [], "events": []})
-        roles.append({"id": role_id, "name": role.get("name", role_id),
-                      "professional_skill": role["professional_skill"], "memory_path": memory_path})
+        shared = role.get("shared_department", {})
+        canonical_id = shared.get("department_id", role_id)
+        canonical = next((item for item in rows if item["id"] == canonical_id), None)
+        if (canonical is None or (canonical_id != role_id and
+                (role_id not in shared.get("window_ids", []) or
+                 role["professional_skill"] != canonical["professional_skill"]))):
+            raise ValueError("Invalid registered shared learning department: " + role_id)
+        memory_path = "data/learning/departments/" + canonical_id + ".json"
+        contents[memory_path] = _json({"department": canonical_id, "lessons": [], "events": []})
+        learning_role = {"id": role_id, "name": role.get("name", role_id),
+                         "professional_skill": role["professional_skill"], "memory_path": memory_path}
+        if shared:
+            learning_role.update(shared_memory_department=canonical_id,
+                                 shared_memory_display_name=canonical.get("name", canonical_id))
+        roles.append(learning_role)
     contents["data/learning/department-learning-registry.json"] = _json({
         "schema_version": "1.0", "departments": roles,
         "skill_path": "skills/flashcast-department-learning/SKILL.md",

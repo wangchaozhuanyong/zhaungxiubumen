@@ -13,9 +13,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import flashcast_ops as ops
 
 
+# Isolated historical parser fixture; never an installed routing configuration.
+LEGACY_ROUTING_FIXTURE = {'routes': [{'id': 'organic-measurement-source-refresh-readonly', 'match_any': ['转化数据来源补数收口', '自然搜索测量数据源刷新'], 'required_departments': ['paid-growth-data', 'content-organic-website'], 'parallel_departments': ['paid-growth-data', 'content-organic-website'], 'follow_up_departments': ['qa'], 'department_dependencies': {'paid-growth-data': [], 'content-organic-website': [], 'qa': ['paid-growth-data', 'content-organic-website']}, 'approval_required': False}, {'id': 'google-ads-audit', 'match_any': ['Google Ads', 'Google Ads 投放部', '广告投放', 'Google 广告', '广告关键词', '推广关键词', '搜索词', '点击', 'CPC', 'CTR', '预算'], 'exclude_if_any': ['转化数据来源补数收口', '自然搜索测量数据源刷新', 'Google Ads 上线准备包', 'READY_TO_LAUNCH_DRAFT', '零花费、随时可启动', '付费推广是否已经准备好随时开始', '零花费预启动准备', 'Google Ads 预启动准备', 'Google Ads 每日预算 RM100 规划', 'RM100 广告预算规划', '中文优先 RM100 Google Ads 与 Google Maps 推广检查', '中文用户优先的 RM100/日推广检查'], 'required_departments': ['paid-growth-data'], 'parallel_departments': ['paid-growth-data'], 'follow_up_departments': ['qa'], 'department_dependencies': {'paid-growth-data': [], 'qa': ['paid-growth-data']}, 'approval_required': True}, {'id': 'conversion-diagnosis', 'match_any': ['转化数据', '没有转化', '数据与转化分析部', '转化追踪部', 'GA4', 'GTM', '归因', '事件去重', '表单送达', '电话接通', 'WhatsApp Business 入站', '追踪'], 'exclude_if_any': ['数据源选择稳定性', '转化数据来源补数收口', '自然搜索测量数据源刷新', '不调用付费部门', '禁止调用付费部门', '无需付费部门', 'Google Ads 上线准备包', 'READY_TO_LAUNCH_DRAFT', '零花费、随时可启动', '付费推广是否已经准备好随时开始', '不依赖缺失 GSC', '不依赖 GSC', '不依赖缺失 GA4', '不依赖 GA4', '零花费预启动准备', 'Google Ads 预启动准备', 'Google Ads 每日预算 RM100 规划', 'RM100 广告预算规划', '中文优先 RM100 Google Ads 与 Google Maps 推广检查', '中文用户优先的 RM100/日推广检查'], 'required_departments': ['paid-growth-data', 'content-organic-website'], 'parallel_departments': ['paid-growth-data', 'content-organic-website'], 'follow_up_departments': ['qa'], 'department_dependencies': {'paid-growth-data': [], 'content-organic-website': [], 'qa': ['paid-growth-data', 'content-organic-website']}, 'approval_required': True}, {'id': 'content-campaign', 'match_any': ['文案', '广告文案', '内容营销部', '内容策划', '文章', '博客', '旧屋翻新文案', '落地页文案', '内容日历'], 'required_departments': ['content-organic-website'], 'parallel_departments': ['content-organic-website'], 'follow_up_departments': ['qa'], 'department_dependencies': {'content-organic-website': [], 'qa': ['content-organic-website']}, 'approval_required': True, 'exclude_if_any': ['SEO关键词与内容增长部', '全站关键词扩展', '自然搜索关键词研究', '本地SEO与地图增长部', '地图资料优化', '本地实体资料', 'seo geo推广部门2', 'seo geo推广部门3']}, {'id': 'visual-video-production', 'match_any': ['设计部', '视频', '短视频', '装修视频', '获客视频', '成片', '广告片', '分镜', '字幕', '动效', '视频包装', 'MP4', 'Reels', 'TikTok', '抖音'], 'required_departments': ['visual-design-video'], 'parallel_departments': ['visual-design-video'], 'follow_up_departments': ['qa'], 'department_dependencies': {'visual-design-video': [], 'qa': ['visual-design-video']}, 'approval_required': True, 'exclude_if_any': ['短视频自然增长技能学习']}, {'id': 'website-cro', 'match_any': ['表单隐私', '表单体验', '隐私提示', '成功状态', '失败状态', '错误提示', 'CTA', '行动号召', '移动端', '可访问性'], 'exclude_if_any': ['Google Ads 上线准备包', 'READY_TO_LAUNCH_DRAFT', '零花费、随时可启动', '付费推广是否已经准备好随时开始', 'SEO关键词与内容增长部', '全站关键词扩展', '自然搜索关键词研究', '本地SEO与地图增长部', '地图资料优化', '本地实体资料', 'seo geo推广部门2', 'seo geo推广部门3'], 'required_departments': ['content-organic-website'], 'parallel_departments': ['content-organic-website'], 'follow_up_departments': ['qa'], 'department_dependencies': {'content-organic-website': [], 'qa': ['content-organic-website']}, 'approval_required': False}, {'id': 'seo-review', 'match_any': ['SEO', 'SEO与GEO部', 'GEO', '自然流量', '收录', '索引', '站点地图', 'seo geo推广部门1'], 'exclude_if_any': ['转化数据来源补数收口', '自然搜索测量数据源刷新', 'SEO关键词与内容增长部', '全站关键词扩展', '自然搜索关键词研究', '本地SEO与地图增长部', '地图资料优化', '本地实体资料', 'seo geo推广部门2', 'seo geo推广部门3', '短视频自然增长技能学习', 'SEO/GEO 专业部门持续推进'], 'required_departments': ['content-organic-website'], 'parallel_departments': ['content-organic-website'], 'follow_up_departments': ['qa'], 'department_dependencies': {'content-organic-website': [], 'qa': ['content-organic-website']}, 'approval_required': False}], 'execution_policy': {'specialist_route_controller_action': 'dispatch_and_wait', 'controller_may_execute_specialist_work': False, 'dispatch_failure': 'blocked_no_controller_fallback', 'message_success_required_for_sent_status': True, 'dependency_mode': 'explicit_graph_with_legacy_parallel_follow_up_fallback'}, 'fallback': {'id': 'ambiguous-owner-request', 'required_departments': ['operations'], 'parallel_departments': ['operations'], 'follow_up_departments': [], 'department_dependencies': {'operations': []}, 'dispatch_allowed': False, 'ask_user_if_ambiguous': True}}
+
 class FlashcastOpsTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory(dir=str(Path(__file__).resolve().parents[1] / ".test-tmp"))
+        area = Path(__file__).resolve().parents[1] / ".test-tmp"
+        area.mkdir(parents=True, exist_ok=True)
+        self.temp_dir = tempfile.TemporaryDirectory(dir=area)
         self.root = Path(self.temp_dir.name)
 
     def tearDown(self) -> None:
@@ -617,7 +622,7 @@ class FlashcastOpsTests(unittest.TestCase):
             encoding="utf-8",
         )
         (data / "department-routing-rules.json").write_text(
-            (project_root / "tools/fixtures/legacy-department-routing-rules.json").read_text(encoding="utf-8"),
+            json.dumps(LEGACY_ROUTING_FIXTURE, ensure_ascii=False),
             encoding="utf-8",
         )
         (data / "task-contract.json").write_text(
@@ -675,7 +680,7 @@ class FlashcastOpsTests(unittest.TestCase):
             encoding="utf-8",
         )
         (data / "department-routing-rules.json").write_text(
-            (project_root / "tools/fixtures/legacy-department-routing-rules.json").read_text(encoding="utf-8"),
+            json.dumps(LEGACY_ROUTING_FIXTURE, ensure_ascii=False),
             encoding="utf-8",
         )
         (data / "task-contract.json").write_text(

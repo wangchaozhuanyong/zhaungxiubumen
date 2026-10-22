@@ -21,6 +21,31 @@
   },
   "routes": [
     {
+      "id": "paid-chatgpt-window2",
+      "match_any": [
+        "ChatGPT推广",
+        "ChatGPT付费",
+        "ChatGPT Ads",
+        "OpenAI Ads",
+        "chatgpt广告"
+      ],
+      "required_departments": [
+        "paid-growth-data-2"
+      ],
+      "parallel_departments": [
+        "paid-growth-data-2"
+      ],
+      "follow_up_departments": [],
+      "department_dependencies": {
+        "paid-growth-data-2": []
+      },
+      "approval_required": false,
+      "responsible_assistant_default": "operations-assistant-3",
+      "acceptance_from_goal_capability": true,
+      "external_action_requires_exact_authorization": true,
+      "purpose": "同一付费部的ChatGPT执行窗口；技能知识业务数据共用；原已派目标保持原执行者，不自动转移许可。"
+    },
+    {
       "id": "department-system-development",
       "match_any": [
         "部门系统",

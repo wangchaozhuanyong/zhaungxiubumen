@@ -13,6 +13,20 @@ class WorkBoundaryTests(unittest.TestCase):
         self.addCleanup(self.fixture.doCleanups);self.root=self.fixture.root
         self.role='operations-assistant-2'
 
+    def test_only_unmarked_legacy_snapshot_avoids_goal_configuration_read(self):
+        import goal_delivery_runtime as runtime
+        with mock.patch.object(w, "validation_bytes", side_effect=OSError("missing contract")) as read:
+            self.assertFalse(runtime.enabled(self.root, {"task_id": "legacy"}))
+            read.assert_not_called()
+            with self.assertRaises(w.WorkflowError):
+                runtime.enabled(self.root, {"goal_delivery": {}})
+
+    def test_corrupt_goal_snapshot_cannot_be_reclassified_as_legacy(self):
+        import goal_delivery_runtime as runtime
+        for snapshot in ({"goal_contract": {}}, {"goal_delivery": None}, {"goal_delivery": []}):
+            with self.subTest(snapshot=snapshot), self.assertRaises(w.WorkflowError):
+                runtime.enabled(self.root, snapshot)
+
     def test_frozen_arrival_blocks_false_no_change_without_sending(self):
         identity,request,_=self.fixture.ready();w.record_result_handoff(self.root,request)
         result=c.work_boundary(self.root,self.role,read_assignment=False)

@@ -41,7 +41,7 @@ ACCEPTANCE_RECEIPTS = {
     "enable": ("English-six-groups-enable-native-readback.json", "503848430693f142bab7be6794f0e85615907f9a567ff2654711eeab805ee2dc"),
 }
 CURRENT_TASK = "fc-20260920-google-ads-rm100-budget-plan"
-PAID_THREAD = "<LOCAL_TASK_ID>"
+PAID_THREAD = "example-native-0bec6d516b372cb9"
 CURRENT_CAMPAIGN_IDS = ["00057225103", "00063878462"]
 SCHEDULE24_RECEIPT = "logs/handoffs/2026-10-10-owner-direct-paid/schedule24h-20261011-native-readback.json"
 SCHEDULE24_RECEIPT_SHA256 = "87d995b0bb3ee0a3230b6784b37c573c5962deca8692a898d77fee1b884439ba"
@@ -322,7 +322,7 @@ def validate_native_launch(root: Path, current: dict) -> None:
     monitor = json.loads(project_file(root, receipt["monitor"]["save_receipt"]).read_text())
     require(monitor["status"] == "VERIFIED_SAVED" and monitor["native_status"] == "ACTIVE"
             and monitor["times_myt"] == ["10:00", "14:00", "18:00", "22:00"]
-            and monitor["target_thread_id"] == "<LOCAL_TASK_ID>", "monitor save mismatch")
+            and monitor["target_thread_id"] == "example-native-0bec6d516b372cb9", "monitor save mismatch")
 
 
 def validate_native_expansion(root: Path, current: dict) -> dict:
@@ -423,7 +423,7 @@ def validate_native_expansion(root: Path, current: dict) -> dict:
     require(authority["task_id"] == current["task_id"] and authority["account_id"] == current["account_id"]
             and authority["campaign_ids"] == [campaign["id"] for campaign in campaigns], "current authority account/task/campaign drift")
     require(source["kind"] == "VERIFIED_DIRECT_HUMAN_OWNER_INSTRUCTION"
-            and source["source_thread_id"] == "<LOCAL_TASK_ID>"
+            and source["source_thread_id"] == "example-native-0d0689f4e3a4c895"
             and source["source_turn_id"] == "example-native-0ce7349e377b3972"
             and source["source_message_ids"] == ["example-native-f26da45d4c33dd90",
                                                   "example-native-edb7b6c4c2a38180",
@@ -724,7 +724,7 @@ def validate_English_enabled(root: Path, current: dict) -> dict:
     # This frozen Oct10 receipt remains an accurate historical read-only run.
     # A newer bounded monitor overlay does not rewrite its bytes or its verdict.
     require(current["daily_learning"]["current_monitor_save_receipt"] == monitor_path
-            and monitor["target_thread_id"] == "<LOCAL_TASK_ID>"
+            and monitor["target_thread_id"] == "example-native-0bec6d516b372cb9"
             and monitor["times_myt"] == ["10:00", "14:00", "18:00", "22:00"]
             and monitor["automatic_platform_write_allowed"] is False, "monitor scope or current evidence mismatch")
     require(current["current_bilingual_execution"]["English_enabled"] is True
@@ -773,7 +773,7 @@ def validate(root: Path, index: dict | None = None) -> dict:
         budget_auth = json.loads(project_file(root, current["current_plan_rules"]["budget_preparation_authorization_source"]).read_text())
         require(budget_auth["source_method"] == "mcp__codex_app__read_thread"
                 and budget_auth["message_id"] == "example-native-adf7260eec4d7fa4"
-                and budget_auth["source_thread_id"] == "<LOCAL_TASK_ID>", "exact lower-budget human approval required")
+                and budget_auth["source_thread_id"] == "example-native-0bec6d516b372cb9", "exact lower-budget human approval required")
         require(budget_auth["user_message"]["type"] == "userMessage"
                 and budget_auth["user_message"]["id"] == budget_auth["message_id"], "native budget human message required")
         reply_text = budget_auth["user_message"]["content"][0]["text"]
@@ -797,7 +797,7 @@ def validate(root: Path, index: dict | None = None) -> dict:
     authorization = json.loads(project_file(root, rules["authorization_source"]).read_text())
     human = authorization["human_authorization"]
     require(human["source"] == "native_human_user_message" and human["enable_authorized"] and human["conditional"], "real conditional authority required")
-    require(human["thread_id"] == "<LOCAL_TASK_ID>" and human["message_id"] == "example-native-26b1f8f519d6f2e2", "authorization identity drift")
+    require(human["thread_id"] == "example-native-0bec6d516b372cb9" and human["message_id"] == "example-native-26b1f8f519d6f2e2", "authorization identity drift")
     require(not authorization["execution_released"] and not authorization["readiness"]["whole_preparation_ready"], "authorization is not unresolved readiness")
     require(authorization["scope"]["campaign_ids"] == [c["id"] for c in campaigns], "conditional authorization scope drift")
     require(authorization["scope"]["gross_business_cap_myr"] == 3000 and authorization["scope"]["total_ad_fee_each_myr"] == 1388.88, "authorization budget drift")

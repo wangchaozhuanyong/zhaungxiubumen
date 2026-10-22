@@ -18,7 +18,7 @@ QA_SCOPE = 'project:publishing:office-renovation:exact-current-source-read-contr
 QA_CANDIDATE = 'office-exact-native-source-read-control-v2-20261006'
 FIELDS = []
 METADATA = []
-PUBLISHER = '<LOCAL_TASK_ID>'
+PUBLISHER = 'example-native-f4ba16119c32b000'
 
 
 def validate_request(request: dict) -> list[str]:

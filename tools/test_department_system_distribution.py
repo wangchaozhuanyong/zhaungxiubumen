@@ -115,6 +115,38 @@ class DistributionTests(unittest.TestCase):
             self.assertIn("local_history", path.read_text())
             self.assertEqual(company.read_text(), "本机已确认资料")
 
+    def test_shared_windows_install_one_memory_without_sharing_bindings(self):
+        with self.temporary_directory() as directory:
+            root = self.fixture(Path(directory))
+            path = root / "examples/department-registry.example.json"
+            registry = json.loads(path.read_text())
+            primary, alias = registry["departments"][:2]
+            alias["professional_skill"] = primary["professional_skill"]
+            shared = {"department_id": primary["id"], "window_ids": [primary["id"], alias["id"]]}
+            primary["shared_department"] = alias["shared_department"] = shared
+            path.write_text(json.dumps(registry))
+            self.reseal(root)
+            setup.setup(root)
+            learning = json.loads((root / "data/learning/department-learning-registry.json").read_text())
+            rows = {row["id"]: row for row in learning["departments"]}
+            self.assertEqual(rows[primary["id"]]["memory_path"], rows[alias["id"]]["memory_path"])
+            self.assertEqual(rows[alias["id"]]["shared_memory_department"], primary["id"])
+            installed = json.loads((root / "data/department-registry.json").read_text())
+            self.assertTrue(all(not row["chat_binding"]["dispatch_eligible"] for row in installed["departments"]))
+
+    def test_missing_shared_department_rejects_before_any_installation_write(self):
+        with self.temporary_directory() as directory:
+            root = self.fixture(Path(directory))
+            path = root / "examples/department-registry.example.json"
+            registry = json.loads(path.read_text())
+            registry["departments"][0]["shared_department"] = {"department_id": "not-registered"}
+            path.write_text(json.dumps(registry))
+            self.reseal(root)
+            before = self.files(root)
+            with self.assertRaisesRegex(ValueError, "Invalid registered shared learning"):
+                setup.setup(root)
+            self.assertEqual(self.files(root), before)
+
     def test_missing_examples_fail_before_creation(self):
         with self.temporary_directory() as directory:
             root = Path(directory)

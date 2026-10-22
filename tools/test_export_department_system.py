@@ -55,6 +55,30 @@ class ExportTests(unittest.TestCase):
         self.write("templates/goal-delivery-report.md", "唯一助理验收。父任务范围保留。\n")
         self.write("prompts/automations/assistant-2.md", "以本次完整目标收取原任务结果。\n")
 
+    def test_public_issuer_import_does_not_load_company_registrations_or_issue_permits(self):
+        source = """TARGETS = {'private-company-row': {}}
+NATIVE_TARGETS = load_native_issuer_targets(ROOT)
+TARGETS.update(NATIVE_TARGETS)
+BLOG_TARGETS = frozenset({'private-blog'})
+SUPABASE_HOST = 'private-project.supabase.co'
+KEYCHAIN_ACCOUNT = 'private-project'
+def validate_generic(value):
+    return value == 'valid'
+def main():
+    issue_a_real_permit()
+"""
+        result = export.public_exact_helper("tools/managed_cms_permit_issuer.py", source)
+        namespace = {}
+        exec(compile(result, "portable-issuer", "exec"), namespace)
+        self.assertEqual(namespace['TARGETS'], {})
+        self.assertEqual(namespace['NATIVE_TARGETS'], {})
+        self.assertEqual(namespace['BLOG_TARGETS'], frozenset())
+        self.assertEqual(namespace['KEYCHAIN_ACCOUNT'], 'example-project')
+        self.assertTrue(namespace['validate_generic']('valid'))
+        with self.assertRaisesRegex(ValueError, 'public_template_has_no_native_authorization'):
+            namespace['main']()
+        self.assertNotIn('private-company-row', result)
+
     def test_manifest_exact_full_payload_bytes_and_fingerprint(self):
         export.prepare(self.root, self.target)
         manifest = json.loads((self.target / "release-manifest.json").read_text())

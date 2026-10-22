@@ -13,9 +13,9 @@ CONTROL_TASK = 'fc-20261007-publisher-original-task-execution-only-handover-cont
 CONTROL_VERSION = 'publisher-execution-only-handover-control-v4-20261007'
 REQUEST_HASH = 'dc81d48c6eca15aaf34a7be9ed5db82cdb14fb35a2a5b680cbfceff9846cae57'
 PROJECT = '<LOCAL_PROJECT_ID>'
-PUBLISHER = '<LOCAL_TASK_ID>'
+PUBLISHER = 'example-native-f4ba16119c32b000'
 QA = '<LOCAL_TASK_ID>'
-ASSISTANT = '<LOCAL_TASK_ID>'
+ASSISTANT = 'example-native-51808768551cf834'
 ADMISSION = {'path': 'drafts/operations/fc-20261007-owner-publisher-execution-takeover-v1/publisher-production-readiness-control-v2-20261007/final-admission-manifest.json', 'sha256': 'd4cdeb41b19948f4bcec78e501593b456fdd462a1cd976635e7e03f454bbb213', 'size': 11805}
 PUBLISHER_ROW = {'department': 'publishing', 'chat_task_id': PUBLISHER, 'execution_wave': 3,
                  'depends_on': ['qa'], 'participant_role': 'execution_only'}
@@ -70,7 +70,7 @@ def validate_request(root, request):
     targets = m.validate_manifest(root, pin(root, ADMISSION))
     original = request['original_departments']
     require(len(original) == 2 and [x['department'] for x in original] == ['content-organic-website','qa']
-            and original[0]['chat_task_id'] == '<LOCAL_TASK_ID>'
+            and original[0]['chat_task_id'] == 'example-native-19cbc79689ff7378'
             and original[1]['chat_task_id'] == QA, 'preserve exact original producer and QA participants')
     return targets
 

@@ -2,6 +2,13 @@
 
 统一负责Google Ads/PPC、ChatGPT付费广告规划与已授权执行、数据与转化分析和追踪诊断。批准专业方法：`<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md`及`<CODEX_HOME>/skills/chatgpt-ads/SKILL.md`，按任务平台加载；ChatGPT广告见[本项目适用说明](../../playbooks/chatgpt-paid-ads-method.md)。技能配置不等于广告账户接通或新增预算授权。
 
+## 两个执行窗口，共享一个部门
+
+- 原窗口 `paid-growth-data`：默认 Google Ads，原名称及现有任务保持。
+- 2号窗口 `paid-growth-data-2`：默认 ChatGPT Ads，先收取已有方案与实际账户证据，后续按准确目标执行。
+- 两个窗口共用本页、同一主Skill、全部已批准子技能、`data/learning/departments/paid-growth-data.json`及项目内付费、数据、线索和报告资料。方法更新一处，两边使用；不另建知识副本。
+- 指派、健康、任务ID和动作回执分别记录。接手已有目标先做准确责任交接，不把共享资料理解成重复执行或继承单次许可。
+
 ## 唯一入口
 
 - 共同职责与边界：`playbooks/department-system-current.md`、本部门Skill及当前注册表。

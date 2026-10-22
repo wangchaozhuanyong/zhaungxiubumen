@@ -1016,7 +1016,7 @@ def original_paid16_source(root, identity):
     if authority_pin is None or reviewed_pin is None or native_pin is None:
         _fail('original human authority and independent native result source pins required')
     authority = w.read_json(w.safe_path(root, authority_pin['path']))
-    if (authority.get('source_thread_id') != '<LOCAL_TASK_ID>'
+    if (authority.get('source_thread_id') != 'example-native-0d0689f4e3a4c895'
             or authority.get('message', {}).get('type') != 'userMessage'
             or authority.get('message', {}).get('id') != 'example-native-9cd231a5daaebe45'):
         _fail('original Paid16 native human authority mismatch')
@@ -1136,10 +1136,16 @@ def _validate_queued(root, identity):
         _fail("queued frozen outbox bytes changed")
     w.validate_outbox(root, [pin], sender, identity["task_id"])
     box = w.read_json(w.safe_path(root, pin["path"]))
-    fixed = registry[sender].get("chat_binding", {}).get("task_id")
+    from department_rotation import result_binding
+    fixed = result_binding(root, identity, pin).get("task_id")
+    from department_rotation import continued_result_source
+    continued = (continued_result_source(root, {**identity, 'event': 'controller_received'}, fixed)
+                 if queued[0].get('original_rotation_continuation') else None)
+    original = (continued or {}).get('original_rotation_continuation')
+    chat = box.get("fixed_chat_task_id", box.get("chat_task_id"))
     if (box.get("task_id") != identity["task_id"] or box.get("department") != sender
             or box.get("candidate_version") != identity["candidate_version"]
-            or not fixed or box.get("fixed_chat_task_id", box.get("chat_task_id")) != fixed):
+            or not fixed or (chat != fixed and (not original or chat not in {None, "", original["original_thread_id"]}))):
         _fail("queued outbox original task/version/registered chat mismatch")
     if pin["sha256"] != identity["result_sha256"]:
         _fail("queued result hash mismatch")
@@ -1799,13 +1805,14 @@ def result_lane(root, identity, *, source=None):
         # The native admission caller has already verified these source pins;
         # this preview classifies routing and never grants claim/admission.
         queued = [source]
+    from department_rotation import result_binding
     routes = _w().read_json(Path(root) / 'data/task-contract.json').get('result_handoff_contract', {}).get('scheduled_daily_sources', [])
     matches = [route for route in routes if isinstance(route, dict)
                and route.get('department') == sender
                and re.fullmatch(route.get('task_id_pattern', '(?!)'), identity['task_id'])
                and len(queued) == 1 and queued[0].get('source_mode') == 'scheduled_run'
                and queued[0].get('source_automation_id') == route.get('automation_id')
-               and queued[0].get('source_thread_id') == _w().department_registry(root).get(sender, {}).get('chat_binding', {}).get('task_id')]
+               and queued[0].get('source_thread_id') == result_binding(root, identity, queued[0].get('outbox')).get('task_id')]
     if len(matches) == 1 and matches[0].get('responsible_assistant') in coordinator_roles(root):
         from goal_continuity import daily_selected_assistant
         target=daily_selected_assistant(root,identity,matches[0]['responsible_assistant'])

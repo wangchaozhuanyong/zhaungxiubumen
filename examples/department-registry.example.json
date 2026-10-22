@@ -66,7 +66,9 @@
         "data/analytics/",
         "data/leads/",
         "data/learning/",
-        "services-and-pricing.md"
+        "services-and-pricing.md",
+        "drafts/paid/",
+        "drafts/google-ads/"
       ],
       "output_paths": [
         "logs/department-outbox/",
@@ -87,6 +89,17 @@
         "reply_health": "not_verified",
         "dispatch_eligible": false,
         "handoff_path": ""
+      },
+      "shared_department": {
+        "department_id": "paid-growth-data",
+        "window_ids": [
+          "paid-growth-data",
+          "paid-growth-data-2"
+        ],
+        "skills_and_knowledge": "shared_same_paths",
+        "business_data": "shared_project_sources",
+        "assignments_and_receipts": "separate_by_task_and_executor",
+        "existing_task_owners_unchanged": true
       }
     },
     {
@@ -698,10 +711,65 @@
         "dispatch_eligible": false,
         "handoff_path": ""
       }
+    },
+    {
+      "id": "paid-growth-data-2",
+      "name": "付费增长与转化数据部2",
+      "professional_skill": "departments/paid-growth-data/SKILL.md",
+      "role_config": ".codex/agents/paid-growth-data-2.toml",
+      "department_readme": "departments/paid-growth-data/README.md",
+      "approved_subskills": [
+        "google-ads-renovation-ppc",
+        "chatgpt-ads"
+      ],
+      "approved_subskill_paths": [
+        "<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md",
+        "<CODEX_HOME>/skills/chatgpt-ads/SKILL.md"
+      ],
+      "input_paths": [
+        "data/google-ads/",
+        "data/analytics/",
+        "data/leads/",
+        "data/learning/",
+        "services-and-pricing.md",
+        "drafts/paid/",
+        "drafts/google-ads/"
+      ],
+      "output_paths": [
+        "logs/department-outbox/",
+        "reports/",
+        "drafts/",
+        "data/action-queue.*"
+      ],
+      "mode": "worker",
+      "new_dispatch_enabled": true,
+      "chat_binding": {
+        "status": "unbound",
+        "task_id": "",
+        "project_id": "",
+        "cwd": "",
+        "title": "",
+        "sidebar_section_id": "",
+        "sidebar_section_name": "",
+        "reply_health": "not_verified",
+        "dispatch_eligible": false,
+        "handoff_path": ""
+      },
+      "shared_department": {
+        "department_id": "paid-growth-data",
+        "window_ids": [
+          "paid-growth-data",
+          "paid-growth-data-2"
+        ],
+        "skills_and_knowledge": "shared_same_paths",
+        "business_data": "shared_project_sources",
+        "assignments_and_receipts": "separate_by_task_and_executor",
+        "existing_task_owners_unchanged": true
+      }
     }
   ],
-  "total_role_count": 14,
-  "active_department_count": 12,
+  "total_role_count": 15,
+  "active_department_count": 13,
   "health_policy": {
     "verification_ttl_hours": 26
   },

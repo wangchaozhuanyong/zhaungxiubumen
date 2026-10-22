@@ -10,8 +10,32 @@ import shlex
 from pathlib import Path
 import re
 import workflow_control as w
+from department_rotation import historical_assignment_validator
 
 SCHEMA = 'goal-native-source-recovery/v1'
+
+# This frozen original responsibility was queued from its normal prepared RESULT.
+# Its actual command never named the request. Keep the original bytes and pins;
+# this one history is not a general exemption from invocation/path verification.
+_PREPARED_RESULT_QUEUE_SOURCES = {'fc-20261021-a04-kl-source-code-release-readiness-v1': {'scope': 'project:flashcast:a04-kl-source-code-release-readiness:20261021:v1',
+                                                         'department': 'operations-assistant',
+                                                         'source_call_id': 'exec-767a60b3-9682-4d62-b8ae-8b1e0ecafc77',
+                                                         'queue_message_id': 'example-native-20cbadd23dd91374',
+                                                         'original_prepare_request': {'path': 'logs/handoffs/2026-10-20-clean-department-window-rotation-v1/operations/unfinished-business-followthrough-20261021-v1/KL-original-owner-source-code-and-release-readiness-v1/operations-assistant-prepare-request-v1.json',
+                                                                                      'sha256': '62a7cb856644453c66a139a5c5cc8c81dea86f91875ef67499abf535358eb334',
+                                                                                      'size': 1707},
+                                                         'original_prepare_result': {'path': 'logs/handoffs/2026-10-20-clean-department-window-rotation-v1/operations/unfinished-business-followthrough-20261021-v1/KL-original-owner-source-code-and-release-readiness-v1/operations-assistant-prepare-result-v1.json',
+                                                                                     'sha256': '1e1e5934de6bfdfc376800034a6a0df00bca878f8dac674f39bc33e218e070ad',
+                                                                                     'size': 3501},
+                                                         'actual_queue_intent': {'path': 'logs/handoffs/2026-10-20-clean-department-window-rotation-v1/operations/unfinished-business-followthrough-20261021-v1/KL-original-owner-source-code-and-release-readiness-v1/A1-KL-review-official-native-queue-v1/native-queue-intent.json',
+                                                                                 'sha256': '4ccb3c9537ff563ed40da75f6013ec720af83f35d39f9f9f16deb68ab5fa1d58',
+                                                                                 'size': 316},
+                                                         'actual_queue_result': {'path': 'logs/handoffs/2026-10-20-clean-department-window-rotation-v1/operations/unfinished-business-followthrough-20261021-v1/KL-original-owner-source-code-and-release-readiness-v1/A1-KL-review-official-native-queue-v1/native-queue-result.json',
+                                                                                 'sha256': '7349cac877ad30232001659b2d8b404c0e743170cfc4160fdc5b7995ca654184',
+                                                                                 'size': 521},
+                                                         'original_native': {'path': 'logs/handoffs/2026-10-20-clean-department-window-rotation-v1/operations/unfinished-business-followthrough-20261021-v1/KL-original-owner-source-code-and-release-readiness-v1/operations-assistant-original-queue-command-native-v1.json',
+                                                                             'sha256': '1d673e709d0937cefca65721ab31152e57ed7d8d7d44ead484f9536db29a8023',
+                                                                             'size': 3352}}}
 
 
 def _native_container_valid(value):
@@ -66,6 +90,25 @@ def _exact_task_reference(message, task):
         r'(?<![A-Za-z0-9_-])' + re.escape(task) + r'(?![A-Za-z0-9_-])', message) is not None
 
 
+def _prepared_result_queue_invocation(root, item, turn, call):
+    """Authenticate the exact original call, while requiring a real ended source turn."""
+    expected = _PREPARED_RESULT_QUEUE_SOURCES.get(item.get('task_id'))
+    if expected is None:
+        return None
+    if (turn.get('status') != 'completed'
+            or any(item.get(key) != value for key, value in expected.items() if key != 'original_native')):
+        return False
+    native = _strict_queue_document(root, expected['original_native'])
+    originals = [(t, c) for t in native.get('turns', []) for c in t.get('items', [])
+                 if c.get('id') == expected['source_call_id'] and c.get('type') == 'commandExecution']
+    if len(originals) != 1:
+        raise w.WorkflowError('one frozen original prepared-result queue invocation required')
+    prior_turn, prior_call = originals[0]
+    return (turn.get('id') == prior_turn.get('id') and turn.get('startedAt') == prior_turn.get('startedAt')
+            and all(call.get(key) == value for key, value in prior_call.items()))
+
+
+@historical_assignment_validator
 def queued_assignment_source(root, item, *, require_dispatch=True):
     """Consume an actual official queue AND recipient ACK, never queue acceptance alone.
 
@@ -77,17 +120,24 @@ def queued_assignment_source(root, item, *, require_dispatch=True):
     from goal_continuity import _task, pin_document
     from goal_delivery_runtime import _collaboration_native
     task = w.validate_task_id(item.get('task_id', ''))
+    if item.get('sender_department') != 'operations':
+        from owner_adopted_pilot_consumer import queued_rework_source
+        continuation = queued_rework_source(root, item, require_dispatch=require_dispatch)
+        if continuation is not None:
+            return continuation
     snapshot = _task(root, task); goal = snapshot['goal_delivery']
-    role = item.get('department'); registry = w.department_registry(root)
+    role = item.get('department')
+    from department_rotation import historical_registry
+    registry = historical_registry(root, item)
     if (item.get('schema') != 'goal-current-assignment/v2'
             or item.get('source_kind') != 'official_native_queue'
             or item.get('sender_department') != 'operations'
-            or role != goal['responsible_assistant']
+            or role not in {*goal['producer_departments'], goal['responsible_assistant']}
             or item.get('scope') not in goal['authorized_scope']
             or item.get('goal_contract') != snapshot.get('goal_contract')
             or item.get('authorization_pin') != goal['authorization_pin']
             or w.validate_workflow_events(root, task)):
-        raise w.WorkflowError('exact original queued reviewer responsibility required')
+        raise w.WorkflowError('exact original queued goal participant responsibility required')
     pin_document(root, goal['authorization_pin']); pin_document(root, snapshot['goal_contract'])
     request = pin_document(root, item['original_prepare_request'])
     prepared = pin_document(root, item['original_prepare_result'])
@@ -96,8 +146,16 @@ def queued_assignment_source(root, item, *, require_dispatch=True):
         raise w.WorkflowError('original queued assignment bytes changed')
     body = w.safe_path(root, payload['path']).read_text(encoding='utf-8')
     fixed = registry[role]['chat_binding']; source = registry['operations']['chat_binding']
+    reviewer = role == goal['responsible_assistant']
+    action_id = 'assign-goal-review:' + task if reviewer else item.get('action_id')
+    if (not isinstance(action_id, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9:._+-]{0,199}', action_id)
+            or (not reviewer and (goal.get('source_mode') != 'approved_dispatch'
+                or action_id.startswith('assign-goal-review:')
+                or not _exact_task_reference(body, task)
+                or snapshot['goal_contract']['path'] not in body))):
+        raise w.WorkflowError('exact approved producer goal and original assignment action required')
     expected = {'task_id': task, 'sender_department': 'operations',
-        'action_id': 'assign-goal-review:' + task, 'action_class': 'thread_message',
+        'action_id': action_id, 'action_class': 'thread_message',
         'scope': item['scope'], 'delivery_mode': 'official_native_queue',
         'payload': payload, 'payload_sha256': payload['sha256'],
         'source_project_id': source['project_id'], 'target_department': role,
@@ -109,8 +167,13 @@ def queued_assignment_source(root, item, *, require_dispatch=True):
             or request.get('authorization_changes') != []
             or prepared.get('status') != 'ready_to_queue'
             or prepared.get('payload') != payload
-            or not initial_responsibility_payload(root, snapshot, 'operations', role,
-                                                  item['scope'], payload['sha256'])):
+            or (reviewer and not initial_responsibility_payload(root, snapshot, 'operations', role,
+                                                  item['scope'], payload['sha256']))
+            or (not reviewer and any(prepared.get('authorization_precheck', {}).get(k) != v for k, v in
+                {'status': 'within_original_authorization', 'task_id': task,
+                 'action_class': 'thread_message', 'scope': item['scope'],
+                 'original_authorization': goal['authorization_pin'],
+                 'actual_action_allowed': False, 'external_permission_issued': False}.items()))):
         raise w.WorkflowError('original exact queue preparation and frozen responsibility required')
     policy_id = prepared.get('policy_decision', {}).get('decision_id')
     policies = [p for p in w.read_jsonl(Path(root) / w.POLICY_DECISIONS)
@@ -145,12 +208,15 @@ def queued_assignment_source(root, item, *, require_dispatch=True):
         raise w.WorkflowError('original official queue command invocation required')
     turn, call = calls[0]; command = call.get('command', '')
     queue_dir = str(Path(item['actual_queue_result']['path']).parent)
-    if (call.get('status') != 'completed' or call.get('error') or turn.get('error')
+    prepared_invocation = _prepared_result_queue_invocation(root, item, turn, call)
+    invocation_source_linked = (prepared_invocation is True if prepared_invocation is not None
+                                else Path(item['original_prepare_request']['path']).name in command)
+    if (turn.get('status') != 'completed' or call.get('status') != 'completed' or call.get('error') or turn.get('error')
             or type(call.get('exitCode')) is not int or call['exitCode'] != 0
             or call.get('truncated', False) is not False or call.get('cwd') != source['cwd']
             or 'OfficialQueueTransport' not in command or '.enqueue(' not in command
             or Path(queue_dir).name not in command or str(Path(queue_dir).parent) not in command
-            or Path(item['original_prepare_request']['path']).name not in command
+            or not invocation_source_linked
             or Path(item['original_prepare_result']['path']).name not in command):
         raise w.WorkflowError('successful original queue invocation and evidence paths required')
     turns = [t for t in receiver.get('turns', []) if t.get('id') == item.get('receiver_turn_id')]
@@ -221,7 +287,9 @@ def approved_dispatch_lf_source(root, snapshot, item, *, require_record=True):
     task='fc-20261017-original204-two-renderer-development-handoff-v1'
     action_id='A1-original204-G01-G03-local-renderer-development-20261017-v1'
     scope='project:flashcast:original204-two-renderer-development-handoff:v1'
-    goal=snapshot['goal_delivery'];registry=w.department_registry(root)
+    goal=snapshot['goal_delivery']
+    from department_rotation import historical_registry
+    registry=historical_registry(root,item)
     fixed=registry['operations-assistant']['chat_binding']
     target=w.read_json(Path(root)/'data/department-registry.json')['collaboration_bindings']['designated-development']
     required={'schema':'goal-current-assignment/v2','task_id':task,'original_task_id':task,
@@ -762,6 +830,7 @@ def read_oldhouse_technical_source(root):
     return oldhouse_technical_source(root,w.read_json(w.safe_path(root,pin['path'])))
 
 
+@historical_assignment_validator
 def validate(root, item, *, require_record=True):
     from goal_delivery_runtime import restore_goal, enabled, _collaboration_native
     from goal_continuity import pin_document
@@ -785,7 +854,8 @@ def validate(root, item, *, require_record=True):
     human = pin_document(root, goal['authorization_pin'])
     page = _collaboration_native(root, item['actual_native_invocation'])
     sender = item.get('sender_department')
-    registry = w.department_registry(root)
+    from department_rotation import historical_registry
+    registry = historical_registry(root, item)
     binding = registry.get(sender, {}).get('chat_binding', {})
     if any(page.get('thread', {}).get(k) != binding.get(v) for k, v in
            {'id':'task_id', 'title':'title', 'cwd':'cwd'}.items()):

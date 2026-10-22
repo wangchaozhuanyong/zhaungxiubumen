@@ -32,6 +32,39 @@
 
 音色参考始终使用未变速原音，只对最终旁白保音高校准。流程为原声拼接→已认可节奏校准→响度归一化→对最终纯声强制对齐→镜头/字幕→混音；任何后续时长变化都要重做对齐，不能沿用变速前的切点。
 
+### 最终放行硬门（不可用口头备注替代）
+
+- **成片45–60秒只证明时长，不证明语速合格。** 每个正式配音run都必须用 `narration_contract.py tempo-report` 将最终纯人声与活动A档案引用的已选试听，按相同口播文本口径计算语音字数/秒；比值须在 `0.90–1.10`。报告必须绑定最终纯人声与冻结口播文本的SHA。超界先改文案/声音处理，再重新对齐、重算报告；禁止把播放器设成1.2倍来补救，也禁止重复叠加最初的1.2校准。
+- `tempo_calibration_path` 和 `experience_review_path` 必须作为正式合同字段，并在 `narration.evidence_sha256` 中分别固定文件SHA。任一缺失、过期、与当前run素材不符，即 `HOLD`。
+- **完整体验听检必须针对最终MP4，以1.0倍速从头到尾实时播放。** 由老板或未参与制作的独立验收者填写回执，至少覆盖语速/停顿、自然表达、普通话和装修术语读音、跨句音色稳定、音乐可听度、音乐是否压住人声、口播与画面同步；不能抽听、倍速听、只看波形/响度或拿试听样片代替。
+- 回执必须有唯一回执编号、带时区时间、真实执行者标识，并同时绑定最终MP4 SHA、最终纯人声SHA、混音音轨SHA、播放时长、1.0倍播放和检查项。任何一次重渲染、换音轨、换纯声或改配乐都会使旧回执失效，必须针对新指纹完整重听。结构校验只验证回执和文件是否一致，**不证明听检真的发生**；制作者不得代填自己无法证实的PASS。
+- HyperFrames最终 `index.html` 必须实际挂载同一混音报告所指的混音文件；文件SHA和挂载时长须匹配。仅有混音报告、另有音频文件或MP4存在音轨，都不能证明最终渲染用了已检查的混音。
+- 音乐目标差值是起混参考而非自动通过值。最终听检必须确认音乐确实听得到，同时辅音、数字、句尾与术语清楚；配乐太弱或抢声均为 `HOLD`，据实际听感调整并重做最终混音与完整复听。
+- 未同时满足节奏报告、完整听检、机器合同和独立验收前，只能标 `DRAFT/HOLD`。不得交付“成片”，不得向微信群发送。
+
+回执只使用本项目 `narration_contract.py` 校验的字段；下面是**结构示意，不是实际听检记录**：
+
+```json
+{
+  "policy_version": "narration-experience-review-v1",
+  "status": "PASS",
+  "review_id": "当前批次唯一回执编号",
+  "reviewed_at": "2026-10-19T20:00:00+08:00",
+  "reviewer": {"role": "owner", "id": "真实执行者标识"},
+  "playback": {"mode": "full_realtime_final_video", "speed": 1.0, "reviewed_duration_seconds": 52.0},
+  "reviewed_artifacts": {
+    "final_video_sha256": "当前最终MP4的真实SHA256",
+    "voice_audio_sha256": "当前最终纯人声的真实SHA256",
+    "mixed_audio_sha256": "当前混音音轨的真实SHA256"
+  },
+  "checks": {
+    "voice_pace": "PASS", "voice_naturalness": "PASS", "voice_pronunciation": "PASS",
+    "fixed_voice_stability": "PASS", "music_audibility": "PASS",
+    "voice_music_balance": "PASS", "narration_visual_sync": "PASS"
+  }
+}
+```
+
 ## 沿原流程，以口播驱动画面
 
 选题事实核验 → 文案/分镜草案 → 冻结全部文字并整包轻抖 → 固定声音配音 → 实际中文强制对齐 → 语义镜头/同源细节 → 适配音乐混音 → HyperFrames → 逐镜/全片检查。
@@ -69,9 +102,9 @@
 
 ## 合同、文字和真实结果
 
-原 `source-brief`/`video-contract`/`production-contract`保持 `presentation_mode=copy_led`、`copy_mode=narrative`，加 `timing_driver=narration`，`narration={enabled:true,language:"zh-CN",voice_profile_id:<已选>,voice_audio_path,alignment_path,spoken_copy_path,audio_mix_report_path,timing_path,evidence_sha256:{<上述五个路径字段>:<真实文件SHA>}}`。先拼接/响度归一化，针对最终纯声做对齐，避免对齐原始声而混音引用另一哈希。storyboard沿用原scenes并增加语句ID、语义证据、实际切点，不建立平行视频合同。缺narration的旧任务不变。
+原 `source-brief`/`video-contract`/`production-contract`保持 `presentation_mode=copy_led`、`copy_mode=narrative`，加 `timing_driver=narration`，`narration={enabled:true,language:"zh-CN",voice_profile_id:<已选>,voice_audio_path,alignment_path,spoken_copy_path,audio_mix_report_path,timing_path,tempo_calibration_path,experience_review_path,evidence_sha256:{<所有七个路径字段>:<真实文件SHA>}}`。先拼接/响度归一化，针对最终纯声做对齐，避免对齐原始声而混音引用另一哈希。storyboard沿用原scenes并增加语句ID、语义证据、实际切点，不建立平行视频合同。缺narration的旧任务不变。
 
-final机器门核真实文件/引用/时间和五个听检项目 `qa.manual_review.checks`：`voice_naturalness`、`voice_pronunciation`、`fixed_voice_stability`、`narration_visual_sync`、`voice_music_balance`。这些须由真实完整检查填写，不能由工具自动置PASS；producer记录不充当唯一助理独立验收。技术探针 `probe-clone`只能验证上游能生成，永不激活声音档案。
+final机器门核真实文件/引用/时间和听检回执中的项目：`voice_pace`、`voice_naturalness`、`voice_pronunciation`、`fixed_voice_stability`、`music_audibility`、`voice_music_balance`、`narration_visual_sync`。这些须由真实完整检查填写，不能由工具自动置PASS；producer记录不充当唯一助理独立验收。技术探针 `probe-clone`只能验证上游能生成，永不激活声音档案。
 
 配音全文、全部中英字幕/封面、相同中英描述及两套各5话题同批冻结检测；中文固定 `#马来西亚装修公司`，英语逐项对应。只在右侧iab真实检测，无命中不再问截图确认。实见命中并保存绑定截图后由执行者自身身份记录 `AGENT_VERIFIED_REAL_QINGDOU_HIT_BATCH`，改写整包复检；只避用公开文字，内部声音指令不冒充公开内容。修改任何文案旧结果失效。没有实际检查、错版、模拟图或推测一律HOLD。
 

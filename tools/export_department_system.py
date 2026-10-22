@@ -100,6 +100,7 @@ def public_text(text, root=None):
     text = text.replace("<LOCAL_PROJECT_ID>", "<WEBSITE_PROJECT_ID>")
     text = text.replace(str(Path.home()), "<USER_HOME>")
     text = text.replace("company.example", "company.example")
+    text = text.replace(r"company\.example", r"company\.example")
     # Native message/turn/thread IDs and the local Ads account are never a
     # portable authority. Synthetic values cannot bind to a real chat.
     text = re.sub(r"(?<![0-9a-f])01a[0-9a-f]{5}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9a-f])",
@@ -234,8 +235,32 @@ def public_policy(value):
     return result
 
 
+def public_cms_issuer(text):
+    """Keep reusable CMS validation without loading this company's registrations."""
+    tree = ast.parse(text)
+    lines = text.splitlines(keepends=True)
+    for node in sorted(tree.body, key=lambda item: item.lineno, reverse=True):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            name = node.targets[0].id
+            if name == "TARGETS" or name.endswith("_TARGETS"):
+                value = "frozenset()" if isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Name) and node.value.func.id == "frozenset" else "{}"
+                lines[node.lineno - 1:node.end_lineno] = [name + " = " + value + "\n"]
+            elif name in {"SUPABASE_HOST", "KEYCHAIN_ACCOUNT"}:
+                value = "example-project.supabase.co" if name == "SUPABASE_HOST" else "example-project"
+                lines[node.lineno - 1:node.end_lineno] = [name + " = " + repr(value) + "\n"]
+        elif isinstance(node, ast.FunctionDef) and node.name == "main":
+            first = node.body[0]
+            line = first.end_lineno if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str) else first.lineno - 1
+            lines[line:line] = ['    raise ValueError("public_template_has_no_native_authorization")\n']
+    result = "".join(lines)
+    ast.parse(result)
+    return result
+
+
 def public_exact_helper(rel, text):
     """Retain exact-action method source without its private frozen payload."""
+    if rel == "tools/managed_cms_permit_issuer.py":
+        return public_cms_issuer(text)
     name = Path(rel).name
     exact_helper = (name.startswith("owner_") or name == "native_publisher_exact_registration.py"
                     or name.startswith("cms_") and "native_read_contract" in name)
@@ -284,6 +309,31 @@ def validate_public_runtime(root, registry):
         check(json.loads(source.read_text()))
     for source in (root / "templates").rglob("*.json"):
         check(json.loads(source.read_text()))
+
+
+def freeze_public_history_example(payloads, tracked):
+    """Bind the synthetic parser example to its final public, non-runtime bytes."""
+    packet_path, result_path = "examples/packet.json", "examples/step-a-result.json"
+    if packet_path not in payloads or result_path not in payloads:
+        return
+    packet, result = [json.loads(payloads[path]) for path in (packet_path, result_path)]
+    if not all(value.get("synthetic_example_only") is True and value.get("historical_only") is True
+               and value.get("operational_template") is False for value in (packet, result)):
+        raise ValueError("Only explicit synthetic non-runtime parser examples may be rebound")
+    step = next(item for item in packet["continuation_plan"]["steps"]
+                if item["candidate_version"] == result["candidate_version"])
+    if step.get("inputs") != []:
+        raise ValueError("Public parser example must not carry native evidence inputs")
+    identity = {key: packet[key] for key in ("task_id", "department", "project_id", "fixed_chat_task_id")}
+    identity.update({key: step[key] for key in ("step_id", "candidate_version", "scope", "kind", "inputs",
+                                               "output_dir", "depends_on", "subskills", "requires_controller_gate")})
+    canonical = json.dumps(identity, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()
+    result["step_binding"] = {"schema_version": 1, "workpack_sha256": hashlib.sha256(payloads[packet_path]).hexdigest(),
+                              "step_sha256": hashlib.sha256(canonical).hexdigest(), "step_identity": identity}
+    raw = (json.dumps(result, ensure_ascii=False, indent=2) + "\n").encode()
+    payloads[result_path] = raw
+    row = next(item for item in tracked if item["path"] == result_path)
+    row.update(release_sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw))
 
 
 def prepare(root: Path, target: Path):
@@ -388,7 +438,7 @@ def prepare(root: Path, target: Path):
             "id", "name", "professional_skill", "role_config", "department_readme",
             "approved_subskills", "approved_subskill_paths", "input_paths", "output_paths",
             "mode", "new_dispatch_enabled", "coordination_authority", "capabilities",
-            "result_report_contract", "result_report_entrypoint",
+            "result_report_contract", "result_report_entrypoint", "shared_department",
         ) if key in row}
         authority = dict(safe.get('coordination_authority', {}))
         shared = authority.get('shared_review_methods')
@@ -440,14 +490,15 @@ def prepare(root: Path, target: Path):
             "\n\n请填写本公司的已确认事实及确认日期。未确认内容写待确认；不导入其他公司的价格、案例或授权。\n")
     add(".gitignore", "__pycache__/\n*.py[cod]\n.venv/\n.env*\n!.env.example\n"
         "data/\nlogs/\nreports/\ndrafts/\nbackups/\nreleases/\nruntime/\n"
-        "accounts/\n*.sqlite*\n*.db\n*.pem\n*.key\n.DS_Store\n" + "".join("/" + name + "\n" for name in COMPANY))
+        "accounts/\n.test-tmp/\n.test-runtime/\n.pytest_cache/\n*.sqlite*\n*.db\n*.pem\n*.key\n.DS_Store\n" + "".join("/" + name + "\n" for name in COMPANY))
+    freeze_public_history_example(payloads, tracked)
     public_registry = json.loads(payloads["examples/department-registry.example.json"])
     retired_roles = [row["id"] for row in rows if row.get("new_dispatch_enabled") is False]
     historical = non_runtime_paths(payloads, public_registry)
     validate_payloads(payloads, ids, retired_roles, historical)
     manifest = seal_manifest({
         "schema_version": SCHEMA, "runtime_model": MODEL, "non_runtime_files": historical,
-        "version": "2026.10.15.goal-delivery-assistant-v1", "artifact_type": "department_system_source",
+        "version": "2026.10.22.full-system-v1", "artifact_type": "department_system_source",
         "roles": ids, "files": sorted(tracked, key=lambda row: row["path"]),
         "retired_roles": retired_roles,
         "live_bindings_exported": False, "live_health_exported": False, "live_ledgers_exported": False,

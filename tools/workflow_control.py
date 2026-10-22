@@ -277,6 +277,8 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 
 def atomic_write_text(path: Path, content: str) -> None:
+    from department_rotation import prohibit_validation_write
+    prohibit_validation_write()
     path.parent.mkdir(parents=True, exist_ok=True)
     handle = tempfile.NamedTemporaryFile(
         mode="w",
@@ -303,6 +305,8 @@ def atomic_write_json(path: Path, payload: Any) -> None:
 
 
 def append_jsonl_locked(path: Path, payload: dict[str, Any]) -> None:
+    from department_rotation import prohibit_validation_write
+    prohibit_validation_write()
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
@@ -341,6 +345,10 @@ def delegations_path(root: Path, task_id: str) -> Path:
 
 
 def department_registry(root: Path) -> dict[str, dict[str, Any]]:
+    from department_rotation import validation_registry
+    historical = validation_registry(root)
+    if historical is not None:
+        return historical
     registry = read_json(root / "data/department-registry.json")
     departments = {
         str(item.get("id", "")): item
@@ -1712,6 +1720,11 @@ def _repair_dispatch_plan_locked(root: Path, snapshot: dict[str, Any]) -> dict[s
             action_class="thread_message",
             task_id=task_id,
             scope=goal_scope,
+            allow_unhealthy_target_for_quarantine=(
+                goal_scope == "department_health_probe:" + department
+                and exact_health_probe(root, snapshot, sender="operations", target=department,
+                                       scope=goal_scope, payload_sha256=payload_sha256)
+            ),
         )
         handoff = str(binding.get("handoff_path") or "")
         if not handoff or not safe_path(root, handoff).is_file():
@@ -2174,7 +2187,7 @@ def _exact_condo_faq_original_publishing_approval(root, snapshot, task_id, actio
     from managed_cms_permit_issuer import CONDO_FAQ_V7_TARGET, validate_goal_cms_policy
     target = CONDO_FAQ_V7_TARGET
     if (action_id != target["action_id"] or scope != target["scope"]
-            or source_thread_id != "<LOCAL_TASK_ID>"
+            or source_thread_id != "example-native-51808768551cf834"
             or source_message_ref != "example-native-bb806d191c30327d"):
         raise WorkflowError("original condo FAQ approval requires its exact action and human source")
     goal = snapshot.get("goal_delivery", {})
@@ -2486,10 +2499,11 @@ def _materialize_standing_approval(
     action_id: str,
     action_class: str,
     scope: str,
+    executor_binding: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     authorization_id = str(authorization.get("authorization_id") or "")
     approval_id = "apr-standing-" + sha256_value(
-        [authorization_id, task_id, action_id, action_class, scope]
+        [authorization_id, task_id, action_id, action_class, scope] + ([executor_binding] if executor_binding else [])
     )[:20]
     with workflow_lock(root):
         existing = effective_approvals(root).get(approval_id)
@@ -2512,6 +2526,8 @@ def _materialize_standing_approval(
             "approval_basis": "standing_authorization",
             "standing_authorization_id": authorization_id,
         }
+        if executor_binding:
+            approval['issuer_executor_binding'] = executor_binding
         append_jsonl_locked(root / APPROVAL_LEDGER, approval)
     return approval
 
@@ -2678,8 +2694,10 @@ def exact_health_probe(root, snapshot, *, sender, target, scope, payload_sha256)
             return False
         registry = department_registry(root)
         row = registry[target]
-        if (row.get("new_dispatch_enabled") is False or row.get("mode") != "coordinator"
-                or row.get("coordination_authority", {}).get("routine_decisions") is not True):
+        if (row.get("new_dispatch_enabled") is False
+                or row.get("mode") not in {"worker", "coordinator"}
+                or (row.get("mode") == "coordinator"
+                    and row.get("coordination_authority", {}).get("routine_decisions") is not True)):
             return False
         pins = [action["payload"] for action in snapshot["goal_delivery"].get("approved_actions", [])
                 if action.get("payload_sha256") == payload_sha256 and action.get("scope") == scope]
@@ -3088,7 +3106,7 @@ def _routing_precheck(
                     or source_project_id != routing.get("source_project_id")
                     or not _same_resolved_path(str(root.resolve()), str(routing.get("source_project_root") or ""))
                     or target_project_id != "<LOCAL_PROJECT_ID>"
-                    or target_thread_id != "<LOCAL_THREAD_ID>"
+                    or target_thread_id != "example-native-25e4a2ebb5d53084"
                     or target_thread_title != "FLASH CAST｜专用开发部｜网站与部门系统"
                     or target_cwd != "<WEBSITE_PROJECT_ROOT>"
                     or target_sidebar_section_id != "threads"
@@ -3704,6 +3722,27 @@ def _responsibility_initial_ready(root, snapshot, sender, target, action_id, sco
         return False
 
 
+def _target_dispatch_plan_ready(root, snapshot, department):
+    """A stale unrelated lane must not stop an otherwise ready goal participant.
+
+    This only scopes the plan-status check. Routing, source authority,
+    dependency and actual action/receipt checks remain at their existing gates.
+    """
+    if snapshot.get("plan_status") == "ready_to_send":
+        return True
+    if (root is None or not isinstance(snapshot.get("goal_delivery"), dict)
+            or snapshot.get("plan_status") not in {"blocked_health_stale", "blocked_chat_health"}):
+        return False
+    rows = [r for r in snapshot.get("departments", []) if r.get("department") == department]
+    roles = department_registry(root)
+    role = roles.get(department, {})
+    binding = role.get("chat_binding", {})
+    ttl = int(read_json(root / "data/department-registry.json").get("health_policy", {}).get("verification_ttl_hours", 26))
+    return (len(rows) == 1 and role.get("new_dispatch_enabled") is not False
+            and rows[0].get("chat_task_id") == binding.get("task_id")
+            and _chat_binding_healthy(binding, verification_ttl_hours=ttl))
+
+
 def _ordinary_thread_dispatch_precheck(
     root: Path, *, snapshot: dict[str, Any], task_id: str,
     target_department: str, target_thread_id: str, action_id: str, scope: str,
@@ -3732,11 +3771,23 @@ def _ordinary_thread_dispatch_precheck(
     reasons.extend(dispatch_precheck(root, snapshot, target_department, target_thread_id, action_id, scope))
     if not snapshot or snapshot.get("task_id") != task_id:
         return ["thread_dispatch_workflow_missing_or_identity_invalid"]
+    from department_rotation import current_dispatch_snapshot
+    original_targets = {item.get("chat_task_id") for item in snapshot.get("departments", [])
+                        if item.get("department") == target_department}
+    snapshot = current_dispatch_snapshot(root, snapshot, target_department)
+    equivalent_targets = {item.get("chat_task_id") for item in snapshot.get("departments", [])
+                          if item.get("department") == target_department}
+    if equivalent_targets == {target_thread_id}:
+        equivalent_targets |= original_targets
+    else:
+        equivalent_targets = {target_thread_id}
+    if not snapshot or snapshot.get("task_id") != task_id:
+        return ["thread_dispatch_workflow_missing_or_identity_invalid"]
     if snapshot.get("current_state") in TERMINAL_STATES:
         reasons.append("thread_dispatch_workflow_terminal")
     if snapshot.get("workflow_successor_link"):
         reasons.append("thread_dispatch_existing_successor_no_redispatch")
-    if snapshot.get("plan_status") != "ready_to_send":
+    if not _target_dispatch_plan_ready(root, snapshot, target_department):
         reasons.append("thread_dispatch_plan_not_ready")
     planned = [item for item in snapshot.get("departments", [])
                if isinstance(item, dict) and item.get("department") == target_department]
@@ -3754,23 +3805,23 @@ def _ordinary_thread_dispatch_precheck(
         goal = snapshot["goal_delivery"]
         initial_review_assignment = (target_department == goal["responsible_assistant"]
                                      and action_id == "assign-goal-review:" + task_id and snapshot.get("goal_contract"))
-        assigned_responsibility_continuation = (sender_department=='operations'
-            and target_department==goal['responsible_assistant'] and scope in goal['authorized_scope']
-            and any(r.get('receipt_type')=='dispatch_sent' and r.get('department')==target_department
-                    and r.get('chat_task_id')==target_thread_id for r in receipts)
-            and any(r.get('receipt_type')=='chat_ack' and r.get('department')==target_department
-                    and r.get('chat_task_id')==target_thread_id and r.get('ack_nonempty') is True for r in receipts))
+        # A prior ACK does not replace the producer result dependency.
         responsibility_resume = (not invalid and _coordination_responsibility_resume_ready(
             root, snapshot, receipts, sender_department=sender_department,
             target_department=target_department, target_thread_id=target_thread_id,
             scope=scope, payload_sha256=payload_sha256,
         ))
+        if not invalid and not responsibility_resume:
+            from department_rotation import frozen_responsibility_continuation
+            responsibility_resume = frozen_responsibility_continuation(
+                root, snapshot, receipts, sender_department=sender_department,
+                target_department=target_department, target_thread_id=target_thread_id, scope=scope)
         original_weekly_clarification = (not invalid and _weekly_existing_authority_clarification_ready(
             root, snapshot, receipts, sender_department=sender_department,
             target_department=target_department, target_thread_id=target_thread_id,
             action_id=action_id, scope=scope, payload_sha256=payload_sha256,
         ))
-        if not initial_review_assignment and not assigned_responsibility_continuation:
+        if not initial_review_assignment:
             for dep in planned[0].get("depends_on", []):
                 if (responsibility_resume or original_weekly_clarification or _responsibility_initial_ready(
                         root, snapshot, sender_department, target_department, action_id, scope, payload_sha256)) and dep == "operations":
@@ -3791,7 +3842,7 @@ def _ordinary_thread_dispatch_precheck(
     for receipt in receipts:
         if (receipt.get("receipt_type") != "dispatch_sent"
                 or receipt.get("department") != target_department
-                or receipt.get("chat_task_id") != target_thread_id):
+                or receipt.get("chat_task_id") not in equivalent_targets):
             continue
         # Receipts can describe the delivered work rather than thread_message.
         # Also inspect their referenced routing action; changing a packet hash
@@ -3804,7 +3855,7 @@ def _ordinary_thread_dispatch_precheck(
             and decision.get("task_id") == task_id
             and decision.get("action_class") == "thread_message"
             and decision.get("target_department") == target_department
-            and decision.get("target_thread_id") == target_thread_id
+            and decision.get("target_thread_id") in equivalent_targets
             and decision.get("action_id") == action_id
             and decision.get("scope") == scope
         )
@@ -3839,10 +3890,26 @@ def policy_check(
     target_automation_status: str = "",
     retry_blocked_execution_receipt_id: str = "",
 ) -> tuple[dict[str, Any], list[Path]]:
+    from department_rotation import prohibit_validation_write
+    prohibit_validation_write()
     task_id = validate_task_id(task_id)
+    if action_class in EXTERNAL_ACTION_CLASSES:
+        from department_rotation import external_write_blocked
+        if external_write_blocked(root, department):
+            from brand_v4_issuer_executor import TASK as brand_stage_task, preflight as brand_fresh_preflight
+            exact_snapshot = read_json(snapshot_path(root,task_id))
+            if task_id != brand_stage_task or department != 'designated-development' or action_class != 'site_publish':
+                raise WorkflowError('rotated window requires fresh exact production admission; old permits cannot transfer')
+            from goal_delivery_runtime import execution_preflight as exact_goal_preflight
+            fresh = exact_goal_preflight(root,exact_snapshot,action_id,action_class,scope,department)
+            brand_fresh_preflight(root,exact_snapshot,fresh,require_all=True)
     policy = load_policy(root)
     departments = department_registry(root)
     department_item = departments.get(department)
+    from brand_v4_issuer_executor import TASK as brand_task, action_context as brand_action_context
+    brand_executor = None
+    if task_id == brand_task and department == 'designated-development' and action_class == 'site_publish':
+        brand_executor = brand_action_context(root, read_json(snapshot_path(root,task_id)), action_id,action_class,scope,department)
     # A separate human-approved Logo channel, pinned to two campaigns and one
     # existing asset. Association still requires the actual fixed QA reply.
     if scope.startswith("owner_paid_logo:example-ads-account:v1:"):
@@ -3910,7 +3977,7 @@ def policy_check(
     reasons: list[str] = []
     required_receipts: list[str] = []
     allow = True
-    if not department_item and not (task_id == "fc-20261014-builtin-wardrobe-layout-cms-publication-v1"
+    if not department_item and not brand_executor and not (task_id == "fc-20261014-builtin-wardrobe-layout-cms-publication-v1"
             and department == "designated-development" and action_class == "site_publish"):
         allow = False
         reasons.append("department_not_registered")
@@ -3996,7 +4063,7 @@ def policy_check(
                 or len(set(urls)) != len(urls)
                 or not isinstance(hashes, dict) or set(hashes) != set(urls)
                 or not all(isinstance(url, str) and re.fullmatch(
-                    r"https://flashcast\.com\.my/images/[A-Za-z0-9_./-]+\.webp", url
+                    r"https://company\.example/images/[A-Za-z0-9_./-]+\.webp", url
                 ) and ".." not in url and SHA256_PATTERN.fullmatch(str(hashes.get(url) or "")) for url in urls)
             ):
                 allow = False
@@ -4205,6 +4272,9 @@ def policy_check(
                     goal_preflight = (cms_goal_context["preflight"] if bounded or condo_candidate else
                                       execution_preflight(root, snapshot, action_id, action_class, scope, department))
                 qa_risk_level = goal_preflight["risk_level"]
+                if brand_executor:
+                    from brand_v4_issuer_executor import preflight as brand_preflight
+                    brand_preflight(root,snapshot,goal_preflight,require_all=True)
                 required_receipts += ["self_check:exact_pass", "facts_backup_rollback:exact_pins",
                                       "assistant_acceptance:bounded_candidate_only" if bounded else
                                       "assistant_acceptance:condo_faq_candidate_only" if condo_candidate else
@@ -4325,6 +4395,9 @@ def policy_check(
         exact_approval_matches = bool(approval) and not any(
             approval.get(key) != value for key, value in expected.items()
         )
+        if brand_executor and exact_approval_matches:
+            from brand_v4_issuer_executor import approval_binding
+            exact_approval_matches = approval.get('issuer_executor_binding') == approval_binding(brand_executor)
         if exact_approval_matches:
             required_receipts.append("owner_approval:consumed_exact_scope" if retry_requested else "owner_approval:exact_scope")
         else:
@@ -4336,7 +4409,7 @@ def policy_check(
             if not retry_requested and qa_risk_level != "R3" and action_class != "site_cache_invalidation":
                 standing_authorization = matching_standing_authorization(
                     policy,
-                    department=department,
+                    department=brand_executor['issuer_department'] if brand_executor else department,
                     action_class=action_class,
                     scope=scope,
                 )
@@ -4348,6 +4421,7 @@ def policy_check(
                     action_id=action_id,
                     action_class=action_class,
                     scope=scope,
+                    executor_binding=__import__('brand_v4_issuer_executor').approval_binding(brand_executor) if brand_executor else None,
                 )
                 effective_approval_id = str(approval.get("approval_id") or "")
                 if approval.get("status") != "active":
@@ -4461,6 +4535,9 @@ def policy_check(
             utc_timestamp(),
         ]
     )[:20]
+    if allow and consume_approval and approval and brand_executor:
+        from brand_v4_issuer_executor import require_complete_permit_set
+        require_complete_permit_set(root,snapshot,brand_executor)
     if allow and consume_approval and approval:
         with workflow_lock(root):
             current = effective_approvals(root).get(str(approval.get("approval_id")), {})
@@ -4558,7 +4635,7 @@ def _validate_receipt_prerequisite(
         kind == "dispatch_failed" for kind, _ in latest
     ):
         raise WorkflowError("派工发送失败尚未恢复，不能登记后续成功回执")
-    if snapshot.get("plan_status") != "ready_to_send":
+    if not _target_dispatch_plan_ready(root, snapshot, department):
         raise WorkflowError("分派计划仍被阻断，不能记录后续回执")
     if receipt_type == "chat_ack":
         dispatch = latest.get(("dispatch_sent", department))
@@ -4580,7 +4657,10 @@ def _validate_receipt_prerequisite(
         if not inherited and receipt_type in {"outbox_received", "qa_verdict"}:
             from qa_review_plan import (native_multi_goal_review_context, owner_direct_review_context,
                                         parent_initial_child_review_context)
-            direct_review = parent_initial_child_review_context(root, snapshot)
+            from owner_adopted_pilot_consumer import review_context as adopted_pilot_review
+            direct_review = adopted_pilot_review(root, snapshot, receipts)
+            if direct_review is None:
+                direct_review = parent_initial_child_review_context(root, snapshot)
             if direct_review is None:
                 direct_review = native_multi_goal_review_context(root, snapshot)
             if direct_review is None:
@@ -4722,13 +4802,24 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
                        if receipt_type == "health_reconciled" else None)
     department = str(args.department).strip()
     registry = department_registry(root)
-    if department not in registry:
+    external_execution = None
+    if department not in registry and receipt_type in {'execution_result','postcheck'}:
+        from brand_v4_issuer_executor import action_context as brand_action_context
+        external_execution = brand_action_context(root,snapshot,str(getattr(args,'action_id','')),
+            str(getattr(args,'action_class','')),str(getattr(args,'scope','')),department)
+    if department not in registry and not external_execution:
         raise WorkflowError(f"部门未登记：{department}")
+    if (receipt_type == "chat_ack" or (receipt_type in {"dispatch_sent", "dispatch_failed"}
+            and str(getattr(args, "action_class", "") or "") == "thread_message")):
+        from department_rotation import current_dispatch_snapshot
+        snapshot = current_dispatch_snapshot(root, snapshot, department)
     planned = {item.get("department"): item for item in snapshot.get("departments", [])}
-    if department not in planned:
+    if department not in planned and not external_execution:
         raise WorkflowError(f"部门不在该工作流分派计划中：{department}")
     chat_task_id = str(getattr(args, "chat_task_id", "") or "")
-    fixed_task_id = str(registry[department].get("chat_binding", {}).get("task_id") or "")
+    fixed_task_id = str(external_execution['executor_binding']['thread_id'] if external_execution else registry[department].get("chat_binding", {}).get("task_id") or "")
+    if external_execution and chat_task_id != fixed_task_id:
+        raise WorkflowError('exact real original external execution chat required')
     if receipt_type in {"dispatch_sent", "dispatch_failed", "chat_ack", "qa_verdict", "health_reconciled"}:
         if not chat_task_id or chat_task_id != fixed_task_id or chat_task_id != str(planned[department].get("chat_task_id") or ""):
             raise WorkflowError("回执的 chat_task_id 与注册表固定任务不匹配")
@@ -5077,7 +5168,9 @@ def _validate_receipt_chain_uncached(root: Path, task_id: str, *, through_receip
         if receipt.get("receipt_type") == "qa_verdict":
             try:
                 from qa_review_plan import validate_verdict
-                validate_verdict(root, review_snapshot, receipts[:index - 1], receipt)
+                from department_rotation import historical_receipt_validation
+                with historical_receipt_validation(root, receipt):
+                    validate_verdict(root, review_snapshot, receipts[:index - 1], receipt)
             except (WorkflowError, ValueError, KeyError, OSError) as exc:
                 invalid.append(f"receipt_{index}:exact_review_invalid:{exc}")
         if receipt.get("receipt_type") == "health_reconciled":
@@ -5418,6 +5511,9 @@ def goal_completion_subject(root, snapshot, receipts, subject):
 def goal_execution_completion(root, snapshot, receipts, action, accepted=None):
     """The latest action outcome and latest following verification are decisive."""
     try:
+        from brand_v4_issuer_executor import conditional_completion
+        conditional = conditional_completion(root,snapshot,action,accepted)
+        if conditional is not None:return conditional
         keys = ("department", "action_id", "action_class", "scope")
         matching = [row for row in receipts if row.get("receipt_type") in {"execution_result", "postcheck"}
                     and all(row.get(k) == action.get(k) for k in keys)]
@@ -5932,6 +6028,25 @@ def goal_typed_completion_proof(root, snapshot, receipts, requirement, accepted,
         role = snapshot["goal_delivery"]["responsible_assistant"]
         journal_pin = proof.get("journal")
         journal = _completion_pin(root, journal_pin)
+        if journal.get("schema") in {"flashcast-rotation-SYS-adoption-chain/v1",
+                                     "flashcast-rotation-original-business-pilot/v1"}:
+            from rotation_completion import effect
+            evidence = effect(root, snapshot, receipts, requirement, accepted, journal)
+            # Reuse an actual current independent QA outbox that explicitly pins
+            # this real effect journal; otherwise retain the native-final gate.
+            confirmation_pin = accepted.get("acceptance_outbox")
+            confirmation = _completion_pin(root, confirmation_pin) if confirmation_pin else {}
+            if (confirmation.get("department") == role and confirmation.get("qa_verdict") == "pass"
+                    and confirmation.get("candidate_version") == accepted["identity"]["candidate_version"]
+                    and journal_pin in confirmation.get("evidence", [])
+                    and confirmation_pin in accepted.get("acceptance_receipt", {}).get("evidence", [])):
+                evidence.append(confirmation_pin)
+            else:
+                _completion_native_stage(root, proof, journal_pin, role)
+            return {"state": "PROVEN", "identity": accepted["identity"],
+                    "source_fingerprint": accepted["source_fingerprint"], "source_turn_id": accepted["source_turn_id"],
+                    "scope": requirement["scope"], "evidence": [pin, journal_pin, *evidence],
+                    "closed_scope_only": True, "business_goal_closed": False}
         exact_source_outbox = (kind == "source_adoption"
             and snapshot.get("task_id") == "fc-20261011-goal-publication-notice-followthrough-repair-v1"
             and accepted.get("candidate") == accepted.get("producer_outbox")
@@ -6036,8 +6151,7 @@ def goal_typed_completion_proof(root, snapshot, receipts, requirement, accepted,
                 handoffs = _result_handoff_rows(root, task)
                 by_id = {row["record_id"]: row for row in handoffs}
                 for key, event in (("received_record_id", "controller_received"),
-                                   ("decision_record_id", "controller_decision"),
-                                   ("notification_record_id", "notification_sent")):
+                                   ("decision_record_id", "controller_decision")):
                     record = by_id.get(journal.get(key), {})
                     if record.get("event") != event:
                         raise WorkflowError("real pilot intake/decision/notification required")
@@ -6045,6 +6159,15 @@ def goal_typed_completion_proof(root, snapshot, receipts, requirement, accepted,
                     if event in c.FINAL_EVENTS:
                         _committed(root, record)
                 decision = by_id[journal["decision_record_id"]]
+                notice = by_id.get(journal.get("notification_record_id"), {})
+                if notice.get("event") == "controller_received":
+                    if (notice.get("record_id") != journal.get("received_record_id")
+                            or _result_identity(decision) != _result_identity(notice)):
+                        raise WorkflowError("exact same pilot intake/decision notification identity required")
+                    from owner_adopted_pilot_consumer import received_notification
+                    received_notification(root, pilot, notice, journal.get("notification_delivery"))
+                elif notice.get("event") != "notification_sent":
+                    raise WorkflowError("real pilot actual sent or received official queue notice required")
                 if decision.get("decision") != "close_scope":
                     follow = by_id.get(journal.get("followthrough_record_id"), {})
                     if follow.get("followthrough_status") != "dispatch_sent":
@@ -7392,7 +7515,7 @@ def _original_a3_partial_final(root: Path, request: dict[str, Any], native: dict
             or box.get("notification_sent") is not False):
         raise WorkflowError("original A3 partial result does not bind the frozen report")
     if (not isinstance(native, dict) or native.get("thread", {}).get("id") != fixed_id
-            or fixed_id != "<LOCAL_TASK_ID>"
+            or fixed_id != "example-native-a3c4bc41389e9461"
             or native.get("thread", {}).get("kind") != "codex"
             or native.get("thread", {}).get("hostId") != "local"
             or native.get("thread", {}).get("cwd") != department_registry(root)["operations-assistant-3"]["chat_binding"]["cwd"]
@@ -7799,12 +7922,21 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any], *,
     validate_outbox(root, [outbox_digest], sender, task_id)
     outbox = read_json(safe_path(root, outbox_path))
     fixed_id = str(registry[sender].get("chat_binding", {}).get("task_id") or "")
+    if event in {"controller_received", "controller_decision", "controller_followthrough"}:
+        from department_rotation import result_binding
+        identity = {"task_id": task_id, "sender_department": sender,
+                    "candidate_version": candidate, "result_sha256": result_sha}
+        fixed_id = str(result_binding(root, identity, outbox_digest).get("task_id") or "")
+    from department_rotation import continued_result_source
+    continued_source = continued_result_source(root, request, fixed_id)
+    continued_original = (continued_source or {}).get("original_rotation_continuation")
     outbox_chat_id = str(outbox.get("fixed_chat_task_id") or outbox.get("chat_task_id") or "")
     if (outbox.get("task_id") != task_id or outbox.get("department") != sender
-            or (outbox_chat_id and outbox_chat_id != fixed_id)
+            or (outbox_chat_id and outbox_chat_id != fixed_id
+                and (not continued_original or outbox_chat_id != continued_original["original_thread_id"]))
             or str(outbox.get("status") or "").lower() in {"", "active", "in_progress", "pending"}):
         raise WorkflowError("部门 outbox 的任务、固定聊天或结果状态不匹配")
-    if not outbox_chat_id:
+    if not outbox_chat_id and continued_original is None:
         # Older validated V2 outboxes lack a chat-id field. They may be taken
         # into a historical fallback, or continue an already received result,
         # only when the original receipt chain ties the exact outbox bytes to
@@ -7845,9 +7977,11 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any], *,
     if event == "notification_queued" and goal_enabled(root, snapshot) and not is_scheduled_queue:
         if str(outbox.get("status") or "").lower() in {"", "active", "in_progress", "pending"}:
             raise WorkflowError("new goal final outbox requires a finite delivered result status")
-        goal_completed_source = _validate_goal_completed_result(root, request, fixed_id)
+        goal_completed_source = continued_source or _validate_goal_completed_result(root, request, fixed_id)
     if event == "notification_queued":
-        if is_scheduled_queue:
+        if continued_original is not None:
+            pass  # Actual new READY + frozen original assignment/dispatch/ACK already revalidated.
+        elif is_scheduled_queue:
             scheduled_source = _validate_scheduled_result(root, request, outbox, fixed_id)
         elif is_owner_direct_queue:
             direct_rows, invalid = _validate_receipt_chain(root, task_id)

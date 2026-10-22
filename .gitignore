@@ -23,3 +23,7 @@ accounts/
 /brand-guidelines.md
 /case-studies.md
 /faq.md
+.test-tmp/
+.pytest_cache/
+
+.test-runtime/

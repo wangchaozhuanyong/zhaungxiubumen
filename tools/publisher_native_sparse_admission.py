@@ -13,7 +13,7 @@ from typing import Any
 
 ROOT = Path('<PROJECT_ROOT>')
 PROJECT = '<LOCAL_PROJECT_ID>'
-PUBLISHER = '<LOCAL_TASK_ID>'
+PUBLISHER = 'example-native-f4ba16119c32b000'
 QA = '<LOCAL_TASK_ID>'
 BUSINESS_TASK = 'fc-20260928-keyword-page-answer-implementation-v1'
 CONTROL_TASK = 'fc-20261007-owner-publisher-execution-takeover-v1'
@@ -79,7 +79,7 @@ def pointer(value: Any, path: str) -> Any:
 def owner(root: Path, authorization_pin: dict[str, Any]) -> None:
     auth = pinned(root, authorization_pin)
     exact = {'type': 'NATIVE_OWNER_AUTHORIZATION', 'source_method': 'mcp__codex_app__read_thread',
-             'source_thread_id': '<LOCAL_TASK_ID>', 'source_project_id': PROJECT,
+             'source_thread_id': 'example-native-51808768551cf834', 'source_project_id': PROJECT,
              'source_cwd': str(ROOT), 'turn_id': 'example-native-b3460100545690e3',
              'message_id': 'example-native-bb806d191c30327d', 'authorized_sender': 'operations-assistant'}
     require(all(auth.get(k) == v for k, v in exact.items()) and auth.get('production_gates_waived') is False,
