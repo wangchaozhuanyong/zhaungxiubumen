@@ -208,7 +208,7 @@
     "standing_authorization_materializes_exact_single_use_approval": true
   },
   "autonomous_site_release_policy": {
-    "policy_path": "playbooks/site-release-risk-boundary.md",
+    "policy_path": "playbooks/department-system-current.md",
     "decision_owner": "goal_delivery.responsible_assistant",
     "authorization_id": "owner-standing-flashcast-site-publish-20260906",
     "decisions": [

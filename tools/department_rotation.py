@@ -500,7 +500,95 @@ def _planned_action_source(root, snapshot, role, rotation, planned):
         return False
 
 
-def current_dispatch_snapshot(root, snapshot, role):
+def _initial_reviewer_source(root, snapshot, role, rotation, planned, action_id=None):
+    """Project an unsent original HQ responsibility intent, never an ACK.
+
+    Normal prepare freezes that exact contract-linked payload before policy.
+    Its committed role/plan prefix can identify the first reviewer target even
+    when no reviewer assignment exists yet. Routing still authenticates HQ,
+    action, payload, scope and current health; receipt writers still require
+    actual transport and ACK evidence. No production identity is projected.
+    """
+    from goal_delivery_runtime import restore_goal
+    from goal_source_recovery import initial_responsibility_payload
+    try:
+        task = snapshot['task_id']; goal = snapshot['goal_delivery']
+        if (action_id not in (None, '', 'assign-goal-review:' + task)
+                or role != goal.get('responsible_assistant')
+                or role in goal.get('producer_departments', [])
+                or snapshot != w.read_json(w.snapshot_path(root, task))
+                or restore_goal(root, snapshot).get('goal_delivery') != goal
+                or w.validate_workflow_events(root, task)):
+            return False
+        original = _pin(root, snapshot['goal_contract'])
+        immutable = ('task_id', 'objective', 'completion_criteria', 'primary_owner',
+                     'producer_departments', 'authorized_scope', 'execution_mode',
+                     'production_write_allowed', 'required_execution_actions')
+        if any(original.get(k) != goal.get(k) for k in immutable):
+            return False
+        events = [e for e in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS)
+                  if e.get('task_id') == task]
+        origins = [e for e in events if e.get('details', {}).get('goal_contract')
+                   == snapshot['goal_contract'] and e['details'].get('request_hash')
+                   == snapshot.get('request_hash') and isinstance(e['details'].get('departments'), list)]
+        intents = [e for e in events if e.get('details', {}).get('initial_responsibility_message')]
+        if len(origins) != 1 or len(intents) != 1:
+            return False
+        prefix = copy.deepcopy(snapshot)
+        prefix['departments'] = origins[0]['details']['departments']
+        prefix['goal_delivery'] = origins[0]['details']['goal_delivery']
+        w._apply_plan_refresh(prefix, events[:events.index(intents[0])], root)
+        identity = (*immutable, 'responsible_assistant', 'acceptance_capability', 'authorization_pin')
+        if (any(prefix.get('goal_delivery', {}).get(k) != goal.get(k) for k in identity)
+                or prefix.get('departments') != snapshot.get('departments')
+                or [p for p in prefix['departments'] if p.get('department') == role] != [planned]):
+            return False
+        intent = intents[0]['details']['initial_responsibility_message']
+        if not initial_responsibility_payload(root, snapshot, 'operations', role,
+                                              intent['scope'], intent['payload']['sha256']):
+            return False
+        body = w.safe_path(root, intent['payload']['path']).read_text(encoding='utf-8')
+        source = w.department_registry(root).get('operations', {}).get('chat_binding', {})
+        current = w.department_registry(root).get(role, {}).get('chat_binding', {})
+        if (task not in body or snapshot['goal_contract']['path'] not in body
+                or _id(current) != _id(rotation['new_binding'])
+                or source.get('project_id') != current.get('project_id')
+                or not w._same_resolved_path(str(source.get('cwd') or ''), str(Path(root).resolve()))):
+            return False
+        intent_at = w._parse_observed_at(intents[0].get('created_at'))
+        origin_at = w._parse_observed_at(origins[0].get('created_at'))
+        if intent_at is None or origin_at is None or origin_at > intent_at:
+            return False
+        receipts, invalid = w._validate_receipt_chain(root, task)
+        if invalid:
+            return False
+        policies = w.read_jsonl(Path(root) / w.POLICY_DECISIONS)
+        dispatches = [r for r in receipts if r.get('department') == role
+                      and r.get('receipt_type') == 'dispatch_sent']
+        if len(dispatches) > 1:
+            return False
+        for sent in dispatches:
+            expected = {'status': 'allow', 'routing_status': 'routing_allowed',
+                        'task_id': task, 'department': 'operations', 'target_department': role,
+                        'action_id': 'assign-goal-review:' + task, 'action_class': 'thread_message',
+                        'scope': intent['scope'], 'target_thread_id': _id(current),
+                        'payload_sha256': intent['payload']['sha256'],
+                        'source_project_id': source['project_id'], 'target_project_id': current['project_id']}
+            matching = [p for p in policies if p.get('decision_id') == sent.get('policy_decision_id')]
+            if (sent.get('chat_task_id') != _id(current)
+                    or any(sent.get(k) != expected[k] for k in ('task_id', 'action_id', 'action_class', 'scope'))
+                    or len(matching) != 1 or any(matching[0].get(k) != v for k, v in expected.items())):
+                return False
+            policy_at = w._parse_observed_at(matching[0].get('checked_at'))
+            sent_at = w._parse_observed_at(sent.get('created_at'))
+            if policy_at is None or sent_at is None or not intent_at <= policy_at <= sent_at:
+                return False
+        return True
+    except (w.WorkflowError, OSError, ValueError, TypeError, KeyError, AttributeError):
+        return False
+
+
+def current_dispatch_snapshot(root, snapshot, role, *, action_id=None):
     """Project one frozen same-role plan onto its verified current message target.
 
     Callers use this only for ordinary thread messages and their transport
@@ -519,7 +607,8 @@ def current_dispatch_snapshot(root, snapshot, role):
         history = _pin(root, row['history'])
         sources = [entry for entry in history.get('assignments', {}).values()
                    if entry['task_id'] == snapshot.get('task_id') and entry['department'] == role]
-        if not sources and not _planned_action_source(root, snapshot, role, row, planned[0]):
+        if (not sources and not _planned_action_source(root, snapshot, role, row, planned[0])
+                and not _initial_reviewer_source(root, snapshot, role, row, planned[0], action_id)):
             return snapshot
         for entry in sources:
             original = _pin(root, entry['pin'])

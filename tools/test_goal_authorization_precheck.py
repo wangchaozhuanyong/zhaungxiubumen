@@ -84,6 +84,7 @@ class AuthorizationPrecheckTests(unittest.TestCase):
         self.initialize()
         snapshot = self.snapshot()
         snapshot.pop("goal_delivery")
+        snapshot.pop("goal_contract")
         w.atomic_write_json(w.snapshot_path(self.root, self.task_id), snapshot)
         result = self.check()
         self.assertEqual(result["status"], "original_source_binding_required")

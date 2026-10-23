@@ -353,6 +353,15 @@ def prepare(root: Path, target: Path):
         raise ValueError("Release output must be inside the source project")
     if target.is_symlink() or any(item.is_symlink() for item in target.parents if item != root.parent):
         raise ValueError("Symlink release target blocked")
+    previous_manifest = target / "release-manifest.json"
+    previous = {}
+    if previous_manifest.exists():
+        validate_release(target)
+        previous = {row["path"]: row for row in json.loads(previous_manifest.read_text())["files"]}
+    portable_tests = {rel: row for rel, row in previous.items()
+                      if row.get("source_selection") == "preserve_existing_portable_test"
+                      and Path(rel).name.startswith("test_") and Path(rel).suffix == ".py"
+                      and Path(rel).parts[0] in {"tools", "departments"}}
     registry = json.loads((root / "data/department-registry.json").read_text())
     roles = registry.get("departments", [])
     ids = [row.get("id") for row in roles]
@@ -381,6 +390,15 @@ def prepare(root: Path, target: Path):
                         "release_sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw)})
 
     def copy(rel):
+        if rel in portable_tests:
+            # These reviewed public fixtures intentionally differ from the
+            # company's private test inputs. Preserve their verified bytes.
+            raw = (target / rel).read_bytes()
+            add(rel, raw.decode("utf-8"), raw)
+            row = next(item for item in tracked if item["path"] == rel)
+            row.update(source_selection="preserve_existing_portable_test",
+                       source_origin=portable_tests[rel].get("source_origin", "verified_previous_release"))
+            return
         source = root / rel
         if not source.is_file() or source.is_symlink() or any(item.is_symlink() for item in source.parents if item != root.parent):
             raise ValueError("Missing or symlink source: " + rel)
@@ -507,7 +525,7 @@ def prepare(root: Path, target: Path):
     validate_payloads(payloads, ids, retired_roles, historical)
     manifest = seal_manifest({
         "schema_version": SCHEMA, "runtime_model": MODEL, "non_runtime_files": historical,
-        "version": "2026.10.22.current-rules-v2", "artifact_type": "department_system_source",
+        "version": "2026.10.23.adopted-runtime-v1", "artifact_type": "department_system_source",
         "roles": ids, "files": sorted(tracked, key=lambda row: row["path"]),
         "retired_roles": retired_roles,
         "live_bindings_exported": False, "live_health_exported": False, "live_ledgers_exported": False,

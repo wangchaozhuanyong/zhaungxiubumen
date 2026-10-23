@@ -11,6 +11,9 @@ backups/
 releases/
 runtime/
 accounts/
+.test-tmp/
+.test-runtime/
+.pytest_cache/
 *.sqlite*
 *.db
 *.pem
@@ -23,7 +26,3 @@ accounts/
 /brand-guidelines.md
 /case-studies.md
 /faq.md
-.test-tmp/
-.pytest_cache/
-
-.test-runtime/

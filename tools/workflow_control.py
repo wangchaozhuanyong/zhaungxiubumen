@@ -3774,7 +3774,7 @@ def _ordinary_thread_dispatch_precheck(
     from department_rotation import current_dispatch_snapshot
     original_targets = {item.get("chat_task_id") for item in snapshot.get("departments", [])
                         if item.get("department") == target_department}
-    snapshot = current_dispatch_snapshot(root, snapshot, target_department)
+    snapshot = current_dispatch_snapshot(root, snapshot, target_department, action_id=action_id)
     equivalent_targets = {item.get("chat_task_id") for item in snapshot.get("departments", [])
                           if item.get("department") == target_department}
     if equivalent_targets == {target_thread_id}:
@@ -4215,7 +4215,7 @@ def policy_check(
             and not prepared_result_notice
             and not scope.startswith("owner_project_handoff:")
             and not ("human_authorization:exact_direct_internal_repair" in required_receipts and not routing_reasons)
-            and not (goal_enabled(root, snapshot) and target_department in read_json(root / "data/department-registry.json").get("collaboration_bindings", {}) and not routing_reasons)
+            and not (goal_enabled(root, snapshot) and "goal_delivery:exact_collaboration_binding" in required_receipts and not routing_reasons)
             and not (scope in {"owner_paid_final_qa:example-ads-account:v39", "owner_paid_final_qa:example-ads-account:v40"} and not routing_reasons)):
         required_receipts.append(
             "same_task_technical_responsibility:exact_target_and_unsent_action"
@@ -4812,7 +4812,7 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
     if (receipt_type == "chat_ack" or (receipt_type in {"dispatch_sent", "dispatch_failed"}
             and str(getattr(args, "action_class", "") or "") == "thread_message")):
         from department_rotation import current_dispatch_snapshot
-        snapshot = current_dispatch_snapshot(root, snapshot, department)
+        snapshot = current_dispatch_snapshot(root, snapshot, department, action_id=str(getattr(args, 'action_id', '') or ''))
     planned = {item.get("department"): item for item in snapshot.get("departments", [])}
     if department not in planned and not external_execution:
         raise WorkflowError(f"部门不在该工作流分派计划中：{department}")

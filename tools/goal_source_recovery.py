@@ -108,6 +108,32 @@ def _prepared_result_queue_invocation(root, item, turn, call):
             and all(call.get(key) == value for key, value in prior_call.items()))
 
 
+# This actual HQ call used a literal two-member loop to select frozen request,
+# result and directory paths. Authenticate the original call, not caller flags.
+_TWO_COMPAT_ORIGINAL_LOOP_SOURCES = {'operations-assistant-2': {'scope': 'project:flashcast:main-runtime-two-compat-closeout:20261022:v1', 'goal_contract': {'path': 'logs/handoffs/2026-10-22-owner-permanent-cleanup-and-runtime-continuation-v1/complete-main-runtime-two-compat-closeout-goal-v1.json', 'sha256': 'a765fecbba62da7391d202df2aaf7109e9ef356556e6e6cc973231d25cb13672', 'size': 4566}, 'authorization_pin': {'path': 'logs/handoffs/2026-10-22-owner-permanent-cleanup-and-runtime-continuation-v1/actual-owner-main-runtime-unfinished-continuation-source.json', 'sha256': '3b457363c88f74f4f442563b57c72cc27d293cbfe96b22fd48826825a8ea9610', 'size': 1484}, 'source_call_id': 'exec-5e322a5e-8f5c-40be-ad04-c0bc8670a67a', 'original_prepare_request': {'path': 'logs/handoffs/2026-10-22-owner-permanent-cleanup-and-runtime-continuation-v1/two-compat-A2-prepare-request.json', 'sha256': '3f8ea55f3c689049e9f4b3733077f8775ac4952da9ff11541910316c50f5d1c5', 'size': 1486}, 'original_prepare_result': {'path': 'logs/handoffs/2026-10-22-owner-permanent-cleanup-and-runtime-continuation-v1/two-compat-A2-prepare-result.json', 'sha256': '8e62166371d53f042f9cc178c845718adec54e3c2494545e84e97bee5c2be9a9', 'size': 4039}, 'actual_queue_intent': {'path': 'logs/handoffs/2026-10-22-owner-permanent-cleanup-and-runtime-continuation-v1/two-compat-A2-official-queue/native-queue-intent.json', 'sha256': 'adb39065c0563353ee9b4e35916d1479299bfb9f86e5d3db6be923f4baf9b9b0', 'size': 316}, 'actual_queue_result': {'path': 'logs/handoffs/2026-10-22-owner-permanent-cleanup-and-runtime-continuation-v1/two-compat-A2-official-queue/native-queue-result.json', 'sha256': 'cc0a0e6279605e9a975dee56150465020f2fa6b06f6ec7570727eabd81357803', 'size': 521}, 'queue_message_id': 'example-native-a1a0b968e844af8b', 'actual_native_invocation': {'path': 'logs/handoffs/2026-10-22-owner-permanent-cleanup-and-runtime-continuation-v1/operations-assistant-2-original-responsibility-intake-v1/actual-HQ-completed-original-queue-invocation-native-v1.json', 'sha256': 'bb1cfadd975eb3c3c19e6fdd70c3f5ec0c85ff068d690c63ac989470d4891697', 'size': 3899}}, 'system-development': {'scope': 'project:flashcast:main-runtime-two-compat-closeout:20261022:v1', 'goal_contract': {'path': 'logs/handoffs/2026-10-22-owner-permanent-cleanup-and-runtime-continuation-v1/complete-main-runtime-two-compat-closeout-goal-v1.json', 'sha256': 'a765fecbba62da7391d202df2aaf7109e9ef356556e6e6cc973231d25cb13672', 'size': 4566}, 'authorization_pin': {'path': 'logs/handoffs/2026-10-22-owner-permanent-cleanup-and-runtime-continuation-v1/actual-owner-main-runtime-unfinished-continuation-source.json', 'sha256': '3b457363c88f74f4f442563b57c72cc27d293cbfe96b22fd48826825a8ea9610', 'size': 1484}, 'source_call_id': 'exec-5e322a5e-8f5c-40be-ad04-c0bc8670a67a', 'original_prepare_request': {'path': 'logs/handoffs/2026-10-22-owner-permanent-cleanup-and-runtime-continuation-v1/two-compat-SYS-prepare-request.json', 'sha256': '56435522f3b8a8e2e43256cd64e491b6e334162e9500a77914bf2bd0395e8441', 'size': 1498}, 'original_prepare_result': {'path': 'logs/handoffs/2026-10-22-owner-permanent-cleanup-and-runtime-continuation-v1/two-compat-SYS-prepare-result.json', 'sha256': '71e6ba3e34caf30db9ea527d8a123bd122d26252c3b4749bec4c1ff1be5619f7', 'size': 4046}, 'actual_queue_intent': {'path': 'logs/handoffs/2026-10-22-owner-permanent-cleanup-and-runtime-continuation-v1/two-compat-SYS-official-queue/native-queue-intent.json', 'sha256': '7e450f13d32e2bc6494f59c45c45221be70265ae93034ffd11425b753503be0d', 'size': 316}, 'actual_queue_result': {'path': 'logs/handoffs/2026-10-22-owner-permanent-cleanup-and-runtime-continuation-v1/two-compat-SYS-official-queue/native-queue-result.json', 'sha256': '5cb8d8bedc7d831945d103c6d1946c7771deeddf1cbff08d50a11b1d1dfa5cac', 'size': 521}, 'queue_message_id': 'example-native-e900029ca7667982', 'actual_native_invocation': {'path': 'logs/handoffs/2026-10-22-owner-permanent-cleanup-and-runtime-continuation-v1/operations-assistant-2-original-responsibility-intake-v1/actual-HQ-completed-original-queue-invocation-native-v1.json', 'sha256': 'bb1cfadd975eb3c3c19e6fdd70c3f5ec0c85ff068d690c63ac989470d4891697', 'size': 3899}}}
+
+
+def _two_compat_original_loop_invocation(root, item, turn, call):
+    if item.get('task_id') != 'fc-20261022-main-runtime-two-compat-closeout-v1':
+        return None
+    expected = _TWO_COMPAT_ORIGINAL_LOOP_SOURCES.get(item.get('department'))
+    if expected is None:
+        return None
+    if item.get('restore_position') != 'suspended':
+        return False
+    if any(item.get(key) != value for key, value in expected.items()):
+        return False
+    original = _strict_queue_document(root, expected['actual_native_invocation'])
+    calls = [(t, c) for t in original.get('turns', []) for c in t.get('items', [])
+             if c.get('id') == expected['source_call_id'] and c.get('type') == 'commandExecution']
+    if len(calls) != 1:
+        raise w.WorkflowError('one exact original two-compat loop queue call required')
+    prior_turn, prior_call = calls[0]
+    return (prior_turn.get('status') == turn.get('status') == 'completed'
+            and all(turn.get(key) == prior_turn.get(key) for key in ('id', 'startedAt', 'completedAt'))
+            and call == prior_call)
+
+
 @historical_assignment_validator
 def queued_assignment_source(root, item, *, require_dispatch=True):
     """Consume an actual official queue AND recipient ACK, never queue acceptance alone.
@@ -211,13 +237,15 @@ def queued_assignment_source(root, item, *, require_dispatch=True):
     prepared_invocation = _prepared_result_queue_invocation(root, item, turn, call)
     invocation_source_linked = (prepared_invocation is True if prepared_invocation is not None
                                 else Path(item['original_prepare_request']['path']).name in command)
+    original_loop = _two_compat_original_loop_invocation(root, item, turn, call)
+    evidence_paths_linked = (original_loop if original_loop is not None else (
+        Path(queue_dir).name in command and str(Path(queue_dir).parent) in command
+        and invocation_source_linked and Path(item['original_prepare_result']['path']).name in command))
     if (turn.get('status') != 'completed' or call.get('status') != 'completed' or call.get('error') or turn.get('error')
             or type(call.get('exitCode')) is not int or call['exitCode'] != 0
             or call.get('truncated', False) is not False or call.get('cwd') != source['cwd']
             or 'OfficialQueueTransport' not in command or '.enqueue(' not in command
-            or Path(queue_dir).name not in command or str(Path(queue_dir).parent) not in command
-            or not invocation_source_linked
-            or Path(item['original_prepare_result']['path']).name not in command):
+            or not evidence_paths_linked):
         raise w.WorkflowError('successful original queue invocation and evidence paths required')
     turns = [t for t in receiver.get('turns', []) if t.get('id') == item.get('receiver_turn_id')]
     if len(turns) != 1 or turns[0].get('error') or turns[0].get('status') not in {'inProgress', 'completed'}:

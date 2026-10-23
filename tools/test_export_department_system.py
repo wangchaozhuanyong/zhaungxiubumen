@@ -13,6 +13,35 @@ import department_system_package as package
 
 
 class ExportTests(unittest.TestCase):
+    def test_reexport_preserves_declared_portable_fixture_and_updates_runtime(self):
+        self.write("tools/test_portable_fixture.py", "VALUE = 'portable'\n")
+        export.prepare(self.root, self.target)
+        manifest_path = self.target / "release-manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        row = next(item for item in manifest["files"] if item["path"] == "tools/test_portable_fixture.py")
+        row.update(source_selection="preserve_existing_portable_test", source_origin="verified_previous_release")
+        manifest_path.write_text(json.dumps(package.seal_manifest(manifest)))
+        self.write("tools/test_portable_fixture.py", "raise RuntimeError('private company fixture')\n")
+        self.write("tools/new_consumer.py", "MODEL = 'goal_delivery_assistant_v1'\nNEW_FEATURE = True\n")
+        export.prepare(self.root, self.target)
+        self.assertEqual((self.target / "tools/test_portable_fixture.py").read_text(), "VALUE = 'portable'\n")
+        self.assertIn("NEW_FEATURE = True", (self.target / "tools/new_consumer.py").read_text())
+        package.validate_release(self.target)
+
+    def test_modified_declared_public_fixture_is_rejected_before_any_write(self):
+        self.write("tools/test_portable_fixture.py", "VALUE = 'portable'\n")
+        export.prepare(self.root, self.target)
+        manifest_path = self.target / "release-manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        row = next(item for item in manifest["files"] if item["path"] == "tools/test_portable_fixture.py")
+        row["source_selection"] = "preserve_existing_portable_test"
+        manifest_path.write_text(json.dumps(package.seal_manifest(manifest)))
+        (self.target / "tools/test_portable_fixture.py").write_text("USER_WIP = True\n")
+        before = {str(p.relative_to(self.target)): p.read_bytes() for p in self.target.rglob("*") if p.is_file()}
+        with self.assertRaises(ValueError):
+            export.prepare(self.root, self.target)
+        self.assertEqual(before, {str(p.relative_to(self.target)): p.read_bytes() for p in self.target.rglob("*") if p.is_file()})
+
     def setUp(self):
         source_root = Path(__file__).resolve().parents[1]
         developer = source_root.parent

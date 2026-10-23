@@ -3512,8 +3512,193 @@ def _owner_original_producer_HQ_resume(root, snapshot, receipts, dispatch, plan)
         return False
 
 
+_FE689_ORIGINAL_RESTART = {'task_id': 'fc-20261022-chatgpt-fe689-paused-draft-admission-repair-v1', 'scope': 'project:flashcast:chatgpt-fe689:paused-draft-admission-repair:20261022:v1', 'goal': {'path': 'logs/handoffs/2026-10-19-chatgpt-paid2-task-transfer/offer-account-preparation-20261021-v1/resume-20261021-v1/authorized-dispatch-v1/system-admission-repair-goal-fe689-v31.json', 'sha256': 'c17f2bbc8f28a6dc260b7aa4ee7bea3d66d9e173148f9e67f40e43bedeab7f99', 'size': 3751}, 'plan': {'path': 'logs/handoffs/2026-10-19-chatgpt-paid2-task-transfer/offer-account-preparation-20261021-v1/resume-20261021-v1/authorized-dispatch-v1/operations-assistant-independent-review-fe689-v4/exact-current-local-review-plan-v1.json', 'sha256': '7911a7c0e0b43e3bb560fcf33a80a6fe414cb57d4bde2a3bc54b7c45bae66d45', 'size': 3436}, 'triage': {'path': 'logs/handoffs/2026-10-19-chatgpt-paid2-task-transfer/offer-account-preparation-20261021-v1/resume-20261021-v1/authorized-dispatch-v1/operations-assistant-independent-review-fe689-v4/normal-source-binding-recovery-20261022-v1/actual-new-post-restart-producer-round-QA-counterexample-v1.json', 'sha256': 'b5f1df9b1c48539ca8437cd7b0b9ec6d609ab86f00fc7ddecb6fa349f42ff5a6', 'size': 10180}, 'manifest': {'path': 'logs/handoffs/2026-10-19-chatgpt-paid2-task-transfer/offer-account-preparation-20261021-v1/resume-20261021-v1/authorized-dispatch-v1/system-admission-repair-candidate-fe689-v1/CANDIDATE-MANIFEST-v4.json', 'sha256': 'af941473148fbf138d9dd1ce466530f057e72fe61df9e9952ea50adb78e24b62', 'size': 8901}, 'outbox': {'path': 'logs/handoffs/2026-10-19-chatgpt-paid2-task-transfer/offer-account-preparation-20261021-v1/resume-20261021-v1/authorized-dispatch-v1/system-admission-repair-candidate-fe689-v1/outbox-v4.json', 'sha256': 'd6dca987437b744a77b7b83d8b1b80d126d98071b1a358623f81ba797dff6cac', 'size': 9271}, 'ACK_descriptor': {'path': 'logs/handoffs/2026-10-22-HQ-computer-restart-resume-v2/SYS-actual-ACK-descriptor.json', 'sha256': '20f681734dab3a34c7bb202d0a6a782c1f826988af583e5f4854fe9ae0da03db', 'size': 1097}, 'descriptors': [{'dispatch_id': '4032055f-03ea-4c57-83f6-755177cc6669', 'descriptor': {'path': 'logs/handoffs/2026-10-22-HQ-computer-restart-resume-v2/SYS-actual-resume-dispatch-descriptor.json', 'sha256': '7d64f112e5a5308f9a682876c8b8329ef4ee2143961129341350372d708097b7', 'size': 1264}, 'request': {'path': 'logs/handoffs/2026-10-22-HQ-computer-restart-resume-v2/SYS-prepare-request.json', 'sha256': 'd2ec6df588fc26b017f2fe2034cc87c3489786a32415d66a249743e2cb460664', 'size': 1395}, 'prepared': {'path': 'logs/handoffs/2026-10-22-HQ-computer-restart-resume-v2/SYS-prepare-result.json', 'sha256': '46f98272f4c85c96378fab5648e98032e1c5caa91f0665b129b8da54d6065931', 'size': 4011}, 'send_field': 'native_send', 'model': None}, {'dispatch_id': '82c421c1-3303-4e22-abc8-24bd5a62c037', 'descriptor': {'path': 'logs/handoffs/2026-10-22-HQ-computer-restart-resume-v2/SYS-fallback-actual-dispatch-descriptor.json', 'sha256': '9f88f06c159fb9184355b524894c10e2036e92674cf1dd4585d12ce0c9d9655e', 'size': 1001}, 'request': {'path': 'logs/handoffs/2026-10-22-HQ-computer-restart-resume-v2/SYS-capacity-fallback-prepare-request.json', 'sha256': '04d49e8841ae03ec2f9a972cb73de440e9b4eb9a3bf261e3898789ad12708d78', 'size': 1408}, 'prepared': {'path': 'logs/handoffs/2026-10-22-HQ-computer-restart-resume-v2/SYS-capacity-fallback-prepare-result.json', 'sha256': '768c0971e04f87e63340c2d4daeb070cff9c5dcc10d87b3e6ae2974fcc9f37ee', 'size': 4025}, 'send_field': 'actual_send', 'model': 'gpt-6.1-sol'}], 'repair': {'dispatch_id': '5af825ae-1070-41c9-8c89-aa7867c2a78b', 'ACK_id': '9e316443-f9c7-451c-85ce-dba301aa7855', 'descriptor': {'path': 'logs/handoffs/2026-10-22-fe689-V4-bound-new-QA-gap-HQ-intake-v1/actual-SYS-rework-native-send-and-ACK-proof.json', 'sha256': '4f98ed1589e722b97e44ac857153e9d1d8bf2296b0c2854410909eef02594de2', 'size': 1647}, 'request': {'path': 'logs/handoffs/2026-10-22-fe689-V4-bound-new-QA-gap-HQ-intake-v1/SYS-normal-rework-prepare-request.json', 'sha256': 'da6c79b61022edc99285f446270ba2f99ee897eee7553304b73448bfd57ba569', 'size': 1461}, 'prepared': {'path': 'logs/handoffs/2026-10-22-fe689-V4-bound-new-QA-gap-HQ-intake-v1/SYS-normal-rework-prepare-result.json', 'sha256': '9e384cd6cb236e866e88bf7f9f811d53d012d7662ef70cbfecf3c18224d14428', 'size': 4063}, 'send_field': 'actual_send', 'model': None, 'kind': 'exact_V4_source_reader_repair'}}
+
+def _fe689_original_producer_restart(root, snapshot, receipts, dispatch, plan):
+    """Read two actual restarts and their exact V4 reader-repair continuation.
+
+    Exact original payloads/native calls and candidate pins classify these
+    notices. Neither a caller flag nor a similar future action can do so.
+    Every other producer round and the current-result checks stay in force.
+    """
+    w = _workflow(); proof = _FE689_ORIGINAL_RESTART
+    if (snapshot.get('task_id') != proof['task_id']
+            or dispatch.get('receipt_id') not in {x['dispatch_id'] for x in [*proof['descriptors'], proof['repair']]}):
+        return False
+    try:
+        task, scope = proof['task_id'], proof['scope']
+        goal = _goal(root, snapshot)
+        original = _review_source_document(root, proof['goal'])
+        if (goal is None or snapshot.get('goal_contract') != proof['goal']
+                or goal['producer_departments'] != ['paid-growth-data-2', 'system-development']
+                or goal['responsible_assistant'] != 'operations-assistant'
+                or any(original.get(k) != goal.get(k) for k in GOAL_IDENTITY)
+                or goal['authorized_scope'] != [scope]
+                or w.file_digest(root, goal['authorization_pin']['path']) != goal['authorization_pin']
+                or snapshot.get('qa_review_plan', {}).get('pin') != proof['plan']
+                or _review_source_document(root, proof['plan']) != plan
+                or plan.get('producer_department') != 'system-development'
+                or plan.get('candidate') != proof['manifest']):
+            return False
+        rows = _strict_source_rows(root, task)
+        if not receipts or receipts != rows[:len(receipts)]:
+            return False
+        previous = ''; seen = set()
+        for row in rows:
+            if (row.get('task_id') != task or row.get('receipt_id') in seen
+                    or row.get('previous_hash', '') != previous
+                    or row.get('receipt_hash') != w.sha256_value(w._receipt_payload_for_hash(row))):
+                return False
+            for pin in row.get('evidence', []):
+                if w.file_digest(root, pin.get('path', '')) != pin:
+                    return False
+            previous = row['receipt_hash']; seen.add(row['receipt_id'])
+        triage = _review_source_document(root, proof['triage'])
+        observed = [x for x in triage['observed'] if x['producer'] == 'system-development']
+        if len(observed) != 1:
+            return False
+        outbox_row = observed[0]['latest_outbox']
+        anchor = [i for i, row in enumerate(receipts) if row == outbox_row]
+        boxes = [row for row in receipts if row.get('department') == 'system-development'
+                 and row.get('receipt_type') == 'outbox_received']
+        if (len(anchor) != 1 or not boxes or boxes[-1] != outbox_row
+                or outbox_row['evidence'] != [proof['outbox']]
+                or not _producer_candidate_bound(root, plan, proof['outbox'],
+                                                _review_source_document(root, proof['outbox']))):
+            return False
+        _review_source_document(root, proof['manifest'])
+        registry = w.department_registry(root)
+        hq, fixed = [registry[x]['chat_binding'] for x in ('operations', 'system-development')]
+        if hq['project_id'] != fixed['project_id'] or fixed['cwd'] != str(Path(root).resolve()):
+            return False
+        times = [w._parse_observed_at(outbox_row['created_at'])]
+        selected = []
+        from goal_delivery_runtime import _collaboration_native
+        for entry in [*proof['descriptors'], proof['repair']]:
+            matches = [row for row in receipts if row.get('receipt_id') == entry['dispatch_id']]
+            if len(matches) != 1:
+                return False
+            sent = matches[0]; selected.append(sent)
+            descriptor = _review_source_document(root, entry['descriptor'])
+            request = _review_source_document(root, entry['request'])
+            prepared = _review_source_document(root, entry['prepared'])
+            if entry.get('kind') == 'exact_V4_source_reader_repair':
+                descriptor = {'payload': descriptor['exact_consumed_prompt'],
+                    'native_invocation': descriptor['actual_send_invocation'],
+                    'source_call_id': descriptor['actual_native_call_id'],
+                    'actual_send': descriptor['actual_send_return'],
+                    'policy_decision_id': prepared['policy_decision']['decision_id']}
+            payload = descriptor['payload']; body = w.safe_path(root, payload['path']).read_text(encoding='utf-8')
+            if (w.file_digest(root, payload['path']) != payload or task not in body
+                    or request.get('payload') != payload or request.get('payload_sha256') != payload['sha256']
+                    or request.get('assignment_record_required') is not False
+                    or request.get('authorization_changes') != []):
+                return False
+            expected = {'task_id': task, 'scope': scope, 'action_id': sent['action_id'],
+                        'action_class': 'thread_message', 'sender_department': 'operations',
+                        'source_project_id': hq['project_id'], 'target_department': 'system-development',
+                        'target_project_id': fixed['project_id'], 'target_thread_id': fixed['task_id'],
+                        'target_thread_title': fixed['title'], 'target_cwd': fixed['cwd'],
+                        'target_sidebar_section_id': fixed['sidebar_section_id']}
+            if (any(request.get(k) != v for k, v in expected.items())
+                    or any(sent.get(k) != v for k, v in {'task_id': task, 'department': 'system-development',
+                        'receipt_type': 'dispatch_sent', 'action_class': 'thread_message', 'scope': scope,
+                        'chat_task_id': fixed['task_id'], 'policy_decision_id': descriptor['policy_decision_id']}.items())
+                    or any(sent.get(k) for k in ('supersedes_receipt_id', 'approval_id', 'replacement_reason'))
+                    or any(row.get('supersedes_receipt_id') == sent['receipt_id'] for row in rows)
+                    or entry['descriptor'] not in sent['evidence']):
+                return False
+            policy = prepared['policy_decision']; auth = prepared['authorization_precheck']
+            policies = [p for p in w.read_jsonl(Path(root) / w.POLICY_DECISIONS)
+                        if p.get('decision_id') == sent['policy_decision_id']]
+            policy_expected = {k: v for k, v in expected.items() if k != 'sender_department'}
+            policy_expected.update(status='allow', routing_status='routing_allowed', department='operations',
+                                   payload_sha256=payload['sha256'])
+            if (policies != [policy] or any(policy.get(k) != v for k, v in policy_expected.items())
+                    or prepared.get('status') != 'ready_to_send' or prepared.get('payload') != payload
+                    or auth.get('status') != 'within_original_authorization'
+                    or auth.get('original_authorization') != goal['authorization_pin']):
+                return False
+            page = _collaboration_native(root, descriptor['native_invocation'])
+            if any(page['thread'].get(k) != hq[v] for k, v in {'id': 'task_id', 'title': 'title', 'cwd': 'cwd'}.items()):
+                return False
+            calls = [c for t in page.get('turns', []) for c in t.get('items', [])
+                     if c.get('id') == descriptor['source_call_id']]
+            arguments = {'threadId': fixed['task_id'], 'prompt': body}
+            if entry['model'] is not None:
+                arguments['model'] = entry['model']
+            if (len(calls) != 1 or calls[0].get('type') != 'mcpToolCall'
+                    or calls[0].get('server') != 'codex_app' or calls[0].get('tool') != 'send_message_to_thread'
+                    or calls[0].get('status') != 'completed' or calls[0].get('arguments') != arguments):
+                return False
+            _review_native_containers(calls[0])
+            returned = _review_source_document(root, descriptor[entry['send_field']])
+            if entry.get('kind') == 'exact_V4_source_reader_repair':
+                _review_native_containers(returned)
+                if (returned.get('actual_tool') != 'mcp__codex_app__send_message_to_thread'
+                        or returned.get('thread_id') != fixed['task_id']
+                        or Path(returned.get('exact_consumed_prompt_path', '')).resolve()
+                           != w.safe_path(root, payload['path']).resolve()
+                        or _review_raw_native_result(returned.get('raw_tool_return')) != {'threadId': fixed['task_id']}):
+                    return False
+                sent_native = {'thread_id': fixed['task_id'], 'exact_consumed_prompt': payload}
+            else:
+                sent_native = _review_same_goal_send_wrapper(returned)
+            if sent_native['thread_id'] != fixed['task_id'] or sent_native['exact_consumed_prompt'] != payload:
+                return False
+            checked = w._parse_observed_at(policy.get('checked_at')); at = w._parse_observed_at(sent['created_at'])
+            if checked is None or at is None or not times[-1] <= checked <= at:
+                return False
+            times.append(at)
+        ack_descriptor = _review_source_document(root, proof['ACK_descriptor'])
+        acks = [row for row in receipts if row.get('receipt_id') == '63d00cb3-8ae8-49fe-865e-b6713f3cf23d']
+        if (len(acks) != 1 or acks[0].get('ack_nonempty') is not True
+                or acks[0].get('department') != 'system-development'
+                or acks[0].get('chat_task_id') != fixed['task_id']
+                or acks[0].get('action_id') != selected[1]['action_id']
+                or proof['ACK_descriptor'] not in acks[0]['evidence']):
+            return False
+        recipient = _collaboration_native(root, ack_descriptor['actual_native_reply'])
+        turns = [t for t in recipient.get('turns', []) if t.get('id') == ack_descriptor['turn']['id']]
+        if (any(recipient['thread'].get(k) != fixed[v] for k, v in {'id': 'task_id', 'title': 'title', 'cwd': 'cwd'}.items())
+                or len(turns) != 1 or turns[0].get('status') not in {'inProgress', 'completed'}
+                or ack_descriptor['message'] not in turns[0].get('items', [])
+                or task not in ack_descriptor['message'].get('text', '')
+                or not times[1].timestamp() <= turns[0]['startedAt'] <= w._parse_observed_at(acks[0]['created_at']).timestamp()
+                or not times[2] <= w._parse_observed_at(acks[0]['created_at']) <= dt.datetime.now(dt.timezone.utc)):
+            return False
+        repair = _review_source_document(root, proof['repair']['descriptor'])
+        repair_ack = [row for row in receipts if row.get('receipt_id') == proof['repair']['ACK_id']]
+        repair_page = _collaboration_native(root, repair['actual_receiver_native'])
+        native_acks = repair.get('actual_ACK', [])
+        if len(repair_ack) != 1 or len(native_acks) != 1:
+            return False
+        native_ack = native_acks[0]
+        repair_turns = [t for t in repair_page.get('turns', []) if t.get('id') == native_ack['turn_id']]
+        if (len(repair_turns) != 1 or repair_turns[0].get('status') not in {'inProgress', 'completed'}
+                or any(repair_page['thread'].get(k) != fixed[v] for k, v in {'id': 'task_id', 'title': 'title', 'cwd': 'cwd'}.items())
+                or not any(m.get('id') == native_ack['message_id'] and m.get('type') == 'agentMessage'
+                           and m.get('text') == native_ack['text'] and task in m['text']
+                           for m in repair_turns[0].get('items', []))
+                or repair_ack[0].get('department') != 'system-development'
+                or repair_ack[0].get('chat_task_id') != fixed['task_id']
+                or repair_ack[0].get('action_id') != selected[-1]['action_id']
+                or repair_ack[0].get('ack_nonempty') is not True
+                or proof['repair']['descriptor'] not in repair_ack[0].get('evidence', [])
+                or not checked.timestamp() <= repair_turns[0]['startedAt'] <= w._parse_observed_at(repair_ack[0]['created_at']).timestamp()
+                or not times[-1] <= w._parse_observed_at(repair_ack[0]['created_at']) <= dt.datetime.now(dt.timezone.utc)):
+            return False
+        # The two real transport notices are preserved, including the first
+        # capacity-failed receiving turn; no missing first ACK is invented.
+        return dispatch in selected and anchor[0] < min(receipts.index(x) for x in selected)
+    except (w.WorkflowError, OSError, ValueError, TypeError, KeyError, AttributeError):
+        return False
+
+
 def _same_original_source_notice(root, snapshot, receipts, dispatch, plan, *, source_pins=(), producer=False):
     """Authenticate existing clarification/routine rework without a new round."""
+    if producer and _fe689_original_producer_restart(root,snapshot,receipts,dispatch,plan):
+        return True
     if producer and _owner_original_producer_HQ_resume(root,snapshot,receipts,dispatch,plan):
         return True
     w = _workflow()
@@ -6080,13 +6265,133 @@ def _fe689_original_pre_verdict_successor(root, snapshot, receipts, old_binding,
         return False
 
 
+def _original_congestion_pre_verdict_successor(root, snapshot, receipts, old_binding, plan):
+    """Consume this original unverdicted task's real rework and received source.
+
+    A local CAS rejection is not converted to a formal blocked QA verdict.
+    Current producer bytes, the original sole reviewer/assignment and ordinary
+    changed-scope checks remain mandatory. Other tasks and formal QA are not
+    admitted by this reader.
+    """
+    task = 'fc-20261022-department-flow-congestion-optimization-v1'
+    scope = 'project:flashcast:department-flow-congestion-optimization:20261022:v1'
+    if snapshot.get('task_id') != task:
+        return False
+    w = _workflow()
+    try:
+        if (any(r.get('receipt_type') == 'qa_verdict' for r in receipts)
+                or 'rework_of' in plan or old_binding != snapshot.get('qa_review_plan')
+                or snapshot.get('current_state') in w.TERMINAL_STATES
+                or w.validate_workflow_events(root, task)):
+            return False
+        actual_receipts, invalid = w._validate_receipt_chain(root, task)
+        if invalid or actual_receipts != receipts:
+            return False
+        goal = _goal(root, snapshot)
+        contract = _review_source_document(root, snapshot.get('goal_contract'))
+        if (goal is None or goal.get('primary_owner') != 'system-development'
+                or goal.get('producer_departments') != ['system-development']
+                or goal.get('responsible_assistant') != 'operations-assistant-2'
+                or goal.get('authorized_scope') != [scope]
+                or any(contract.get(k) != goal.get(k) for k in GOAL_IDENTITY)
+                or contract.get('human_authorization') != goal.get('human_authorization')
+                or w.file_digest(root, contract['human_authorization']['evidence_path']) != goal.get('authorization_pin')):
+            return False
+        old = load_plan(root, snapshot, old_binding)
+        same = ('task_id', 'action_id', 'action_class', 'scope', 'producer_department',
+                'reviewer_department', 'reviewer_thread_id', 'controller_department',
+                'controller_thread_id', 'single_final_reviewer', 'risk_level',
+                'production_write_allowed', 'external_permission_issued')
+        if any(plan.get(k) != old.get(k) for k in same):
+            return False
+        registry = w.department_registry(root)
+        producer = registry['system-development']['chat_binding']
+        reviewer = registry['operations-assistant-2']['chat_binding']
+        if (plan.get('reviewer_thread_id') != reviewer['task_id']
+                or producer.get('project_id') != reviewer.get('project_id')
+                or any(b.get('cwd') != str(Path(root).resolve()) for b in (producer, reviewer))):
+            return False
+        events = w.read_jsonl(root / w.WORKFLOW_EVENTS)
+        bound = [e for e in events if e.get('task_id') == task
+                 and e.get('details', {}).get('qa_review_plan_bound') == old_binding]
+        if len(bound) != 1:
+            return False
+        producers = [r for r in receipts if r.get('department') == 'system-development'
+                     and r.get('receipt_type') == 'outbox_received']
+        if not producers:
+            return False
+        latest = producers[-1]
+        pins = [p for p in latest.get('evidence', []) if p.get('path', '').endswith('.json')]
+        if len(pins) != 1:
+            return False
+        pin = pins[0]; box = _review_source_document(root, pin)
+        if (box.get('candidate_version') != plan.get('candidate_version')
+                or not _producer_candidate_bound(root, plan, pin, box)):
+            return False
+        rows = w._result_handoff_rows(root, task)
+        from scoped_candidate_adoption import _committed
+        decisions = []
+        for row in rows:
+            if (row.get('event') != 'controller_decision' or row.get('decision') != 'rework'
+                    or row.get('coordinator_role') != 'operations-assistant-2'
+                    or row.get('responsible_assistant') != 'operations-assistant-2'
+                    or row.get('next_owner') != 'system-development'):
+                continue
+            prior_pin = row.get('outbox')
+            prior_box = _review_source_document(root, prior_pin)
+            if (prior_box.get('department') == 'system-development' and prior_box.get('task_id') == task
+                    and (prior_pin == old.get('candidate') or prior_box.get('candidate_manifest') == old.get('candidate'))):
+                prior_intake = [p for p in rows if p.get('event') == 'controller_received'
+                                and p.get('outbox') == prior_pin
+                                and p.get('coordinator_role') == 'operations-assistant-2']
+                if len(prior_intake) != 1 or rows.index(prior_intake[0]) >= rows.index(row):
+                    return False
+                _committed(root, prior_intake[0]); _committed(root, row)
+                decisions.append(row)
+        if len(decisions) != 1:
+            return False
+        decision = decisions[0]
+        ident = {'task_id': task, 'sender_department': 'system-development',
+                 'candidate_version': box['candidate_version'], 'result_sha256': pin['sha256']}
+        matches = lambda row: all(row.get(k) == v for k, v in ident.items()) and row.get('outbox') == pin
+        queued = [row for row in rows if matches(row) and row.get('event') == 'notification_queued'
+                  and row.get('target_department') == 'operations-assistant-2']
+        received = [row for row in rows if matches(row) and row.get('event') == 'controller_received'
+                    and row.get('coordinator_role') == 'operations-assistant-2'
+                    and row.get('responsible_assistant') == 'operations-assistant-2']
+        if len(queued) != 1 or len(received) != 1 or rows.index(queued[0]) >= rows.index(received[0]):
+            return False
+        _committed(root, received[0])
+        w._validate_goal_completed_result(root, queued[0], producer['task_id'],
+                                         through_receipt_id=latest['receipt_id'])
+        stamps = [_review_observed_at(p.get('created_at')) for p in (decision, queued[0], received[0])]
+        observed = _review_observed_at(queued[0].get('reply_observed_at'))
+        latest_at = _review_observed_at(latest.get('created_at'))
+        if (any(t is None for t in stamps) or stamps != sorted(stamps)
+                or observed is None or latest_at is None
+                or not stamps[0] <= observed <= stamps[1] <= stamps[2] <= dt.datetime.now(dt.timezone.utc)
+                or not observed <= latest_at <= dt.datetime.now(dt.timezone.utc)):
+            return False
+        return {'schema_version': 1, 'kind': 'original_congestion_pre_verdict_source_successor',
+                'prior_plan': old_binding['pin'], 'producer_outbox_receipt_id': latest['receipt_id'],
+                'producer_outbox': pin, 'original_rework_record_id': decision['record_id'],
+                'original_rework_record_hash': decision['record_hash'],
+                'notification_queued_record_id': queued[0]['record_id'],
+                'notification_queued_record_hash': queued[0]['record_hash'],
+                'controller_received_record_id': received[0]['record_id'],
+                'controller_received_record_hash': received[0]['record_hash']}
+    except (w.WorkflowError, OSError, ValueError, TypeError, KeyError, AttributeError):
+        return False
+
+
 def _validate_rework(root, snapshot, receipts, old_binding, plan):
     w = _workflow()
     goal = _goal(root, snapshot)
     old = load_plan(root, snapshot, old_binding)
     verdicts = [row for row in receipts if row.get("receipt_type") == "qa_verdict"]
     original_pre_verdict = (_owner_original_pre_verdict_successor(root,snapshot,receipts,old_binding,plan)
-                            or _fe689_original_pre_verdict_successor(root,snapshot,receipts,old_binding,plan))
+                            or _fe689_original_pre_verdict_successor(root,snapshot,receipts,old_binding,plan)
+                            or _original_congestion_pre_verdict_successor(root,snapshot,receipts,old_binding,plan))
     if not original_pre_verdict and (goal is None or not verdicts or verdicts[-1].get("verdict") != "blocked"
             or plan.get("rework_of") != verdicts[-1].get("receipt_id")
             or verdicts[-1].get("department") != plan["reviewer_department"]):

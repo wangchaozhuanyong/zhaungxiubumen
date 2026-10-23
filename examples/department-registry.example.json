@@ -78,6 +78,17 @@
       ],
       "mode": "worker",
       "new_dispatch_enabled": true,
+      "shared_department": {
+        "department_id": "paid-growth-data",
+        "window_ids": [
+          "paid-growth-data",
+          "paid-growth-data-2"
+        ],
+        "skills_and_knowledge": "shared_same_paths",
+        "business_data": "shared_project_sources",
+        "assignments_and_receipts": "separate_by_task_and_executor",
+        "existing_task_owners_unchanged": true
+      },
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -89,17 +100,6 @@
         "reply_health": "not_verified",
         "dispatch_eligible": false,
         "handoff_path": ""
-      },
-      "shared_department": {
-        "department_id": "paid-growth-data",
-        "window_ids": [
-          "paid-growth-data",
-          "paid-growth-data-2"
-        ],
-        "skills_and_knowledge": "shared_same_paths",
-        "business_data": "shared_project_sources",
-        "assignments_and_receipts": "separate_by_task_and_executor",
-        "existing_task_owners_unchanged": true
       }
     },
     {
@@ -743,6 +743,17 @@
       ],
       "mode": "worker",
       "new_dispatch_enabled": true,
+      "shared_department": {
+        "department_id": "paid-growth-data",
+        "window_ids": [
+          "paid-growth-data",
+          "paid-growth-data-2"
+        ],
+        "skills_and_knowledge": "shared_same_paths",
+        "business_data": "shared_project_sources",
+        "assignments_and_receipts": "separate_by_task_and_executor",
+        "existing_task_owners_unchanged": true
+      },
       "chat_binding": {
         "status": "unbound",
         "task_id": "",
@@ -754,17 +765,6 @@
         "reply_health": "not_verified",
         "dispatch_eligible": false,
         "handoff_path": ""
-      },
-      "shared_department": {
-        "department_id": "paid-growth-data",
-        "window_ids": [
-          "paid-growth-data",
-          "paid-growth-data-2"
-        ],
-        "skills_and_knowledge": "shared_same_paths",
-        "business_data": "shared_project_sources",
-        "assignments_and_receipts": "separate_by_task_and_executor",
-        "existing_task_owners_unchanged": true
       }
     }
   ],

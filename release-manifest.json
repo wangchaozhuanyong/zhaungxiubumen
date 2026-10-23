@@ -17,7 +17,7 @@
     "examples/packet.json",
     "examples/step-a-result.json"
   ],
-  "version": "2026.10.22.current-rules-v2",
+  "version": "2026.10.23.adopted-runtime-v1",
   "artifact_type": "department_system_source",
   "roles": [
     "operations",
@@ -136,8 +136,8 @@
     {
       "path": ".gitignore",
       "source_sha256": null,
-      "release_sha256": "8d59a490193a7fe393150a18d7dcefae59ba47ca8e0ff76d71d3d3d2d3ab4df4",
-      "bytes": 326
+      "release_sha256": "057c5e5ee26ed7625f511909abed4ea2332f90a3b6904a2655513bda188cf30c",
+      "bytes": 325
     },
     {
       "path": "AGENTS.md",
@@ -641,7 +641,9 @@
       "path": "departments/visual-design-video/tests/test_narration_mode.py",
       "source_sha256": "eded098cc48aa9525020a0a07a5eb38ad490de43a3a612029945eb4ccd40ba25",
       "release_sha256": "eded098cc48aa9525020a0a07a5eb38ad490de43a3a612029945eb4ccd40ba25",
-      "bytes": 18834
+      "bytes": 18834,
+      "source_selection": "preserve_existing_portable_test",
+      "source_origin": "git:3d2f48cb8e49b55a0e18cac53624a45ac597fc19:departments/visual-design-video/tests/test_narration_mode.py"
     },
     {
       "path": "departments/visual-design-video/tests/test_public_copy_guard.py",
@@ -694,8 +696,8 @@
     {
       "path": "examples/action-policy.example.json",
       "source_sha256": null,
-      "release_sha256": "08ad1e2f7db633a28d2ef671715acac4552571d59821f5fee1d661364654d336",
-      "bytes": 11280
+      "release_sha256": "950a10b16ac8e2aad3964b6a857e93311ec9e50b0f3690d7f8e60d9fa7f15ec3",
+      "bytes": 11279
     },
     {
       "path": "examples/agent-role-policy.example.json",
@@ -742,7 +744,7 @@
     {
       "path": "examples/department-registry.example.json",
       "source_sha256": null,
-      "release_sha256": "73d1ac36b976cc261a1289518a41477a19d37cc16458fc73d8d6d194489164a0",
+      "release_sha256": "af53ae04b5065737083d3988e43f29c1c4ba9f3740abfadc9da2192660802c54",
       "bytes": 24109
     },
     {
@@ -843,9 +845,9 @@
     },
     {
       "path": "playbooks/department-system-release-inventory.md",
-      "source_sha256": "504c33af35ad920356a7baf2438bce3bef656764dd1bf2643e3eba628f461e32",
-      "release_sha256": "504c33af35ad920356a7baf2438bce3bef656764dd1bf2643e3eba628f461e32",
-      "bytes": 3379
+      "source_sha256": "16d64567823fba147c986411d5441631486f44e925aad6d2559ee7dff502296a",
+      "release_sha256": "16d64567823fba147c986411d5441631486f44e925aad6d2559ee7dff502296a",
+      "bytes": 4240
     },
     {
       "path": "playbooks/department-system-runtime-adoption.md",
@@ -861,9 +863,9 @@
     },
     {
       "path": "playbooks/department-system-source-release.md",
-      "source_sha256": "ab77043d8895c8b23e6db3815d310758cc5e0e5d3ca6cca8d0c1909522b20f73",
-      "release_sha256": "ab77043d8895c8b23e6db3815d310758cc5e0e5d3ca6cca8d0c1909522b20f73",
-      "bytes": 5785
+      "source_sha256": "ea08d4a37fba50e605dd8d2d35b0094da7025fe49e04d0659ccf3f454b24e20e",
+      "release_sha256": "ea08d4a37fba50e605dd8d2d35b0094da7025fe49e04d0659ccf3f454b24e20e",
+      "bytes": 6140
     },
     {
       "path": "playbooks/flashcast-growth-data-and-backend-operations.md",
@@ -1173,9 +1175,9 @@
     },
     {
       "path": "tools/department_rotation.py",
-      "source_sha256": "dfa6009c3ff3d9771433667540fa0a93b8c1f28b78aab9068b5e113abc4bba0b",
-      "release_sha256": "dfa6009c3ff3d9771433667540fa0a93b8c1f28b78aab9068b5e113abc4bba0b",
-      "bytes": 53702
+      "source_sha256": "74e11c49656201ae86c6ceaa988e0a2cfb4156a18062c2813e69b41fa56ea70b",
+      "release_sha256": "74e11c49656201ae86c6ceaa988e0a2cfb4156a18062c2813e69b41fa56ea70b",
+      "bytes": 59501
     },
     {
       "path": "tools/department_rule_context.py",
@@ -1197,9 +1199,9 @@
     },
     {
       "path": "tools/export_department_system.py",
-      "source_sha256": "3cba5c5a3b40447191854a9fda967a7bed601ca7de891f03fbbaa63dbf55bcaa",
-      "release_sha256": "ba19ea7d5c69853166fa2772f7ee7744282458a9b00ee9f98f2ccbfa63adfcda",
-      "bytes": 34949
+      "source_sha256": "42d672ddd566e9c55c7e6568eb2b70749364e87c2c601fc94a99b85ac80ad5f7",
+      "release_sha256": "9f2a78d02ad5fec4c833a4b814d8a5e91bdad45a822337df39c4ca2a826fa08c",
+      "bytes": 36065
     },
     {
       "path": "tools/flashcast_ops.py",
@@ -1215,15 +1217,15 @@
     },
     {
       "path": "tools/goal_delivery_runtime.py",
-      "source_sha256": "1ac338ae2984b2a830287470e6f1d0c81e590edc60c73dc549080df7ea2ce980",
-      "release_sha256": "c800c95ce1a09ea1657521aea59c39ffe421c8c21b09a09ba41d96a6fb289cdb",
-      "bytes": 182946
+      "source_sha256": "35fbdbdb736f2513965c18ef732530609046831f640d51d5774bafd3e2478ba9",
+      "release_sha256": "52cd94bd5f233f58aa9df0052d9151e5304c47d6a27635f9b6bb06dd0b3ae65f",
+      "bytes": 184097
     },
     {
       "path": "tools/goal_source_recovery.py",
-      "source_sha256": "1f306771b21233b0d509afe83e81fbd4f12caf0852965252e87ef8cdc246d955",
-      "release_sha256": "80b79e7027520813dfdb9433b657985d8b2a8e5ccda70e89bf173815354899b7",
-      "bytes": 97987
+      "source_sha256": "537aab44060baee2f6058289607b097a8132cd5525025434aacc2e7f219a40c8",
+      "release_sha256": "8b6800ac3cdc04c0a5aff3c4b2c3ac086eb04d14f2c0b730c2d0501bd2311f08",
+      "bytes": 103580
     },
     {
       "path": "tools/managed_cms_permit_issuer.py",
@@ -1316,6 +1318,12 @@
       "bytes": 12700
     },
     {
+      "path": "tools/owner_nonpayment_coordination.py",
+      "source_sha256": "31b6d488f9d27f754621b7d89683ba2dff317530ed5bb4e8abbd057f53d4ece1",
+      "release_sha256": "e57d44c504a26a73e885398f87cfdbe0daabca5a9ea1712b5ab23188f978f928",
+      "bytes": 17683
+    },
+    {
       "path": "tools/owner_paid_completion_policy.py",
       "source_sha256": "933584fdfcc097ef553dc1e20edeea728b7b6c883f037f3fbbdf091ca9e0f434",
       "release_sha256": "552931d131e9f7cba9bc5b40bf7fd1928c1d4f8aad0793fe1be1f43dc4b3e100",
@@ -1371,9 +1379,9 @@
     },
     {
       "path": "tools/qa_review_plan.py",
-      "source_sha256": "24a42d9f9ebd4725c51dc20149800fc1844da057f7e228c0708c4abbdddaded4",
-      "release_sha256": "f0b183a6d287e7e06b8db26c45f3fa8925e5d66c1058ffe6b052190e0140e309",
-      "bytes": 543900
+      "source_sha256": "994c77e3babd531d6080904053cef320c01e0e715d6dacbbdc3b95f20a9670e4",
+      "release_sha256": "5dfaeca54eaf9be4a23283646f90f2a26bb51b72c0bfb086fb71bf613d740a99",
+      "bytes": 568924
     },
     {
       "path": "tools/result_coordination.py",
@@ -1541,13 +1549,17 @@
       "path": "tools/test_department_system_distribution.py",
       "source_sha256": "92dbc483ca4c652469b56542b7349d3ac832093645cae225a46caf6efcbff7af",
       "release_sha256": "92dbc483ca4c652469b56542b7349d3ac832093645cae225a46caf6efcbff7af",
-      "bytes": 23488
+      "bytes": 23488,
+      "source_selection": "preserve_existing_portable_test",
+      "source_origin": "git:3d2f48cb8e49b55a0e18cac53624a45ac597fc19:tools/test_department_system_distribution.py"
     },
     {
       "path": "tools/test_direct_system_close.py",
       "source_sha256": "7b406c316546fe1d7bcb3e03afdff2b4162868d6bf70352119ca6189a39c9f26",
       "release_sha256": "7b406c316546fe1d7bcb3e03afdff2b4162868d6bf70352119ca6189a39c9f26",
-      "bytes": 19026
+      "bytes": 19026,
+      "source_selection": "preserve_existing_portable_test",
+      "source_origin": "git:3d2f48cb8e49b55a0e18cac53624a45ac597fc19:tools/test_direct_system_close.py"
     },
     {
       "path": "tools/test_direct_system_repair.py",
@@ -1557,9 +1569,9 @@
     },
     {
       "path": "tools/test_export_department_system.py",
-      "source_sha256": "20f09045aaf4bd6029442b703ecc4fcad3b907e6fac9d4d4c34cef177b3a068d",
-      "release_sha256": "16e31becd1ba23c4169b453c3ece5c958ed34d84bf742c0434168cd61883149b",
-      "bytes": 22045
+      "source_sha256": "fef862f120710b6b06aa4f13a9df1a19f5f34240bbfdad4757784d3024c610ed",
+      "release_sha256": "381e57b05f4e822114608af8ebdd03e12e9fd3422d77da5e546e58da88102139",
+      "bytes": 24192
     },
     {
       "path": "tools/test_export_numeric_privacy.py",
@@ -1571,13 +1583,15 @@
       "path": "tools/test_flashcast_ops.py",
       "source_sha256": "7beed943347c32f5e8e60182fd9c2f13f126bd5ef645a766f51285ed973fe455",
       "release_sha256": "7beed943347c32f5e8e60182fd9c2f13f126bd5ef645a766f51285ed973fe455",
-      "bytes": 58147
+      "bytes": 58147,
+      "source_selection": "preserve_existing_portable_test",
+      "source_origin": "git:3d2f48cb8e49b55a0e18cac53624a45ac597fc19:tools/test_flashcast_ops.py"
     },
     {
       "path": "tools/test_goal_authorization_precheck.py",
-      "source_sha256": "905d5a5a94a73c915e83a51db9117906918af2fb3b17d171b617da2a0db4a4ba",
-      "release_sha256": "48bb8ed2f9b2a1b9719ce2fe6589917080fce04a3dc8b08db954e5ecc750fef0",
-      "bytes": 14947
+      "source_sha256": "cb933ac58205a0ef7dd13508d099c52eb30eef1abb500192b9a370274aca8ff0",
+      "release_sha256": "cc0b9ed42f813f79577170ede6edf5aef0f3b802c8e9931fc31e4292fd8a605f",
+      "bytes": 14985
     },
     {
       "path": "tools/test_goal_completion_evidence.py",
@@ -1613,13 +1627,17 @@
       "path": "tools/test_goal_source_recovery.py",
       "source_sha256": "d010846331ce542d8b19fe65679daa7b2c5a481067e32aae35bda83c80340b9e",
       "release_sha256": "d010846331ce542d8b19fe65679daa7b2c5a481067e32aae35bda83c80340b9e",
-      "bytes": 67061
+      "bytes": 67061,
+      "source_selection": "preserve_existing_portable_test",
+      "source_origin": "git:3d2f48cb8e49b55a0e18cac53624a45ac597fc19:tools/test_goal_source_recovery.py"
     },
     {
       "path": "tools/test_goal_work_boundary.py",
       "source_sha256": "38ac6f61c3c60f9dd79bded0be1c25fc5d55c7863ce627f44774913ee58bfc35",
       "release_sha256": "38ac6f61c3c60f9dd79bded0be1c25fc5d55c7863ce627f44774913ee58bfc35",
-      "bytes": 9666
+      "bytes": 9666,
+      "source_selection": "preserve_existing_portable_test",
+      "source_origin": "git:3d2f48cb8e49b55a0e18cac53624a45ac597fc19:tools/test_goal_work_boundary.py"
     },
     {
       "path": "tools/test_managed_cms_permit_issuer.py",
@@ -1679,7 +1697,9 @@
       "path": "tools/test_paid_shared_windows.py",
       "source_sha256": "421aaa5299e4c3b5eb1e71bbb8d8703cd213a5582f76a0d14ada6f56faa03260",
       "release_sha256": "421aaa5299e4c3b5eb1e71bbb8d8703cd213a5582f76a0d14ada6f56faa03260",
-      "bytes": 3769
+      "bytes": 3769,
+      "source_selection": "preserve_existing_portable_test",
+      "source_origin": "git:3d2f48cb8e49b55a0e18cac53624a45ac597fc19:tools/test_paid_shared_windows.py"
     },
     {
       "path": "tools/test_paid_three_page_bounded_cms.py",
@@ -1745,7 +1765,9 @@
       "path": "tools/test_rotation_post_pass.py",
       "source_sha256": "fcead26ab2c5cb43aad2053aa2db8de59e5bdb6bd95f5a4fccfa0da8d1ddd6fa",
       "release_sha256": "fcead26ab2c5cb43aad2053aa2db8de59e5bdb6bd95f5a4fccfa0da8d1ddd6fa",
-      "bytes": 24001
+      "bytes": 24001,
+      "source_selection": "preserve_existing_portable_test",
+      "source_origin": "git:3d2f48cb8e49b55a0e18cac53624a45ac597fc19:tools/test_rotation_post_pass.py"
     },
     {
       "path": "tools/test_runtime_continuation.py",
@@ -1805,13 +1827,17 @@
       "path": "tools/test_worker_pure_health_compat.py",
       "source_sha256": "79946797f5c6e179e61664b5a437b202512c5080fbd0b7645682b96359f82070",
       "release_sha256": "79946797f5c6e179e61664b5a437b202512c5080fbd0b7645682b96359f82070",
-      "bytes": 4877
+      "bytes": 4877,
+      "source_selection": "preserve_existing_portable_test",
+      "source_origin": "git:3d2f48cb8e49b55a0e18cac53624a45ac597fc19:tools/test_worker_pure_health_compat.py"
     },
     {
       "path": "tools/test_workflow_control.py",
       "source_sha256": "2f98911e315881b45a4e0c5e8ed3d7bce81f8f230e9c7b82975a4b4622609689",
       "release_sha256": "2f98911e315881b45a4e0c5e8ed3d7bce81f8f230e9c7b82975a4b4622609689",
-      "bytes": 239548
+      "bytes": 239548,
+      "source_selection": "preserve_existing_portable_test",
+      "source_origin": "git:3d2f48cb8e49b55a0e18cac53624a45ac597fc19:tools/test_workflow_control.py"
     },
     {
       "path": "tools/validate_current_paid_preparation.py",
@@ -1827,9 +1853,9 @@
     },
     {
       "path": "tools/workflow_control.py",
-      "source_sha256": "0fd10b4bb848e3944f0ef6188dc56b80e6601ed27706cec8a74116a9c2ccaa94",
-      "release_sha256": "430b432f67763cf59806d223635f861b414a6832719aed42f60a47d9f5036df8",
-      "bytes": 526518
+      "source_sha256": "9ad0b24e16413eacbfa005c11923241685e2ff08d82c18ad8b15ef9218319b21",
+      "release_sha256": "31beb887bbe8ce3be6126497bb6626965c06927f927b8cf73cc5fed28cbf6655",
+      "bytes": 526552
     }
   ],
   "retired_roles": [
@@ -1846,5 +1872,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "e8a783a417fb4a2e781f592eb21b7525357e9bfe51c3b78839d1da6829bb79a7"
+  "fingerprint": "3fcfdb5235bc136033b8ac22a321607118ad074f035450f03570d429ddbe182e"
 }

@@ -314,7 +314,7 @@ def authorization_precheck(root, task_id, request):
         if target not in {*producers, goal["responsible_assistant"]} and not declarations and not exact_preapproved:
             changes = changes + ["new_department"]
         bindings = w.read_json(Path(root) / "data/department-registry.json").get("collaboration_bindings", {})
-        binding = (bindings.get(target, {}) if declarations or exact_preapproved
+        binding = (_collaboration_binding(root, snapshot, target) or {} if declarations or exact_preapproved
                    else registry.get(target, {}).get("chat_binding", {}))
         if request.get("target_project_id") and binding.get("project_id") != request["target_project_id"]:
             return outcome("authorization_change_required", changes, confirmation=True) if changes else outcome(
@@ -691,6 +691,7 @@ def approved_action(root, snapshot, requested):
     if len(rows) != 1 or not w.SHA256_PATTERN.fullmatch(str(requested.get("payload_sha256", ""))):
         return None
     row = rows[0]
+    _readonly_coordination_action(root, snapshot, row, "read")
     pin = row.get("payload")
     if (not isinstance(pin, dict) or w.file_digest(root, pin.get("path", "")) != pin
             or pin["sha256"] != requested["payload_sha256"]):
@@ -706,9 +707,23 @@ def approved_action(root, snapshot, requested):
     return row
 
 
+def _readonly_coordination_action(root, snapshot, action, phase):
+    if (snapshot.get("task_id") == "fc-20261021-brand-corrected-v4-site-production-stage-v1"
+            and action.get("target_department") == "publishing"):
+        from owner_nonpayment_coordination import validate_action
+        validate_action(root, snapshot, action, phase=phase)
+
+
+def _collaboration_binding(root, snapshot, role):
+    binding = w.read_json(Path(root) / "data/department-registry.json").get("collaboration_bindings", {}).get(role)
+    if not binding and snapshot.get("task_id") == "fc-20261021-brand-corrected-v4-site-production-stage-v1" and role == "publishing":
+        from owner_nonpayment_coordination import binding as readonly_binding
+        binding = readonly_binding(root, snapshot, role)
+    return binding
+
+
 def collaboration_route(root, snapshot, requested):
-    registry = w.read_json(Path(root) / "data/department-registry.json")
-    binding = registry.get("collaboration_bindings", {}).get(requested.get("target_department"))
+    binding = _collaboration_binding(root, snapshot, requested.get("target_department"))
     if not isinstance(binding, dict):
         return None
     reasons = []
@@ -740,6 +755,7 @@ def collaboration_route(root, snapshot, requested):
         if action is None:
             reasons.append("goal_collaboration_frozen_approved_message_required")
         else:
+            _readonly_coordination_action(root, snapshot, action, "policy")
             pin = goal.get('current_route_observations',{}).get(action['action_id']) or action.get("live_identity")
             if not isinstance(pin, dict) or w.file_digest(root, pin.get("path", "")) != pin:
                 raise w.WorkflowError("exact live proof required")
@@ -1266,6 +1282,7 @@ def record_approved_action(root, task_id, input_path):
         if not enabled(root, snapshot):
             raise w.WorkflowError("complete original goal required")
         goal = snapshot["goal_delivery"]
+        _readonly_coordination_action(root, snapshot, action, "bind")
         responsibility_initial = bool(action.get("goal_responsibility_dispatch"))
         parent_linked_initial = bool(action.get("parent_task_id"))
         if responsibility_initial:
@@ -1306,7 +1323,7 @@ def record_approved_action(root, task_id, input_path):
         if (not isinstance(pin, dict) or w.file_digest(root, pin.get("path", "")) != pin
                 or pin["sha256"] != action.get("payload_sha256")):
             raise w.WorkflowError("exact prepared approved message bytes required")
-        binding = (w.read_json(Path(root) / 'data/department-registry.json').get('collaboration_bindings', {}).get(action['target_department'], {})
+        binding = (_collaboration_binding(root, snapshot, action['target_department']) or {}
                    if declared and not batch_authorized else w.department_registry(root)[action["target_department"]].get("chat_binding", {}))
         mapping = {"target_thread_id": "thread_id" if declared and not batch_authorized else "task_id", "target_thread_title": "title", "target_cwd": "cwd",
                    "target_project_id": "project_id", "target_sidebar_section_id": "sidebar_section_id"}
@@ -1681,7 +1698,8 @@ def record_collaboration(root, task_id, input_path):
         action = [x for x in goal.get("approved_actions", []) if x.get("action_id") == record.get("action_id")]
         if len(action) != 1 or record.get("scope") != action[0].get("scope"):
             raise w.WorkflowError("one frozen approved parent collaboration action required")
-        binding = w.read_json(Path(root) / "data/department-registry.json").get("collaboration_bindings", {}).get(action[0].get("target_department"), {})
+        _readonly_coordination_action(root, snapshot, action[0], "read")
+        binding = _collaboration_binding(root, snapshot, action[0].get("target_department")) or {}
         if (record.get("tool") != "mcp__codex_app__send_message_to_thread" or not record.get("native_receipt_ref")
                 or record.get("status") not in {"sent", "result_received"}
                 or record.get("target_thread_id") != binding.get("thread_id")
@@ -2606,7 +2624,7 @@ def main():
     change = sub.add_parser("transfer"); change.add_argument("--input", required=True)
     recover = sub.add_parser("transfer-recover"); recover.add_argument("--input", required=True)
     inbox = sub.add_parser("pending"); inbox.add_argument("--role", required=True)
-    for name in ("preflight-record", "collaboration-record", "dependency-record", "approved-action-record"):
+    for name in ("preflight-record", "collaboration-record", "dependency-record", "approved-action-record", "coordination-decision-register"):
         command = sub.add_parser(name); command.add_argument("--task-id", required=True); command.add_argument("--input", required=True)
     bind = sub.add_parser("bind"); bind.add_argument("--task-id", required=True); bind.add_argument("--input", required=True)
     auth = sub.add_parser("authorization-precheck")
@@ -2635,6 +2653,9 @@ def main():
         elif args.command == "collaboration-record": result = record_collaboration(root, args.task_id, args.input)
         elif args.command == "dependency-record": result = record_dependency(root, args.task_id, args.input)
         elif args.command == "approved-action-record": result = record_approved_action(root, args.task_id, args.input)
+        elif args.command == "coordination-decision-register":
+            from owner_nonpayment_coordination import register
+            result = register(root, args.task_id, args.input)
         elif args.command == "bind": result = bind_goal(root, args.task_id, w.read_json(w.safe_path(root, args.input)))
         elif args.command == "authorization-precheck":
             result = authorization_precheck(root, args.task_id, w.read_json(w.safe_path(root, args.input)))
