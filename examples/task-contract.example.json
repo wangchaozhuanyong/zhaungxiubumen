@@ -86,12 +86,12 @@
         "current_status",
         "artifact_type",
         "artifact_path",
-        "assistant_handoff_status"
+        "professional_handoff_status"
       ],
       "rules": [
         "previous_status_must_differ_from_current_status",
         "artifact_path_must_exist_and_be_nonempty",
-        "assistant_handoff_status_must_equal_ready_for_assistant_acceptance"
+        "professional_handoff_status_must_equal_ready_for_operations_intake"
       ],
       "inspection_only_can_complete": false,
       "measurement_required": [
@@ -709,7 +709,7 @@
     },
     "new_results_before_maintenance": true,
     "department_source": "registered active professional roles; QA1/QA2 excluded from new daily dispatch",
-    "responsible_assistant_decision_required_for_routine_continuation": true,
+    "responsible_assistant_decision_required_for_routine_continuation": false,
     "check_findings_require_disposition": true
   },
   "goal_delivery_runtime": {
@@ -751,12 +751,10 @@
     "human_authorization_is_permission_expansion": false,
     "single_acceptance_owner": false,
     "producer_self_review_allowed": true,
-    "cross_assistant_transfer_requires_same_capability": true,
     "HQ_second_review_required": false,
     "fixed_qa_new_dispatch_enabled": false,
     "states": [
       "executing",
-      "awaiting_assistant_acceptance",
       "reworking",
       "completed_scope",
       "next_task_dispatched",
@@ -766,12 +764,6 @@
     "parent_completion": "all_exact_completion_criteria_have_actual_evidence; child_delivery_or_review_pass_never_closes_parent",
     "adoption_and_native_pilot_required_for_system_completion": true,
     "legacy_without_goal_delivery": "readable_using_original_consumers; no_fabricated_new_goal_receipts",
-    "authority": {
-      "source_thread_id": "example-native-0d0689f4e3a4c895",
-      "message_id": "example-native-9cd231a5daaebe45",
-      "evidence_path": "<PROJECT_ROOT>/logs/handoffs/2026-10-10-goal-delivery-assistant-runtime-v1/developer/human-authority.json"
-    },
-    "assistant_capabilities_source": "data/department-registry.json:coordination_authority.review_capabilities",
     "new_goal_completion_fields": [
       "completion_kind",
       "completion_requirements"
@@ -790,12 +782,12 @@
     "whole_goal_continuity": {
       "enabled": true,
       "module": "tools/goal_continuity.py",
-      "ordinary_execution": "authorized_self_check_then_execute_accept_after_complete_batch",
+      "ordinary_execution": "authorized_professional_selfcheck_execute_readback_report_HQ",
       "result_sources": [
         "delivery_ready",
         "completed_turn"
       ],
-      "ordinary_review_selection": "idle_qualified",
+      "ordinary_review_selection": "none",
       "fixed_future_review_time_required": false,
       "busy_notice_is_actionable": false,
       "current_assignment_schema": "goal-current-assignment/v2",
@@ -841,7 +833,7 @@
         "full_goal_assistant_PASS_before_Save": false,
         "original_authority_and_exact_registered_target_required": true,
         "selfcheck_candidate_backup_CAS_protected_preview_single_use_required": true,
-        "final_independent_assistant_acceptance": "after_actual_Save_version_readback_and_public_proof"
+        "final_independent_assistant_acceptance": "not_required_current_mode; original authorized executor selfcheck and actual effect required"
       }
     },
     "rule_execution": {
@@ -857,7 +849,17 @@
     "assistant_assignment_required": false,
     "QA_required": false,
     "ordinary_result_receiver": "operations",
-    "legacy_assistant_contracts": "read_only_original_contracts_and_effects; no new dispatch or approvals"
+    "legacy_assistant_contracts": "read_only_original_contracts_and_effects; no new dispatch or approvals",
+    "historical_assistant_configuration": {
+      "cross_assistant_transfer_requires_same_capability": true,
+      "authority": {
+        "source_thread_id": "example-native-0d0689f4e3a4c895",
+        "message_id": "example-native-9cd231a5daaebe45",
+        "evidence_path": "<PROJECT_ROOT>/logs/handoffs/2026-10-10-goal-delivery-assistant-runtime-v1/developer/human-authority.json"
+      },
+      "assistant_capabilities_source": "data/department-registry.json:coordination_authority.review_capabilities",
+      "current_execution_enabled": false
+    }
   },
   "legacy_task_model_compatibility": {
     "mode": "goal_delivery_assistant_v1",

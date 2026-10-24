@@ -552,8 +552,8 @@
     {
       "path": "examples/action-policy.example.json",
       "source_sha256": null,
-      "release_sha256": "a6c49de6f2239d075c7420662fd5f78c05ebf05090de275a25031507ba10f60e",
-      "bytes": 11923
+      "release_sha256": "3ebff5e662125826eb9da95fc802b2ba7fe1a584b20631b166715f50ff9f9af7",
+      "bytes": 12639
     },
     {
       "path": "examples/agent-role-policy.example.json",
@@ -648,8 +648,8 @@
     {
       "path": "examples/task-contract.example.json",
       "source_sha256": null,
-      "release_sha256": "0c31c095aaa0c98f807c42d475b9233769db9d91d57744d111cf934c8ee2b3ef",
-      "bytes": 37546
+      "release_sha256": "ad7af48a901107d782b009983d12893b87b59c0d59183a88bbda59b9dd44d356",
+      "bytes": 37646
     },
     {
       "path": "playbooks/CROSS_PROJECT_ROUTING_RECOVERY.md",
@@ -1001,15 +1001,15 @@
     },
     {
       "path": "tools/department_autonomy.py",
-      "source_sha256": "744e8953ffab65ddd9b730cada4916dce6e33933f8bf0919e12a872cd21c6d0e",
-      "release_sha256": "a5023c53d969a6f9157d34d30eea7590049f1abd14ff32c0fcd7d4fc48a35a0c",
-      "bytes": 67915
+      "source_sha256": "fdf37b4d679c9e525317d44120603d77dcb2bff42c0809767755fdd9b033d2ab",
+      "release_sha256": "4ae0c2befb721251441e3b4d502fc446057ab2ef90fede7fa9795f7dd04e329f",
+      "bytes": 69034
     },
     {
       "path": "tools/department_event_dispatcher.py",
-      "source_sha256": "f0cf4f40cd54f74aff9b45da66823d7c5b4615dadef85557f3fe349767c57193",
-      "release_sha256": "f0cf4f40cd54f74aff9b45da66823d7c5b4615dadef85557f3fe349767c57193",
-      "bytes": 104234
+      "source_sha256": "5efcac5c5e77290d8d32aa9390491fa9abac6d9d40f2a62df4e0089437ad2dbb",
+      "release_sha256": "5efcac5c5e77290d8d32aa9390491fa9abac6d9d40f2a62df4e0089437ad2dbb",
+      "bytes": 106622
     },
     {
       "path": "tools/department_next_work.py",
@@ -1055,9 +1055,9 @@
     },
     {
       "path": "tools/flashcast_ops.py",
-      "source_sha256": "d529bf96a2a8ea2e33c3306b354529d141dc6d5161593b3d69486f902149574d",
-      "release_sha256": "873a970714a0d51b886dec91181986de4ed1ed074a87d312c120731a725cdc45",
-      "bytes": 222588
+      "source_sha256": "89066723be1e058afa6d5f4989ba235e1e57ca080cf3f2fdd4360208123521c5",
+      "release_sha256": "59191e3e03f9c77e36839e84532420269bddee33fd30663d500ba7eaad76b0f7",
+      "bytes": 226571
     },
     {
       "path": "tools/goal_continuity.py",
@@ -1709,9 +1709,9 @@
     },
     {
       "path": "tools/workflow_control.py",
-      "source_sha256": "f449c6531a05d698ad888f6b357d712927d274e5bfec071527e11ea1e17783ea",
-      "release_sha256": "55dfdd7c64c9b68d4875d05b9e15a9b9c23c473bb63a1aa11aae17e5aa0b6b5d",
-      "bytes": 592253
+      "source_sha256": "d849122845602a98869878e071cec225da00bae357159563ae796df016d9cf2a",
+      "release_sha256": "871130686d9ee085d3241a310ea6aac3812d880f58f32198c83eb58377f8666a",
+      "bytes": 592516
     }
   ],
   "retired_roles": [
@@ -1727,5 +1727,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "6027ada91e2c596d66a854c0634173cec17a22d3fd31cf939de4562c449a0b96"
+  "fingerprint": "a3ab082c16074f7db21b228df55235b117cf6ce381032b0a6e86e49df1a7cc26"
 }

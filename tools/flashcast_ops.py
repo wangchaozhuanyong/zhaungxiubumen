@@ -3183,6 +3183,47 @@ def chat_binding_is_stale(binding: dict[str, Any], verification_ttl_hours: int) 
     )
 
 
+def refresh_department_health(root, department, native_pin, *, check_only=False, only_if_stale=False):
+    """Revalidate real final bytes and original time; never turn old replies into now."""
+    from goal_delivery_runtime import _native_document
+    rows = read_json(root / "data/department-registry.json").get("departments", [])
+    role = next((row for row in rows if row.get("id") == department), None)
+    if not role or role.get("new_dispatch_enabled") is not True or not (role.get("mode") in {"worker", "coordinator"} or department == "operations" and role.get("mode") == "controller"):
+        raise OpsError("health refresh requires a current active professional/HQ; standby and retired roles excluded")
+    binding = role["chat_binding"]
+    if only_if_stale and workflow._chat_binding_healthy(binding, verification_ttl_hours=26):
+        return {"status": "current_health_preserved", "department": department}
+    page = _native_document(root, native_pin)
+    finals = [(turn, message) for turn in page.get("turns", [])
+              if turn.get("status") == "completed" and not turn.get("error")
+              for message in turn.get("items", [])
+              if message.get("type") == "agentMessage" and message.get("phase") in {"final_answer", "final"}]
+    if not finals:
+        raise OpsError("actual successful nonempty completed reply required; notLoaded alone is not health")
+    def completed_time(pair):
+        value = pair[0].get("completedAt")
+        return dt.datetime.fromtimestamp(value, dt.timezone.utc) if type(value) in {int, float} else workflow._parse_observed_at(value) or dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+    turn, message = max(finals, key=completed_time)
+    stamp = turn.get("completedAt")
+    observed = dt.datetime.fromtimestamp(stamp, dt.timezone.utc) if type(stamp) in {int, float} else workflow._parse_observed_at(stamp)
+    text = message.get("text", "")
+    if observed is None or not isinstance(text, str) or not text.strip():
+        raise OpsError("complete original reply time and nonempty UTF8 required")
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    proof = workflow.validate_health_reply(root, department=department, native_pin=native_pin,
+        reply_ref=message["id"], reply_sha256=digest, reply_observed_at=observed.isoformat())
+    ttl = int(read_json(root / "data/department-registry.json").get("health_policy", {}).get("verification_ttl_hours", 26))
+    if not dt.timedelta(0) <= dt.datetime.now(dt.timezone.utc) - observed <= dt.timedelta(hours=ttl):
+        raise OpsError("actual reply expired; obtain one real authorized reply, never extend its timestamp")
+    if check_only:
+        return {"status": "actual_health_reply_verified", "department": department, **proof}
+    args = argparse.Namespace(department=department, **{k:binding[k] for k in ("task_id", "project_id", "cwd", "title", "sidebar_section_id")},
+        reply_ref=message["id"], reply_sha256=digest, reply_nonempty=True, reply_observed_at=observed.isoformat(),
+        native_reply_evidence=native_pin["path"], live_status=page.get("thread", {}).get("status", {}).get("type", "unknown"),
+        last_run_status="success", failure_class="", next_retry_at="")
+    return department_health_record(root, args)[0]
+
+
 def department_health_record(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any], list[Path]]:
     """Record a live fixed-thread health observation without storing chat text."""
 
@@ -3281,6 +3322,8 @@ def department_health_record(root: Path, args: argparse.Namespace) -> tuple[dict
             and current_binding.get("last_run_status") == run_status
             and current_binding.get("failure_class", "") == event["failure_class"]
             and current_binding.get("last_reply_sha256", "") == reply_sha256
+            and current_binding.get("last_verified_at") == reply_observed_at
+            and workflow._chat_binding_healthy(current_binding, verification_ttl_hours=0)
         )
         if same_observation:
             return {"status": "department_health_unchanged", "department": department,
@@ -4455,6 +4498,13 @@ def build_parser() -> argparse.ArgumentParser:
     health_parser.add_argument("--failure-class", default="")
     health_parser.add_argument("--next-retry-at", default="")
     health_parser.set_defaults(handler=lambda root, args: department_health_record(root, args))
+
+    refresh = sub.add_parser("department-health-refresh", help="核验真实原生完成回复并按原时间恢复健康登记")
+    refresh.add_argument("--department", required=True)
+    refresh.add_argument("--native", required=True, help="本项目真实第一方read_thread JSON")
+    refresh.add_argument("--check-only", action="store_true")
+    refresh.set_defaults(handler=lambda root, args: (refresh_department_health(root, args.department,
+        workflow.file_digest(root, args.native), check_only=args.check_only), []))
 
     reply_parser = sub.add_parser("department-reply-check", help="只读核对固定窗口最新轮次原始回复；只输出哈希和身份")
     reply_parser.add_argument("--department", required=True)

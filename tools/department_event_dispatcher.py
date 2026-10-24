@@ -275,7 +275,7 @@ def install_login(root):
             'bootstrap_error':result.stderr.strip(),'status':status,
             'launchd_loaded_proven':status['login_autostart_enabled'],'activation_proven':actual_ready,
             'owned_process_ready':actual_ready,'service':service,
-            'next_owner':None if actual_ready else ('operations-assistant-2' if status['login_autostart_enabled']
+            'next_owner':None if actual_ready else ('system-development' if status['login_autostart_enabled']
                 else 'current macOS user / platform service custodian'),
             'unblock_action':None if actual_ready else ('Read login-status after the exact owned service-ready event; do not reinstall or duplicate the service'
                 if status['login_autostart_enabled'] else
@@ -340,8 +340,31 @@ def _owned_service_status(root):
     return {'running': running, 'pid': pid, 'actual_process': observed.stdout.strip()}
 
 
+def service_source_hashes(root):
+    names = ("department_event_dispatcher", "result_coordination", "workflow_control",
+             "readonly_work_view_cache", "department_autonomy", "goal_continuity", "goal_source_recovery",
+             "flashcast_ops", "goal_delivery_runtime", "department_rotation")
+    return {"tools/" + name + ".py": hashlib.sha256((root / "tools" / (name + ".py")).read_bytes()).hexdigest()
+            for name in names}
+
+
 def background_status(root):
-    return {**_owned_service_status(root),
+    owned = _owned_service_status(root)
+    try:
+        ready = json.loads((root / STATE / 'service-ready.json').read_text())
+    except (OSError, ValueError):
+        ready = {}
+    current = bool(owned['running'] and ready.get('pid') == owned.get('pid')
+                   and ready.get('uid') == os.getuid() and ready.get('project_root') == str(root)
+                   and ready.get('loaded_sources') == service_source_hashes(root))
+    try:
+        scan = json.loads((root / STATE / 'service-scan-readback.json').read_text())
+    except (OSError, ValueError):
+        scan = {}
+    scanned = bool(current and scan.get('pid') == owned.get('pid') and scan.get('uid') == os.getuid()
+                   and scan.get('project_root') == str(root) and scan.get('loaded_sources') == service_source_hashes(root))
+    return {**owned, 'current_source_ready':current, 'current_scan_completed':scanned,
+            'last_completed_scan_at':scan.get('scan_completed_at') if scanned else None,
             'login_autostart_enabled':login_status(root)['login_autostart_enabled']}
 
 
@@ -1730,15 +1753,19 @@ def main():
                     (ROOT/STATE/'service-ready.json').write_text(json.dumps({'pid':os.getpid(),'uid':os.getuid(),
                         'project_root':str(ROOT),'native_transport_ready':isinstance(transport,OfficialQueueTransport),
                         'native_readonly_child_pid':rpc.proc.pid if rpc else None,
-                        'ready_at':now()},sort_keys=True)+'\n')
+                        'loaded_sources':service_source_hashes(ROOT),'ready_at':now()},sort_keys=True)+'\n')
                 registry_version=(ROOT/'data/department-registry.json').stat().st_mtime_ns
-                code_sources={p:hashlib.sha256(p.read_bytes()).hexdigest() for p in [
-                    ROOT/'tools/department_event_dispatcher.py',ROOT/'tools/result_coordination.py',
-                    ROOT/'tools/workflow_control.py',ROOT/'tools/readonly_work_view_cache.py'] if p.is_file()}
+                code_sources=service_source_hashes(ROOT)
                 deadline_only = None
                 while True:
-                    if any(hashlib.sha256(p.read_bytes()).hexdigest()!=digest for p,digest in code_sources.items()):
-                        raise DispatchError('adopted source changed; restart this owned service with retained transport IDs')
+                    if service_source_hashes(ROOT)!=code_sources:
+                        # Same owned entry, same durable transport store. exec closes
+                        # non-inheritable locks/DBs and reloads adopted code, not a new runtime.
+                        (ROOT/STATE/'source-restart-request.json').write_text(json.dumps({
+                            'pid':os.getpid(),'uid':os.getuid(),'project_root':str(ROOT),
+                            'before':code_sources,'after':service_source_hashes(ROOT),'at':now(),
+                            'transport_ids_retained':True})+'\n')
+                        os.execv(sys.executable,[sys.executable,'-u','-B',str(ROOT/'tools/department_event_dispatcher.py'),'serve-queue'])
                     changed=(ROOT/'data/department-registry.json').stat().st_mtime_ns
                     if watcher and changed!=registry_version:
                         attach_completion_events(watcher,transport,store);registry_version=changed
@@ -1756,6 +1783,14 @@ def main():
                                        else 'verified_shared_transport' if transport else 'observer_only',
                                'wakeups': [{k:row[k] for k in ['event_key','target','state','turn_id','native_message_id']}
                                            for row in store.rows()]}
+                    if args.command == 'serve-queue':
+                        # One compact owned readback, including unchanged scans;
+                        # no business receipt, second ledger or periodic polling.
+                        (ROOT/STATE/'service-scan-readback.json').write_text(json.dumps({
+                            'pid':os.getpid(),'uid':os.getuid(),'project_root':str(ROOT),
+                            'loaded_sources':code_sources,'scan_completed_at':now(),
+                            'enrolled_results_found':len(valid),'isolated_source_error_count':len(errors),
+                            'transport_rows':len(store.rows()),'transport_ids_retained':True},sort_keys=True)+'\n')
                     if store.changed_summary(summary):
                         print(json.dumps({'observed_at':now(),**summary}),flush=True)
                     if watcher is None:

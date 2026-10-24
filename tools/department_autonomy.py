@@ -23,7 +23,9 @@ PUBLIC_TEMPLATE_ONLY = True
 
 def authority(root):
  require(not PUBLIC_TEMPLATE_ONLY,'public template has no local native owner authorization')
- raw=document(root,OWNER);registry=w.department_registry(root);hq=registry['operations']['chat_binding']
+ # Mode authority is current live configuration, never a historical validation projection.
+ raw=document(root,OWNER);registry=w.read_json(Path(root)/'data/department-registry.json')
+ hq=next(x for x in registry['departments']if x['id']=='operations')['chat_binding']
  require(raw.get('thread',{}).get('id')==hq.get('task_id') and hq.get('project_id')==PROJECT
   and Path(raw['thread'].get('cwd','')).resolve()==Path(root).resolve()==Path(hq['cwd']).resolve(), 'actual fixed same-project owner source required')
  turns=[t for t in raw.get('turns',[])if t.get('id')==OWNER_TURN]
@@ -86,6 +88,10 @@ def message_route(root,snapshot,request):
  return {**auth,'source':payload,'report':obj['report'],'scope':request['scope'],'sender_department':sender,'target_department':target}
 
 def message_policy(root,request):
+ # A fresh real final can repair a stale health cache before the normal gate.
+ from flashcast_ops import refresh_department_health
+ for key,role in (('actual_sender_state',request.get('sender_department')),('actual_target_state',request.get('target_department'))):
+  if request.get(key):refresh_department_health(root,role,request[key],only_if_stale=True)
  route=message_route(root,w.read_json(w.snapshot_path(root,request['task_id'])),request)
  require(route is not None,'authenticated task message required')
  from goal_delivery_runtime import _collaboration_native
@@ -456,7 +462,11 @@ def policy(root,requested):
  if not autonomous_goal(snapshot.get('goal_delivery')):return None
  if requested['action_class']not in w.EXTERNAL_ACTION_CLASSES:return None
  require(not requested.get('approval_id')and not requested.get('target_project_id')and not requested.get('target_department'), 'ordinary exact task execution, not a borrowed permit or cross-project route')
- context=action_authority(root,snapshot,requested);role=context['department'];binding=w.department_registry(root)[role]['chat_binding']
+ context=action_authority(root,snapshot,requested);role=context['department']
+ if requested.get('actual_executor_state'):
+  from flashcast_ops import refresh_department_health
+  refresh_department_health(root,role,requested['actual_executor_state'],only_if_stale=True)
+ binding=w.department_registry(root)[role]['chat_binding']
  require(binding.get('project_id')==PROJECT and Path(binding.get('cwd','')).resolve()==Path(root).resolve()
   and w._chat_binding_healthy(binding,verification_ttl_hours=26),'current professional executor identity/health required')
  request=context['request'];observed=w._parse_observed_at(request.get('observed_at'))
@@ -654,7 +664,11 @@ def work_boundary(root,role,assignment=None,read_assignment=True):
   if path.is_symlink():continue
   record=w.read_json(path);identity=record.get('identity',{});target=record.get('route',{}).get('target_department')
   if role not in {identity.get('sender_department'),target}:continue
-  if target in ASSISTANTS:continue
+  if target in ASSISTANTS or identity.get('sender_department')in ASSISTANTS:
+   historical.append({**identity,'kind':'historical_assistant_transport','target_department':target,
+    'source':w.file_digest(root,w.rel_path(root,path)),'delivery_state':record.get('native_queue_transport',{}).get('state'),
+    'not_current_work':True,'new_dispatch_allowed':False,'receipt_status':'read original committed ledger; not inferred here'})
+   continue
   try:
    import result_coordination as rc
    intake=rc.received_notification(root,record)

@@ -2139,7 +2139,9 @@ def validate_content_growth_daily_output(root: Path, outbox: dict[str, Any]) -> 
     from goal_delivery_runtime import enabled as goal_enabled
     snapshot = read_json(snapshot_path(root, str(outbox.get("task_id") or "")))
     modern = goal_enabled(root, snapshot)
-    handoff_field = "assistant_handoff_status" if modern else "qa_handoff_status"
+    from department_autonomy import autonomous_goal
+    autonomous = autonomous_goal(snapshot.get("goal_delivery"))
+    handoff_field = "professional_handoff_status" if autonomous else "assistant_handoff_status" if modern else "qa_handoff_status"
     matrix = outbox.get("promotion_gap_matrix")
     if not isinstance(matrix, dict):
         raise WorkflowError("内容增长日报 completed 必须包含 promotion_gap_matrix")
@@ -2165,9 +2167,9 @@ def validate_content_growth_daily_output(root: Path, outbox: dict[str, Any]) -> 
         raise WorkflowError("growth_delivery 缺少非空字段：" + ", ".join(missing))
     if str(delivery["previous_status"]).strip() == str(delivery["current_status"]).strip():
         raise WorkflowError("内容增长日报不能只检查：growth_delivery 状态必须真实推进")
-    expected_status = "ready_for_assistant_acceptance" if modern else "ready_for_qa"
+    expected_status = "ready_for_operations_intake" if autonomous else "ready_for_assistant_acceptance" if modern else "ready_for_qa"
     if str(delivery[handoff_field]).strip() != expected_status:
-        raise WorkflowError("内容增长日报 completed 必须把增长资产交到 ready_for_qa")
+        raise WorkflowError("内容增长日报 completed 的真实交接状态与当前模式不匹配")
 
     artifact_value = str(delivery["artifact_path"]).strip()
     artifact_path = safe_path(root, artifact_value)
@@ -2181,9 +2183,9 @@ def validate_content_growth_daily_output(root: Path, outbox: dict[str, Any]) -> 
     receiver = ""
     if isinstance(handoff, dict):
         receiver = str(handoff.get("receiver") or handoff.get("to") or "").strip()
-    expected_receiver = snapshot["goal_delivery"]["responsible_assistant"] if modern else "qa"
+    expected_receiver = "operations" if autonomous else snapshot["goal_delivery"]["responsible_assistant"] if modern else "qa"
     if receiver != expected_receiver:
-        raise WorkflowError("内容增长日报 completed 必须明确交接给 qa")
+        raise WorkflowError("内容增长日报 completed 的接收者与当前模式不匹配")
 
 
 def effective_approvals(root: Path) -> dict[str, dict[str, Any]]:
