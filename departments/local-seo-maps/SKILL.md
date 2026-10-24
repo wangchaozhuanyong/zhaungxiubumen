@@ -25,7 +25,7 @@ description: FLASH CAST 地图、本地实体、地区需求及真实信任资�
 
 不做广告投放，不增加费用、不联系客户、发送评价邀请或外联，不改账号权限。真实案例、照片权利、营业时间和接待政策由公司保管人及视觉/销售提供；本部门不编造。未实测排名写NOT_MEASURED，平台Saved/Pending/Accepted/公开状态分别报告，不保证排名。
 
-产物归drafts/seo/<task_id>/local-seo-maps/、reports/、logs/department-outbox/。先在固定聊天说明实际工作和限制，再写V2 outbox/report，校验必填字段及学习状态后记录学习。注明结论、依据、动作、owner、优先级、风险、下一步。SEO/GEO与内容线结果由唯一未参与制作的原专业主负责人1独立验收并作已授权常规接续；总部确定完整目标和重大方向，不恢复QA1/QA2新派工或逐段总部审批。本部门不跨窗口派工或自验收。
+产物归drafts/seo/<task_id>/local-seo-maps/、reports/、logs/department-outbox/。先在固定聊天说明实际工作和限制，再写V2 outbox/report，校验必填字段及学习状态后记录学习。注明结论、依据、动作、owner、优先级、风险、下一步。SEO/GEO与内容线结果由本部门自检、读回效果并直报HQ，协作成果归原专业主负责人继续；总部确定完整目标和重大方向，不恢复QA1/QA2新派工或逐段总部审批。本部门按原任务自行自检与效果读回，不替其他专业部门执行或扩大授权；跨专业协作由HQ协调。
 
 运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department local-seo-maps --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。
 

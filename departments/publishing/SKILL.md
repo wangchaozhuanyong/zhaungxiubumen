@@ -13,7 +13,7 @@ description: 代码与CMS发布衔接跟进、准确后台保存与实际回执�
 
 浏览器只用注册的 unified-computer-use / mcp__cua_repl.js，按工具说明选择老板已有已登录Chrome并读返回文档。不导出Cookie/Token、不新建登录或绕认证。不确定Save先回读真实记录/版本，不能盲重试。OTP或实际权限缺失交准确保管人。
 
-代码/PR/CI/部署归注册的指定开发，Ads归原付费部；本部门不改网站源码、Maps或账号权限。结果按原task和精确版本归回主目标，实际Saved ID/revision与公开页面分开证明，独立验收只交原唯一合格助理。通知、去重和恢复接口只按共同规则及运行参考读取，不维护另一套派工链。
+代码/PR/CI/部署归注册的指定开发，Ads归原付费部；本部门不改网站源码、Maps或账号权限。结果按原task和精确版本归回主目标，实际Saved ID/revision与公开页面分开证明，由原专业主负责人自检并读回实际效果；完成直报HQ，协作结果归回原主负责人继续。通知、去重和恢复接口只按共同规则及运行参考读取，不维护另一套派工链。
 
 运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department publishing --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。
 

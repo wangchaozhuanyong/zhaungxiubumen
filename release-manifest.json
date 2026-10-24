@@ -147,9 +147,9 @@
     },
     {
       "path": "departments/local-seo-maps/SKILL.md",
-      "source_sha256": "1437e430de8a9e0790672a1d5280f89f0ca291123b6d266f75c7406fcbca3b5f",
-      "release_sha256": "466472628695d06ed3a465366e9750bd0ff0ab74dcc80f424622597cb9e2c031",
-      "bytes": 3802
+      "source_sha256": "fcaa4dd0f3fec4f85de0aaf973557fd52294aa0d7753d3e0c41bb73af0af4e2e",
+      "release_sha256": "ec2f2b1d718826847be55ccf66825e5a72ced73c97c9884f43039043c5878ab1",
+      "bytes": 3889
     },
     {
       "path": "departments/operations-assistant/README.md",
@@ -213,9 +213,9 @@
     },
     {
       "path": "departments/publishing/SKILL.md",
-      "source_sha256": "c725adb6e830b92b45b94741b111e738adba85cd4007796ba3f3290810cabe00",
-      "release_sha256": "c725adb6e830b92b45b94741b111e738adba85cd4007796ba3f3290810cabe00",
-      "bytes": 2484
+      "source_sha256": "a3b19f129a39465ae5344209b2d6cbfa0cd2d85e0192a5a63f1ddc72d81510c7",
+      "release_sha256": "a3b19f129a39465ae5344209b2d6cbfa0cd2d85e0192a5a63f1ddc72d81510c7",
+      "bytes": 2555
     },
     {
       "path": "departments/publishing/agent.toml",
@@ -249,9 +249,9 @@
     },
     {
       "path": "departments/seo-content-research/SKILL.md",
-      "source_sha256": "e6ce9dce726c98302ff2234e85fc415aaab3b7675b0e9e5af4f94dffb08b3ebe",
-      "release_sha256": "a98ee082e1c1f8215869fd62e37e19a3f687d07ee7546e3b95e7a548c226e1bf",
-      "bytes": 4798
+      "source_sha256": "1bac28c10f4bdd75b4b530af5149c12befbc9b7344be85e28ddf6655031ad509",
+      "release_sha256": "66256184f66e56a1100568d0b8f314ddf4b8aeb5bf16e8ec3bae4e87933ca81e",
+      "bytes": 4786
     },
     {
       "path": "departments/system-development/README.md",
@@ -1727,5 +1727,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "8abed70e124816c3999de983eaed85ed458197d5bed7bb79a5a24408acf1f71e"
+  "fingerprint": "e2d24c0993ca6a994cc012b95e1f5da806c8fbf83e1d9b97ce3f0d38293bd0fa"
 }
