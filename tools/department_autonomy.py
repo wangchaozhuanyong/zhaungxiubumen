@@ -43,6 +43,118 @@ def participant(root,snapshot,sender,allow_completed_report=False):
  require(sender not in ASSISTANTS and sender in {'operations',g.get('primary_owner'),*g.get('producer_departments',[])}, 'actual original professional participant required')
  return g
 
+RUNTIME_HEALTH_REQUEST_TEXT='本原系统恢复目标的只读健康维护协作：核对本固定角色/项目/目录，运行上列既有只读有效视图一次，非空回复本task_id、action_id、实际输出路径和原工作边界或准确依赖。只在本聊天回复，不注册新业务任务，不改当前/暂停指派，不重做业务成果，不向助理派工，不执行CMS/Ads/账号/费用/部署。'
+
+def _runtime_health_packet(root, snapshot, request, packet, payload):
+ """Original SYS maintenance, never a new business producer or execution grant."""
+ auth=authority(root);goal=participant(root,snapshot,request.get('sender_department'))
+ frozen=document(root,snapshot['goal_contract']);target=request.get('target_department')
+ require(request.get('sender_department')==goal.get('primary_owner')=='system-development'
+  and target!='system-development'and professional(root,target)
+  and all(goal.get(k)==frozen.get(k)for k in ('primary_owner','producer_departments','authorized_scope','authorization_pin')),
+  'original frozen SYS responsibility and current professional health target required')
+ registry=w.department_registry(root);source=registry['system-development']['chat_binding'];dest=registry[target]['chat_binding']
+ expected={'schema':'department-runtime-health-request/v1','task_id':snapshot['task_id'],
+  'scope':request.get('scope'),'action_id':request.get('action_id'),'sender_department':'system-development',
+  'target_department':target,'target_thread_id':dest['task_id'],'project_id':PROJECT,'cwd':str(Path(root).resolve()),
+  'goal_contract':snapshot['goal_contract'],'owner_authorization':OWNER,
+  'read_only_entry':['python3','tools/flashcast_ops.py','department-learning-effective','--department',target,'--phase','resume'],
+  'request':RUNTIME_HEALTH_REQUEST_TEXT}
+ require(request.get('action_class')=='thread_message'and packet==expected and request.get('task_id')==snapshot['task_id']
+  and request.get('scope')in goal['authorized_scope'] and request.get('action_id')
+  and request.get('payload_sha256')==payload['sha256'] and request.get('assignment_record_required')is False,
+  'exact read-only maintenance packet/task/scope/source required; no business or caller flags')
+ require(source.get('project_id')==dest.get('project_id')==request.get('source_project_id')==request.get('target_project_id')==PROJECT
+  and Path(source.get('cwd','')).resolve()==Path(root).resolve()==Path(dest.get('cwd','')).resolve()
+  and all(request.get(k)==dest.get(v)for k,v in {'target_thread_id':'task_id','target_thread_title':'title','target_cwd':'cwd','target_sidebar_section_id':'sidebar_section_id'}.items())
+  and w._chat_binding_healthy(source,verification_ttl_hours=26)and w._chat_binding_healthy(dest,verification_ttl_hours=26),
+  'actual same-project fixed maintenance identities and current reply health required')
+ return {**auth,'source':payload,'report':payload,'scope':request['scope'],'sender_department':'system-development',
+  'target_department':target,'purpose':'read_only_registered_role_health','business_producer_added':False,
+  'current_assignment_changed':False,'external_permission_issued':False}
+
+
+def validate_readonly_coordination(root, snapshot, action):
+ import re
+ from goal_delivery_runtime import _collaboration_native
+ require(current_mode(root)and action.get('schema')=='current-autonomous-readonly-coordination-action/v1',
+  'actual current autonomous readonly coordination required')
+ payload=action.get('payload');packet=document(root,payload)
+ route=_runtime_health_packet(root,snapshot,action,packet,payload)
+ require(action.get('goal_contract')==snapshot.get('goal_contract'),'unchanged original coordination contract required')
+ source=action.get('hq_coordination_source',{});page=_collaboration_native(root,source.get('native'))
+ registry=w.department_registry(root);hq=registry['operations']['chat_binding'];owner=registry[snapshot['goal_delivery']['primary_owner']]['chat_binding']
+ require(all(page.get('thread',{}).get(k)==hq[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items())
+  and hq.get('project_id')==PROJECT,'actual current same-project HQ decision source required')
+ selected=[]
+ for turn in page.get('turns',[]):
+  items=turn.get('items',[])
+  anchors=[(i,m)for i,m in enumerate(items)if m.get('id')==source.get('anchor_call_id')]
+  decisions=[(i,m)for i,m in enumerate(items)if m.get('id')==source.get('decision_call_id')]
+  if len(anchors)==len(decisions)==1:selected.append((turn,anchors[0],decisions[0]))
+ require(len(selected)==1,'one ordered real HQ original-task/decision pair required')
+ turn,(before,anchor),(after,decision)=selected[0]
+ require(before<after and not turn.get('error')and type(turn.get('startedAt'))in {int,float}
+  and turn['startedAt']<=dt.datetime.now(dt.timezone.utc).timestamp()
+  and all(c.get('type')=='mcpToolCall'and c.get('server')=='codex_app'
+   and c.get('tool')=='send_message_to_thread'and c.get('status')=='completed'and not c.get('error')
+   and c.get('arguments',{}).get('threadId')==owner['task_id']for c in (anchor,decision)),
+  'actual successful HQ ordinary coordination calls to original owner required')
+ original=anchor.get('arguments',{}).get('prompt','');body=decision.get('arguments',{}).get('prompt','')
+ require(all(re.search(r'(?m)^'+k+'='+re.escape(str(action[k]))+r'\s*$',original)for k in ('task_id','scope'))
+  and action['target_thread_id']in body and action['target_department']in body
+  and Path(payload['path']).name in body,'HQ decision must bind exact original task context, frozen payload and target')
+ human=_collaboration_native(root,source.get('owner_continuation'))
+ require(human.get('thread',{}).get('id')==hq['task_id'],'actual original owner continuation source required')
+ humans=[m for t in human.get('turns',[])if t.get('id')==turn['id']for m in t.get('items',[])if m.get('type')=='userMessage']
+ require(len(humans)==1 and humans[0]in turn.get('items',[])and humans[0].get('content'),
+  'unchanged actual human continuation in original HQ decision turn required')
+ failed_request=document(root,source.get('original_prepare_request'));failed=document(root,source.get('original_prepare_result'))
+ keys=('task_id','scope','action_id','action_class','sender_department','target_department','target_thread_id','payload','payload_sha256')
+ require(all(failed_request.get(k)==action.get(k)for k in keys)
+  and failed.get('status')=='blocked'and failed.get('authorization_precheck',{}).get('reasons')==['new_department']
+  and failed['authorization_precheck'].get('next_owner')=='operations'
+  and failed['authorization_precheck'].get('needs_human_confirmation')is False,
+  'exact original readonly request and real HQ-coordination refusal required; sensitive/source errors cannot be overridden')
+ return route
+
+
+def record_readonly_coordination(root, task, input_path):
+ from goal_delivery_runtime import restore_goal
+ pin=w.file_digest(root,input_path);action=document(root,pin)
+ require(action.get('task_id')==task,'original coordination task required')
+ with w.workflow_lock(root):
+  snapshot=restore_goal(root,w.read_json(w.snapshot_path(root,task)))
+  validate_readonly_coordination(root,snapshot,action)
+  goal=snapshot['goal_delivery'];previous=[x for x in goal.get('approved_actions',[])if x.get('action_id')==action['action_id']]
+  if previous:
+   require(len(previous)==1 and previous[0]==action,'original coordination action identity already differs')
+   return {'result':'duplicate_ignored','task_id':task,'action_id':action['action_id'],'actual_message_sent':False}
+  snapshot['goal_delivery']={**goal,'approved_actions':goal.get('approved_actions',[])+[action]}
+  w.atomic_write_json(w.snapshot_path(root,task),snapshot)
+  w.append_workflow_event(root,task,snapshot['current_state'],{'goal_delivery':snapshot['goal_delivery'],'action_id':action['action_id'],
+   'approved_message_prepared':pin,'actual_HQ_coordination_source':action['hq_coordination_source']['native'],
+   'actual_message_sent':False,'new_business_producer_added':False})
+ return {'result':'recorded','task_id':task,'action_id':action['action_id'],'input':pin,
+  'actual_message_sent':False,'external_permission_issued':False}
+
+
+def runtime_health_route(root,snapshot,request,packet,payload):
+ expected=[x for x in snapshot.get('goal_delivery',{}).get('approved_actions',[])
+  if x.get('schema')=='current-autonomous-readonly-coordination-action/v1'
+  and all(x.get(k)==request.get(k)for k in ('task_id','scope','action_id','sender_department','target_department','target_thread_id','payload','payload_sha256'))]
+ require(len(expected)==1,'normal actual HQ authorized appended readonly action required')
+ action=expected[0];route=validate_readonly_coordination(root,snapshot,action)
+ events=[x for x in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if x.get('task_id')==request.get('task_id')
+  and x.get('details',{}).get('action_id')==request.get('action_id')
+  and isinstance(x.get('details',{}).get('goal_delivery'),dict)
+  and x.get('details',{}).get('actual_HQ_coordination_source')==action['hq_coordination_source']['native']]
+ require(len(events)==1 and document(root,events[0]['details']['approved_message_prepared'])==action,
+  'one genuine normal appended action event and unchanged input required')
+ require(packet==document(root,action['payload']),'same registered readonly packet required')
+ return route
+
+
 def message_route(root,snapshot,request):
  if not isinstance(request,dict)or request.get('action_class')!='thread_message':return None
  payload=request.get('payload')
@@ -51,6 +163,8 @@ def message_route(root,snapshot,request):
  text=(Path(root)/payload['path']).read_text()
  try:obj=json.loads(text)
  except (ValueError,UnicodeError):obj=None
+ if isinstance(obj,dict)and obj.get('schema')=='department-runtime-health-request/v1':
+  return runtime_health_route(root,snapshot,request,obj,payload)
  structured=isinstance(obj,dict)and obj.get('schema')=='department-autonomous-task-message/v1'
  if structured:
   obj=document(root,payload)

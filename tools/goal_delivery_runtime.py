@@ -1309,6 +1309,9 @@ def _condo_faq_v7_post_candidate_preflight(root, task_id, input_path, action):
 def record_approved_action(root, task_id, input_path):
     """Freeze a precise routine decision, or owner action in an original declared collaboration scope."""
     action = w.read_json(w.safe_path(root, input_path))
+    if action.get("schema") == "current-autonomous-readonly-coordination-action/v1":
+        from department_autonomy import record_readonly_coordination
+        return record_readonly_coordination(root, task_id, input_path)
     special = action.get("action_id") == CONDO_FAQ_V7_POST_CANDIDATE_ACTION or "condo_faq_v7_post_candidate_source" in action
     validation = (_condo_faq_v7_post_candidate_preflight(root, task_id, input_path, action)
                   if special else None)

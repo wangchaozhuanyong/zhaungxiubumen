@@ -1001,9 +1001,9 @@
     },
     {
       "path": "tools/department_autonomy.py",
-      "source_sha256": "fdf37b4d679c9e525317d44120603d77dcb2bff42c0809767755fdd9b033d2ab",
-      "release_sha256": "4ae0c2befb721251441e3b4d502fc446057ab2ef90fede7fa9795f7dd04e329f",
-      "bytes": 69034
+      "source_sha256": "a907f66f292704ab4353cda20d0fe43c32397be8251355042ac6c646f33838bc",
+      "release_sha256": "105488b40c0a43036d5023fec83a87c620b3660600d18847dbb9308fcb3f0c37",
+      "bytes": 78563
     },
     {
       "path": "tools/department_event_dispatcher.py",
@@ -1067,9 +1067,9 @@
     },
     {
       "path": "tools/goal_delivery_runtime.py",
-      "source_sha256": "c5a78eb125603db4e26da45e12e68f1a5bf62adf53ff0a703c0442a933386c4c",
-      "release_sha256": "c4b4ec271991645e8bd3b08378302ca0c1c610e2ca950ee6425eb5597a40266e",
-      "bytes": 187609
+      "source_sha256": "099261e4dfcc561d236568f49e68e379c4435a959918fa7ebdd961ee1a875ecc",
+      "release_sha256": "56e374a65c8e1243f8709a28cb07f4a32c00c064e3fe7e5f54f42d1179140b80",
+      "bytes": 187834
     },
     {
       "path": "tools/goal_source_recovery.py",
@@ -1727,5 +1727,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "d4a29b7540b6b098e9833150bf9245a56f36b6cab45e36b5f9a679553ee7ed51"
+  "fingerprint": "8abed70e124816c3999de983eaed85ed458197d5bed7bb79a5a24408acf1f71e"
 }
