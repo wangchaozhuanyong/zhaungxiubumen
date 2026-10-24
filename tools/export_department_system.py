@@ -31,6 +31,13 @@ SECRET_PATTERNS = (
     re.compile(r"(?i)(?:password|access_token|api_key)\s*[=:]\s*[\"'][^\"']{16,}[\"']"),
 )
 RETIRED_COMMON_RULE_PATHS = frozenset({
+    "playbooks/department-result-coordination.md",
+    "playbooks/department-system-runtime-adoption.md",
+    "prompts/qa-daily-review.md",
+    "departments/operations-assistant/shared-review-methods.json",
+    "departments/operations-assistant/methods/content-and-local-review.md",
+    "departments/operations-assistant/methods/development-and-publication-review.md",
+    "departments/operations-assistant/methods/paid-data-visual-sales-review.md",
     "playbooks/approval-matrix.md",
     "playbooks/controller-result-continuation-and-checkout.md",
     "playbooks/department-decision-authority.md",
@@ -133,11 +140,29 @@ def public_text(text, root=None):
             for index, value in enumerate(pins):
                 example = hashlib.sha256(("example-only-" + name + "-" + str(index)).encode()).hexdigest()
                 text = text.replace(value, example)
+    # Company account/login/object identities are templates, never portable authority.
+    text = re.sub(r"\badacct_[A-Za-z0-9_]+\b",lambda m:'adacct_example_'+hashlib.sha256(m[0].encode()).hexdigest()[:16] if not m[0].startswith('adacct_example_') else m[0],text)
+    text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",lambda m:m[0] if any(m[0].endswith(s)for s in ('.invalid','example.com','example.org','example.net')) else 'user-'+hashlib.sha256(m[0].encode()).hexdigest()[:12]+'@example.invalid',text)
+    text = text.replace('EXAMPLE_EXISTING_CAMPAIGN','EXAMPLE_EXISTING_CAMPAIGN')
     return public_numeric_identifiers(text)
 
 
 def public_source_text(rel, text):
     """Remove native owner evidence from the public preparation-only example."""
+    if rel == 'tools/department_autonomy.py':
+        tree=ast.parse(text);lines=text.splitlines(keepends=True)
+        examples={'OWNER':{'path':'logs/local-setup/owner-autonomous-authority.json','sha256':'0'*64,'size':0},
+                  'OWNER_TURN':'example-local-owner-turn','OWNER_MESSAGE':'example-local-owner-message',
+                  'OWNER_TEXT':'Synthetic example only; local native owner authorization required.\n',
+                  'SOURCE_PROOF':{'path':'logs/local-setup/original-completed-proof.json','sha256':'0'*64,'size':0},
+                  'JOURNAL':'backups/local-setup/original-source-adoption/journal.json'}
+        for node in sorted(tree.body,key=lambda n:n.lineno,reverse=True):
+            if isinstance(node,ast.Assign) and len(node.targets)==1 and isinstance(node.targets[0],ast.Name) and node.targets[0].id in examples:
+                name=node.targets[0].id;lines[node.lineno-1:node.end_lineno]=[name+' = '+repr(examples[name])+'\n']
+        result=''.join(lines)
+        result=result.replace("def authority(root):\n", "PUBLIC_TEMPLATE_ONLY = True\n\ndef authority(root):\n require(not PUBLIC_TEMPLATE_ONLY,'public template has no local native owner authorization')\n",1)
+        result=result.replace("def current_mode(root):\n", "def current_mode(root):\n if PUBLIC_TEMPLATE_ONLY:return False  # unbound read-only installation, no inherited authority\n",1)
+        ast.parse(result);return result
     if rel == "playbooks/paid-keyword-bid-and-placement-daily.md":
         # This live method also contains owner-specific prices/budgets/trials.
         # Keep the method's role and inputs, never publish the company's ledger
@@ -146,7 +171,7 @@ def public_source_text(rel, text):
                 "先读唯一共同规则 department-system-current.md、本部门批准的专业Skill，以及本公司当前真实授权、账号、对象、预算、期限、原生证据和批次记录。公开模板不包含实际账号、价格、预算或试价批次，不授账户操作权。\n\n"
                 "先检查需求与资格，再检查语言、意图、页面和素材，然后判断真实排名或预算限制与原生出价瓶颈。资格、审核、低搜索量、页面问题与价格原因分开处理。记录准确对象ID、旧新价、证据窗、样本、延迟、变更时间和复查日期；不把截图、零展示或系列指标当成逐词事实。\n\n"
                 "仅在当前准确授权内做有界单变量试验，满足本公司的成熟样本、冷却、预算及重评约束后才执行。保存后准确回读，再用成熟可比窗口评估实际展示、费用与有效咨询；无数据记DATA_MISSING，不保证固定排名或最低成本。暂停、续投、扩词、改预算和付款另核原授权，不由本模板推导。\n\n"
-                "报告完整批次与具体剩余，由唯一负责助理沿当前结果入口接续。内部验证、真实保存、展示和业务效果分别记录。\n")
+                "报告完整批次与具体剩余，由原专业主负责人沿当前结果入口直接报HQ知悉。内部验证、真实保存、展示和业务效果分别记录。\n")
     if rel in {"tools/owner_paid_logo_policy.py", "tools/owner_paid_completion_policy.py", "tools/owner_paid_final_qa_route.py"}:
         tree = ast.parse(text)
         lines = text.splitlines(keepends=True)
@@ -231,6 +256,7 @@ def public_policy(value):
     for key, child in value.items():
         if (key.startswith("owner_") or key in {"collaboration_bindings", "chat_binding",
                  "health_evidence", "expansion_history", "system_rebuild_authorization",
+                "mode_authorization", "assistant_retention_authority", "historical_role_source_moves",
                 "completion_contracts", "health_probe_packets", "health_probe_live_identities", "completion_evidence",
                 "direct_execution_takeovers", "direct_message_packets"}
                 or "admission" in key or "handover" in key or key.endswith("_packet")):
@@ -412,7 +438,7 @@ def prepare(root: Path, target: Path):
                 value.update(historical_only=True, operational_template=False)
             text = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
         text = public_source_text(rel, public_text(text, root))
-        add(rel, public_exact_helper(rel, text), raw)
+        add(rel, public_exact_helper(rel, text).rstrip()+"\n", raw)
 
     for name in ("AGENTS.md", "README.md"):
         copy(name)
@@ -466,6 +492,7 @@ def prepare(root: Path, target: Path):
             "approved_subskills", "approved_subskill_paths", "input_paths", "output_paths",
             "mode", "new_dispatch_enabled", "coordination_authority", "capabilities",
             "result_report_contract", "result_report_entrypoint", "shared_department",
+            "standby", "automatic_wakeup_enabled", "explicit_auxiliary_tasks_only", "ordinary_approval_required",
         ) if key in row}
         authority = dict(safe.get('coordination_authority', {}))
         shared = authority.get('shared_review_methods')
@@ -498,6 +525,8 @@ def prepare(root: Path, target: Path):
         "schema_version": registry.get("schema_version", "2.0"), "project": {"project_id": "", "cwd": ""},
         "departments": rows, "total_role_count": len(rows),
         "active_department_count": sum(row.get("new_dispatch_enabled", True) is not False for row in rows),
+        "standby_assistant_count": sum(row.get("mode")=="standby" for row in rows),
+        "execution_department_count": sum(row.get("new_dispatch_enabled",True)is not False and row["id"]!="operations" for row in rows),
         "health_policy": {"verification_ttl_hours": 26}, "public_template": True,
         "runtime_bindings_require_local_setup": True,
     })
@@ -524,8 +553,8 @@ def prepare(root: Path, target: Path):
     historical = non_runtime_paths(payloads, public_registry)
     validate_payloads(payloads, ids, retired_roles, historical)
     manifest = seal_manifest({
-        "schema_version": SCHEMA, "runtime_model": MODEL, "non_runtime_files": historical,
-        "version": "2026.10.23.adopted-runtime-v1", "artifact_type": "department_system_source",
+        "schema_version": SCHEMA, "runtime_model": json.loads(payloads["examples/task-contract.example.json"])["goal_delivery_runtime"]["model"], "non_runtime_files": historical,
+        "version": "2026.10.24.autonomous-current-v1" if json.loads(payloads["examples/task-contract.example.json"])["goal_delivery_runtime"]["model"]==MODEL else "2026.10.23.adopted-runtime-v1", "artifact_type": "department_system_source",
         "roles": ids, "files": sorted(tracked, key=lambda row: row["path"]),
         "retired_roles": retired_roles,
         "live_bindings_exported": False, "live_health_exported": False, "live_ledgers_exported": False,
@@ -560,7 +589,9 @@ def prepare(root: Path, target: Path):
         # Other generated source keeps the existing recovery behavior.
         source = root / rel
         retired_rule = (retired_rule_stub(rel, path.read_bytes())
-                        or (source.is_file() and retired_rule_stub(rel, source.read_bytes())))
+                        or (source.is_file() and retired_rule_stub(rel, source.read_bytes()))
+                        or (any(role in Path(rel).parts or Path(rel).stem==role or rel in {item.get("role_config"),item.get("original_role_config")} for role,item in registry.get("historical_departments",{}).items())
+                            and Path(rel).suffix in {".md",".toml",".yaml",".yml",".json"}))
         recovery = (None if retired_rule
                     else target / "backups/withdrawn-source" / rel)
         if recovery is not None and recovery.exists() and recovery.read_bytes() != path.read_bytes():

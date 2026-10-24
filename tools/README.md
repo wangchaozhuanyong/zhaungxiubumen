@@ -94,7 +94,7 @@ python3 tools/flashcast_ops.py run-ledger
 
 ## 工作流与部门路由控制层 V2
 
-当前完整目标的 `dispatch-plan` 必须带 `--goal-input <项目内完整goal_delivery合同>`，并保留原task_id/request；它按合同确定生产部门、协作依赖和唯一负责助理。同一 `task_id + request` 重跑不会重复创建事件；同一任务编号改换内容会被阻止。下列无goal的旧V2示例仅作历史兼容。
+当前完整目标的 `dispatch-plan` 必须带 `--goal-input <项目内完整goal_delivery合同>`，并保留原task_id/request；它按合同确定生产部门、协作依赖和原专业主负责人。同一 `task_id + request` 重跑不会重复创建事件；同一任务编号改换内容会被阻止。下列无goal的旧V2示例仅作历史兼容。
 
 ### 历史兼容（非当前运行模板）：旧multi路由与无goal派工示例
 
@@ -160,11 +160,11 @@ python3 tools/flashcast_ops.py receipt-record \
   --idempotency-key fc-YYYYMMDD-example-content-outbox-v1
 ```
 
-`thread_message`、`automation_create` 和 `automation_update` 都必须提供来源/目标项目、目标部门、固定任务 ID、标题、`cwd`、登记的侧边栏分组 ID 和正文 SHA-256。任一身份不匹配即返回 `blocked_cross_project` 或 `blocked_route_invalid`。路由日志只保存哈希，不保存消息或计划任务提示词正文。角色、能力、固定绑定和可派状态从当前 `data/department-registry.json` 动态读取，不以固定部门数量判断；总部给完整目标，结果由任务指定的唯一未参与制作的负责助理独立验收并作已授权常规接续。模糊请求只补齐相关目标输入，不广播或恢复QA1/QA2新派工。
+`thread_message`、`automation_create` 和 `automation_update` 都必须提供来源/目标项目、目标部门、固定任务 ID、标题、`cwd`、登记的侧边栏分组 ID 和正文 SHA-256。任一身份不匹配即返回 `blocked_cross_project` 或 `blocked_route_invalid`。路由日志只保存哈希，不保存消息或计划任务提示词正文。角色、能力、固定绑定和可派状态从当前 `data/department-registry.json` 动态读取，不以固定部门数量判断；总部给完整目标，结果由原专业负责人自检并作已授权常规接续后直接报HQ知悉。模糊请求只补齐相关目标输入，不广播或恢复QA1/QA2新派工。
 
 ### 历史兼容（非当前运行模板）：旧QA裁决与阶段许可恢复
 
-以下只保留旧无goal任务的QA verdict、精确批准和旧阶段失败恢复说明；当前完整goal沿本任务真实授权、必要事实/自检/备份回滚和唯一助理独立验收接续，不通过这些示例新增QA或老板审批。
+以下只保留旧无goal任务的QA verdict、精确批准和旧阶段失败恢复说明；当前完整goal沿本任务真实授权、必要事实/自检/备份回滚和专业自检与真实效果读回接续，不通过这些示例新增QA或老板审批。
 
 QA 回执只能是 `pass` 或 `blocked`。`pass` 不会自动创建老板批准：
 
@@ -375,7 +375,7 @@ python3 tools/flashcast_ops.py delegation-record \
 python3 tools/flashcast_ops.py delegation-status --task-id fc-YYYYMMDD-example
 ```
 
-限制：全项目同时最多 3 个、同部门最多 2 个，默认超时 900 秒，最多 2 次尝试。相互依赖、重叠写入、外部动作、跨项目、固定部门不健康时必须拒绝并发。委派账本只保存 scope 哈希，不保存聊天正文；子智能体完成不代替固定部门回复、outbox、唯一负责助理的独立验收和原真实授权边界。
+限制：全项目同时最多 3 个、同部门最多 2 个，默认超时 900 秒，最多 2 次尝试。相互依赖、重叠写入、外部动作、跨项目、固定部门不健康时必须拒绝并发。委派账本只保存 scope 哈希，不保存聊天正文；子智能体完成不代替固定部门回复、outbox、原专业负责人的实际效果读回和原真实授权边界。
 
 ## 初始化
 
@@ -521,9 +521,9 @@ python3 tools/flashcast_ops.py workspace-maintenance \
 
 `history/`、`backups/`、`accounts/`、`data/` 和 `logs/` 属于保护范围。工具不会直接删除文件。
 
-## 现行完整目标与唯一负责助理接续
+## 现行完整目标与专业自主交付
 
-现行入口遵循 `AGENTS.md`、`playbooks/department-system-current.md`、`playbooks/department-result-coordination.md`：总部确定完整目标/标准/授权边界，专业主负责人持续完成可执行批次，唯一未参与制作且能力匹配的负责助理收取、独立验收、最小返工并落实已授权下一动作；总部不二审。结果处理沿既有认领、token/fence、租约与实际原生回执，不以队列或PASS冒充动作。
+现行入口只按 `AGENTS.md` 与 `playbooks/department-system-current.md`：专业主负责人独立制作、自检、执行原授权效果并真实读回，结果直报HQ。A1仅待命，A2/A3退役历史，不作认领/审批/验收门禁。历史controller事件保留原真实actor，当前消息不借历史字段冒签。
 
 ### 历史兼容（非当前运行模板）：旧QA日检及旧阶段链读回
 
@@ -539,7 +539,7 @@ python3 tools/flashcast_ops.py workspace-maintenance \
 
 ### 当前结果收取与常规接续
 
-部门先在原固定聊天非空回报，再冻结/校验V2，并按原task_id、sender_department、candidate_version和最终outbox SHA唯一入队。任务指定的唯一负责助理按当前注册能力及原goal_delivery收取和独立验收，沿实际认领、token/fence、租约以及原生完成事件作已授权常规决策；HQ只定完整目标和重大方向，不串行复验或独占结果收取。`controller_received`、`controller_decision`、`controller_followthrough` 是历史兼容事件名，主体必须保留真实负责助理身份，不能冒充总部。验收PASS关联下一实际动作或准确范围关闭；候选、入队、派工、实际Save/部署、公开复核与业务结果分别记录。缺依赖只暂停相关动作，列唯一负责人、解除条件和复查时间；保留现有18:00兜底，不新增轮询或监控窗口。旧closed不能关闭完整父目标，历史结果恢复只能沿准确原回执与最新原聊天，不重派或补造记录。
+专业批次真实回复、不可变结果身份、官方队列实收与原下一动作，只按唯一共同正文；保留原task/版本/SHA和SQL/native幂等，未知执行效果先读回，不重放。
 
 ```bash
 python3 tools/flashcast_ops.py result-handoff-record --input logs/handoffs/<项目内结果交接输入>.json
@@ -547,13 +547,17 @@ python3 tools/flashcast_ops.py result-handoff-status --task-id <原task_id>
 python3 tools/flashcast_ops.py result-handoff-pending
 ```
 
+### 历史兼容（非当前运行模板）：旧controller决定与followthrough字段
+
+以下用于解释原账本事件，不是新普通目标审批或守候入口。当前专业结果、实际效果和HQ知悉沿唯一共同正文及运行参考。
+
 输入 JSON 字段见 `data/task-contract.json#result_handoff_contract`；基础字段为 `task_id`、`event`、`sender_department`、`candidate_version`、`result_sha256`（outbox 的 SHA-256）、`outbox_path`、`idempotency_key`，可附 `evidence_paths`。新结果使用 `notification_queued`；`controller_received` 需 `intake_mode=queue`、固定来源聊天 ID、已核实非空回复的 SHA-256 与观察时间；`controller_decision` 需 `decision`、`next_owner`、`next_action` 和证据，外部阻断另需 `unblock_condition`。旧 `notification_sent` 只保留历史，当前结果的 `thread_message` 策略预检会拒绝直发总控。此项目内账本不能替代 Codex 应用现场身份核对。
 
 部门1固定的 `fc-YYYYMMDD-website-growth-daily` 自动化轮次若没有人工派工工作流，可在核实当天 `flash-cast-4` 已完成固定聊天非空回复后，以 `source_mode=scheduled_run` 入队，另填 `source_automation_id`、`source_turn_id`、`source_thread_id`、`source_reply_sha256`、`reply_observed_at`；outbox 的 `reported_at_myt` 须是同一 MYT 日且不晚于回复。该特例只登记真实自动化来源，不生成虚构的 `dispatch_sent`、`chat_ack` 或工作流快照；其他部门与任务继续使用原派工链。
 
-`controller_followthrough` 仍使用同一结果身份，且每次须用独立幂等键和项目内 `evidence_paths`。`followthrough_status=dispatch_sent` 需 `linked_task_id`、决策后真实 `dispatch_sent` 的 `action_receipt_id`，并核对下一负责人；`execution_verified` 需实际执行及 PASS `postcheck` 回执；`prior_action_verified` 可把决策前已实际收到的准确 outbox 关联回来，其中 `send_qa` 及固定QA既有 `outbox_received` 仅用于**同原任务、同候选版本**的历史兼容读回，不用于现行新QA派工或恢复暂停例行；新目标由唯一负责助理沿其实际独立验收和已授权下一动作处理，不补造派工；`external_wait_registered`/`blocked_with_owner` 需 `unblock_condition`、ISO 时间 `next_check_at`；`internal_control_completed` 需准确 `action_reference`。未解除的阻断或等待可凭**新的项目内证据**追加复查或真实动作，再次等待须把检查时间后移；已落实动作不可重复登记。未到检查时间的结果显示 `waiting_followthrough_review`，到期后重新出现在 `followthrough_results`。这只是控制层待办，不自动发消息或冒充业务效果。
+`controller_followthrough` 仍使用同一结果身份，且每次须用独立幂等键和项目内 `evidence_paths`。`followthrough_status=dispatch_sent` 需 `linked_task_id`、决策后真实 `dispatch_sent` 的 `action_receipt_id`，并核对下一负责人；`execution_verified` 需实际执行及 PASS `postcheck` 回执；`prior_action_verified` 可把决策前已实际收到的准确 outbox 关联回来，其中 `send_qa` 及固定QA既有 `outbox_received` 仅用于**同原任务、同候选版本**的历史兼容读回，不用于现行新QA派工或恢复暂停例行；新目标由原专业负责人沿其实际自检和已授权下一动作处理，不补造派工；`external_wait_registered`/`blocked_with_owner` 需 `unblock_condition`、ISO 时间 `next_check_at`；`internal_control_completed` 需准确 `action_reference`。未解除的阻断或等待可凭**新的项目内证据**追加复查或真实动作，再次等待须把检查时间后移；已落实动作不可重复登记。未到检查时间的结果显示 `waiting_followthrough_review`，到期后重新出现在 `followthrough_results`。这只是控制层待办，不自动发消息或冒充业务效果。
 
-若唯一负责助理核对历史决策时，准确后续任务已经由同一下一负责人在**决策前**真实交付，可用 `followthrough_status=prior_action_verified`，提供不同的 `linked_task_id`、该任务 `outbox_received` 的 `action_receipt_id`、匹配原字节的 `linked_outbox_path` 和说明关联关系的项目内证据。系统记录 `action_before_decision=true`，明确这是对账，不冒充决策后的新派工，也不证明 QA、发布或业务目标完成；不相关的后续任务不得借此结项。
+核对历史决策时，准确后续任务已经由同一下一负责人在**决策前**真实交付，可用 `followthrough_status=prior_action_verified`，提供不同的 `linked_task_id`、该任务 `outbox_received` 的 `action_receipt_id`、匹配原字节的 `linked_outbox_path` 和说明关联关系的项目内证据。系统记录 `action_before_decision=true`，明确这是对账，不冒充决策后的新派工，也不证明 QA、发布或业务目标完成；不相关的后续任务不得借此结项。
 
 如果涉及线上网站、CMS、广告账户或客户外联，工具只生成方案和审批包，不代表已经执行。
 

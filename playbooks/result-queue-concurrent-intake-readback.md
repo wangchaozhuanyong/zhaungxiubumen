@@ -1,6 +1,6 @@
 # 结果唯一入队与助理并发回读
 
-部门先在原固定聊天非空回报，再冻结并校验V2；按 task_id、sender_department、candidate_version、最终outbox SHA-256 唯一入队。V2保留顶层 fixed_chat_task_id、chat_reply.nonempty 和 in_current_fixed_department_chat 的真实证明，准确原消息UTF-8字节计算哈希，不以ACK替结果。负责助理用既有事务认领、token/fence、1–900秒租约及续租处理；一个结果一个有效处理人。不确定发送/保存/部署先回读真实效果，缺效果须显式恢复后才能重试。controller_received/controller_decision/controller_followthrough 是兼容事件名，实际主体写助理身份，不能冒充总部。
+专业批次真实回复、不可变结果身份、官方队列实收与原下一动作，只按唯一共同正文；保留原task/版本/SHA和SQL/native幂等，未知执行效果先读回，不重放。
 
 按四字段选准确唯一notification_queued，助理可在部门收尾期间已收取/已决定；这些阶段仍算入队成功，不撤销真实记录、不重放通知或重复制作。result_handoff_readback仅只读回读，不授新权限。
 

@@ -120,6 +120,9 @@ class NativeBoundNotificationAttempt(NotificationAttempt):
 def goal_delivery_enabled(root):
     """The global switch alone does not migrate an existing task."""
     config = _w().read_json(Path(root) / "data/task-contract.json").get("goal_delivery_runtime", {})
+    if isinstance(config,dict) and config.get('model')=='department_autonomous_delivery_v1':
+        from department_autonomy import current_mode
+        return current_mode(root)
     return (isinstance(config, dict) and config.get("model") == "goal_delivery_assistant_v1"
             and config.get("assistant_decisions_enabled") is True)
 
@@ -407,7 +410,11 @@ def current_assignment_for_role(root,role):
         if prior == pin or prior in seen:continue
         seen.append(prior)
         try:
-            old=current_assignment(root,role,prior)
+            # Historical display only; current assignment and every execution
+            # still use the uncached original source/identity/permission entry.
+            from readonly_work_view_cache import memoized_view
+            old=memoized_view(root, 'historical-assignment-view', [role,prior],
+                lambda: current_assignment(root,role,prior), required=[Path(root)/prior['path']])
             if old is None:raise w.WorkflowError('unsupported suspended assignment schema')
             if old and old.get('resume_required'):pending.append(old)
         except (w.WorkflowError,OSError,ValueError,KeyError,TypeError,AttributeError) as error:
@@ -417,7 +424,18 @@ def current_assignment_for_role(root,role):
             return {'resume_required':False,'assignment_errors':errors} if errors else None
         return {**pending.pop(),'resumed_suspended_assignment':True,
                 'unfinished_assignment_queue':pending,'assignment_errors':errors}
-    try:generic = current_assignment(root, role, pin)
+    try:
+        original = w.safe_path(root,pin['path'])
+        source = w.read_json(original)
+        snapshot = w.snapshot_path(root,source.get('task_id',''))
+        if w.read_json(snapshot).get('current_state') in w.TERMINAL_STATES:
+            # A closed historical hold is a display source, not permission to
+            # resume execution. The actual current index/snapshot is fresh.
+            from readonly_work_view_cache import memoized_view
+            generic = memoized_view(root,'historical-assignment-view',[role,pin,'closed-source-hold'],
+                lambda: current_assignment(root,role,pin),required=[original,snapshot])
+        else:
+            generic = current_assignment(root,role,pin)
     except (w.WorkflowError,OSError,ValueError,KeyError,TypeError,AttributeError) as error:
         errors.append({'source':pin,'reason':str(error),'blocks_other_tasks':False})
         if not pending:return {'resume_required':False,'assignment_errors':errors,'current_assignment_invalid':True}
@@ -453,6 +471,10 @@ def current_assignment_for_role(root,role):
 
 
 def hq_knowledge_source(root, identity, *, require_transport=False):
+    from department_autonomy import autonomous_result_route,knowledge_source,MODE
+    route=autonomous_result_route(root,identity)
+    if route is not None and route.get('source_mode')==MODE:
+        return knowledge_source(root,identity,require_transport)
     """Memoize only inside the caller's strict byte-tracked validation request."""
     w = _w()
     context = w._VALIDATION_CONTEXT.get() if hasattr(w, '_VALIDATION_CONTEXT') else None
@@ -615,6 +637,28 @@ def assistant_decision_bundle(root, box, goal, assistant):
             'acceptance_proven':False,'parent_goal_closed':False,'external_permission_issued':False}
 
 
+def _knowledge_current_reviewer(root, plan, fixed):
+    """Read-only same-role rotation of a frozen formal plan, never a write alias.
+
+    The caller separately verifies the exact native binding event, plan pin,
+    summary evidence, original goal, committed decision and real native reply.
+    """
+    role = plan.get('reviewer_department')
+    if plan.get('reviewer_thread_id') == fixed:
+        return []
+    from department_rotation import _records, _id
+    matches = [row for row in _records(root) if row.get('role') == role
+               and _id(row['old_binding']) == plan.get('reviewer_thread_id')
+               and _id(row['new_binding']) == fixed]
+    if (len(matches) != 1 or plan.get('controller_thread_id') not in
+            (None, plan.get('reviewer_thread_id'))):
+        _fail('frozen reviewer needs one trusted same-role rotation')
+    row = matches[0]
+    return [row['history'], *[pin for pin in
+        _w().read_json(Path(root)/'data/department-registry.json').get('window_rotation_records', [])
+        if _w().read_json(_w().safe_path(root,pin['path'])) == row]]
+
+
 def _hq_knowledge_source(root, identity, *, require_transport=False):
     """Read a formal assistant conclusion; never execute professional review.
 
@@ -707,11 +751,13 @@ def _hq_knowledge_source(root, identity, *, require_transport=False):
     else:
         plan = {'scope': box['scope'], 'task_id': identity['task_id'], 'reviewer_department': assistant,
                 'reviewer_thread_id': fixed, 'single_final_reviewer': True}
+    reviewer_rotation_pins = _knowledge_current_reviewer(root, plan, fixed)
     bound = [event for event in events if event.get('details', {}).get('qa_review_plan_bound') == binding]
     all_bindings = [event for event in events if event.get('details', {}).get('qa_review_plan_bound')]
     if ((plan_pin is not None and not bound) or plan.get('task_id') != identity['task_id']
             or (plan_pin is not None and all_bindings[-1]['details']['qa_review_plan_bound'] != binding)
-            or plan.get('reviewer_department') != assistant or plan.get('reviewer_thread_id') != fixed
+            or plan.get('reviewer_department') != assistant
+            or (plan.get('reviewer_thread_id') != fixed and not reviewer_rotation_pins)
             or plan.get('single_final_reviewer') is not True
             or plan.get('scope') != box.get('scope')
             or (plan_pin is not None and plan_pin not in box.get('evidence', []))):
@@ -799,6 +845,7 @@ def _hq_knowledge_source(root, identity, *, require_transport=False):
          w.result_handoff_path(root, identity['task_id']),
          root / 'data/department-registry.json', root / 'data/task-contract.json', root / w.WORKFLOW_EVENTS)]
     dependencies += [pin, *([plan_pin] if plan_pin else []), *box.get('evidence', []), *source.get('evidence', [])]
+    dependencies += reviewer_rotation_pins
     dependencies += [source[key] for key in ('actual_native_completion', 'visible_reply')
                      if isinstance(source.get(key), dict)]
     if qa is not None:
@@ -1106,6 +1153,10 @@ def original_paid16_source(root, identity):
 
 
 def _validate_queued(root, identity):
+    from department_autonomy import autonomous_result_route,queued_source,MODE
+    route=autonomous_result_route(root,identity)
+    if route is not None and route.get('source_mode')==MODE:
+        return queued_source(root,identity)
     """Claim one exact native queue or strict declared collaboration return."""
     w = _w()
     registry = w.department_registry(root)
@@ -1503,10 +1554,112 @@ def _payload(root, request):
     return {"request": raw, "pins": pins}
 
 
+def _queued_source_pin_equivalence(root, payload, row, rows):
+    """Compare only equivalent copies of an already frozen READY queue source.
+
+    No reservation, native receipt, source pin or time is rewritten. The normal
+    recovery lease/role checks remain outside this pure readback projection.
+    """
+    w = _w()
+    request, pins = payload['request'], payload['pins']
+    if (request.get('event') != 'controller_received'
+            or request.get('intake_mode') != 'queue'
+            or request.get('result_source_phase') != 'delivery_ready'
+            or row.get('event') != 'controller_received' or row.get('intake_mode') != 'queue'
+            or row.get('result_source_phase') != 'delivery_ready'):
+        _fail('source alias recovery requires an original frozen READY queue intake')
+    identity = exact_identity(request)
+    same = [item for item in rows if all(item.get(k) == v for k, v in identity.items())]
+    queues = [item for item in same if item.get('event') == 'notification_queued']
+    received = [item for item in same if item.get('event') == 'controller_received']
+    if (len(queues) != 1 or len(received) != 1 or received[0] != row
+            or rows.index(queues[0]) >= rows.index(row)):
+        _fail('one original preceding queue and one exact native intake required')
+    queued = queues[0]
+    if (queued.get('source_mode') not in {'owner_direct', 'approved_dispatch'}
+            or queued.get('result_source_phase') != 'delivery_ready'
+            or queued.get('batch_delivery_frozen') is not True
+            or row.get('batch_delivery_frozen') is not True
+            or queued.get('outbox') != pins['outbox'] or row.get('outbox') != pins['outbox']
+            or w.file_digest(root, pins['outbox'].get('path', '')) != pins['outbox']):
+        _fail('unchanged original frozen queue and outbox required')
+    box = w.read_json(w.safe_path(root, pins['outbox']['path']))
+    target = row.get('responsible_assistant')
+    if (not isinstance(target, str) or row.get('coordinator_role') != target
+            or box.get('handoff', {}).get('receiver') != target
+            or box.get('task_id') != identity['task_id']
+            or box.get('department') != identity['sender_department']
+            or box.get('candidate_version') != identity['candidate_version']
+            or pins['outbox']['sha256'] != identity['result_sha256']):
+        _fail('exact original producer, receiver, task and result required')
+    for key in ('source_thread_id', 'source_turn_id', 'source_message_id', 'source_reply_sha256'):
+        if not queued.get(key) or queued[key] != row.get(key) or request.get(key) != row.get(key):
+            _fail('source alias cannot change the original thread, turn, message or bytes')
+    stamps = [w._parse_observed_at(value) for value in
+              (queued.get('reply_observed_at'), queued.get('created_at'),
+               row.get('reply_observed_at'), row.get('created_at'))]
+    if (any(value is None for value in stamps) or stamps != sorted(stamps)
+            or stamps[-1] > dt.datetime.now(dt.timezone.utc)
+            or row.get('source_completion_observed_at') != queued.get('reply_observed_at')):
+        _fail('original queue and actual intake chronology required')
+    from goal_delivery_runtime import _collaboration_native
+    projections = []
+    for original in (queued, request):
+        native = _collaboration_native(root, original.get('actual_native_completion'))
+        thread = native.get('thread', {})
+        turns = [turn for turn in native.get('turns', [])
+                 if turn.get('id') == queued['source_turn_id']]
+        if (thread.get('id') != queued['source_thread_id']
+                or thread.get('kind') != 'codex' or thread.get('hostId') != 'local'
+                or len(turns) != 1 or turns[0].get('status') not in {'inProgress', 'completed'}
+                or turns[0].get('error')):
+            _fail('one successful original local native READY source required')
+        turn = turns[0]
+        messages = [item for item in turn.get('items', [])
+                    if item.get('id') == queued['source_message_id']]
+        if (len(messages) != 1 or messages[0].get('type') != 'agentMessage'
+                or messages[0].get('phase') not in {'commentary', 'final_answer'}
+                or not isinstance(messages[0].get('text'), str)
+                or type(turn.get('startedAt')) not in {int, float}
+                or turn['startedAt'] > stamps[0].timestamp()):
+            _fail('exact actual READY message and original source time required')
+        reply = original.get('visible_reply')
+        if not isinstance(reply, dict) or w.file_digest(root, reply.get('path', '')) != reply:
+            _fail('frozen original reply copy changed')
+        raw = w.safe_path(root, reply['path']).read_bytes()
+        if (raw != messages[0]['text'].encode('utf-8')
+                or hashlib.sha256(raw).hexdigest() != queued['source_reply_sha256']):
+            _fail('source alias must retain identical original READY UTF-8')
+        declarations = [line[len('FLASHCAST_DELIVERY_READY '):] for line in
+                        messages[0]['text'].splitlines() if line.startswith('FLASHCAST_DELIVERY_READY ')]
+        if len(declarations) != 1:
+            _fail('one original exact complete-batch READY required')
+        try:
+            declared = json.loads(declarations[0])
+        except (TypeError, ValueError) as error:
+            raise w.WorkflowError('valid original READY declaration required') from error
+        if (not isinstance(declared, dict) or any(declared.get(k) != v for k, v in identity.items())
+                or declared.get('batch_complete') is not True
+                or declared.get('outbox_path') != pins['outbox']['path']):
+            _fail('source alias cannot change the frozen READY result')
+        projections.append({'thread': {k: thread.get(k) for k in
+                            ('id', 'kind', 'hostId', 'title', 'cwd', 'projectId')},
+                            'turn': {k: turn.get(k) for k in
+                            ('id', 'status', 'error', 'startedAt', 'completedAt')},
+                            'message': messages[0]})
+    if projections[0] != projections[1]:
+        _fail('independent source copy differs from original queued native identity')
+    normalized = {key: queued.get(key) for key in ('actual_native_completion', 'visible_reply')}
+    if any(row.get(key) != value for key, value in normalized.items()):
+        _fail('native intake must retain original queued source pins')
+    return normalized
+
+
 def _native_readback(root, payload):
     w = _w()
     request, pins = payload["request"], payload["pins"]
-    rows = w._result_handoff_rows(root, request["task_id"])
+    from readonly_work_view_cache import inventory_handoff_rows
+    rows = inventory_handoff_rows(root, request["task_id"])
     matches = [row for row in rows if row.get("idempotency_key") == request.get("idempotency_key")]
     if not matches:
         return None
@@ -1562,6 +1715,9 @@ def _native_readback(root, payload):
                         responsible_assistant='operations-assistant-3',
                         acceptance_proven=False, external_permission_issued=False,
                         business_goal_closed=False)
+    changed = {key for key, value in expected.items() if row.get(key) != value}
+    if changed and changed <= {'actual_native_completion', 'visible_reply'}:
+        expected.update(_queued_source_pin_equivalence(root, payload, row, rows))
     if any(row.get(key) != value for key, value in expected.items()):
         _fail("native readback payload/evidence differs from reserved effect")
     return row
@@ -1750,6 +1906,9 @@ def recover_reservation(root, request, reason):
 def result_lane(root, identity, *, source=None):
     """Read current evidence; assistant summaries never enter their own review."""
     identity = exact_identity(identity)
+    from department_autonomy import autonomous_result_route
+    autonomous=autonomous_result_route(root,identity)
+    if autonomous is not None:return autonomous
     from direct_system_repair import context as direct_context
     takeover = direct_context(root, identity['task_id'])
     if takeover is not None:
@@ -1834,23 +1993,189 @@ def _notification_path(root, identity):
     return path
 
 
+# Inserted into result_coordination, not a second receipt writer.
+_INTAKE_ACTOR_MEMO = {}
+
+
+def _committed_intake_actor(root, record):
+    """Authenticate historical handling role from the original SQL audit chain."""
+    database = _w().safe_path(root, str(DATABASE))
+    def version(path):
+        if not path.exists():
+            return None
+        s = path.stat()
+        return (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+    stamp = (str(database), version(database), version(Path(str(database) + '-wal')))
+    if stamp not in _INTAKE_ACTOR_MEMO:
+        connection = sqlite3.connect(database.as_uri() + '?mode=ro', uri=True)
+        try:
+            audit = connection.execute('SELECT payload_json,previous_hash,record_hash FROM coordination_audit ORDER BY seq').fetchall()
+        finally:
+            connection.close()
+        previous = ''; actors = {}; pending = {}
+        for raw, prior, digest in audit:
+            event = json.loads(raw)
+            if prior != previous or digest != _sha([previous, event]):
+                _fail('original intake actor SQL audit chain differs')
+            previous = digest
+            if event.get('event') in {'effect_reserved','native_validation_refused_append_absent','effect_readback_committed'}:
+                token = (_key(exact_identity(event['identity'])), event['details']['effect_key'])
+                if event['event']=='effect_reserved':
+                    actor=(event['details'].get('role'),event['details'].get('owner'))
+                    pending.setdefault(token,set()).add(actor)
+                elif event['event']=='native_validation_refused_append_absent':
+                    pending.pop(token,None)
+                else:
+                    native_id=event['details'].get('native_record_id')
+                    if native_id:
+                        actors.setdefault((*token,native_id),set()).update(pending.get(token,set()))
+        if stamp != (str(database), version(database), version(Path(str(database) + '-wal'))):
+            _fail('intake actor SQL changed during read; retry fresh read')
+        _INTAKE_ACTOR_MEMO.clear()
+        _INTAKE_ACTOR_MEMO[stamp] = actors
+    token = (_key(exact_identity(record)), _sha([record['event'], record['idempotency_key']]), record['record_id'])
+    actors = _INTAKE_ACTOR_MEMO[stamp].get(token, set())
+    if len(actors) != 1:
+        _fail('one original committed intake actor required')
+    return next(iter(actors))
+
+
+def frozen_notification_route(root, record):
+    from readonly_work_view_cache import inventory_active, memoized_view
+    if inventory_active(root):
+        return memoized_view(root,'historical-intake-route',
+            [record.get('identity'),record.get('delivery_identity'),record.get('route')],
+            lambda: _frozen_notification_route(root,record))
+    return _frozen_notification_route(root,record)
+
+
+def _frozen_notification_route(root, record):
+    """Only a historical receipt projection; never routes a new send or claim."""
+    identity = exact_identity(record.get('identity', {}))
+    exact = record.get('delivery_identity')
+    route = record.get('route', {})
+    if (not isinstance(exact, dict) or not isinstance(route, dict)
+            or any(exact.get(k) != identity[k] for k in IDENTITY_FIELDS)
+            or exact.get('purpose') not in DELIVERY_PURPOSES
+            or exact.get('purpose') != route.get('lane')
+            or not exact.get('target_department')
+            or exact.get('target_department') != route.get('target_department')
+            or not isinstance(exact.get('target_thread_id'), str)
+            or not exact['target_thread_id']):
+        _fail('original frozen notification recipient and purpose required')
+    registry=_w().department_registry(root)
+    receiver=registry.get(exact['target_department'],{}).get('chat_binding',{})
+    producer=registry.get(identity['sender_department'],{}).get('chat_binding',{})
+    if (not receiver.get('project_id') or receiver.get('project_id')!=producer.get('project_id')
+            or receiver.get('cwd')!=str(Path(root).resolve()) or producer.get('cwd')!=str(Path(root).resolve())):
+        _fail('frozen intake must remain in its actual registered project')
+    if receiver.get('task_id')!=exact['target_thread_id']:
+        from department_rotation import _records, _id
+        original=next((r for r in _records(root) if r.get('role')==exact['target_department']
+            and _id(r['old_binding'])==exact['target_thread_id']
+            and _id(r['new_binding'])==receiver.get('task_id')),None)
+        if original is None:
+            _fail('frozen original recipient is not this exact role or trusted rotation')
+    return {'lane': exact['purpose'], 'target_department': exact['target_department'],
+            'frozen_target_thread_id': exact['target_thread_id'],
+            'historical_receipt_projection_only': True}
+
+
+def _original_intake_notification(root, identity, route):
+    """Find the immutable original delivery identity, without current source replay."""
+    base = Path(root) / 'logs/result-notifications'
+    exact = delivery_identity(root, identity, route=route)
+    candidates = [base / (_delivery_key(exact).split(':', 1)[1] + '.json'), base / (_key(identity) + '.json')]
+    found = []
+    for path in dict.fromkeys(candidates):
+        if path.is_file():
+            item = _w().read_json(path)
+            if item.get('identity') == identity:
+                found.append(item)
+    if not found:
+        # Rotation may change today's fixed thread. Read old notices, never edit.
+        for path in base.glob('*.json'):
+            item = _w().read_json(path)
+            if item.get('identity') == identity:
+                found.append(item)
+    if len(found) != 1:
+        _fail('one original frozen intake notification required')
+    return frozen_notification_route(root, found[0])
+
+
 def _received_delivery(root, identity, route):
-    """Only the exact responsible consumer's committed intake consumes delivery."""
-    if identity == ORIGINAL_A3_CONCLUSION and route.get('target_department') == 'operations':
-        from direct_system_repair import received_original_knowledge
-        recovered=received_original_knowledge(root,identity)
-        if recovered is not None:
-            return recovered
-    matches = [row for row in _w()._result_handoff_rows(root, identity['task_id'])
-               if _w()._result_identity(row) == tuple(identity[key] for key in IDENTITY_FIELDS[1:])
-               and row.get('event') == 'controller_received'
-               and row.get('coordinator_role') == route.get('target_department')]
+    """Consume committed original intake; later production cannot undo that fact."""
+    w = _w(); identity = exact_identity(identity)
+    from readonly_work_view_cache import inventory_handoff_rows
+    rows = inventory_handoff_rows(root, identity['task_id'])
+    exact = [r for r in rows if w._result_identity(r) == tuple(identity[k] for k in IDENTITY_FIELDS[1:])]
+    matches = [r for r in exact if r.get('event') == 'controller_received']
     if len(matches) > 1:
         _fail('exact notification consumer intake is ambiguous')
     if matches:
-        _committed_result(root, matches[0])
-        return matches[0]
+        row = matches[0]
+        queued = [r for r in exact if r.get('event') == 'notification_queued']
+        if len(queued) != 1 or rows.index(queued[0]) >= rows.index(row):
+            _fail('one preceding original queued intake source required')
+        q = queued[0]; target = route.get('target_department')
+        frozen_target = q.get('target_department') or q.get('responsible_assistant')
+        if frozen_target != target:
+            _fail('original queued recipient differs from intake consumer')
+        original_pin = q.get('outbox')
+        if (row.get('outbox') != original_pin or not isinstance(original_pin, dict)
+                or original_pin.get('sha256') != identity['result_sha256']
+                or w.file_digest(root, original_pin.get('path', '')) != original_pin):
+            _fail('original exact intake/outbox bytes differ')
+        box = w.read_json(w.safe_path(root, original_pin['path']))
+        if (box.get('task_id') != identity['task_id'] or box.get('department') != identity['sender_department']
+                or box.get('candidate_version') != identity['candidate_version']):
+            _fail('original intake candidate version differs')
+        # Always fresh SQL/native readback; the role alias alone proves nothing.
+        _committed_result(root, row)
+        role = row.get('coordinator_role')
+        if role is None:
+            actor, owner = _committed_intake_actor(root, row)
+            if row.get('responsible_assistant') != target:
+                _fail('legacy intake requires its original responsible assistant')
+            frozen = route if route.get('frozen_target_thread_id') else _original_intake_notification(root, identity, route)
+            fixed_thread = frozen.get('frozen_target_thread_id')
+            owner_thread = owner.split(':',1)[0] if isinstance(owner,str) else None
+            same_thread = bool(fixed_thread and owner_thread==fixed_thread)
+            if not same_thread and actor==target and owner_thread and fixed_thread:
+                from department_rotation import _records, _id
+                mapping=next((r for r in _records(root) if r.get('role')==target
+                    and _id(r['old_binding'])==fixed_thread and _id(r['new_binding'])==owner_thread),None)
+                same_thread=bool(mapping and mapping['old_binding'].get('cwd')==str(Path(root).resolve())
+                                 and mapping['new_binding'].get('cwd')==str(Path(root).resolve()))
+            if actor != target or not same_thread:
+                _fail('legacy committed intake fixed recipient differs')
+            if row.get('coordinator_owner') and row['coordinator_owner'] != owner:
+                _fail('native intake owner differs from original SQL reservation')
+            role = row['responsible_assistant']
+        if role != target:
+            _fail('actual committed intake role differs from frozen recipient')
+        return row
+    if identity == ORIGINAL_A3_CONCLUSION and route.get('target_department') == 'operations':
+        from direct_system_repair import received_original_knowledge
+        return received_original_knowledge(root, identity)
     return None
+
+
+def received_notification(root, record):
+    """A verified receipt can resolve a notice without current goal revalidation."""
+    identity = exact_identity(record.get('identity', {}))
+    from readonly_work_view_cache import inventory_handoff_rows
+    rows = inventory_handoff_rows(root,identity['task_id'])
+    if not any(r.get('event')=='controller_received' and exact_identity(r)==identity for r in rows):
+        return None
+    route = frozen_notification_route(root, record)
+    return _received_delivery(root, identity, route)
+
+
+def inventory_result_lane(root, identity, notice_path):
+    from readonly_work_view_cache import memoized_view
+    return memoized_view(root,'dispatcher-source-error',[identity,'inventory-route'],
+                         lambda: result_lane(root,identity), required=[notice_path],failures_only=True)
 
 
 def _native_queue_identity(root, pin, identity, exact):
@@ -1987,10 +2312,27 @@ def notification_plan(root, role=None):
             if not isinstance(record, dict):
                 _fail('notification record must be an object')
             identity = exact_identity(record.get('identity', {}))
+            queue_recovery_owned = (role == 'operations' and record.get('native_queue_transport', {}).get('state')
+                                    in {'sending', 'uncertain', 'accepted'})
             if (role is not None and record.get('route', {}).get('target_department') != role
-                    and identity['sender_department'] != role):
+                    and identity['sender_department'] != role and not queue_recovery_owned):
                 continue
-            route = result_lane(root, identity)
+            # Committed original intake is checked before mutable later sources.
+            intake = received_notification(root, record)
+            if intake is not None:
+                frozen_route = frozen_notification_route(root, record)
+                exact = record['delivery_identity']; key = _delivery_key(exact)
+                if key in seen:
+                    _fail('notification delivery identity appears more than once')
+                seen.add(key)
+                received.append({'identity': identity, 'delivery_identity': exact, 'dedupe_key': key,
+                                 'resolution': 'exact_responsible_native_intake_committed',
+                                 'record_id': intake['record_id'], 'native_notification_sent': record.get('delivered', False)})
+                continue
+            route = inventory_result_lane(root, identity, path)
+            if route['lane']=='historical_read_only':
+                received.append({'identity':identity,'resolution':'historical_source_preserved_no_new_assistant_wakeup','native_notification_sent':record.get('delivered',False)})
+                continue
             if route['lane'] == 'historical_direct_repair_input':
                 received.append({'identity': identity, 'resolution': 'superseded_execution_pipeline_not_delivery',
                                  'actual_executor': 'operations', 'native_notification_sent': False,
@@ -2036,7 +2378,11 @@ def notification_plan(root, role=None):
                           and (route.get('lane') != 'HQ_knowledge' or route.get('notification_proven') is True))
             if queue_owned:
                 actionable = queue_recovery_due
-            pending.append({**public, 'delivery_identity': exact, 'dedupe_key': key,
+            activation = {}
+            if queue_owned:
+                from department_event_dispatcher import activation_recovery_view
+                activation = {'activation_recovery': activation_recovery_view(root, record)}
+            pending.append({**public, **activation, 'delivery_identity': exact, 'dedupe_key': key,
                             'delivery_owner': identity['sender_department'],
                             'recovery_owner': 'operations' if queue_owned else identity['sender_department'],
                             'purpose': exact['purpose'], 'actionable': actionable,
@@ -2090,7 +2436,7 @@ def notification_claim(root, identity, role, owner, request_id, live_identity, p
                 'recovery_owner': 'department_event_dispatcher',
                 'native_message_id': native_queue.get('native_message_id'),
                 'notification_responsibility_retained': True, 'native_send_executed': False}
-    if route['lane'] == 'HQ_knowledge' and not route.get('notification_proven'):
+    if route['lane'] == 'HQ_knowledge' and not route.get('notification_proven') and route.get('source_mode')!='department_autonomous_delivery_v1':
         _fail('exact formal assistant conclusion required before HQ knowledge delivery')
     if (not isinstance(live_identity, dict) or w.file_digest(root, live_identity.get('path', '')) != live_identity
             or not isinstance(payload, dict) or w.file_digest(root, payload.get('path', '')) != payload):

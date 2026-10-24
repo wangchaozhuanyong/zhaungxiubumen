@@ -308,7 +308,7 @@ def validate_native_launch(root: Path, current: dict) -> None:
             and qa["candidate_version"] == current["candidate_version"], "independent exact-version PASS missing")
     reply = proof["native_reply"]
     require(reply["turn_status"] == "completed" and reply["nonempty"]
-            and reply["thread_id"] == "<LOCAL_TASK_ID>"
+            and reply["thread_id"] == "example-native-11a474422a187c32"
             and reply["message_id"] == qa["chat_reply"]["message_id"], "native independent completion missing")
     readback = json.loads(project_file(root, receipt["keywords"]["readback"]).read_text())
     actual = readback["keywords"]

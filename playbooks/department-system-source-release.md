@@ -1,27 +1,3 @@
-# 部门系统源码导出与安装
+# 部门系统源码发布参考
 
-只导出本系统控制源码、动态角色/空模板与项目自有方法。公司事实用空白模板；账号、聊天绑定/健康、真实许可、data/logs/reports/drafts、客户数据、素材和学习历史不公开，不复制本公司ID、许可或历史PASS。外部批准Skill保留路径声明，新公司须本机实际核验，不打包机器私有Skill，不因此取得生产权限。角色按注册表动态发现，不按固定11/13角色判断。
-
-真实导出入口为 `python3 tools/export_department_system.py --target <项目内导出目录>`；真实安装入口为 `python3 <导出目录>/tools/setup_department_system.py --root <导出目录>`。共用 `tools/department_system_package.py` 验证最终包：manifest的schema_version为 `department-system-package-v1`，每项path/release_sha256/bytes对应实际发布字节，source_sha256保留来源，fingerprint核canonical无fingerprint字段JSON的SHA-256。该指纹证明输入一致性，不是可信签名或授权。缺失、篡改、不安全路径、正向旧QA/HQ链或未声明旧模式须拒绝，不能重新成为默认运行规则。
-
-默认runtime_model必须为 `goal_delivery_assistant_v1`，`qa`/`qa-technical`退出新派工；动态注册角色的role_config、professional_skill、department_readme三份源码及批准的项目内方法须齐全，路由与必要依赖按现行规则验证。安装仍只采用原五配置：department-registry、department-routing-rules、task-contract、action-policy、delegation-policy；agent-role-policy示例是验证依赖，不新增第六个安装配置。七份公司资料使用空模板。
-
-安装写入前验证完整静态包与effective当前注册表、模型及全部计划目标；缺失或非法输入不得留下半套配置。重复安装仅创建missing，保留已有绑定、授权、业务数据、历史和WIP。新安装所有窗口unbound/不可派工，生产权为空。`flashcast_ops`启动调用共用 `validate_startup`：导出安装包核完整manifest，源码公司无manifest时核当前data模型/注册表。历史旧task可读，不作为当前默认模型；导出副本中的packet/step-a明确标作历史R0解析兼容、非运行输入，原示例不删，也不作为安装五配置或新goal模板。
-
-升级交准确候选diff/CAS、备份回滚与必要检查，唯一具备对应能力且未参与制作的负责助理独立验收并按已有准确授权采用，保留运行主账和新真实回执；采用后回读实际入口并完成真实下一任务试点。原生自动任务只处理真正新增迁移差异，由有权总部/助理经原生工具实际更新，不手改平台文件。
-
-源码发布依据当前任务的真实授权执行：已获仓库推送授权时，从当前已采用的运行源码脱敏导出，核验安装包、远端新增提交及工作区差异后正常提交推送；仅候选的任务不冒充实际采用。源码导出、空安装、实际采用、远端推送、原生接续试点和业务完成分别记录。仓库推送不授网站部署、后台保存或账号操作权限，不恢复旧QA/HQ/老板逐段审批链。
-
-部门系统源码开发归system-development，唯一负责助理按development能力独立验收；装修官网源码归designated-development并核对该网站自己的准确授权。已派旧任务保留原task、执行者和授权，历史开通或候选任务的限制只适用于其原范围，不覆盖后来明确批准的源码整理与仓库发布。角色开通不继承其他任务许可。
-
-规则整理与仓库推送按本次准确文件清单处理：先从已采用现行规则删除重复/冲突正文，旧入口仅留共同规则链接；历史授权和回执保持原件。脱敏后的本批规则及准确manifest进入源码仓库，不把并行候选或未采用控制源码一并提交。同步前核原仓库HEAD/工作区与远端变化，更新每个变更条目的来源/发布字节hash并重封manifest，验证包与空安装、检查准确diff后提交推送及远端读回。运行规则更新、Git推送与公司业务发布分别记录。
-
-## 完整源码整合与旧规则退出
-
-完整功能发布使用已采用源码的冻结快照，不只同步规则文件。先在整合分支核对新模块、动态角色与安装依赖，运行包指纹校验、全新空目录安装、重复安装和可移植回归，再正常合并推送main并读回远端SHA。源码整合中新增的兼容修复须在发布说明区分运行采用状态，不能反称已运行采用。
-
-可移植检查命令与Python版本见 `ci/department-system-checks.yml.example`。测试运行目录设为项目内绝对路径 `FLASHCAST_TEST_RUNTIME=<安装目录>/logs/test-runtime`。测试自行创建缺失的临时父目录。公司专用原生证据集与未分发的交付脚本属于本机集成检查，不复制进空安装；缺少它们不能冒报全量业务检查通过。新安装共享专业知识按注册表shared_department建立同一学习路径，窗口绑定、任务、执行者和回执各自独立。
-
-已发布包中声明为 `preserve_existing_portable_test` 的可移植测试保留其已核验字节和来源，不用公司本机的私人测试输入覆盖。再次导出前先校验原包；已被修改的公开测试仍须拒绝覆盖。新增测试及运行源码正常进入本批验证，测试结果分别列出本地证据缺失的跳过项。
-
-合并后只清理已合并的临时分支。已被现行规则替代的旧规则正文、旧兼容入口和失用规则副本，核准确路径、hash、引用及用户授权后直接删除，不创建归档或恢复副本。导出工具撤下旧规则时也不移入 backups/withdrawn-source；当前规则和专业方法继续维护唯一现行入口。其他源码的采用回滚、仍被准确来源pin引用的文件和业务记录沿各自原任务保留，不将其当成旧规则。历史聊天文字提及与实际路径依赖分别核对，历史授权和回执本身不改写。不可恢复删除仍按准确清单单独确认。
+现行runtime_model为`department_autonomous_delivery_v1`。共同规则只按[唯一正文](department-system-current.md)。由system-development独立制作、自检、准确逐文件CAS采用、备份/journal/回滚和实际入口读回，完整回报HQ，无助理审批。脱敏导出沿原export_department_system.py，保护现有10项portable tests及仓库WIP，不从main覆盖本地新采用源。公开包不携带原生授权、账号、健康、许可或业务主账；安装不继承本项目权限。Git推送/部署仍须原任务明确授权，本次未执行。历史旧包声明只读兼容。

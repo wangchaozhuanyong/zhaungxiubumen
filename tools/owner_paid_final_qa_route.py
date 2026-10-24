@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = "<PROJECT_ROOT>"
 PROJECT = "<LOCAL_PROJECT_ID>"
 SOURCE = "example-native-0bec6d516b372cb9"
-TARGET = "<LOCAL_TASK_ID>"
+TARGET = "example-native-11a474422a187c32"
 TASK = "fc-20260920-google-ads-rm100-budget-plan"
 SCOPE = "owner_paid_final_qa:example-ads-account:v39"
 ACTION = "send-owner-approved-paid-final-qa-v39"

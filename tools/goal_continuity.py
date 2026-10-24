@@ -19,6 +19,11 @@ ASSIGNMENT_SCHEMA = 'goal-current-assignment/v2'
 READY_MARKER = 'FLASHCAST_DELIVERY_READY '
 
 
+class SourceRegistrationPending(w.WorkflowError):
+    """No delivered effect: await actual causal ACK/source registration."""
+
+
+
 def pin_document(root, pin):
     if not isinstance(pin, dict) or w.file_digest(root, pin.get('path', '')) != pin:
         raise w.WorkflowError('exact project-local continuity source changed')
@@ -52,10 +57,10 @@ def _dispatch_source(root, item):
     registry = historical_registry(root, item)
     binding = registry.get(role, {}).get('chat_binding', {})
     goal = snapshot['goal_delivery']
-    if role not in {*goal['producer_departments'], goal['responsible_assistant']}:
+    if role not in {*goal['producer_departments'], goal.get('responsible_assistant')}:
         raise w.WorkflowError('assignment department outside original goal')
     sender = item.get('sender_department')
-    if sender not in {'operations', goal['responsible_assistant'], goal['primary_owner']}:
+    if sender not in {'operations', goal.get('responsible_assistant'), goal['primary_owner']}:
         raise w.WorkflowError('original authorized assignment sender required')
     payload = item['payload']; pin_document(root, item['actual_native_invocation'])
     if w.file_digest(root, payload.get('path', '')) != payload:
@@ -371,7 +376,186 @@ def _three_family_late_registered_source(root, request, fixed_id, observed, prio
     return True
 
 
-def _ready_receipt_prefix(source_rows, observed):
+def _registered_native_pair(root, request, rows, source_rows, observed, page):
+    """Prove effect order in the original native turn, never by backdating rows.
+
+    An ACK appended after the result is usable only with its authenticated
+    original send/assignment and one unchanged native ACK before that result.
+    Unknown or newly assigned responsibility is not an ordinary continuation.
+    """
+    if not isinstance(request, dict) or not isinstance(page, dict) or observed is None:
+        return None
+    role, task = request.get('sender_department'), request.get('task_id')
+    fixed = w.department_registry(root).get(role, {}).get('chat_binding', {})
+    if (request.get('source_thread_id') != fixed.get('task_id')
+            or any(page.get('thread', {}).get(k) != fixed.get(v) for k,v in
+                   {'id':'task_id','title':'title','cwd':'cwd'}.items())
+            or page.get('thread', {}).get('hostId', 'local') != 'local'
+            or page.get('thread', {}).get('projectId', fixed.get('project_id')) != fixed.get('project_id')):
+        raise w.WorkflowError('causal source requires the real original fixed project/role')
+    selected = [t for t in page.get('turns', []) if t.get('id') == request.get('source_turn_id')]
+    if len(selected) != 1:
+        raise w.WorkflowError('one exact native source turn required for registration')
+    turn = selected[0]; items = turn.get('items', [])
+    results = [(i,m) for i,m in enumerate(items) if m.get('id') == request.get('source_message_id')]
+    if (page.get('truncated',False) or turn.get('truncated',False)
+            or any(m.get('truncated',False) for m in items)
+            or turn.get('status') not in {'completed','inProgress'} or turn.get('error')
+            or type(turn.get('startedAt')) not in {int,float} or turn['startedAt'] > observed.timestamp()
+            or len(results) != 1 or results[0][1].get('type') != 'agentMessage'
+            or results[0][1].get('phase') not in {'commentary','final_answer'}
+            or hashlib.sha256(results[0][1].get('text','').encode()).hexdigest() != request.get('source_reply_sha256')):
+        raise w.WorkflowError('unchanged actual result message and original native chronology required')
+    # Select the same responsibility that existed at result observation time.
+    sends = [r for r in source_rows if r.get('receipt_type') in {'dispatch_sent','dispatch_failed'}
+             and w._parse_observed_at(r.get('created_at')) <= observed]
+    if not sends or sends[-1].get('receipt_type') != 'dispatch_sent':
+        return None
+    dispatch = sends[-1]
+    acks = [r for r in source_rows if r.get('receipt_type') == 'chat_ack' and r.get('ack_nonempty') is True
+            and rows.index(r) > rows.index(dispatch)
+            and all(r.get(k) == dispatch.get(k) for k in
+                    ('task_id','department','chat_task_id','action_id','action_class','scope','policy_decision_id'))]
+    if len(acks) != 1:
+        return None
+    ack = acks[0]
+    if (any(r.get('supersedes_receipt_id') in {dispatch.get('receipt_id'),ack.get('receipt_id')} for r in rows)
+            or ack.get('approval_id') or ack.get('replacement_reason')
+            or len(ack.get('evidence', [])) != 1):
+        raise w.WorkflowError('one intact unreplaced actual ACK registration required')
+    current = w.read_json(Path(root)/'data/department-current-assignment.json')
+    pins = [current.get('assignments', {}).get(role), *current.get('suspended_assignments', {}).get(role, [])]
+    assignments = []
+    for pin in pins:
+        if not pin: continue
+        item = pin_document(root,pin)
+        if (item.get('task_id') != task or item.get('department') != role
+                or item.get('action_id') != dispatch.get('action_id') or item.get('scope') != dispatch.get('scope')):
+            continue
+        _, sent = _dispatch_source(root,item)
+        if sent.get('receipt_id') == dispatch.get('receipt_id') and pin not in [v[0] for v in assignments]:
+            assignments.append((pin,item))
+    if len(assignments) != 1:
+        return None
+    ack_page = native(root,ack['evidence'][0])
+    if any(ack_page.get('thread', {}).get(k) != fixed.get(v) for k,v in
+           {'id':'task_id','title':'title','cwd':'cwd'}.items()):
+        raise w.WorkflowError('ACK evidence must retain the actual original role')
+    actual = [t for t in ack_page.get('turns', []) if t.get('id') == turn['id']]
+    if (len(actual) != 1 or actual[0].get('error') or actual[0].get('status') not in {'inProgress','completed'}
+            or actual[0].get('startedAt') != turn['startedAt']):
+        raise w.WorkflowError('ACK and result must share the unchanged original receiving turn')
+    replies = [m for m in actual[0].get('items', []) if m.get('type') == 'agentMessage'
+               and m.get('phase') in {'commentary','final_answer'} and m.get('text','').strip()]
+    # The earliest observed nonempty receiving reply is the actual ACK, not a
+    # later result/progress message chosen by the caller.
+    if not replies: return None
+    matching = [(i,m) for i,m in enumerate(items) if m.get('id') == replies[0].get('id')]
+    if len(matching) != 1 or matching[0][1] != replies[0] or matching[0][0] >= results[0][0]:
+        raise w.WorkflowError('actual nonempty native ACK must precede this exact frozen result')
+    return dispatch, ack
+
+
+def _registration_observation(root, request, rows, source_rows, observed):
+    """Read one append-only causal observation without rewriting the request."""
+    expected = {k:request.get(k) for k in ('task_id','sender_department','candidate_version','result_sha256',
+                                          'source_thread_id','source_turn_id','source_message_id','source_reply_sha256')}
+    observations = [e['details']['original_result_registration_observed']
+        for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)
+        if e.get('task_id') == request.get('task_id') and
+        e.get('details', {}).get('original_result_registration_observed', {}).get('identity') == expected]
+    if not observations: return None
+    if w.validate_workflow_events(root,request['task_id']):
+        raise w.WorkflowError('intact source-registration event chain required')
+    if len(observations) != 1:
+        raise w.WorkflowError('one immutable registration observation required')
+    event = observations[0]; original = pin_document(root,event['original_request'])
+    if any(original.get(k) != v for k,v in expected.items()):
+        raise w.WorkflowError('registration cannot replace original result identity')
+    pair = _registered_native_pair(root,original,rows,source_rows,observed,native(root,event['native_observation']))
+    if pair is None or [r['receipt_id'] for r in pair] != event.get('receipt_ids'):
+        raise w.WorkflowError('registration observation no longer matches the original source facts')
+    return pair
+
+
+def defer_result_registration(root, request):
+    """Keep the exact failed request in existing events; never queue or send it."""
+    if request.get('event') != 'notification_queued' or request.get('result_source_phase') != 'delivery_ready':
+        raise w.WorkflowError('only the original exact READY request can await registration')
+    from result_coordination import exact_identity
+    identity = exact_identity(request); task = identity['task_id']; snapshot = _task(root,task)
+    if snapshot.get('current_state') in w.TERMINAL_STATES:
+        raise w.WorkflowError('closed goal cannot defer a new result')
+    key = w.sha256_value(identity)
+    path = Path(root)/'logs/department-event-dispatcher/prepared'/('source-registration-'+key)/'original-request.json'
+    with w.workflow_lock(root):
+        old = w.read_json(path)
+        if old and old != request: raise w.WorkflowError('preserve original frozen pending source request')
+        if not old: w.atomic_write_json(path,request)
+        proof = {'identity':identity,'original_request':w.file_digest(root,str(path.relative_to(root))),
+                 'next_owner':identity['sender_department'],'state':'await_actual_source_registration',
+                 'notification_queued':False,'execution_authority_added':False}
+        prior = [e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS) if e.get('task_id') == task and
+                 e.get('details', {}).get('original_result_registration_pending', {}).get('identity') == identity]
+        if prior:
+            if len(prior) != 1 or prior[0]['details']['original_result_registration_pending'] != proof:
+                raise w.WorkflowError('one immutable pending original result required')
+            return {'state':'duplicate_ignored','event_id':prior[0]['event_id']}
+        event = w.append_workflow_event(root,task,snapshot['current_state'],
+            {'original_result_registration_pending':proof,'external_permission_issued':False})
+    return {'state':'pending_source_registration','event_id':event['event_id'],'message_sent':False}
+
+
+def observe_result_registration(root, input_path):
+    """Register true ACK/result order only; no send, intake, QA or permission."""
+    pin = w.file_digest(root,input_path); item = pin_document(root,pin)
+    if set(item) != {'schema','original_request','native_observation'} or item.get('schema') != 'original-result-registration-observation/v1':
+        raise w.WorkflowError('finite original registration observation required')
+    request = pin_document(root,item['original_request']); page = native(root,item['native_observation'])
+    if request.get('event') != 'notification_queued' or request.get('result_source_phase') != 'delivery_ready':
+        raise w.WorkflowError('only one original frozen READY result registration is representable')
+    # Validate the original declaration/outbox/role/contract and timestamps via
+    # the normal READY consumer using this genuine fuller observation. The
+    # immutable original request remains untouched.
+    ready_source(root,{**request,'actual_native_completion':item['native_observation']},request['source_thread_id'])
+    task, role = request['task_id'], request['sender_department']; snapshot = _task(root,task)
+    if snapshot.get('current_state') in w.TERMINAL_STATES:
+        raise w.WorkflowError('closed goal cannot append a new causal registration')
+    if role not in {*snapshot['goal_delivery']['producer_departments'],snapshot['goal_delivery']['responsible_assistant']}:
+        raise w.WorkflowError('actual original goal participant required for source registration')
+    rows,bad = w._validate_receipt_chain(root,task)
+    if bad or w.validate_workflow_events(root,task): raise w.WorkflowError('intact original registration receipt and event chains required')
+    source_rows = [r for r in rows if r.get('department') == role
+        and r.get('chat_task_id') == request.get('source_thread_id')
+        and r.get('receipt_type') in {'dispatch_sent','chat_ack','dispatch_failed'}]
+    observed = w._parse_observed_at(request.get('reply_observed_at'))
+    pair = _registered_native_pair(root,request,rows,source_rows,observed,page)
+    if pair is None: raise w.WorkflowError('real registered original send/ACK and native result order required')
+    identity = {k:request.get(k) for k in ('task_id','sender_department','candidate_version','result_sha256',
+        'source_thread_id','source_turn_id','source_message_id','source_reply_sha256')}
+    facts = {'identity':identity, **{k:item[k] for k in ('original_request','native_observation')},
+             'receipt_ids':[r['receipt_id'] for r in pair], 'execution_authority_added':False}
+    with w.workflow_lock(root):
+        old = [e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS) if e.get('task_id') == task
+               and e.get('details', {}).get('original_result_registration_observed', {}).get('identity') == identity]
+        if old:
+            if len(old) != 1 or old[0]['details']['original_result_registration_observed'] != facts:
+                raise w.WorkflowError('original causal registration already frozen; no replacement')
+            return {'state':'duplicate_ignored','event_id':old[0]['event_id'],'result_identity_unchanged':True}
+        # Recheck every native/request pin and source proof under the normal lock.
+        if pin_document(root,pin) != item or pin_document(root,item['original_request']) != request:
+            raise w.WorkflowError('original registration input changed during append')
+        check,bad = w._validate_receipt_chain(root,task)
+        if bad or check != rows: raise w.WorkflowError('original receipt source changed during append')
+        if _registered_native_pair(root,request,check,source_rows,observed,native(root,item['native_observation'])) != pair:
+            raise w.WorkflowError('native registration source changed during append')
+        event = w.append_workflow_event(root,task,snapshot['current_state'],
+            {'original_result_registration_observed':facts,'external_permission_issued':False})
+    return {'state':'source_registered','event_id':event['event_id'],'result_identity_unchanged':True,
+            'notification_sent':False,'result_received':False,'QA_written':False,'permissions_issued':False}
+
+
+def _ready_receipt_prefix(source_rows, observed, *, root=None, snapshot=None, receipts=None, plan=None, source_request=None, source_page=None):
     """Select the causal source before READY from the intact full receipt chain.
 
     A later continuation cannot change this prefix. Its timestamps must still be
@@ -389,8 +573,15 @@ def _ready_receipt_prefix(source_rows, observed):
         previous = stamp
         if stamp <= observed:
             prefix.append(row)
+    ordinary = set()
+    if root is not None and snapshot is not None and plan is not None:
+        from qa_review_plan import ordinary_original_source_receipt_ids
+        ordinary = ordinary_original_source_receipt_ids(root, snapshot, receipts, plan)
     dispatch, pair = None, None
     for row in prefix:
+        if row.get('receipt_id') in ordinary:
+            continue  # A proven transport observation is not a new responsibility.
+
         kind = row.get('receipt_type')
         if kind == 'dispatch_sent':
             dispatch, pair = row, None
@@ -402,10 +593,15 @@ def _ready_receipt_prefix(source_rows, observed):
             if all(not row.get(key) or row.get(key) == dispatch.get(key)
                    for key in ('action_id', 'action_class', 'scope', 'policy_decision_id')):
                 pair = dispatch, row
+    if pair is None and root is not None and source_request is not None:
+        candidates = [r for r in source_rows if r.get('receipt_id') not in ordinary]
+        pair = _registration_observation(root,source_request,receipts,candidates,observed)
+        if pair is None and source_page is not None:
+            pair = _registered_native_pair(root,source_request,receipts,candidates,observed,source_page)
     return pair, False
 
 
-def ready_source(root, request, fixed_id, *, scheduled=False):
+def ready_source(root, request, fixed_id, *, scheduled=False, through_receipt_id=None):
     """A frozen batch declaration can be handed off before its turn terminates."""
     task=request['task_id'];sender=request['sender_department']
     if scheduled:
@@ -456,11 +652,17 @@ def ready_source(root, request, fixed_id, *, scheduled=False):
         raise w.WorkflowError('finite actual batch outcome required')
     observed=w._parse_observed_at(request.get('reply_observed_at'))
     start=turn.get('startedAt')
-    rows,bad=w._validate_receipt_chain(root,task)
+    rows,bad=w._validate_receipt_chain(root,task,through_receipt_id=through_receipt_id)
     source_rows=[r for r in rows if r.get('department')==sender and r.get('chat_task_id')==fixed_id
                  and r.get('receipt_type') in {'dispatch_sent','chat_ack','dispatch_failed'}]
     prior=[r for r in source_rows if r.get('receipt_type') != 'dispatch_failed']
-    prefix, source_chronology_bad = _ready_receipt_prefix(source_rows, observed)
+    plan = None
+    if not scheduled:
+        from qa_review_plan import load_plan
+        plan = load_plan(root, snapshot)
+    prefix, source_chronology_bad = _ready_receipt_prefix(source_rows, observed,
+        root=root, snapshot=None if scheduled else snapshot, receipts=rows, plan=plan,
+        source_request=None if scheduled else request, source_page=page)
     prior_ok=bool(prefix)
     if not scheduled and not prior_ok and not source_rows:
         assignment=w.read_json(Path(root)/'data/department-current-assignment.json')
@@ -495,10 +697,11 @@ def ready_source(root, request, fixed_id, *, scheduled=False):
                  _three_family_late_registered_source(root,request,fixed_id,observed,prior,rows))
     if recovered:
         prior_ok = True  # This existing narrow path authenticates the real original native prefix.
-    if (bad or source_chronology_bad or (not scheduled and not prior_ok) or observed is None or observed>dt.datetime.now(dt.timezone.utc)
-            or type(start) not in {int,float} or start>observed.timestamp()
-            or (late_prior and not recovered)):
+    if (bad or source_chronology_bad or observed is None or observed>dt.datetime.now(dt.timezone.utc)
+            or type(start) not in {int,float} or start>observed.timestamp()):
         raise w.WorkflowError('ready declaration requires preceding actual task dispatch/ACK')
+    if (not scheduled and not prior_ok) or (late_prior and not recovered):
+        raise SourceRegistrationPending('exact original READY awaits actual causal dispatch/ACK registration')
     return {**({'original_rotation_continuation':continuation} if continuation is not None else {}),
             **{k:request[k] for k in ('source_turn_id','source_thread_id','source_message_id',
                 'source_reply_sha256','reply_observed_at','actual_native_completion','visible_reply')},
@@ -914,13 +1117,58 @@ def pending_intake(root, task_ids=None):
             'received_HQ_knowledge_without_second_review':resolved,'knowledge_source_errors':errors}
 
 
+def grouped_work_projection(role,assignment,groups,ready,waiting,errors):
+    def aggregate(rows,stage):
+        buckets={}
+        for row in rows:
+            task=row.get('task_id')
+            if not task:continue
+            key=(task,role,stage)
+            item=buckets.setdefault(key,{'task_id':task,'department':role,'stage':stage,'items':[],
+                                        'inventory_is_permission':False})
+            if row not in item['items']:item['items'].append(row)
+        return list(buckets.values())
+    raw=[]
+    if assignment:
+        if assignment.get('resume_required'):raw.append(assignment)
+        raw.extend(assignment.get('unfinished_assignment_queue',[]))
+    current=assignment.get('task_id') if assignment and assignment.get('resume_required') else None
+    current_errors=[e for e in errors if (current and e.get('task_id')==current)
+                    or e.get('stage')=='current_assignment_recovery']
+    historical=[e for e in errors if e not in current_errors]
+    completed=[item for item in groups.values() if item.get('target_department')==role
+               and item.get('controller_decision')=='close_scope' and item.get('committed_stage_verified') is True
+               and item.get('controller_followthrough') not in {None,'pending'}]
+    return {'schema':'task-department-stage-projection/v1',
+        'current_execution':aggregate([assignment] if current else [],'current_execution'),
+        'effective_unfinished':aggregate(raw,'original_responsibility'),
+        'executable':aggregate(ready,'next_legal_action'),
+        'pending_review':aggregate([v for v in ready if v.get('next_action') in {
+            'claim_and_receive_original_frozen_result','review_received_exact_result'}],'independent_review'),
+        'named_waiting':aggregate(waiting,'named_waiting'),
+        'historical_anomalies':historical,'current_blockers':current_errors,
+        'completed_result_scopes':aggregate(completed,'result_scope_completed'),
+        'raw_suspended_source_versions':max(0,len(raw)-(1 if current else 0)),
+        'paused_versions_are_separate_todos':False,'business_parent_completion_inferred':False,
+        'cache_is_rebuildable':True,'permission_cache':False}
+
+
 def work_boundary(root, role, *, assignment=None, read_assignment=True):
+    from department_autonomy import current_mode,work_boundary as autonomous_work_boundary
+    if current_mode(root):return autonomous_work_boundary(root,role,assignment,read_assignment)
+    from readonly_work_view_cache import inventory_session
+    with w.request_validation_context(), inventory_session(root):
+        return _work_boundary_view(root,role,assignment=assignment,read_assignment=read_assignment)
+
+
+def _work_boundary_view(root, role, *, assignment=None, read_assignment=True):
     """Read current work before maintenance/NO_CHANGE; never send or grant rights.
 
     Inventory uses authenticated ledger bytes, not a full historical re-review.
     Each action still uses the existing exact claim/source/policy consumers.
     """
     import result_coordination as rc
+    from readonly_work_view_cache import inventory_handoff_rows
     registry=w.department_registry(root)
     if role not in registry:raise w.WorkflowError('registered work-boundary role required')
     ready=[];waiting=[];errors=[];groups={}
@@ -939,7 +1187,7 @@ def work_boundary(root, role, *, assignment=None, read_assignment=True):
             relevant=(goal and (role in goal.get('producer_departments',[]) or role==goal.get('responsible_assistant')
                                or role=='operations')) or any(role in {s.get('department'),s.get('responsible_assistant')} for s in scheduled)
             if not relevant and not scheduled:continue
-            rows=w._result_handoff_rows(root,path.stem)
+            rows=inventory_handoff_rows(root,path.stem)
             # Scheduled routing belongs to the frozen result identity. Intake
             # and decision events need not repeat the original source fields.
             daily_targets={}
@@ -965,6 +1213,9 @@ def work_boundary(root, role, *, assignment=None, read_assignment=True):
                 item=groups.setdefault(key,{**identity,'target_department':target,
                     'knowledge_only':knowledge,'events':[], 'controller_followthrough':'pending'})
                 item['events'].append(row['event'])
+                if row['event'] in {'controller_decision','controller_followthrough'}:
+                    item.setdefault('final_record_refs',[]).append({'record_id':row['record_id'],
+                        'record_hash':row['record_hash']})
                 if row['event']=='controller_decision':item['controller_decision']=row.get('decision')
                 elif row['event']=='controller_followthrough':
                     item.update(controller_followthrough=row.get('followthrough_status'),next_check_at=row.get('next_check_at'))
@@ -976,7 +1227,15 @@ def work_boundary(root, role, *, assignment=None, read_assignment=True):
         events=item['events']
         if 'notification_queued' not in events and 'controller_received' not in events:continue
         if item['knowledge_only']:
-            if 'controller_received' not in events:
+            if 'controller_received' in events:
+                try:
+                    received=rc._received_delivery(root,rc.exact_identity(item),
+                        {'lane':'HQ_knowledge','target_department':role})
+                    if received is None:raise w.WorkflowError('committed original HQ intake required')
+                except (w.WorkflowError,OSError,ValueError,KeyError,TypeError,AttributeError) as exc:
+                    errors.append({'task_id':item['task_id'],'identity':rc.exact_identity(item),
+                        'stage':'committed_HQ_intake','reason':str(exc),'blocks_other_tasks':False})
+            else:
                 try:
                     rc.hq_knowledge_source(root,rc.exact_identity(item))
                 except (w.WorkflowError,OSError,ValueError,KeyError,TypeError,AttributeError) as exc:
@@ -987,19 +1246,51 @@ def work_boundary(root, role, *, assignment=None, read_assignment=True):
                         'next_check_at':'original_source_changed','blocks_other_tasks':False})
                 else:ready.append({**item,'next_action':'receive_exact_HQ_knowledge_without_second_review'})
             continue
+        if 'controller_received' in events:
+            try:
+                intake = rc._received_delivery(root,rc.exact_identity(item),
+                    {'lane':'professional_acceptance','target_department':role})
+                if intake is None:raise w.WorkflowError('original committed intake required')
+            except (w.WorkflowError,OSError,ValueError,KeyError,TypeError,AttributeError) as exc:
+                errors.append({'task_id':item['task_id'],'identity':rc.exact_identity(item),
+                    'stage':'original_intake_projection','reason':str(exc),'blocks_other_tasks':False})
+                continue
+        if item.get('final_record_refs'):
+            try:
+                source_rows=inventory_handoff_rows(root,item['task_id'])
+                for ref in item['final_record_refs']:
+                    found=[r for r in source_rows if r.get('record_id')==ref['record_id']
+                           and r.get('record_hash')==ref['record_hash']]
+                    if len(found)!=1:raise w.WorkflowError('one exact original decision/followthrough required')
+                    rc._committed_result(root,found[0])
+                    actor=found[0].get('coordinator_role')
+                    if actor is None:actor=rc._committed_intake_actor(root,found[0])[0]
+                    if actor!=role:raise w.WorkflowError('committed decision/followthrough role differs')
+                item['committed_stage_verified']=True
+            except (w.WorkflowError,OSError,ValueError,KeyError,TypeError,AttributeError) as exc:
+                errors.append({'task_id':item['task_id'],'identity':rc.exact_identity(item),
+                    'stage':'original_decision_projection','reason':str(exc),'blocks_other_tasks':False})
+                continue
         if 'controller_decision' not in events:
-            ready.append({**item,'next_action':'claim_and_receive_original_frozen_result'})
+            ready.append({**item,'next_action':'review_received_exact_result' if 'controller_received' in events
+                          else 'claim_and_receive_original_frozen_result'})
         elif w._followthrough_due(item):
             ready.append({**item,'next_action':'execute_original_decision_followthrough'})
         elif w._followthrough_waiting(item):waiting.append({**item,'next_action':'wait_named_dependency'})
     deliveries=rc.notification_plan(root,role)
     for notice in deliveries['notifications']:
-        # Only the sender owns delivery. Receiving assistants can intake the
-        # original frozen result independently instead of impersonating sender.
-        if notice.get('delivery_owner')!=role:continue
-        (ready if notice.get('actionable') else waiting).append({
+        # Sending stays with the producer; only original HQ owns activation
+        # of an accepted/uncertain queue. This is the same existing work view.
+        recovery = notice.get('activation_recovery')
+        recovery_owned = bool(recovery and recovery.get('recovery_owner') == role)
+        if notice.get('delivery_owner') != role and not recovery_owned:continue
+        state = recovery.get('state', {}) if recovery_owned else {}
+        due = notice.get('actionable') and not state.get('intent_reserved')
+        (ready if due else waiting).append({
             **notice.get('identity',{}),'next_action':notice['next_action'],
-            'kind':'actual_notification_delivery','queue_is_delivery':False})
+            'kind':'original_queue_activation' if recovery_owned else 'actual_notification_delivery',
+            'activation_recovery':recovery if recovery_owned else None,
+            'queue_is_delivery':False})
     errors.extend(deliveries.get('errors',[]))
     if assignment and assignment.get('resume_required'):
         task=assignment['task_id']
@@ -1012,10 +1303,13 @@ def work_boundary(root, role, *, assignment=None, read_assignment=True):
             if delivered_batch or dependency_wait:
                 waiting.append({**item,'next_action':'retain_original_goal_until_exact_intake_or_dependency_event'})
             else:ready.insert(0,item)
+    projection = grouped_work_projection(role,assignment,groups,ready,waiting,errors)
     return {'schema':'goal-work-boundary/v1','department':role,
+            'grouped_work':projection,
             'actual_current_assignment':assignment,'ready_actions':ready,'waiting_actions':waiting,
             'source_errors':errors,'actionable_count':len(ready),
-            'can_report_no_change':not ready and not errors,
+            'can_report_no_change':not ready and not projection['current_blockers'],
+            'source_error_fingerprint':w.sha256_value(errors),
             'resume_before_maintenance':bool(ready),'inventory_is_permission':False,
             'native_wakeup_guaranteed':False,'messages_sent':0,'writes_performed':False,
             'HQ_continuous_watch_required':False}

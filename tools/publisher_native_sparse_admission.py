@@ -14,7 +14,7 @@ from typing import Any
 ROOT = Path('<PROJECT_ROOT>')
 PROJECT = '<LOCAL_PROJECT_ID>'
 PUBLISHER = 'example-native-f4ba16119c32b000'
-QA = '<LOCAL_TASK_ID>'
+QA = 'example-native-11a474422a187c32'
 BUSINESS_TASK = 'fc-20260928-keyword-page-answer-implementation-v1'
 CONTROL_TASK = 'fc-20261007-owner-publisher-execution-takeover-v1'
 REWORK_TASK = 'fc-20261007-publisher-three-rollback-projection-rework-v1'

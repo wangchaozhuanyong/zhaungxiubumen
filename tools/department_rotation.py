@@ -20,11 +20,39 @@ REGISTRY = 'data/department-registry.json'
 BASE = 'logs/handoffs/2026-10-20-clean-department-window-rotation-v1'
 OUTPUT = BASE + '/runtime-migration'
 _VALIDATION = ContextVar('rotation_historical_receipt_validation', default=None)
+_METADATA_VALIDATION = ContextVar('rotation_sidebar_only_validation', default=None)
 
 
 def validation_registry(root):
     state = _VALIDATION.get()
     return copy.deepcopy(state[1]) if state and state[0] == str(Path(root).resolve()) else None
+
+
+def metadata_only_validation(root):
+    """Identify a derived sidebar-only read context, never a caller flag."""
+    state = _VALIDATION.get()
+    return bool(state and state[0] == str(Path(root).resolve())
+                and _METADATA_VALIDATION.get() == state[0])
+
+
+@contextmanager
+def _historical_read_context(root, registry):
+    if registry is None:
+        yield
+        return
+    current = w.department_registry(root)
+    fixed = ('task_id', 'title', 'project_id', 'cwd', 'host_id')
+    sidebar_only = (set(current) == set(registry) and all(
+        all(_identity(current[role].get('chat_binding', {})).get(key)
+            == _identity(registry[role].get('chat_binding', {})).get(key)
+            for key in fixed) for role in registry))
+    token = _VALIDATION.set((str(Path(root).resolve()), registry))
+    metadata_token = _METADATA_VALIDATION.set(str(Path(root).resolve()) if sidebar_only else None)
+    try:
+        yield
+    finally:
+        _METADATA_VALIDATION.reset(metadata_token)
+        _VALIDATION.reset(token)
 
 
 def prohibit_validation_write():
@@ -39,31 +67,23 @@ def historical_receipt_validation(root, receipt):
     This does not skip any proof, plan, hash-chain or evidence check. The scope
     is task-local (ContextVar), and all control writers/policy are guarded.
     """
-    if _VALIDATION.get() is not None:
+    if _VALIDATION.get() is not None and not metadata_only_validation(root):
         yield
         return
     registry = historical_registry(root, receipt, receipt_only=True)
-    token = _VALIDATION.set((str(Path(root).resolve()), registry)) if registry is not None else None
-    try:
+    with _historical_read_context(root, registry):
         yield
-    finally:
-        if token is not None:
-            _VALIDATION.reset(token)
 
 
 def historical_assignment_validator(function):
     """Only exact frozen assignment validation; the scope ends before recording."""
     @wraps(function)
     def validated(root, item, *args, **kwargs):
-        if _VALIDATION.get() is not None:
+        if _VALIDATION.get() is not None and not metadata_only_validation(root):
             return function(root, item, *args, **kwargs)
         registry = historical_registry(root, item, require_match=True)
-        token = _VALIDATION.set((str(Path(root).resolve()), registry)) if registry is not None else None
-        try:
+        with _historical_read_context(root, registry):
             return function(root, item, *args, **kwargs)
-        finally:
-            if token is not None:
-                _VALIDATION.reset(token)
     return validated
 
 
@@ -124,6 +144,20 @@ def _current_metadata_identity(root, role, current, original):
         return False
 
 
+def _read_retired_rotation_binding(root, document, role):
+    """Authenticate an old rotation after retiring its role; never a write binding."""
+    current = _binding(document, role)
+    if current:
+        return current
+    retired = document.get('historical_departments', {}).get(role, {})
+    from department_autonomy import OWNER, document as original_document
+    if (document.get('mode_authorization') != OWNER or retired.get('id') != role
+            or retired.get('mode') != 'retired_history' or retired.get('new_dispatch_enabled') is not False):
+        return {}
+    original_document(root, OWNER)
+    return retired.get('chat_binding', {})
+
+
 def _records(root):
     document = w.read_json(Path(root) / REGISTRY)
     seen = set()
@@ -136,8 +170,8 @@ def _records(root):
                 or row.get('old_binding', {}).get('project_id') != row.get('new_binding', {}).get('project_id')
                 or row.get('old_binding', {}).get('cwd') != row.get('new_binding', {}).get('cwd')
                 or _id(row.get('old_binding', {})) == _id(row.get('new_binding', {}))
-                or not _current_metadata_identity(root, role, _binding(document, role), row.get('new_binding', {}))
-                or _binding(document, role).get('rotation_record') != pin):
+                or not _current_metadata_identity(root, role, _read_retired_rotation_binding(root, document, role), row.get('new_binding', {}))
+                or _read_retired_rotation_binding(root, document, role).get('rotation_record') != pin):
             raise w.WorkflowError('untrusted, wrong-role or inactive rotation mapping')
         seen.add(role)
         yield row
@@ -154,20 +188,32 @@ def _metadata_assignment_projection(root, subject, registry):
     if not any(pin and _pin(root,pin)==subject for pin in pins):return False
     journal=_pin(root,_CURRENT_SIDEBAR_RECOVERY);backup=_pin(root,journal['backup'])
     old=_binding(backup,role);current=registry[role]['chat_binding']
-    if not _current_metadata_identity(root,role,current,old):return False
+    changes=[x for x in journal.get('changes',[]) if x.get('role')==role]
+    if len(changes)!=1:return False
+    # Both endpoints derive from the SAME immutable applied CAS, never an
+    # arbitrary alias or a new dispatch request. This also validates the pinned
+    # original inventory and all fixed identity fields through the old reader.
+    applied=copy.deepcopy(old);applied['sidebar_section_id']=changes[0].get('after')
+    if (not _current_metadata_identity(root,role,applied,old)
+            or _identity(current) not in (_identity(old),_identity(applied))):return False
     request=_pin(root,subject.get('original_prepare_request'))
-    if (current.get('sidebar_section_id')==old.get('sidebar_section_id')
+    source_sidebar=request.get('target_sidebar_section_id')
+    if (request.get('task_id')!=subject.get('task_id') or request.get('target_department')!=role
+            or source_sidebar not in (old.get('sidebar_section_id'),applied.get('sidebar_section_id'))
+            or current.get('sidebar_section_id')==source_sidebar
             or any(request.get(k)!=old.get(v)for k,v in
                 {'target_thread_id':'task_id','target_thread_title':'title','target_project_id':'project_id',
-                 'target_cwd':'cwd','target_sidebar_section_id':'sidebar_section_id'}.items())):return False
-    # Preserve current identity and health; only source validation sees its real prior sidebar.
-    registry[role]['chat_binding']['sidebar_section_id']=old['sidebar_section_id']
+                 'target_cwd':'cwd'}.items())):return False
+    # Only the task-local historical validator sees the frozen source endpoint.
+    # Current registry, health, send routing and source bytes are never updated.
+    registry[role]['chat_binding']['sidebar_section_id']=source_sidebar
     return True
 
 
 def historical_registry(root, subject, *, receipt_only=False, require_match=False):
     """Resolve a previously frozen assignment only; never a new execution request."""
-    registry = copy.deepcopy(w.department_registry(root))
+    from department_autonomy import historical_registry_view
+    registry = historical_registry_view(w.department_registry(root))
     subject_hash = w.sha256_value(subject)
     matched = (not receipt_only and _metadata_assignment_projection(root,subject,registry))
     for row in _records(root):

@@ -6,7 +6,7 @@ description: "FLASH CAST 销售与线索专业 Skill；用于装修询盘脱敏�
 
 # FLASH CAST 销售与线索专业 Skill
 
-专业日常按现行department-daily-professional-loop读取原完整目标、已有成果和未完，原负责人继续执行，负责助理唯一验收与常规接续；不逐段报审、不用报告或入队代替真实动作。
+专业日常按现行department-daily-professional-loop读取原完整目标、已有成果和未完，原负责人继续执行，专业主负责人自检、授权执行与接续；不逐段报审、不用报告或入队代替真实动作。
 
 ## 固定专业子 Skill
 
@@ -46,3 +46,5 @@ description: "FLASH CAST 销售与线索专业 Skill；用于装修询盘脱敏�
 输出匿名线索表、优先级、需求摘要、补问清单、跟进话术草案、销售阶段、输赢原因、来源质量反馈、交给付费增长与转化数据部及内容/SEO/网站增长部的字段和待老板确认项。不得自动发送邮件、WhatsApp 或电话；完成后先在销售部门聊天回复，再写 outbox/report 和学习事件。
 
 运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department sales --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。
+
+当前流程只按[共同正文](../../playbooks/department-system-current.md)；专业部门独立交付并直报HQ，A1仅待命、A2/A3退役历史，不作本部门前置审批。原技术质量、平台本人和准确业务授权边界保留。

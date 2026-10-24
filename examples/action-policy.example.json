@@ -61,7 +61,15 @@
         "message_id": "example-native-9cd231a5daaebe45",
         "evidence_path": "<PROJECT_ROOT>/logs/handoffs/2026-10-10-goal-delivery-assistant-runtime-v1/developer/human-authority.json"
       }
-    }
+    },
+    "retired_current_targets": [
+      "operations-assistant",
+      "operations-assistant-2",
+      "operations-assistant-3",
+      "qa",
+      "qa-evidence",
+      "qa-technical"
+    ]
   },
   "action_classes": {
     "local_read": {
@@ -303,5 +311,16 @@
     "idle_qualified_assistant_selection": true,
     "sensitive_scope_changes_require_real_authorization": true
   },
+  "delivery_model": "department_autonomous_delivery_v1",
+  "ordinary_approval_model": "original_task_authority_and_exact_selfcheck; no assistant approval",
+  "sensitive_boundaries": [
+    "new_payment_purchase_renewal",
+    "increase_budget_or_paid_deadline",
+    "new_account_or_project",
+    "irreversible_destruction",
+    "major_security_auth_secret_payment_logic",
+    "legal_or_financial_commitment",
+    "platform_must_be_personally_completed"
+  ],
   "public_template": true
 }

@@ -242,11 +242,15 @@ def request_validation_context():
 
 
 def validation_bytes(path):
+    from readonly_work_view_cache import note_read
+    note_read(path)
     current = _VALIDATION_CONTEXT.get()
     return current.bytes(path) if current is not None else Path(path).read_bytes()
 
 
 def read_json(path: Path) -> dict[str, Any]:
+    from readonly_work_view_cache import note_read
+    note_read(path)
     if not path.exists():
         return {}
     try:
@@ -258,6 +262,8 @@ def read_json(path: Path) -> dict[str, Any]:
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    from readonly_work_view_cache import note_read
+    note_read(path)
     if not path.exists():
         return []
     current = _VALIDATION_CONTEXT.get()
@@ -357,7 +363,8 @@ def department_registry(root: Path) -> dict[str, dict[str, Any]]:
     }
     if not departments:
         raise WorkflowError("缺少有效的 data/department-registry.json")
-    return departments
+    from department_autonomy import HistoricalRegistry
+    return HistoricalRegistry(departments,registry.get('historical_departments',{}))
 
 
 def _parse_observed_at(value: object) -> dt.datetime | None:
@@ -907,7 +914,14 @@ def validate_workflow_events(root: Path, task_id: str) -> list[str]:
     # evidence block. Recognize only that exact legacy replay, backed by a
     # replacement receipt in the same reconciliation batch. Never rewrite the
     # event log or waive its hash checks (receipt integrity is checked separately).
-    reviewer = _final_qa_department(root, read_json(snapshot_path(root, task_id)) or {"task_id": task_id}, preparation_only=True)
+    from department_autonomy import autonomous_goal
+    original_snapshot=read_json(snapshot_path(root,task_id)) or {'task_id':task_id}
+    if autonomous_goal(original_snapshot.get('goal_delivery')):
+        for i,event in enumerate(task_events):
+            if event.get('state')=='closed' and i!=len(task_events)-1:
+                if any(e.get('state')!='closed'for e in task_events[i+1:]):invalid.append('autonomous_closed_task_cannot_reopen')
+        return invalid
+    reviewer = _final_qa_department(root, original_snapshot, preparation_only=True)
     task_receipts = read_jsonl(receipts_path(root, task_id))
     replacement_times = {
         row.get("created_at")
@@ -1395,7 +1409,7 @@ def initialize_workflow(
         if goal_contract is not None and validate_goal(root, read_json(safe_path(root, goal_contract["path"]))) != goal_delivery:
             raise WorkflowError("frozen input must contain this exact complete goal")
     elif enabled(root) and not snapshot_path(root, task_id).exists():
-        raise WorkflowError("new runtime tasks require one complete goal and responsible assistant")
+        raise WorkflowError("new runtime tasks require one complete professional goal")
     request_hash = hashlib.sha256(request.strip().encode("utf-8")).hexdigest()
     path = snapshot_path(root, task_id)
     selected = []
@@ -1409,9 +1423,13 @@ def initialize_workflow(
             }
         )
     if goal_delivery is not None:
+        from department_autonomy import autonomous_goal,required_roles,current_mode,ASSISTANTS
+        if not snapshot_path(root,task_id).exists() and current_mode(root):
+            if not autonomous_goal(goal_delivery) or any(x['department']in ASSISTANTS for x in selected):
+                raise WorkflowError('new ordinary tasks use professional autonomous delivery; no assistant assignment')
         planned_roles = {x["department"] for x in selected}
-        if not (set(goal_delivery["producer_departments"]) | {goal_delivery["responsible_assistant"]}) <= planned_roles:
-            raise WorkflowError("complete-goal producers and assistant must be planned")
+        if not required_roles(goal_delivery) <= planned_roles:
+            raise WorkflowError("complete-goal original producers must be planned")
     with workflow_lock(root):
         existing = read_json(path)
         if existing:
@@ -2081,6 +2099,9 @@ def file_digest(root: Path, value: str) -> dict[str, Any]:
         raise WorkflowError("证据路径不能指向密码、Token、Cookie、OAuth、私钥或凭据")
     path = safe_path(root, value)
     if not path.exists() or not path.is_file():
+        from department_autonomy import historical_source_bytes
+        raw=historical_source_bytes(root,rel_path(root,path))
+        if raw is not None:return {'path':rel_path(root,path),'sha256':hashlib.sha256(raw).hexdigest(),'size':len(raw)}
         raise WorkflowError(f"证据文件不存在或不是文件：{value}")
     raw = validation_bytes(path)
     return {"path": rel_path(root, path), "sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw)}
@@ -3746,7 +3767,7 @@ def _target_dispatch_plan_ready(root, snapshot, department):
 def _ordinary_thread_dispatch_precheck(
     root: Path, *, snapshot: dict[str, Any], task_id: str,
     target_department: str, target_thread_id: str, action_id: str, scope: str,
-    sender_department: str = "", payload_sha256: str = "",
+    sender_department: str = "", payload_sha256: str = "", original_message: dict | None = None,
 ) -> list[str]:
     """Reject unreceiptable or already-sent ordinary messages before sending.
 
@@ -3800,6 +3821,18 @@ def _ordinary_thread_dispatch_precheck(
     receipts, invalid = _validate_receipt_chain(root, task_id)
     if invalid:
         reasons.append("thread_dispatch_receipt_chain_invalid")
+    observation = None
+    if original_message is not None:
+        from qa_review_plan import original_result_continuation_intent
+        expected = {'task_id': task_id, 'sender_department': sender_department, 'target_department': target_department,
+                    'target_thread_id': target_thread_id, 'action_id': action_id, 'scope': scope,
+                    'payload_sha256': payload_sha256, 'action_class': 'thread_message'}
+        if (invalid or not isinstance(original_message, dict)
+                or any(original_message.get(k) != v for k, v in expected.items())):
+            raise WorkflowError('exact original observation message and routing required')
+        observation = original_result_continuation_intent(root, snapshot, original_message)
+        if observation is None:
+            raise WorkflowError('only a verified finite original-result observation has scoped dependencies')
     from goal_delivery_runtime import enabled as goal_enabled, completion_dependencies
     if goal_enabled(root, snapshot) and len(planned) == 1:
         goal = snapshot["goal_delivery"]
@@ -3823,6 +3856,11 @@ def _ordinary_thread_dispatch_precheck(
         ))
         if not initial_review_assignment:
             for dep in planned[0].get("depends_on", []):
+                if observation is not None:
+                    # Existing immutable bytes have already been received.
+                    # Other professional outputs gate their business actions,
+                    # never this strictly non-executing read/source/ACK input.
+                    continue
                 if (responsibility_resume or original_weekly_clarification or _responsibility_initial_ready(
                         root, snapshot, sender_department, target_department, action_id, scope, payload_sha256)) and dep == "operations":
                     continue
@@ -3834,6 +3872,8 @@ def _ordinary_thread_dispatch_precheck(
                     reasons.append("goal_dispatch_dependency_missing:" + dep)
         unmet = completion_dependencies(root, snapshot)
         for dependency in goal["dependencies"]:
+            if observation is not None:
+                continue
             affects = dependency.get("applies_to", [dependency.get("department")])
             if target_department in affects and any(x.startswith("external_dependency:" + dependency.get("id", "") + ":") for x in unmet):
                 reasons.append("goal_dispatch_named_dependency_missing:" + dependency["id"])
@@ -3889,10 +3929,40 @@ def policy_check(
     payload_sha256: str = "",
     target_automation_status: str = "",
     retry_blocked_execution_receipt_id: str = "",
+    draft_admission: dict | None = None,
+    original_message: dict | None = None,
 ) -> tuple[dict[str, Any], list[Path]]:
     from department_rotation import prohibit_validation_write
     prohibit_validation_write()
     task_id = validate_task_id(task_id)
+    if original_message is not None and action_class != 'thread_message':
+        raise WorkflowError('original-result observation cannot authorize an execution action')
+    if original_message is not None and action_class == 'thread_message':
+        from department_autonomy import message_route,message_policy
+        if message_route(root,read_json(snapshot_path(root,task_id)),original_message) is not None:
+            expected=dict(task_id=task_id,sender_department=department,action_id=action_id,action_class=action_class,scope=scope,source_project_id=source_project_id,target_project_id=target_project_id,target_department=target_department,target_thread_id=target_thread_id,target_thread_title=target_thread_title,target_cwd=target_cwd,target_sidebar_section_id=target_sidebar_section_id,payload_sha256=payload_sha256)
+            if any(original_message.get(k)!=v for k,v in expected.items()):
+                raise WorkflowError('autonomous exact normal policy input differs')
+            return message_policy(root,original_message),[root/POLICY_DECISIONS]
+    if draft_admission is not None:
+        from chatgpt_fe689_draft_admission import policy as exact_draft_policy
+        return exact_draft_policy(root, dict(task_id=task_id, department=department,
+            action_id=action_id, action_class=action_class, scope=scope, approval_id=approval_id,
+            skill=skill, consume_approval=consume_approval, source_project_id=source_project_id,
+            payload_sha256=payload_sha256, target_project_id=target_project_id,
+            target_department=target_department, target_thread_id=target_thread_id,
+            target_thread_title=target_thread_title, target_cwd=target_cwd,
+            target_sidebar_section_id=target_sidebar_section_id,
+            target_automation_status=target_automation_status,
+            retry_blocked_execution_receipt_id=retry_blocked_execution_receipt_id), draft_admission)
+    if action_class=='thread_message' or action_class in SPECIALIST_ACTION_CLASSES:
+        from department_autonomy import ASSISTANTS,current_mode
+        if current_mode(root) and (department in ASSISTANTS or target_department in ASSISTANTS):
+            raise WorkflowError('assistant roles are historical-only; no new dispatch, approval or wakeup')
+    from department_autonomy import policy as autonomous_policy
+    autonomous_requested=dict(task_id=task_id,department=department,action_id=action_id,action_class=action_class,scope=scope,approval_id=approval_id,skill=skill,consume_approval=consume_approval,source_project_id=source_project_id,target_project_id=target_project_id,target_department=target_department,payload_sha256=payload_sha256)
+    autonomous_decision=autonomous_policy(root,autonomous_requested)
+    if autonomous_decision is not None:return autonomous_decision
     if action_class in EXTERNAL_ACTION_CLASSES:
         from department_rotation import external_write_blocked
         if external_write_blocked(root, department):
@@ -4226,6 +4296,7 @@ def policy_check(
             target_department=target_department, target_thread_id=target_thread_id,
             action_id=action_id, scope=scope,
             sender_department=department, payload_sha256=payload_sha256,
+            original_message=original_message,
         )
         if dispatch_reasons:
             allow = False
@@ -4626,6 +4697,9 @@ def _validate_receipt_prerequisite(
     snapshot: dict[str, Any], receipts: list[dict[str, Any]], receipt_type: str, department: str,
     root: Path | None = None,
 ) -> None:
+    from department_autonomy import autonomous_goal,receipt_prerequisite
+    if autonomous_goal(snapshot.get('goal_delivery')):
+        return receipt_prerequisite(root,snapshot,receipts,receipt_type,department)
     if root is not None:
         from original_task_publisher_handover import legacy_context
         snapshot, receipts = legacy_context(root, snapshot, receipts)
@@ -4721,8 +4795,16 @@ def _validate_receipt_prerequisite(
                                       for row in receipts)
                 if initial_history and assigned_round is None:
                     raise WorkflowError("original single responsibility dispatch/ACK window required")
-                if not qa_acks and assigned_round is not None:
-                    qa_acks = [assigned_round["ack_index"]]
+                if assigned_round is not None:
+                    from qa_review_plan import _prepared_original_result_continuation
+                    last_dispatch = receipts[qa_dispatches[-1]]
+                    if _prepared_original_result_continuation(root, snapshot, receipts, last_dispatch, review_plan) is not None:
+                        # A real observation-only input/late ACK does not demand
+                        # a new review outbox. The full normal reader above
+                        # already authenticated every responsibility window.
+                        qa_acks = [assigned_round["ack_index"]]
+                    elif not qa_acks:
+                        qa_acks = [assigned_round["ack_index"]]
         if not qa_acks and not inherited and not direct_review:
             raise WorkflowError("非法越级：本次 QA 派工后缺少质检部非空 chat_ack")
         if not any(
@@ -4802,6 +4884,12 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
                        if receipt_type == "health_reconciled" else None)
     department = str(args.department).strip()
     registry = department_registry(root)
+    from department_autonomy import autonomous_goal
+    from department_autonomy import current_mode,ASSISTANTS
+    if current_mode(root) and department in ASSISTANTS:
+        raise WorkflowError('retired/standby assistants cannot append new execution or approval receipts')
+    if autonomous_goal(snapshot.get('goal_delivery')) and receipt_type=='qa_verdict':
+        raise WorkflowError('autonomous departments do not create assistant QA verdicts')
     external_execution = None
     if department not in registry and receipt_type in {'execution_result','postcheck'}:
         from brand_v4_issuer_executor import action_context as brand_action_context
@@ -4833,6 +4921,9 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
     evidence = [file_digest(root, value) for value in evidence_values]
     if receipt_type in {"dispatch_failed", "outbox_received", "qa_verdict", "execution_result", "postcheck", "evidence_replacement", "evidence_archive", "health_reconciled"} and not evidence:
         raise WorkflowError(f"{receipt_type} 必须有可校验的证据文件")
+    from department_autonomy import autonomous_goal,validate_native_ack
+    if autonomous_goal(snapshot.get('goal_delivery')) and receipt_type=='chat_ack':
+        validate_native_ack(root,snapshot,department,evidence)
     if receipt_type == "outbox_received":
         validate_outbox(root, evidence, department, task_id)
         if department == "operations":
@@ -5339,13 +5430,63 @@ def goal_legacy_scope_completion(root, snapshot, receipts):
 
 
 
+def _bounded_acceptance_source_fact(root, snapshot, receipts, plan, producer, row):
+    """Authenticate an adopted-source fact without replacing candidate acceptance."""
+    try:
+        role = snapshot['goal_delivery']['responsible_assistant']
+        evidence = row.get('evidence', [])
+        if (row.get('task_id') != snapshot['task_id'] or row.get('department') != role
+                or row.get('receipt_type') != 'outbox_received' or len(evidence) != 1
+                or not str(evidence[0].get('path', '')).endswith('.json')
+                or len([r for r in receipts if evidence[0] in r.get('evidence', [])]) != 1):
+            return False
+        pin = evidence[0]
+        report = _completion_pin(root, pin)
+        if (report.get('schema') != 'independently-adopted-internal-source-continuation/v1'
+                or any(key in report for key in ('bounded_candidate_acceptance', 'qa_verdict', 'goal_acceptance'))):
+            return False
+        effect = report['actual_source_continuation']
+        required = [pin, effect['candidate_manifest'], effect['journal'], effect['independent_review_report']]
+        manifest = _completion_pin(root, effect['candidate_manifest'])
+        if (manifest.get('task_id') != snapshot['task_id'] or manifest.get('scope') != plan['scope']
+                or manifest.get('primary_owner') != producer or manifest.get('responsible_assistant') != role
+                or manifest.get('normal_plan') != snapshot['qa_review_plan']['pin']
+                or manifest.get('goal_contract') != snapshot.get('goal_contract')
+                or manifest.get('human_authorization') != snapshot['goal_delivery']['authorization_pin']):
+            return False
+        sources = [r for r in receipts if r.get('receipt_type') == 'outbox_received'
+                   and r.get('department') == producer]
+        if not sources or manifest.get('primary_producer_outbox') not in sources[-1].get('evidence', []):
+            return False
+        # This existing reader validates the whole actual independent CAS/native
+        # source report, committed packet, chronology, modes and backup chain.
+        # A path is usable only if its current unique edge contains this exact
+        # report/manifest/journal/review, never merely a caller source-only label.
+        for change in manifest.get('changes', []):
+            expected = change.get('expected_source', {})
+            if type(expected.get('mode')) is not int:
+                return False
+            actual = _internal_source_continuation_readback(
+                root, change['path'], expected['sha256'], expected['mode'])
+            if actual and all(p in actual['evidence'] for p in required):
+                return True
+        return False
+    except (WorkflowError, OSError, ValueError, TypeError, KeyError, AttributeError):
+        return False
+
+
 def _goal_bounded_candidate_subject(root, snapshot, receipts, plan, producer):
     """Candidate-only independent acceptance precedes adoption, without full-goal PASS."""
     goal = snapshot["goal_delivery"]; role = goal["responsible_assistant"]
     selected = [row for row in receipts if row.get("receipt_type") == "outbox_received" and row.get("department")==role]
     if not selected:
         return {"state":"MISSING","reason":"bounded independent candidate acceptance missing"}
-    row=selected[-1]; boxes=[]
+    for row in reversed(selected):
+        if not _bounded_acceptance_source_fact(root, snapshot, receipts, plan, producer, row):
+            break
+    else:
+        return {"state":"MISSING","reason":"bounded independent candidate acceptance missing"}
+    boxes=[]
     for pin in row.get("evidence",[]):
         if str(pin.get("path","")).endswith(".json"):
             box=_completion_pin(root,pin)
@@ -5983,6 +6124,304 @@ def _wardrobe_existing_w_t_pilot(root, snapshot, requirement, accepted, journal)
     _wardrobe_original_w_pilot(root, journal.get("W"))
 
 
+def _fe689_remaining_context(root, manifest_pin, *, allow_closed=False):
+    """A source-only continuation of the accepted V4, never a new goal QA."""
+    import result_coordination as c
+    task = 'fc-20261023-chatgpt-fe689-runtime-adoption-stage-v1'
+    scope = 'project:flashcast:chatgpt-fe689:runtime-adoption-stage:20261023:v1'
+    m = _completion_pin(root, manifest_pin)
+    if (m.get('schema') != 'fe689-accepted-V4-remaining-source/v1'
+            or m.get('task_id') != task or m.get('scope') != scope
+            or m.get('department') != 'system-development'
+            or m.get('reviewer') != 'operations-assistant'
+            or m.get('external_writes') != 0 or m.get('permissions_issued') is not False):
+        raise WorkflowError('one original fe689 internal remaining-source manifest required')
+    snapshot = read_json(snapshot_path(root, task))
+    rows, bad = _validate_receipt_chain(root, task)
+    goal = snapshot.get('goal_delivery', {})
+    if (bad or validate_workflow_events(root, task)
+            or (snapshot.get('current_state') in TERMINAL_STATES and not (allow_closed and snapshot.get('current_state') == 'closed'))
+            or goal.get('responsible_assistant') != 'operations-assistant'
+            or goal.get('primary_owner') != 'system-development'
+            or goal.get('authorized_scope') != [scope]
+            or goal.get('authorization_pin') != m.get('authorized_source')
+            or m.get('authorized_source', {}).get('sha256') != '5568a10ef0e63fc7558695704a4e10d500605a7340de31cc35012edc25aab0df'
+            or m.get('goal_contract', {}).get('sha256') != 'f06f371a593adcf8002eaa312e6dfaf6c9baa9d03df2055bcd5b422d8c17c725'
+            or m.get('normal_plan', {}).get('sha256') != '9c277681df8e94537fd5ac3e404f37ecfe5987387cda4e39e58a0759b89d2c08'
+            or snapshot.get('qa_review_plan', {}).get('pin') != m.get('normal_plan')):
+        raise WorkflowError('intact nonterminal original goal, authorization and unchanged V4 plan required')
+    for key in ('authorized_source', 'goal_contract', 'normal_plan', 'original_candidate'):
+        _completion_pin(root, m.get(key))
+    import goal_delivery_runtime as g
+    expected = g.validate_goal(root, _completion_pin(root, m['goal_contract']), task_id=task)
+    if (snapshot.get('goal_contract') != m['goal_contract']
+            or {k:v for k,v in goal.items() if k != 'approved_actions'} != expected
+            or snapshot.get('qa_review_plan', {}).get('current_assignment_review_source', {}).get('sha256')
+                != '30ba080ee5fb7f63165dd358603889f69a06abe87e4e223d5aafe901fb3a9f11'):
+        raise WorkflowError('original immutable contract and actual sole A1 responsibility source required')
+    helper_pin = m.get('original_contract_helper')
+    if not isinstance(helper_pin,dict) or helper_pin.get('sha256') != 'ecdb0d541b4c5b962b47fdb3ea93cda45bf37ce82f63c8dcc7462919e681abc1':
+        raise WorkflowError('original independently reviewed registered-action validator required')
+    if file_digest(root,helper_pin['path']) != helper_pin:
+        raise WorkflowError('original contract validator changed')
+    if snapshot.get('current_state') not in TERMINAL_STATES:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('original_fe689_contract_guard', safe_path(root,helper_pin['path']))
+        helper = importlib.util.module_from_spec(spec); spec.loader.exec_module(helper)
+        helper.validate_registered_contract(root,snapshot,g.restore_goal(root,snapshot)['goal_delivery'],expected,rows)
+    subject = goal_completion_subject(root, snapshot, rows, {'mode': 'latest_exact_accepted_result', 'producer_department': 'system-development', 'scope': scope})
+    if (subject.get('state') != 'PROVEN' or subject.get('candidate') != m.get('original_candidate')
+            or subject.get('candidate', {}).get('sha256') != '4b6664f76b4e638ed8f88ee104dd7cefa4970ae93cd309032285c9c8ab7fd80d'
+            or subject.get('identity', {}).get('result_sha256') != 'd8d732ff62bba31739411b4e3957d0557fb93c4074854f2234bcef379badb9ab'
+            or subject.get('source_fingerprint') != m.get('original_source_fingerprint')):
+        raise WorkflowError('the original independently PROVEN whole-stage identity must remain current')
+    qa = [row for row in rows if row.get('receipt_type') == 'qa_verdict']
+    if not qa or qa[-1].get('receipt_id') != '09b41c36-f634-4987-8a1d-eab7da55b1d4' or qa[-1].get('verdict') != 'pass':
+        raise WorkflowError('exact original formal PASS required; this entry cannot reopen QA')
+    original = _completion_pin(root, m.get('original_adoption'))
+    if (m['original_adoption']['sha256'] != '80474c36ef4892650ce7ccda059b1c8e13ba170444ae109f1601bcf9caa0e8d3'
+            or original.get('state') != 'adopted' or original.get('actor') != 'operations-assistant'
+            or original.get('candidate_manifest') != subject['candidate']
+            or original.get('authorized_source') != goal['authorization_pin']):
+        raise WorkflowError('actual original three-file adoption journal required')
+    report = _completion_pin(root, m.get('selector_independent_review'))
+    reviewed = _completion_pin(root, m.get('selector_reviewed_manifest'))
+    if (m['selector_independent_review']['sha256'] != '3208dd8c170cb8ac1a1ded72552d971886c6c98c248162310e584fb6456734cb'
+            or report.get('compatible_new_candidate') != m['selector_reviewed_manifest']
+            or report.get('reviewer') != 'operations-assistant' or report.get('new_independent_helper_checks') != 20
+            or report.get('verdict') != 'PASS_LOCAL_NEW_DELTA_ONLY'):
+        raise WorkflowError('actual independently reviewed identical selector source required')
+    changes = m.get('changes', [])
+    consumer = m.get('consumer_changes', [])
+    if (len(changes) != 1 or len(consumer) != 1
+            or changes[0].get('path') != 'tools/goal_delivery_runtime.py'
+            or changes[0].get('expected_source', {}).get('sha256') != '22ce98d3275637a5c1cdf91b9d435f2919e1004f53ce6e2b37ffc0ec41aadee6'
+            or changes[0].get('candidate', {}).get('sha256') != '234d861e74c92b018555b9731a1e8197656496f057ba6d490fbc2d24f4fef524'
+            or changes[0].get('mode') != '0600'
+            or consumer[0].get('path') != 'tools/workflow_control.py'
+            or consumer[0].get('expected_source', {}).get('sha256') != '17a5ccb1d840fe7a3e5e193d42b263204d5584a4ae4655532a75194042c41d74'
+            or consumer[0].get('mode') != '0644'):
+        raise WorkflowError('one exact selector delta and its separately reviewed source consumer only')
+    for change in changes + consumer:
+        pin = change['candidate']
+        if file_digest(root, pin['path']) != pin:
+            raise WorkflowError('immutable remaining-source candidate changed')
+    prior = [item for item in reviewed.get('changes', []) if item.get('path') == changes[0]['path']]
+    if len(prior) != 1 or prior[0]['candidate']['sha256'] != changes[0]['candidate']['sha256']:
+        raise WorkflowError('selector bytes must be exactly those already independently reviewed')
+    intake = [row for row in _result_handoff_rows(root, task)
+              if row.get('record_id') == report.get('actual_result_intake')]
+    if (len(intake) != 1 or intake[0].get('event') != 'controller_received'
+            or intake[0].get('coordinator_role') != 'operations-assistant'
+            or intake[0].get('result_sha256') != 'd60e342933784976855c20f4eab00686eb617cb3cc6b88642b2c4703564ed03d'):
+        raise WorkflowError('actual unique original A1 selector intake required')
+    c._committed_result(root, intake[0])
+    for key in ('checks', 'reused_evidence'):
+        for pin in m.get(key, []):
+            if file_digest(root, pin['path']) != pin:
+                raise WorkflowError('remaining-source check or reused evidence changed')
+    return snapshot, rows, subject, m
+
+
+def _fe689_remaining_review(root, input_pin, *, allow_closed=False):
+    """Authenticate new consumer review through real A1 command then pinned reply."""
+    import goal_delivery_runtime as g
+    import result_coordination as c
+    import qa_review_plan as q
+    item = _completion_pin(root, input_pin)
+    snapshot, rows, subject, m = _fe689_remaining_context(root, item.get('manifest'), allow_closed=allow_closed)
+    report = _completion_pin(root, item.get('independent_review_report'))
+    delivery = item.get('delivery', {})
+    box = _completion_pin(root, delivery.get('outbox'))
+    intake = [row for row in _result_handoff_rows(root, snapshot['task_id'])
+              if row.get('record_id') == delivery.get('received_record_id')]
+    if (len(intake) != 1 or intake[0].get('event') != 'controller_received'
+            or intake[0].get('coordinator_role') != 'operations-assistant'
+            or intake[0].get('outbox') != delivery.get('outbox')
+            or box.get('task_id') != snapshot['task_id'] or box.get('department') != 'system-development'
+            or box.get('candidate_manifest') != item.get('manifest')
+            or box.get('candidate_fingerprint') != m.get('candidate_fingerprint')
+            or item['manifest'] not in (list(box['evidence'].values()) if isinstance(box.get('evidence'),dict) else (box.get('evidence') or []))):
+        raise WorkflowError('real current complete source supplement and unique A1 committed intake required')
+    c._committed_result(root, intake[0])
+    if (report.get('schema') != 'fe689-remaining-source-independent-review/v1'
+            or report.get('task_id') != snapshot['task_id'] or report.get('scope') != m['scope']
+            or report.get('reviewer') != 'operations-assistant' or report.get('verdict') != 'PASS_LOCAL'
+            or report.get('manifest') != item['manifest'] or report.get('delivery') != delivery
+            or report.get('original_QA_unchanged') is not True
+            or report.get('external_writes') != 0 or report.get('permissions_issued') is not False
+            or _parse_observed_at(report.get('created_at')) is None
+            or _parse_observed_at(m.get('created_at')) is None
+            or _parse_observed_at(report['created_at']) < _parse_observed_at(m['created_at'])):
+        raise WorkflowError('actual original A1 bounded source review required, never SYS self-review')
+    checks = _completion_pin(root, report.get('actual_checks'))
+    review_root = Path(root)/'logs/handoffs/2026-10-23-chatgpt-launch-critical-path-recovery-v1/system-development-fe689-runtime-adoption-stage-v1/A1-actual-stage-responsibility-and-adoption-resume-20261023-v1'
+    if (not safe_path(root,item['independent_review_report']['path']).is_relative_to(review_root)
+            or not safe_path(root,report['actual_checks']['path']).is_relative_to(review_root)
+            or checks.get('manifest') != item['manifest']
+            or checks.get('candidate_workflow') != m['consumer_changes'][0]['candidate']
+            or checks.get('reused_selector') != m['changes'][0]['candidate']
+            or checks.get('failures') != 0 or checks.get('errors') != 0 or checks.get('tests', 0) < 16
+            or checks.get('business_validators_mocked') is not False
+            or checks.get('state_writes_isolated') is not True
+            or checks.get('normal_stage_writer_readback_duplicate') is not True):
+        raise WorkflowError('actual isolated normal source writer and boundary checks required')
+    native = g._collaboration_native(root, item.get('actual_A1_native'))
+    q._review_native_containers(native)
+    fixed = department_registry(root)['operations-assistant']['chat_binding']
+    if (any(native.get('thread', {}).get(k) != fixed.get(v)
+            for k, v in {'id':'task_id', 'title':'title', 'cwd':'cwd'}.items())
+            or native['thread'].get('projectId') not in {None, fixed['project_id']}
+            or fixed['cwd'] != str(Path(root).resolve())):
+        raise WorkflowError('actual fixed same-project A1 native required')
+    turns = [t for t in native.get('turns', []) if t.get('id') == item.get('source_turn_id')]
+    if len(turns) != 1 or turns[0].get('status') not in {'completed', 'inProgress'}:
+        raise WorkflowError('one actual independent A1 source turn required')
+    found = {x.get('id'): (i,x) for i,x in enumerate(turns[0].get('items', []))}
+    ci, command = found.get(item.get('source_command_id'), (-1, {}))
+    mi, message = found.get(item.get('source_message_id'), (-1, {}))
+    if (ci < 0 or ci >= mi or command.get('type') != 'commandExecution'
+            or command.get('status') != 'completed' or command.get('exitCode') != 0
+            or command.get('cwd') != str(Path(root).resolve())
+            or str(safe_path(root, m['test_runner']['path'])) not in command.get('command', '')
+            or str(safe_path(root, report['actual_checks']['path']).parent) not in command.get('command', '')
+            or message.get('type') != 'agentMessage' or message.get('phase') not in {'commentary','final_answer'}
+            or item['independent_review_report']['sha256'] not in message.get('text', '')
+            or snapshot['task_id'] not in message.get('text', '')):
+        raise WorkflowError('successful actual A1 test command then exact pinned independent conclusion required')
+    return item, m, snapshot, subject
+
+
+def record_fe689_remaining_source(root, input_path, role):
+    """Append independent source acceptance without changing the PASS/plan/producer."""
+    if role != 'operations-assistant':
+        raise WorkflowError('original sole A1 source acceptance required')
+    pin = file_digest(root, input_path)
+    with workflow_lock(root):
+        item = _completion_pin(root, pin)
+        snapshot, _, _, m = _fe689_remaining_context(root, item.get('manifest'))
+        if item.get('selector_independent_review') != m['selector_independent_review']:
+            raise WorkflowError('exact already independently reviewed one-file selector acceptance required')
+        events = [row for row in read_jsonl(root / WORKFLOW_EVENTS)
+                  if row.get('task_id') == snapshot['task_id']
+                  and row.get('details', {}).get('fe689_remaining_source')]
+        if events:
+            prior = events[-1]
+            if prior['details']['fe689_remaining_source']['input'] != pin:
+                raise WorkflowError('one immutable exact remaining-source acceptance; differing source refused')
+            return {'state': 'duplicate_ignored', 'event_id': prior['event_id'], 'event_hash': prior['event_hash']}
+        event = append_workflow_event(root, snapshot['task_id'], snapshot['current_state'],
+            {'fe689_remaining_source': {'input': pin, 'manifest': item['manifest'],
+             'reviewer': role, 'whole_goal_QA_unchanged': True}})
+        return {'state': 'SOURCE_ACCEPTED_NOT_ADOPTED', 'event_id': event['event_id'],
+                'event_hash': event['event_hash'], 'manifest': item['manifest']}
+
+
+def _fe689_source_successor_operation(root, journal, change):
+    """Check an exact permanent CAS successor without rewriting the old operation."""
+    ops = journal.get('source_operations', [])
+    if (journal.get('state') != 'adopted' or journal.get('actor') != 'operations-assistant'
+            or journal.get('executor') != 'operations-assistant'
+            or journal.get('external_writes') != 0 or journal.get('permissions_issued') is not False
+            or journal.get('task_id') != 'fc-20261023-chatgpt-fe689-runtime-adoption-stage-v1'
+            or len(ops) != 1 or journal.get('fixture_only') is not False):
+        raise WorkflowError('one real original A1 permanent source CAS journal required')
+    op = ops[0]; mode = int(change['mode'], 8)
+    if (op.get('path') != change['path'] or op.get('before_sha256') != change['expected_source']['sha256']
+            or op.get('after_sha256') != change['candidate']['sha256'] or op.get('mode') != mode
+            or op.get('applied') is not True or file_digest(root, op['backup']['path']) != op['backup']
+            or op['backup']['sha256'] != op['before_sha256']
+            or safe_path(root, op['backup']['path']).stat().st_mode & 0o777 != mode
+            or safe_path(root, op['path']).stat().st_mode & 0o777 != mode):
+        raise WorkflowError('exact successor before/after/current mode and recoverable backup required')
+    if (file_digest(root,op['path'])['sha256'] != op['after_sha256']
+            and _congestion_lifecycle_preserved_fe689_source(root,op['path'],op['after_sha256'],mode) is None):
+        raise WorkflowError('exact original source or real independently completed C10 successor required')
+    return op
+
+
+def _fe689_remaining_effect_chain(root, snapshot, accepted, proof):
+    """Old three-file journal plus explicit real source successors, never relabelled."""
+    import goal_delivery_runtime as g
+    chain = proof.get('remaining_source')
+    if not isinstance(chain, dict):
+        raise WorkflowError('actual remaining-source chain required')
+    events = [row for row in read_jsonl(root / WORKFLOW_EVENTS)
+              if row.get('event_id') == chain.get('event_id') and row.get('task_id') == snapshot['task_id']]
+    if len(events) != 1 or events[0].get('event_hash') != chain.get('event_hash'):
+        raise WorkflowError('actual committed immutable source-stage event required')
+    source = events[0].get('details', {}).get('fe689_remaining_source', {})
+    item = _completion_pin(root, source.get('input'))
+    current, _, subject, m = _fe689_remaining_context(root, item.get('manifest'), allow_closed=True)
+    review_input = chain.get('independent_review_input')
+    review, _, _, _ = _fe689_remaining_review(root, review_input, allow_closed=True)
+    if review.get('manifest') != item.get('manifest'):
+        raise WorkflowError('same exact separately reviewed consumer and selector source required')
+    if (source.get('manifest') != item['manifest'] or current['task_id'] != snapshot['task_id']
+            or accepted.get('identity') != subject['identity'] or proof.get('journal') != m['original_adoption']):
+        raise WorkflowError('successors must retain the original entire three-file journal and accepted identity')
+    evidence = [source['input'], item['manifest'], review_input, review['independent_review_report'], review['actual_A1_native']]
+    endpoints = {}
+    previous = _parse_observed_at(_completion_pin(root, m['original_adoption']).get('completed_at'))
+    for key, change in (('consumer',m['consumer_changes'][0]), ('selector',m['changes'][0])):
+        layer = chain.get(key, {}); jp = layer.get('journal'); journal = _completion_pin(root, jp)
+        if (safe_path(root,jp['path']).parent/'rollback-journal.json').exists():
+            raise WorkflowError('revoked successor journal cannot prove current source adoption')
+        if (journal.get('candidate_manifest') != item['manifest']
+                or journal.get('authorized_source') != m['authorized_source']
+                or journal.get('independent_review_input') != review_input):
+            raise WorkflowError('exact independently accepted successor source and authorization required')
+        started = _parse_observed_at(journal.get('started_at')); ended = _parse_observed_at(journal.get('completed_at'))
+        if previous is None or started is None or ended is None or not previous <= started <= ended:
+            raise WorkflowError('real original adoption then ordered successor chronology required')
+        if key == 'consumer' and _parse_observed_at(events[0]['created_at']) < ended:
+            raise WorkflowError('normal source acceptance must follow actual consumer bootstrap')
+        if key == 'selector' and _parse_observed_at(events[0]['created_at']) > started:
+            raise WorkflowError('selector adoption must follow actual source-stage acceptance')
+        op = _fe689_source_successor_operation(root, journal, change)
+        native = g._native_document(root, layer.get('actual_native_execution'))
+        items = [x for t in native.get('turns', []) for x in t.get('items', [])
+                 if x.get('type') == 'commandExecution' and x.get('id') == layer.get('native_execution_id')]
+        output = layer.get('execution_output')
+        if not isinstance(output, dict) or file_digest(root, output.get('path', '')) != output:
+            raise WorkflowError('exact native successor execution output required')
+        raw = validation_bytes(safe_path(root, output['path']))
+        if (native.get('thread', {}).get('id') != department_registry(root)['operations-assistant']['chat_binding']['task_id']
+                or len(items) != 1 or items[0].get('status') != 'completed' or items[0].get('exitCode') != 0
+                or items[0].get('cwd') != str(Path(root).resolve())
+                or not layer.get('execution_command') or items[0].get('command') != layer['execution_command']
+                or str(safe_path(root,m['execution_helper']['path'])) not in items[0].get('command','')
+                or ('apply --kind '+key) not in items[0].get('command','')
+                or review_input['path'] not in items[0].get('command','')
+                or _completion_execution_output(items[0]) != raw
+                or any(v.encode() not in raw for v in (jp['path'], jp['sha256'], item['manifest']['sha256']))):
+            raise WorkflowError('actual A1 successful successor command and exact pinned output required')
+        _completion_native_stage(root, proof, jp, 'operations-assistant')
+        endpoints[op['path']] = op['after_sha256']
+        evidence.extend([jp, layer['actual_native_execution'], output]); previous = ended
+    _completion_native_stage(root, proof, item['manifest'], 'operations-assistant')
+    return endpoints, evidence
+
+
+
+def _completion_reviewed_source_mode(change):
+    """Read the already accepted CAS mode without silently changing permissions."""
+    expected = change.get('expected_source')
+    has_source_mode = isinstance(expected, dict) and 'mode' in expected
+    source_mode = expected.get('mode') if has_source_mode else None
+    if has_source_mode and (type(source_mode) is not int or not 0 <= source_mode <= 0o777):
+        raise WorkflowError('exact reviewed integer source mode required')
+    if 'mode' in change:
+        try:
+            mode = int(str(change['mode']), 8)
+        except (ValueError, TypeError) as error:
+            raise WorkflowError('valid explicit reviewed source mode required') from error
+        if not 0 <= mode <= 0o777 or (source_mode is not None and mode != source_mode):
+            raise WorkflowError('explicit and exact reviewed source modes differ')
+        return mode
+    return source_mode if has_source_mode else 0o644
+
+
 def goal_typed_completion_proof(root, snapshot, receipts, requirement, accepted, *, proof_pin=None):
     """Read actual typed effect journals; never infer adoption or pilot from PASS."""
     try:
@@ -6028,6 +6467,7 @@ def goal_typed_completion_proof(root, snapshot, receipts, requirement, accepted,
         role = snapshot["goal_delivery"]["responsible_assistant"]
         journal_pin = proof.get("journal")
         journal = _completion_pin(root, journal_pin)
+        effect_evidence = []
         if journal.get("schema") in {"flashcast-rotation-SYS-adoption-chain/v1",
                                      "flashcast-rotation-original-business-pilot/v1"}:
             from rotation_completion import effect
@@ -6059,13 +6499,25 @@ def goal_typed_completion_proof(root, snapshot, receipts, requirement, accepted,
                     "scope": requirement["scope"], "evidence": [pin, journal_pin, source_context["candidate_manifest"],
                         *source_context["permanent_source_successors"]],
                     "closed_scope_only": True, "business_goal_closed": False}
+        permanent_source_endpoints, permanent_source_evidence = {}, []
+        if kind == "source_adoption" and "remaining_source" in proof:
+            if snapshot.get("task_id") != "fc-20261023-chatgpt-fe689-runtime-adoption-stage-v1":
+                raise WorkflowError("remaining-source proof belongs only to its original fe689 stage")
+            permanent_source_endpoints, permanent_source_evidence = _fe689_remaining_effect_chain(root, snapshot, accepted, proof)
         if kind == "source_adoption":
             if (journal.get("state") != "adopted" or journal.get("actor") != role
                     or journal.get("authorized_source") != snapshot["goal_delivery"]["authorization_pin"]
                     or journal.get("candidate_fingerprint") != accepted["source_fingerprint"]
                     or journal.get("external_writes") != 0 or journal.get("permissions_issued") is not False):
                 raise WorkflowError("real independently adopted scoped CAS journal required")
-            manifest = _completion_pin(root,accepted["candidate"])
+            manifest_pin = accepted["candidate"]
+            if snapshot.get("task_id") == "fc-20261022-department-flow-congestion-optimization-v1":
+                manifest_pin = _congestion_accepted_source_manifest(root, snapshot, accepted)
+                if (accepted.get("identity",{}).get("candidate_version") == "department-flow-current-fe689-lifecycle-compatible-v10-20261024"
+                        and journal.get("fixture_only") is not False):
+                    raise WorkflowError("a physical fixture cannot prove actual C10 runtime adoption")
+                effect_evidence.append(manifest_pin)
+            manifest = _completion_pin(root, manifest_pin)
             field_operations=journal.get("field_operations",[])
             migrations=manifest.get("field_changes",[])
             if not isinstance(field_operations,list) or len(field_operations)!=len(migrations):
@@ -6087,7 +6539,7 @@ def goal_typed_completion_proof(root, snapshot, receipts, requirement, accepted,
             operations = journal.get("source_operations")
             if (not changes or not isinstance(operations,list)
                     or [item.get("path") for item in operations] != [item.get("path") for item in changes]
-                    or journal.get("candidate_manifest") != accepted["candidate"]):
+                    or journal.get("candidate_manifest") != manifest_pin):
                 raise WorkflowError("exact independently reviewed CAS operation set required")
             from goal_delivery_runtime import _native_document
             native = _native_document(root,proof.get("actual_native_execution"))
@@ -6106,10 +6558,12 @@ def goal_typed_completion_proof(root, snapshot, receipts, requirement, accepted,
                     or (not proof.get("execution_command") or executed.get("command")!=proof.get("execution_command"))
                     or _completion_execution_output(executed)!=raw
                     or any(value.encode("utf-8") not in raw for value in
-                        (journal_pin["path"],journal_pin["sha256"],accepted["candidate"]["sha256"]))):
+                        (journal_pin["path"],journal_pin["sha256"],manifest_pin["sha256"]))):
                 raise WorkflowError("actual successful CAS command/output must pin journal and reviewed manifest")
             for change,operation in zip(changes,operations):
-                candidate=_completion_pin(root,change.get("candidate"))
+                candidate=change.get("candidate")
+                if not isinstance(candidate,dict) or file_digest(root,candidate.get("path",""))!=candidate:
+                    raise WorkflowError("exact reviewed source bytes pin required")
                 expected=change.get("expected_source")
                 if (candidate is None or operation.get("after_sha256")!=change["candidate"]["sha256"]
                         or (isinstance(expected,dict) and operation.get("before_sha256")!=expected.get("sha256"))
@@ -6120,8 +6574,23 @@ def goal_typed_completion_proof(root, snapshot, receipts, requirement, accepted,
             for operation in operations:
                 target = file_digest(root, operation["path"])
                 change=next(item for item in changes if item["path"]==operation["path"])
-                expected_mode=int(str(change.get("mode","0644")),8)
-                if (target["sha256"] != operation.get("after_sha256")
+                expected_mode=_completion_reviewed_source_mode(change)
+                if (isinstance(change.get("expected_source"),dict)
+                        and "mode" in change["expected_source"] and operation.get("mode") != expected_mode):
+                    raise WorkflowError("actual CAS journal mode differs from exact reviewed source")
+                expected_endpoint = permanent_source_endpoints.get(operation["path"], operation.get("after_sha256"))
+                current_effect = None
+                if target["sha256"] != expected_endpoint:
+                    current_effect = _internal_source_continuation_readback(root, operation['path'], expected_endpoint, expected_mode)
+                    if current_effect is not None:
+                        permanent_source_evidence.extend(current_effect['evidence'])
+                if (target["sha256"] != expected_endpoint
+                        and current_effect is None
+                        and snapshot.get("task_id") == "fc-20261023-chatgpt-fe689-runtime-adoption-stage-v1"):
+                    current_effect = _congestion_lifecycle_preserved_fe689_source(root,operation["path"],expected_endpoint,expected_mode)
+                    if current_effect is not None:
+                        permanent_source_evidence.extend(current_effect["evidence"])
+                if ((target["sha256"] != expected_endpoint and current_effect is None)
                         or safe_path(root,operation["path"]).stat().st_mode & 0o777 != expected_mode):
                     raise WorkflowError("adopted source actual readback or reviewed mode differs")
                 baseline = operation.get("backup")
@@ -6130,7 +6599,10 @@ def goal_typed_completion_proof(root, snapshot, receipts, requirement, accepted,
                     if backup != baseline or backup["sha256"] != operation["before_sha256"]:
                         raise WorkflowError("exact recoverable CAS before backup required")
         elif kind == "internal_pilot":
-            if journal.get("schema") == "wardrobe-existing-W-T-readonly-pilot/v1":
+            if (snapshot.get("task_id") == "fc-20261022-department-flow-congestion-optimization-v1"
+                    and journal.get("pilot_task_id") == snapshot["task_id"]):
+                effect_evidence.extend(_congestion_original_queue_pilot(root,snapshot,receipts,requirement,accepted,journal))
+            elif journal.get("schema") == "wardrobe-existing-W-T-readonly-pilot/v1":
                 _wardrobe_existing_w_t_pilot(root, snapshot, requirement, accepted, journal)
             else:
                 import result_coordination as c
@@ -6242,7 +6714,7 @@ def goal_typed_completion_proof(root, snapshot, receipts, requirement, accepted,
         _completion_native_stage(root, proof, journal_pin, role)
         return {"state": "PROVEN", "identity": accepted["identity"],
                 "source_fingerprint": accepted["source_fingerprint"], "source_turn_id": accepted["source_turn_id"],
-                "scope": requirement["scope"], "evidence": [pin, journal_pin],
+                "scope": requirement["scope"], "evidence": [pin, journal_pin, *permanent_source_evidence, *effect_evidence],
                 "closed_scope_only": True, "business_goal_closed": False}
     except (WorkflowError, ValueError, KeyError, TypeError, OSError) as error:
         return {"state": "BLOCKED", "reason": str(error), "evidence": []}
@@ -6527,6 +6999,9 @@ def reconcile_workflow(root: Path, *, task_id: str, shadow: bool = False) -> tup
             }
         from goal_delivery_runtime import restore_goal
         snapshot = restore_goal(root, snapshot)
+        from department_autonomy import autonomous_goal,reconcile as autonomous_reconcile
+        if autonomous_goal(snapshot.get('goal_delivery')):
+            return autonomous_reconcile(root,snapshot)
         from qa_review_plan import _binding
         restored_review = _binding(root, snapshot)
         if restored_review is not None:
@@ -7544,9 +8019,12 @@ def _original_a3_partial_final(root: Path, request: dict[str, Any], native: dict
 def _validate_goal_completed_result(root: Path, request: dict[str, Any], fixed_id: str,
                                     *, through_receipt_id: str | None = None) -> dict[str, Any]:
     """Bind a new goal result to its actual completed final, never an ACK."""
+    from department_autonomy import autonomous_goal,native_result
+    if autonomous_goal(read_json(snapshot_path(root,request['task_id'])).get('goal_delivery')):
+        return native_result(root,request,fixed_id)
     if request.get('result_source_phase') == 'delivery_ready':
         from goal_continuity import ready_source
-        return ready_source(root, request, fixed_id)
+        return ready_source(root, request, fixed_id, through_receipt_id=through_receipt_id)
     if request.get("sender_department") == "operations":
         from native_control_result import completion
         return completion(root, request, fixed_id)
@@ -7603,6 +8081,28 @@ def _validate_goal_completed_result(root: Path, request: dict[str, Any], fixed_i
     scoped = [row for row in receipts if row.get("department") == request["sender_department"]
               and row.get("chat_task_id") == fixed_id
               and (at := _parse_observed_at(row.get("created_at"))) is not None and at <= observed]
+    ordinary_source_ids = set()
+    if original_a3 is None:
+        from qa_review_plan import load_plan, ordinary_original_source_receipt_ids
+        from goal_delivery_runtime import restore_goal
+        snapshot = restore_goal(root, read_json(snapshot_path(root, task)))
+        if snapshot.get('goal_delivery') and snapshot.get('qa_review_plan'):
+            plan = load_plan(root, snapshot)
+            if plan is not None:
+                ordinary_source_ids = ordinary_original_source_receipt_ids(root, snapshot, receipts, plan)
+                from goal_continuity import _ready_receipt_prefix
+                causal_rows = [r for r in receipts if r.get('department') == request['sender_department']
+                               and r.get('chat_task_id') == fixed_id and r.get('receipt_type') in
+                               {'dispatch_sent','dispatch_failed','chat_ack'}]
+                pair, chronology_bad = _ready_receipt_prefix(causal_rows, observed,
+                    root=root, snapshot=snapshot, receipts=receipts, plan=plan,
+                    source_request=request, source_page=completion)
+                if pair is not None:
+                    for row in pair:
+                        if row not in scoped: scoped.append(row)
+                if causal_rows and (pair is None or chronology_bad):
+                    raise WorkflowError('completed source requires its real acknowledged responsibility prefix')
+                scoped = [r for r in scoped if r.get('receipt_id') not in ordinary_source_ids]
     if original_a3 is not None:
         original_ids = {"dcac7384-e552-4b3d-a0bf-c2cc37435e6d": "dispatch_sent",
                         "e2bab580-acc2-4a69-8d27-47e551b48a09": "chat_ack"}
@@ -7620,6 +8120,12 @@ def _validate_goal_completed_result(root: Path, request: dict[str, Any], fixed_i
             recorded=_parse_observed_at(row['created_at'])
             proven_late_ack=False
             if row.get('receipt_type')=='chat_ack' and completed_at is not None and recorded>completed_at and exact_native_turn:
+                from goal_continuity import _registered_native_pair
+                causal = [r for r in receipts if r.get('department') == request['sender_department']
+                          and r.get('chat_task_id') == fixed_id and r.get('receipt_type') in
+                          {'dispatch_sent','dispatch_failed','chat_ack'}]
+                proven_pair = _registered_native_pair(root,request,receipts,causal,completed_at,completion)
+                proven_late_ack = bool(proven_pair and proven_pair[1].get('receipt_id') == row.get('receipt_id'))
                 items=exact_native_turn.get('items',[]);final_index=next(i for i,m in enumerate(items) if m.get('id')==message.get('id'))
                 for pin in row.get('evidence',[]):
                     ack=read_json(safe_path(root,pin['path']))
@@ -8489,10 +8995,15 @@ def _record_result_handoff_uncoordinated(root: Path, request: dict[str, Any], *,
                         or action_at is None or decision_at is None or action_at >= decision_at):
                     raise WorkflowError("既有后续工作必须是原负责人在当前决策前已交付的准确结果")
                 record["action_before_decision"] = True
+        if event in {"controller_received", "controller_decision", "controller_followthrough"}:
+            # handoff_guard already authenticated this actual coordinator lease.
+            # Preserve responsible_assistant's historical meaning; normalize new actors.
+            record["coordinator_role"] = request.get("coordinator_role", "operations")
         record["previous_hash"] = rows[-1]["record_hash"] if rows else ""
         record["record_hash"] = sha256_value({key: value for key, value in record.items() if key != "record_hash"})
         append_jsonl_locked(path, record)
-    return {**record, "result": "recorded", "controller_handoff": result_handoff_status(root, task_id)}, [path, snapshot_path(root, task_id)]
+    # Commit authentic SQL/native intake before an unrelated read-only status view.
+    return {**record, "result": "recorded"}, [path, snapshot_path(root, task_id)]
 
 
 def shadow_replay(root: Path, task_id: str) -> tuple[dict[str, Any], list[Path]]:
@@ -8578,6 +9089,19 @@ def shadow_replay(root: Path, task_id: str) -> tuple[dict[str, Any], list[Path]]
 
 
 def record_result_handoff(root: Path, request: dict[str, Any]) -> tuple[dict[str, Any], list[Path]]:
+    from department_autonomy import autonomy_record_applies,record_autonomous_result
+    if autonomy_record_applies(root,request):return record_autonomous_result(root,request)
+    from goal_continuity import SourceRegistrationPending, defer_result_registration
+    try:
+        return _record_result_handoff_registered(root,request)
+    except SourceRegistrationPending:
+        # Preserve the refusal and original request; an event may later resume
+        # this same identity. No fabricated queue, send, ACK or intake.
+        defer_result_registration(root,request)
+        raise
+
+
+def _record_result_handoff_registered(root: Path, request: dict[str, Any]) -> tuple[dict[str, Any], list[Path]]:
     """Native final handoff entry, coordinated without changing historical ledgers."""
     from result_coordination import handoff_guard, notification_enqueue, coordination_lock, FINAL_EVENTS
     notification_lock = coordination_lock(root) if request.get("event") not in FINAL_EVENTS else nullcontext()
@@ -8591,6 +9115,13 @@ def record_result_handoff(root: Path, request: dict[str, Any]) -> tuple[dict[str
         if request.get("event") == "notification_queued":
             notification_enqueue(root, request, _coordination_locked=True)
         admission.complete(record)
+    try:
+        record['controller_handoff'] = result_handoff_status(root, request['task_id'])
+    except (WorkflowError, OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        # Do not erase a committed effect or silently discard its diagnostic.
+        record['postcommit_read_status'] = {'state': 'blocked', 'reason': str(error),
+            'next_owner': 'system-development', 'effect_committed': True,
+            'effect_replay_allowed': False, 'business_completion_claimed': False}
     if request.get('event') == 'notification_queued' and request.get('assistant_selection_live'):
         from goal_continuity import select_result
         selection=select_result(root,{**request,'actor':request['sender_department'],
@@ -8598,3 +9129,340 @@ def record_result_handoff(root: Path, request: dict[str, Any]) -> tuple[dict[str
                      'live_identity':request['assistant_selection_live']})
         record={**record,'resource_selection':selection}
     return record, artifacts
+
+
+def _congestion_accepted_source_manifest(root, snapshot, accepted):
+    """Follow the accepted outbox's immutable manifest; keep its source identity."""
+    task = 'fc-20261022-department-flow-congestion-optimization-v1'
+    scope = 'project:flashcast:department-flow-congestion-optimization:20261022:v1'
+    contract = snapshot.get('goal_contract', {})
+    goal = snapshot.get('goal_delivery', {})
+    if (snapshot.get('task_id') != task or contract.get('sha256') !=
+            'a4724b2d4ed1167100fdcde502aca4f3dbfec4cc25177285c2d3a78e293e5943'
+            or goal.get('authorized_scope') != [scope] or goal.get('primary_owner') != 'system-development'
+            or goal.get('responsible_assistant') != 'operations-assistant-2'
+            or goal.get('producer_departments') != ['system-development']
+            or goal.get('required_execution_actions') or accepted.get('state') != 'PROVEN'
+            or accepted.get('scope') != scope or accepted.get('candidate') != accepted.get('producer_outbox')
+            or accepted.get('identity', {}).get('task_id') != task
+            or accepted.get('identity', {}).get('sender_department') != 'system-development'):
+        raise WorkflowError('original accepted congestion goal/source/sole A2 required')
+    _completion_pin(root, contract)
+    box = _completion_pin(root, accepted['producer_outbox'])
+    if (box.get('task_id') != task or box.get('department') != 'system-development'
+            or box.get('scope') != scope or box.get('candidate_version') != accepted['identity']['candidate_version']
+            or accepted['producer_outbox']['sha256'] != accepted['identity']['result_sha256']
+            or box.get('source_fingerprint') != accepted.get('source_fingerprint')):
+        raise WorkflowError('exact independently accepted outbox source differs')
+    pin = box.get('candidate_manifest')
+    manifest = _completion_pin(root, pin)
+    if (manifest.get('task_id') != task or manifest.get('scope') != scope
+            or manifest.get('department') != 'system-development'
+            or manifest.get('candidate_version') != box['candidate_version']
+            or manifest.get('candidate_fingerprint') != accepted['source_fingerprint']
+            or not manifest.get('changes') or manifest.get('field_changes') != []):
+        raise WorkflowError('exact accepted outbox to immutable source manifest required')
+    return pin
+
+def _congestion_original_queue_pilot(root, snapshot, receipts, requirement, accepted, journal):
+    """The original goal's real queue/intake/adoption trial needs no new child."""
+    _congestion_accepted_source_manifest(root, snapshot, accepted)
+    import result_coordination as c
+    import department_event_dispatcher as d
+    task = snapshot['task_id']; role = 'operations-assistant-2'
+    if (journal.get('schema') != 'actual-original-result-to-intake-next-action-and-adoption-pilot/v1'
+            or journal.get('task_id') != task or journal.get('pilot_task_id') != task
+            or journal.get('identity') != accepted['identity']
+            or requirement.get('scope') != accepted.get('scope')):
+        raise WorkflowError('actual original same-goal pilot identity and scope required')
+    # A real completed adoption proof is independently registered first. Read it
+    # through the normal typed consumer, including native final and current CAS.
+    requirements = [v for v in snapshot['goal_delivery']['completion_requirements']
+                    if v.get('requirement_type') == 'source_adoption']
+    if len(requirements) != 1:
+        raise WorkflowError('one original source-adoption completion requirement required')
+    adopted = goal_typed_completion_proof(root, snapshot, receipts, requirements[0], accepted)
+    adoption_pin = journal.get('actual_adoption_journal')
+    if adopted.get('state') != 'PROVEN' or adoption_pin not in adopted.get('evidence', []):
+        raise WorkflowError('normal current completed source-adoption proof required before queue pilot')
+    adoption = _completion_pin(root, adoption_pin)
+    source_rows, bad = _validate_receipt_chain(root, task)
+    if bad or source_rows != receipts:
+        raise WorkflowError('actual same-goal receipt chain required')
+    for id_key, kind, department in [('producer_receipt_id', 'outbox_received', 'system-development'),
+                                    ('bounded_acceptance_receipt_id', 'outbox_received', role)]:
+        found = [v for v in receipts if v.get('receipt_id') == journal.get(id_key)
+                 and v.get('receipt_type') == kind and v.get('department') == department]
+        expected = accepted['producer_outbox'] if department == 'system-development' else accepted.get('acceptance_outbox')
+        if len(found) != 1 or expected not in found[0].get('evidence', []):
+            raise WorkflowError('pilot must use exact actual producer and sole A2 acceptance receipts')
+        if department == role and found[0] != accepted.get('acceptance_receipt'):
+            raise WorkflowError('pilot independent acceptance is not current')
+    record, intake = d._accepted_queue(root, accepted['identity'])
+    transport = d._original_queue_acceptance(root, accepted['identity'], record)
+    if (not intake or intake.get('record_id') != journal.get('received_record_id')
+            or journal.get('original_queue_event') != d.key(accepted['identity'])
+            or transport.get('native_message_id') != journal.get('original_native_message_id')):
+        raise WorkflowError('real original official queue and committed intake differ')
+    rows = _result_handoff_rows(root, task)
+    decisions = [v for v in rows if v.get('event') == 'controller_decision'
+                 and c.exact_identity(v) == accepted['identity']]
+    selected = [v for v in decisions if v.get('record_id') == journal.get('decision_record_id')]
+    if (len(selected) != 1 or selected[0].get('coordinator_role') != role
+            or selected[0].get('next_owner') != role or not selected[0].get('next_action')
+            or selected[0].get('decision') != 'continue'):
+        raise WorkflowError('one exact actual sole A2 next-adoption decision required')
+    decision = selected[0]; c._committed_result(root, decision)
+    start = _parse_observed_at(adoption.get('started_at'))
+    for later in decisions[decisions.index(decision) + 1:]:
+        at = _parse_observed_at(later.get('created_at'))
+        if start is None or at is None:
+            raise WorkflowError('actual pilot decision chronology required')
+        if at <= start and later.get('decision') in {'rework', 'wait_external'} and not later.get('remaining_requirement_id'):
+            c._committed_result(root, later)
+            raise WorkflowError('original next-adoption decision was superseded before execution')
+    times = [_parse_observed_at(v) for v in (intake.get('created_at'), decision.get('created_at'),
+             accepted['acceptance_receipt'].get('created_at'), adoption.get('started_at'), adoption.get('completed_at'))]
+    if any(v is None for v in times) or times != sorted(times):
+        raise WorkflowError('original queue/intake/decision/acceptance/adoption order differs')
+    return adopted['evidence']
+
+
+def _ordered_source_observations(values):
+    """Order evidence at its encoded precision; never rewrite or backdate it."""
+    cursor = None
+    for value in values:
+        if type(value) in {int, float}:
+            import math
+            if not math.isfinite(value) or value < 0:return False
+            at = dt.datetime.fromtimestamp(value, dt.timezone.utc)
+            upper = at
+        else:
+            at = _parse_observed_at(value)
+            if at is None:return False
+            # Native project writers encode whole seconds. That field denotes
+            # its one-second interval, not a manufactured fractional instant.
+            coarse = isinstance(value, str) and re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:Z|[+-]\d\d:\d\d)', value) is not None
+            upper = at + dt.timedelta(seconds=1) if coarse else at
+        if at > dt.datetime.now(dt.timezone.utc):return False
+        cursor = at if cursor is None else max(cursor, at)
+        if cursor > upper or upper != at and cursor == upper:return False
+    return True
+
+
+def _source_continuation_execution_output(command):
+    """Decode supported complete native output without changing its evidence."""
+    if 'aggregatedOutput' not in command:
+        return _completion_execution_output(command)
+    legacy = command['aggregatedOutput']
+    if not isinstance(legacy, str):
+        raise WorkflowError('complete original source command output required')
+    raw = _completion_execution_output({**command, 'output': legacy})
+    if 'output' in command and _completion_execution_output(command) != raw:
+        raise WorkflowError('original source command output representations disagree')
+    return raw
+
+
+def _internal_source_continuation_readback(root, path, prior_sha256, mode):
+    """Explain later internal CAS bytes using normal, independent actual effects.
+
+    The old operation and PASS are never edited. Only an original-A2 received
+    partial source report, real native independent review and completed CAS
+    final can add an edge. No receipt/transport/permission is created here.
+    """
+    task = 'fc-20261022-department-flow-congestion-optimization-v1'
+    try:
+        import goal_delivery_runtime as g
+        import qa_review_plan as q
+        snapshot = g.restore_goal(root, read_json(snapshot_path(root, task)))
+        goal = snapshot['goal_delivery']; role = goal['responsible_assistant']
+        if (goal['primary_owner'] != 'system-development' or role != 'operations-assistant-2'
+                or goal['producer_departments'] != ['system-development'] or not path.startswith('tools/')
+                or file_digest(root, snapshot['goal_contract']['path']) != snapshot['goal_contract']
+                or file_digest(root, goal['authorization_pin']['path']) != goal['authorization_pin']):
+            return None
+        # Raw committed receipt chain, not recursive QA/source proof selection.
+        rows = read_jsonl(receipts_path(root, task)); previous = ''; seen = set()
+        for row in rows:
+            if (row.get('task_id') != task or not row.get('receipt_id') or row['receipt_id'] in seen
+                    or row.get('previous_hash') != previous
+                    or row.get('receipt_hash') != sha256_value(_receipt_payload_for_hash(row))):
+                return None
+            previous = row['receipt_hash']; seen.add(row['receipt_id'])
+        if validate_workflow_events(root, task):return None
+        edges = {}
+        flags = ('production_write_allowed', 'production_release_eligible', 'external_permission_issued',
+                 'goal_completion_claimed', 'final_goal_verdict', 'pilot_complete')
+        for receipt in rows:
+            if receipt.get('department') != role or receipt.get('receipt_type') != 'outbox_received':continue
+            for pin in receipt.get('evidence', []):
+                if not pin.get('path', '').endswith('.json'):continue
+                report = _completion_pin(root, pin)
+                if report.get('schema') != 'independently-adopted-internal-source-continuation/v1':continue
+                effect = report.get('actual_source_continuation', {})
+                mp, jp, rp = [effect[k] for k in ('candidate_manifest', 'journal', 'independent_review_report')]
+                mf, journal, review = [_completion_pin(root, p) for p in (mp, jp, rp)]
+                if not any(c.get('path') == path for c in mf.get('changes', [])):continue
+                plan = _completion_pin(root, mf['normal_plan'])
+                q._review_manifest_source_pins(root, snapshot, plan, mp,
+                    candidate_version=mf['candidate_version'], fingerprint=mf['candidate_fingerprint'])
+                intakes = [r for r in _result_handoff_rows(root, task)
+                           if r.get('record_id') == report.get('source_packet_intake_id') and r.get('event') == 'controller_received']
+                if len(intakes) != 1 or intakes[0].get('sender_department') != 'system-development' or intakes[0].get('coordinator_role') != role:return None
+                packet = _completion_pin(root, intakes[0]['outbox'])
+                if (packet.get('candidate_manifest') != mp or packet.get('candidate_version') != mf['candidate_version']
+                        or packet.get('source_fingerprint') != mf['candidate_fingerprint']
+                        or packet.get('not_a_new_whole_goal_producer') is not True
+                        or packet.get('task_id') != task or packet.get('department') != 'system-development'
+                        or packet.get('fixture_only') is not False):return None
+                from result_coordination import _committed_result
+                _committed_result(root, intakes[0])
+                expected = {'task_id': task, 'department': role, 'sender_department': role,
+                            'candidate_version': mf['candidate_version'], 'scope': mf['scope']}
+                if (any(report.get(k) != v or review.get(k) != v for k, v in expected.items())
+                        or mf.get('scope') not in goal['authorized_scope'] or mf.get('field_changes') != []
+                        or any(report.get(k) is not False or review.get(k) is not False for k in flags)
+                        or report.get('fixture_only') is not False or report.get('qa_verdict') == 'pass'
+                        or report.get('goal_acceptance') or review.get('goal_acceptance')
+                        or review.get('candidate_review') != {'actor': role, 'phase': 'candidate_source_only',
+                            'direction': 'forward', 'verdict': 'PASS_SOURCE_CANDIDATE_ONLY',
+                            'candidate_manifest': mp, 'candidate_fingerprint': mf['candidate_fingerprint'],
+                            'review_plan': mf['normal_plan'], 'producer_outbox': mf['primary_producer_outbox'],
+                            'goal_contract': snapshot['goal_contract'], 'human_authorization': goal['authorization_pin']}):return None
+                q._review_exact_native_reply(root, review, role,
+                    [task, mp['sha256'], mf['candidate_fingerprint'], 'PASS_SOURCE_CANDIDATE_ONLY'])
+                q._review_exact_native_reply(root, report, role, [task, mp['sha256'], jp['sha256']])
+                if (journal.get('schema') != 'exact-internal-source-bootstrap/v1' or journal.get('task_id') != task
+                        or journal.get('state') != 'adopted' or journal.get('actor') != role or journal.get('executor') != role
+                        or journal.get('candidate_manifest') != mp or journal.get('independent_review_report') != rp
+                        or journal.get('authorized_source') != goal['authorization_pin']
+                        or journal.get('field_operations') != [] or journal.get('fixture_only') is not False
+                        or type(journal.get('external_writes')) is not int or journal['external_writes'] != 0
+                        or journal.get('permissions_issued') is not False
+                        or (safe_path(root, jp['path']).parent / 'rollback-journal.json').exists()):return None
+                from goal_delivery_runtime import _collaboration_native
+                native = _collaboration_native(root, report['actual_native_reply'])
+                turns = [t for t in native.get('turns', []) if t.get('id') == report['source_turn_id']]
+                if len(turns) != 1 or turns[0].get('status') != 'completed' or turns[0].get('error'):return None
+                items = turns[0].get('items', [])
+                commands = [(i, c) for i, c in enumerate(items) if c.get('id') == effect.get('execution_command_id')]
+                finals = [(i, m) for i, m in enumerate(items) if m.get('id') == report['source_message_id']]
+                if len(commands) != 1 or len(finals) != 1:return None
+                ci, command = commands[0]; fi, final = finals[0]
+                if (ci >= fi or final.get('phase') != 'final_answer' or command.get('type') != 'commandExecution'
+                        or command.get('status') != 'completed' or type(command.get('exitCode')) is not int or command['exitCode'] != 0
+                        or command.get('cwd') != str(Path(root).resolve())
+                        or str(safe_path(root, mf['adoption_helper']['path'])) not in command.get('command', '')
+                        or ' apply ' not in command.get('command', '') or '--review-input' not in command.get('command', '')
+                        or any(v.encode('ascii') not in _source_continuation_execution_output(command) for v in (mp['sha256'], jp['sha256']))):return None
+                times = [_parse_observed_at(v) for v in (review.get('created_at'), journal.get('started_at'),
+                         journal.get('completed_at'), report.get('reply_observed_at'), report.get('created_at'), receipt.get('created_at'))]
+                if (not all(times) or not _ordered_source_observations([
+                        intakes[0].get('created_at'), review.get('reply_observed_at'), review.get('created_at'),
+                        journal.get('started_at'), journal.get('completed_at'), turns[0].get('completedAt'),
+                        report.get('reply_observed_at'), report.get('created_at'), receipt.get('created_at')])
+                        or type(turns[0].get('completedAt')) not in {int, float}
+                        ):return None
+                ops, changes = journal.get('source_operations', []), mf['changes']
+                if len(ops) != len(changes) or len({op.get('path') for op in ops}) != len(changes):return None
+                for change in changes:
+                    found = [op for op in ops if op.get('path') == change['path']]
+                    if len(found) != 1:return None
+                    op = found[0]
+                    if (op.get('applied') is not True or op.get('before_sha256') != change['expected_source']['sha256']
+                            or op.get('after_sha256') != change['candidate']['sha256'] or op.get('mode') != change['expected_source']['mode']
+                            or file_digest(root, op['backup']['path']) != op['backup']
+                            or op['backup']['sha256'] != op['before_sha256']):return None
+                    if op['path'] == path and op['mode'] == mode:
+                        edge = {'after': op['after_sha256'], 'started': times[1], 'completed': times[2],
+                                'evidence': [pin, mp, jp, rp, report['actual_native_reply'], review['actual_native_reply']]}
+                        edges.setdefault(op['before_sha256'], {})[jp['sha256']] = edge
+        current = file_digest(root, path)['sha256']; at = None; evidence = []; visited = set(); cursor = prior_sha256
+        while cursor != current:
+            if cursor in visited or len(visited) >= 8:return None
+            visited.add(cursor); found = list(edges.get(cursor, {}).values())
+            if len(found) != 1 or at is not None and found[0]['started'] < at:return None
+            edge = found[0]; cursor = edge['after']; at = edge['completed']; evidence.extend(edge['evidence'])
+        if not evidence or safe_path(root, path).stat().st_mode & 0o777 != mode:return None
+        return {'current_sha256': current, 'evidence': list({p['path']: p for p in evidence}.values())}
+    except (WorkflowError, OSError, ValueError, TypeError, KeyError, AttributeError):
+        return None
+
+
+def _congestion_lifecycle_preserved_fe689_source(root, path, prior_sha256, mode):
+    """Read a separately accepted/adopted C10 source, never extend F authority.
+
+    The old A1 journal keeps its original after SHA. Only the actual original
+    A2 current-source adoption proof can explain this one later shared file.
+    Missing final, rollback, another version, actor or scope stays blocked.
+    """
+    prior = 'a071b277d13b421abff229d1a6652367994d7b79b05102d085bb0c5038fb1a94'
+    task = 'fc-20261022-department-flow-congestion-optimization-v1'
+    scope = 'project:flashcast:department-flow-congestion-optimization:20261022:v1'
+    version = 'department-flow-current-fe689-lifecycle-compatible-v10-20261024'
+    if path != 'tools/workflow_control.py' or prior_sha256 != prior or mode != 0o644:
+        return None
+    try:
+        import goal_delivery_runtime as g
+        import qa_review_plan as q
+        mf_pin = file_digest(root,'logs/handoffs/2026-10-22-department-flow-congestion-optimization-v1/system-development-v1/lifecycle-current-fe689-baseline-v10/CANDIDATE-CONGESTION-v10.json')
+        mf = _completion_pin(root,mf_pin)
+        snapshot = g.restore_goal(root,read_json(snapshot_path(root,task)))
+        goal = snapshot.get('goal_delivery',{})
+        if (snapshot.get('goal_contract',{}).get('sha256') != 'a4724b2d4ed1167100fdcde502aca4f3dbfec4cc25177285c2d3a78e293e5943'
+                or goal.get('authorization_pin',{}).get('sha256') != '8443335e7d4adc76dce710225c0ebca9fba8e09b92fc43c1801469299263cc7d'
+                or goal.get('primary_owner') != 'system-development' or goal.get('producer_departments') != ['system-development']
+                or goal.get('responsible_assistant') != 'operations-assistant-2' or goal.get('authorized_scope') != [scope]
+                or goal.get('required_execution_actions') or mf.get('candidate_version') != version
+                or mf.get('field_changes') != []):return None
+        rows,bad = _validate_receipt_chain(root,task)
+        if bad or validate_workflow_events(root,task):return None
+        accepted = goal_completion_subject(root,snapshot,rows,{'mode':'latest_exact_accepted_result','producer_department':'system-development'})
+        if (accepted.get('state') != 'PROVEN' or accepted.get('scope') != scope
+                or accepted.get('identity',{}).get('task_id') != task
+                or accepted['identity'].get('candidate_version') != version
+                or accepted['identity'].get('sender_department') != 'system-development'
+                or accepted.get('source_fingerprint') != mf.get('candidate_fingerprint')
+                or accepted.get('candidate') != accepted.get('producer_outbox')):return None
+        box = _completion_pin(root,accepted['producer_outbox'])
+        if (box.get('candidate_manifest') != mf_pin or box.get('source_fingerprint') != accepted['source_fingerprint']
+                or box.get('candidate_version') != version):return None
+        plan = q.load_plan(root,snapshot)
+        q._review_manifest_source_pins(root,snapshot,plan,mf_pin,candidate_version=version,fingerprint=accepted['source_fingerprint'])
+        changes = [v for v in mf['changes'] if v.get('path') == path]
+        if len(changes) != 1:return None
+        change = changes[0]
+        successor = None
+        if file_digest(root,path)['sha256'] != change['candidate']['sha256']:
+            successor = _internal_source_continuation_readback(root,path,change['candidate']['sha256'],mode)
+        if (change.get('expected_source',{}).get('sha256') != prior
+                or int(change.get('mode','0'),8) != mode
+                or (file_digest(root,path)['sha256'] != change['candidate']['sha256'] and successor is None)
+                or safe_path(root,path).stat().st_mode & 0o777 != mode):return None
+        requirements = [v for v in goal['completion_requirements'] if v.get('requirement_type') == 'source_adoption']
+        if len(requirements) != 1:return None
+        # This requires the real independent C10 execution AND completed native
+        # final. It cannot turn a local PASS or prepared journal into adoption.
+        actual = goal_typed_completion_proof(root,snapshot,rows,requirements[0],accepted)
+        if actual.get('state') != 'PROVEN':return None
+        jp = file_digest(root,'backups/'+task+'/A2-exact-current-fe689-lifecycle-v10/journal.json')
+        journal = _completion_pin(root,jp)
+        if (jp not in actual.get('evidence',[]) or journal.get('state') != 'adopted'
+                or journal.get('task_id') != task or journal.get('actor') != journal.get('executor')
+                or journal.get('actor') != 'operations-assistant-2' or journal.get('candidate_manifest') != mf_pin
+                or journal.get('authorized_source') != goal['authorization_pin']
+                or type(journal.get('external_writes')) is not int or journal['external_writes'] != 0
+                or journal.get('permissions_issued') is not False or journal.get('field_operations') != []
+                or (safe_path(root,jp['path']).parent/'rollback-journal.json').exists()):return None
+        ops = [v for v in journal['source_operations'] if v.get('path') == path]
+        if (len(ops) != 1 or ops[0].get('applied') is not True or ops[0].get('before_sha256') != prior
+                or ops[0].get('after_sha256') != change['candidate']['sha256'] or ops[0].get('mode') != mode
+                or file_digest(root,ops[0]['backup']['path']) != ops[0]['backup']
+                or ops[0]['backup']['sha256'] != prior):return None
+        old = _completion_pin(root,{'path':'backups/fc-20261023-chatgpt-fe689-runtime-adoption-stage-v1/A1-exact-remaining-source-consumer-v9/journal.json',
+                  'sha256':'52216dc1b76042ce7a2d61d1f2e43a229e7d2448b07f0ba73259476e6120d74c','size':2218})
+        times = [_parse_observed_at(v) for v in (old.get('completed_at'),journal.get('started_at'),journal.get('completed_at'))]
+        if any(t is None for t in times) or times != sorted(times):return None
+        return {'current_sha256':successor['current_sha256'] if successor else change['candidate']['sha256'],
+                'evidence':[mf_pin,*actual['evidence'],*(successor['evidence'] if successor else [])]}
+    except (WorkflowError,OSError,ValueError,TypeError,KeyError,AttributeError):return None

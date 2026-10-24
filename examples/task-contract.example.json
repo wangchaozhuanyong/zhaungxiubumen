@@ -70,7 +70,7 @@
         "promotion_gap_matrix",
         "growth_delivery",
         "evidence.growth_artifact",
-        "handoff.receiver=goal_delivery.responsible_assistant"
+        "handoff.receiver=operations (collaboration returns original primary_owner)"
       ],
       "promotion_gap_categories": [
         "demand_capture",
@@ -138,7 +138,7 @@
     }
   },
   "dispatch_gate": {
-    "controller_mode_when_specialist_selected": "dispatch_complete_goal_and_assign_responsible_assistant",
+    "controller_mode_when_specialist_selected": "dispatch_complete_goal_to_original_professional_owner",
     "controller_may_execute_specialist_work": false,
     "required_before_specialist_execution": [
       "dispatch_plan_created",
@@ -150,7 +150,7 @@
     "specialist_artifact_owner": "target_department_task",
     "HQ_wait_required_after_handoff": false
   },
-  "completion_rule": "部门交付完成须真实固定聊天结果、冻结V2、必要证据与learning.status齐全；完整目标还须唯一负责助理独立验收、实际接续或准确范围关闭，子结果/PASS不关闭父目标。旧任务缺goal_delivery按原账读取，不补造新回执。",
+  "completion_rule": "原专业主负责人真实执行、自检、效果读回和完整结果；普通任务无助理批准/QA。子结果不关闭业务父目标；历史合同/回执只读保留。",
   "workflow": {
     "states": [
       "planned",
@@ -312,7 +312,8 @@
       "single_final_reviewer": true,
       "HQ_second_review_required": false,
       "reuse_legacy_qa_verdict_event_name": true,
-      "pass_is_production_permission": false
+      "pass_is_production_permission": false,
+      "mode": "historical_read_only_not_required_for_current_tasks"
     }
   },
   "result_handoff_contract": {
@@ -335,10 +336,10 @@
       "result_sha256"
     ],
     "source_result": "完整批次冻结后以真实固定聊天声明和V2/hash交接；delivery_ready可在本轮结束前入队与通知，原生结束事件另记而不新增审核。ACK和普通进度不能代替交付。",
-    "notification": "整批冻结->空闲合格助理选择->准确预检->真实通知；忙时事件等待，助理收尾取共享待办。总部通知知悉不阻断常规后续。原task/version/hash去重；queued不算delivered。",
-    "scheduled_daily_intake": "真实既有自动任务按scheduled_daily_sources精确匹配automation_id、固定部门、task_id和唯一助理；原生固定聊天当轮完成结果与准确thread/turn/UTF8/outbox及MYT日期现场核实，不补造总部dispatch/ACK。已保存旧结果沿原task/hash收取，不重做专业任务。来源登记不等于完成证明或生产许可。",
+    "notification": "专业主负责人完成自检与已授权效果后直接报operations知悉；协作结果归原主负责人。沿真实官方运输、SHA、角色及幂等检查；accepted不算received。",
+    "scheduled_daily_intake": "精确automation_id、固定部门、原task与真实原生来源；专业结果直接operations知悉，历史来源保持原接收者，不派助理。",
     "blocked_notification": "policy拒绝、健康/绑定过期或发送工具失败时记录notification_blocked及原因，不冒充已发送、不绕过门禁、不重复业务派工；每日兜底收取可用fallback方式登记controller_received。",
-    "controller_intake": "新goal由唯一负责助理核真实固定聊天、V2/hash及实际执行层级，认领后收取、决策与落实动作；总部不逐结果再审。旧结果只按原版本回读，恢复漏报不补造通知或人类派工。",
+    "controller_intake": "HQ只收取真实结果/敏感事项，不作逐步技术批准；专业主负责人自行修复普通错误。",
     "controller_decisions": [
       "accept",
       "rework",
@@ -347,23 +348,16 @@
       "wait_external",
       "close_scope"
     ],
-    "controller_decision_rule": "状态分别为执行中、待助理验收、返工中、已完成范围、下一任务真实已安排、具体依赖等待、暂时无可执行工作。验收PASS必须关联实际下一动作或准确范围关闭；prepared不算sent，passed不算adopted，子任务结束不关闭父目标。缺输入只暂停依赖它的动作，其他独立合法工作继续。停止时列已完成、未完成、唯一负责人、下一动作、解除条件和复查时间；自然去重IP口径缺失记DATA_MISSING，AI效果未实测记NOT_MEASURED。",
-    "controller_followthrough_rule": "实际主体为负责助理；准确派工、执行、阻断修复与发布及时接续统一按playbooks/department-system-current.md的发布计划与及时接续。决定后关联真实动作或准确范围关闭；仅排队不算接单，内部登记缺口交原系统负责人修复，条件齐全不等每日兜底。保留原状态/回执语义、唯一负责人及复查事件，不伪造sent/Saved/部署。",
+    "controller_decision_rule": "普通目标不依赖助理qa_verdict；权限随准确任务给定，敏感事项才报老板。历史回执只读保留。",
+    "controller_followthrough_rule": "原专业主负责人连续执行已授权范围；跨专业依赖由HQ协调，结果回原主负责人。",
     "idempotency": "同一原任务、发送部门、候选版本、结果哈希和通知/收取/决策阶段只允许一次记录；已送达或已收取的旧结果不得补入队，已入队结果不得重复入队。controller_followthrough是追加式状态链，仅未解除的阻断/等待允许凭新证据复查或转成真实动作；相同证据与幂等键不得重复。历史漏入队发现由有效原始回执链按原任务/部门/候选版本/outbox SHA确定性去重；完成现场核验后只补总控fallback收取与决策，不回写虚假部门通知。结果变更必须产生新的outbox哈希或候选版本，不因定时任务唤醒复制旧通知。",
     "workflow_closed_is_business_goal_closed": false,
     "read_only_qa_pass_is_publication": false,
     "project_local_control_only": true,
     "controller_await_dispatched_results": {
-      "mode": "responsible_assistant_batch_event_wait",
-      "tool": "wait_threads",
-      "max_wait_ms_per_call": 60000,
-      "cursor_deduplication": true,
-      "on_complete_or_attention": "claim exact result; independent acceptance; actual authorized next action or exact scope close",
-      "on_interrupt": "save task/turn/cursor; read actual effects before recovery",
+      "mode": "original_owner_event_continuation",
+      "tool": "existing_official_queue",
       "no_high_frequency_automation_added": true,
-      "manual_event_cache_is_authoritative": false,
-      "wait_targets_deduplicate_by_fixed_chat": true,
-      "does_not_wake_finished_chat": true,
       "keep_HQ_turn_open_for_current_dispatched_tasks": false,
       "no_direct_ordinary_result_message_to_active_chat": true
     },
@@ -396,7 +390,7 @@
       "sqlite_transaction": "BEGIN IMMEDIATE",
       "ttl_seconds_max": 900,
       "final_actor": "registry.coordination_authority.routine_decisions",
-      "draft_actor": "registered_responsible_assistant",
+      "draft_actor": "original_professional_primary_owner",
       "active_lease_requires_exact_owner_token_fence": true,
       "expired_lease_requires_explicit_recovery": true,
       "assistant_final_events_allowed": true,
@@ -420,60 +414,76 @@
         "automation_id": "flash-cast-4",
         "department": "content-organic-website",
         "task_id_pattern": "fc-(?P<date>\\d{8})-website-growth-daily",
-        "responsible_assistant": "operations-assistant",
-        "acceptance_capability": "seo_geo"
+        "acceptance_capability": "seo_geo",
+        "historical_responsible_assistant": "operations-assistant",
+        "result_receiver": "operations",
+        "delivery_model": "department_autonomous_delivery_v1"
       },
       {
         "automation_id": "automation",
         "department": "visual-design-video",
         "task_id_pattern": "fc-(?P<date>\\d{8})-douyin-music-scout",
-        "responsible_assistant": "operations-assistant-3",
-        "acceptance_capability": "visual"
+        "acceptance_capability": "visual",
+        "historical_responsible_assistant": "operations-assistant-3",
+        "result_receiver": "operations",
+        "delivery_model": "department_autonomous_delivery_v1"
       },
       {
         "automation_id": "flash-cast-3",
         "department": "paid-growth-data",
         "task_id_pattern": "fc-20260920-google-ads-rm100-budget-plan",
-        "responsible_assistant": "operations-assistant-3",
-        "acceptance_capability": "paid"
+        "acceptance_capability": "paid",
+        "historical_responsible_assistant": "operations-assistant-3",
+        "result_receiver": "operations",
+        "delivery_model": "department_autonomous_delivery_v1"
       },
       {
         "automation_id": "flash-cast-2",
         "department": "sales",
         "task_id_pattern": "fc-20261008-sales-template-p2-wording-rework-v2",
-        "responsible_assistant": "operations-assistant-3",
-        "acceptance_capability": "sales"
+        "acceptance_capability": "sales",
+        "historical_responsible_assistant": "operations-assistant-3",
+        "result_receiver": "operations",
+        "delivery_model": "department_autonomous_delivery_v1"
       },
       {
         "automation_id": "flash-cast-5",
         "department": "visual-design-video",
         "task_id_pattern": "fc-(?P<date>\\d{8})-visual-design-video-daily-professional-loop-v1",
-        "responsible_assistant": "operations-assistant-3",
-        "acceptance_capability": "visual"
+        "acceptance_capability": "visual",
+        "historical_responsible_assistant": "operations-assistant-3",
+        "result_receiver": "operations",
+        "delivery_model": "department_autonomous_delivery_v1"
       },
       {
         "automation_id": "seo-geo-2",
         "department": "seo-content-research",
         "task_id_pattern": "fc-(?P<date>\\d{8})-seo-content-research-daily",
-        "responsible_assistant": "operations-assistant",
-        "acceptance_capability": "seo_geo"
+        "acceptance_capability": "seo_geo",
+        "historical_responsible_assistant": "operations-assistant",
+        "result_receiver": "operations",
+        "delivery_model": "department_autonomous_delivery_v1"
       },
       {
         "automation_id": "seo-geo-3-seo",
         "department": "local-seo-maps",
         "task_id_pattern": "fc-(?P<date>\\d{8})-local-seo-maps-daily",
-        "responsible_assistant": "operations-assistant",
-        "acceptance_capability": "maps"
+        "acceptance_capability": "maps",
+        "historical_responsible_assistant": "operations-assistant",
+        "result_receiver": "operations",
+        "delivery_model": "department_autonomous_delivery_v1"
       },
       {
         "automation_id": "flash-cast-19-100",
         "department": "visual-design-video",
         "task_id_pattern": "fc-(?P<date>\\d{8})-renovation-100ep-(?:00[1-9]|0[1-9]\\d|100)",
-        "responsible_assistant": "operations-assistant-3",
         "acceptance_capability": "visual",
         "local_delivery_only": true,
         "external_upload_authorized": false,
-        "fees_authorized": false
+        "fees_authorized": false,
+        "historical_responsible_assistant": "operations-assistant-3",
+        "result_receiver": "operations",
+        "delivery_model": "department_autonomous_delivery_v1"
       }
     ],
     "scheduled_daily_source_boundary": {
@@ -622,7 +632,7 @@
       "unblock_or_recheck_condition"
     ],
     "daily_no_change": "Report what was actually checked; no repeated candidate or user notification when unchanged.",
-    "result_handoff": "整批冻结->空闲合格助理选择->准确预检->真实通知；忙时事件等待，助理收尾取共享待办。总部通知知悉不阻断常规后续。原task/version/hash去重；queued不算delivered。",
+    "result_handoff": "原专业主负责人整批冻结、真实回复与官方队列直报operations；协作回原owner，真实实收去重；accepted不等于received。",
     "controller_decision_required_for_business_continuation": false,
     "controller_followthrough_required_after_decision": true,
     "closed_workflow_is_not_business_goal_closed": true,
@@ -695,7 +705,7 @@
       "mode_scope": "legacy_workpack_compatibility_only",
       "new_goal_default": false,
       "step_queue_is_human_acceptance": false,
-      "compatibility_boundary": "仅保留已有R0 workpack的原step/hash/receipt语义；新goal整批交唯一助理，不自动生成R0包、逐步骤人类验收或33/275旧账重派。"
+      "compatibility_boundary": "已有R0原step/hash/receipt只读；新目标由专业owner自主交付，不生成助理审批或旧账重派。"
     },
     "new_results_before_maintenance": true,
     "department_source": "registered active professional roles; QA1/QA2 excluded from new daily dispatch",
@@ -703,28 +713,29 @@
     "check_findings_require_disposition": true
   },
   "goal_delivery_runtime": {
-    "model": "goal_delivery_assistant_v1",
+    "model": "department_autonomous_delivery_v1",
     "schema_version": 1,
-    "assistant_decisions_enabled": true,
-    "activation": "global_model_and_snapshot_goal_delivery",
+    "assistant_decisions_enabled": false,
+    "activation": "actual_owner_authority_and_original_task",
     "role_source": "data/department-registry.json",
     "coordination_authority_field": "coordination_authority",
     "required_goal_fields": [
       "objective",
       "completion_criteria",
       "primary_owner",
-      "responsible_assistant",
       "existing_results",
       "authorized_scope",
       "dependencies",
-      "producer_departments",
-      "acceptance_capability"
+      "producer_departments"
     ],
     "optional_goal_fields": [
       "parent_task_id",
       "continuation_actions",
       "execution_mode",
-      "sensitive_boundaries"
+      "sensitive_boundaries",
+      "delivery_model",
+      "completion_requirements",
+      "execution_bounds"
     ],
     "source_modes": [
       "approved_dispatch",
@@ -738,8 +749,8 @@
       "evidence_path"
     ],
     "human_authorization_is_permission_expansion": false,
-    "single_acceptance_owner": true,
-    "producer_self_review_allowed": false,
+    "single_acceptance_owner": false,
+    "producer_self_review_allowed": true,
     "cross_assistant_transfer_requires_same_capability": true,
     "HQ_second_review_required": false,
     "fixed_qa_new_dispatch_enabled": false,
@@ -842,7 +853,17 @@
       "unchanged_instruction_read_reuse": true,
       "instruction_reuse_grants_permission": false,
       "live_assignment_and_action_gates_unchanged": true
-    }
+    },
+    "assistant_assignment_required": false,
+    "QA_required": false,
+    "ordinary_result_receiver": "operations",
+    "legacy_assistant_contracts": "read_only_original_contracts_and_effects; no new dispatch or approvals"
+  },
+  "legacy_task_model_compatibility": {
+    "mode": "goal_delivery_assistant_v1",
+    "read_only": true,
+    "historical_qa_preserved": true,
+    "new_tasks_allowed": false
   },
   "public_template": true
 }

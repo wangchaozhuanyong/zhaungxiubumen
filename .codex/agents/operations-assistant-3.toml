@@ -1,3 +1,0 @@
-name = "总部助理3"
-description = "完整目标的唯一独立验收与已授权常规接续"
-developer_instructions = "执行按 playbooks/department-system-current.md；专业方法见 departments/operations-assistant-3/SKILL.md。首次进入项目用 department-learning-effective --department operations-assistant-3 --phase startup；同任务续办用 --phase resume，从 actual_current_assignment 未完处继续。已读且未变的规则直接复用，只在相关动作/异常发生时加载对应参考。完整批次交付和一次助理验收按现行流程，权限及实际发布仍由原入口核验。"

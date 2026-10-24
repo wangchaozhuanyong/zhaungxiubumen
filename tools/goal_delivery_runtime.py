@@ -166,6 +166,9 @@ def enabled(root, snapshot=None):
     config = document.get("goal_delivery_runtime", {})
     if not isinstance(config, dict):
         raise w.WorkflowError("goal delivery runtime configuration object required")
+    if config.get('model') == 'department_autonomous_delivery_v1':
+        from department_autonomy import current_mode
+        return current_mode(root) and (snapshot is None or isinstance(snapshot.get('goal_delivery'),dict))
     return (config.get("model") == MODEL and config.get("assistant_decisions_enabled") is True
             and (snapshot is None or isinstance(snapshot.get("goal_delivery"), dict)))
 
@@ -276,8 +279,14 @@ def authorization_precheck(root, task_id, request):
     from brand_v4_issuer_executor import action_context as brand_action_context
     brand_executor = (brand_action_context(root, snapshot, request.get('action_id'), request.get('action_class'),
                       request.get('scope'), sender) if request.get('action_class') in w.EXTERNAL_ACTION_CLASSES else None)
-    if sender not in {"operations", goal["responsible_assistant"], *producers} and not brand_executor:
+    if sender not in {"operations", goal.get("responsible_assistant"), *producers} and not brand_executor:
         raise w.WorkflowError("original goal participant required; no authority delegation by metadata")
+    from department_autonomy import message_route
+    autonomous_route=message_route(root,snapshot,request)
+    if autonomous_route is not None:
+        if changes:
+            return outcome('authorization_change_required',changes,confirmation=True)
+        return {**outcome('within_original_authorization',['actual_owner_delegated_original_task_report']), 'current_mode':autonomous_route['mode']}
     delegation = _owner_decision_delegation(root)
     if request.get('action_id') == 'assign-same-task-technical-review:fc-20261017-next12-old-house-development-handoff-v1':
         from goal_source_recovery import oldhouse_technical_preflight
@@ -326,9 +335,13 @@ def authorization_precheck(root, task_id, request):
                     if all(x.get(k) == request.get(k) for k in
                            ("action_id", "action_class", "scope", "department"))]
         if len(declared) != 1:
-            # Cannot infer a new production action from broad prose or a PASS.
-            return outcome("original_action_binding_required", ["recover_exact_authorized_production_action"] + changes,
-                           confirmation=bool(changes))
+            if request.get("draft_admission") is not None:
+                from chatgpt_fe689_draft_admission import action_binding
+                action_binding(root, snapshot, request)
+            else:
+                # Cannot infer a new production action from broad prose or a PASS.
+                return outcome("original_action_binding_required", ["recover_exact_authorized_production_action"] + changes,
+                               confirmation=bool(changes))
         if request.get("department",sender) not in producers and not brand_executor:
             raise w.WorkflowError("original declared production executor required")
     elif request["action_class"] != "internal_control_candidate":
@@ -343,6 +356,9 @@ def authorization_precheck(root, task_id, request):
 
 
 def validate_goal(root, goal, *, task_id=None):
+    from department_autonomy import MODE as autonomous_model, validate_general_goal
+    if isinstance(goal,dict) and (goal.get('delivery_model')==autonomous_model or not goal.get('responsible_assistant')):
+        return validate_general_goal(root,goal,task_id)
     if not enabled(root) or not isinstance(goal, dict) or any(k not in goal for k in REQUIRED):
         raise w.WorkflowError("enabled complete goal contract required")
     result = copy.deepcopy(goal)
@@ -359,6 +375,9 @@ def validate_goal(root, goal, *, task_id=None):
            for x in result["authorized_scope"]):
         raise w.WorkflowError("exact authorized scopes required")
     assistant = registry.get(result["responsible_assistant"], {})
+    if assistant.get('historical_coordination_authority') is not None:
+        assistant={**assistant,'new_dispatch_enabled':assistant.get('historical_new_dispatch_enabled',False),
+                   'coordination_authority':assistant.get('historical_coordination_authority',{})}
     authority = assistant.get("coordination_authority", {})
     if (authority.get("routine_decisions") is not True
             or assistant.get("new_dispatch_enabled") is False):
@@ -503,7 +522,8 @@ def bind_goal(root, task_id, goal):
                 raise w.WorkflowError("goal is frozen; use explicit scoped transfer or new goal")
             return {"result": "duplicate_ignored", "goal_delivery": goal}
         planned = {x["department"] for x in snapshot.get("departments", [])}
-        if not (set(goal["producer_departments"]) | {goal["responsible_assistant"]}) <= planned:
+        from department_autonomy import required_roles
+        if not required_roles(goal) <= planned:
             raise w.WorkflowError("complete-goal producers and assistant must be planned")
         w.append_workflow_event(root, task_id, snapshot["current_state"], {"goal_delivery": goal, "goal_delivery_bound": True})
         snapshot["goal_delivery"] = goal
@@ -677,6 +697,9 @@ def assigned_actor(root, snapshot, role, scope=None):
     if not enabled(root, snapshot):
         return False
     goal = snapshot["goal_delivery"]
+    from department_autonomy import autonomous_goal, professional
+    if autonomous_goal(goal):
+        return (role=='operations' or role in goal['producer_departments'] and professional(root,role)) and (scope is None or scope in goal['authorized_scope'])
     authority = w.department_registry(root).get(role, {}).get("coordination_authority", {})
     authorized_owner=(role==goal['primary_owner'] and any(a.get('scope')==scope for a in goal.get('continuation_actions',[])))
     return (role in {"operations", goal["responsible_assistant"]} or authorized_owner) and (
@@ -917,10 +940,21 @@ def execution_preflight(root, snapshot, action_id, action_class, scope, departme
 
 
 def status(root, task_id):
+    from department_autonomy import current_mode,autonomous_goal,legacy_status
+    original=w.read_json(w.snapshot_path(root,task_id))
+    if current_mode(root) and isinstance(original.get('goal_delivery'),dict) and not autonomous_goal(original['goal_delivery']):
+        return legacy_status(root,original)
+
     snapshot, _ = w.reconcile_workflow(root, task_id=task_id)
     if not enabled(root, snapshot):
         raise w.WorkflowError("bound complete goal required")
     goal = snapshot["goal_delivery"]
+    from department_autonomy import autonomous_goal,completion as autonomous_completion
+    if autonomous_goal(goal):
+        proof=autonomous_completion(root,snapshot)
+        return {'task_id':task_id,'state':'completed_scope' if proof['state']=='PROVEN' else 'executing',
+                'primary_owner':goal['primary_owner'],'completion_obligations':proof,'responsible_assistant':None,
+                'HQ_second_review_required':False,'business_goal_closed':False,'delivery_model':goal['delivery_model']}
     from direct_system_repair import context as direct_context, completion_view
     takeover = direct_context(root, task_id)
     if takeover is not None:
@@ -1131,6 +1165,9 @@ def pending(root, role):
 
 
 def record_preflight(root, task_id, input_path):
+    from department_autonomy import autonomous_goal,register_preflight
+    if autonomous_goal(w.read_json(w.snapshot_path(root,task_id)).get('goal_delivery')):
+        return register_preflight(root,task_id,input_path)
     item = w.read_json(w.safe_path(root, input_path))
     with w.workflow_lock(root):
         snapshot = restore_goal(root, w.read_json(w.snapshot_path(root, task_id)))
@@ -1463,6 +1500,8 @@ def completion_obligations(root, snapshot, receipts=None, accepted=None):
     """Project frozen standards through actual readers; never write or grant authority."""
     snapshot = restore_goal(root, snapshot)
     task_id = snapshot["task_id"]
+    from department_autonomy import autonomous_goal,completion as autonomous_completion
+    if autonomous_goal(snapshot.get('goal_delivery')):return autonomous_completion(root,snapshot)
     from direct_system_repair import completion_view
     direct = completion_view(root, snapshot)
     if direct is not None:
@@ -1582,6 +1621,12 @@ def completion_proof_selector(requirement):
         selector = requirement['proof_ref']
         if not isinstance(selector, dict):
             raise w.WorkflowError('typed proof selector object required')
+        if selector == {'mode': 'committed_completion_evidence'}:
+            if (not isinstance(kind, str)
+                    or kind not in COMPLETION_TYPES - {'accepted_delivery', 'execution_postcheck'}
+                    or not isinstance(rid, str) or not rid.strip()):
+                raise w.WorkflowError('one original typed completion requirement required')
+            return committed
         if selector.get('mode') == 'committed_completion_evidence' and selector != committed:
             raise w.WorkflowError('committed completion selector must retain its original requirement')
         return selector
@@ -1593,6 +1638,9 @@ def completion_proof_selector(requirement):
 
 def record_completion_evidence(root, task_id, input_path, role, requirement_id):
     """Append a verified new actual proof; the frozen standard remains unchanged."""
+    from department_autonomy import autonomous_goal,record_completion
+    if autonomous_goal(w.read_json(w.snapshot_path(root,task_id)).get('goal_delivery')):
+        return record_completion(root,task_id,input_path,role,requirement_id)
     task_id = w.validate_task_id(task_id)
     pin = w.file_digest(root, input_path)
     with w.workflow_lock(root):

@@ -2051,6 +2051,12 @@ def _same_original_responsibility_ack_group(root, snapshot, receipts, dispatch, 
     message/start/context session rows. Different messages are never folded as
     byte-identical observations, and every original receipt remains in the chain.
     """
+    generic = _generic_original_continuation_ack_group(root, snapshot, receipts, dispatch, acks, plan)
+    if generic is not None:
+        return generic
+    bounded = _congestion_original_hq_ack_group(root, snapshot, receipts, dispatch, acks, plan)
+    if bounded is not None:
+        return bounded
     w = _workflow()
     try:
         goal, task = _goal(root, snapshot), snapshot["task_id"]
@@ -3695,8 +3701,1526 @@ def _fe689_original_producer_restart(root, snapshot, receipts, dispatch, plan):
         return False
 
 
+def _fe689_runtime_original_Q_source_notice(root, snapshot, receipts, dispatch, plan):
+    """Read the actual source-repair notices after this already received V4.
+
+    This is an authenticated historical-source consumer, not an instruction to
+    ignore later dispatches. A different plan, producer, notice, permission or
+    uncommitted intake remains a new round under the ordinary validator.
+    The failed 401 carrier proves input delivery only, never a completed result.
+    """
+    task = 'fc-20261023-chatgpt-fe689-runtime-adoption-stage-v1'
+    if snapshot.get('task_id') != task:
+        return False
+    w = _workflow()
+    try:
+        from goal_delivery_runtime import _collaboration_native
+        from result_coordination import _committed_result, _knowledge_native_reply
+
+        def require(condition, reason):
+            if not condition:
+                raise w.WorkflowError('original fe689 source notice: ' + reason)
+
+        proof_pin = {
+            'path': 'logs/handoffs/2026-10-23-chatgpt-launch-critical-path-recovery-v1/system-development-fe689-runtime-adoption-stage-v1/actual-current-A1-resume-QA-fixture-successor-v6/source/EXACT-ORIGINAL-SOURCE-NOTICES-v6.json',
+            'sha256': '858ebae697042170753168f7eb2d94ca807977791845d145b4c3e0e0a579b0b9',
+            'size': 20022,
+        }
+        proof = _review_source_document(root, proof_pin)
+        scope = 'project:flashcast:chatgpt-fe689:runtime-adoption-stage:20261023:v1'
+        notices = [x for x in proof['notices'] if x['dispatch_id'] == dispatch.get('receipt_id')]
+        if len(notices) != 1:
+            return False
+        item = notices[0]
+        goal = _goal(root, snapshot)
+        registry = w.department_registry(root)
+        owner, reviewer = 'system-development', 'operations-assistant'
+        fixed = registry[owner]['chat_binding']
+        sender = registry[item['sender']]['chat_binding']
+        reviewer_fixed = registry[reviewer]['chat_binding']
+        require(bool(receipts), 'nonempty original receipt prefix required')
+        actual_rows, invalid = w._validate_receipt_chain(root, task, through_receipt_id=receipts[-1]['receipt_id'])
+        require(not invalid and actual_rows == receipts and dispatch in receipts
+                and not w.validate_workflow_events(root, task), 'intact actual receipt/event prefix required')
+        require(goal is not None and goal.get('primary_owner') == owner
+                and goal.get('producer_departments') == [owner]
+                and goal.get('responsible_assistant') == reviewer
+                and goal.get('authorized_scope') == [scope]
+                and goal.get('parent_task_id') == 'fc-20261022-chatgpt-fe689-paused-draft-admission-repair-v1'
+                and goal.get('required_execution_actions') == []
+                and goal.get('production_write_allowed') is False
+                and goal.get('external_permission_issued') is False
+                and snapshot.get('goal_contract') == proof['goal_contract']
+                and goal.get('authorization_pin') == proof['authorization'], 'same original bounded goal and authority required')
+        contract = _review_source_document(root, proof['goal_contract'])
+        require(all(contract.get(k) == goal.get(k) for k in GOAL_IDENTITY)
+                and contract.get('human_authorization') == goal.get('human_authorization')
+                and w.file_digest(root, contract['human_authorization']['evidence_path']) == proof['authorization'],
+                'frozen human authority differs')
+        require(snapshot.get('qa_review_plan', {}).get('pin') == proof['normal_plan']
+                and plan == _review_source_document(root, proof['normal_plan'])
+                and plan.get('task_id') == task and plan.get('scope') == scope
+                and plan.get('producer_department') == owner and plan.get('reviewer_department') == reviewer
+                and plan.get('reviewer_thread_id') == reviewer_fixed['task_id']
+                and plan.get('candidate') == proof['primary_manifest']
+                and plan.get('production_write_allowed') is False
+                and plan.get('external_permission_issued') is False, 'exact still-current V4 plan/candidate required')
+        require(all(b.get('cwd') == str(Path(root).resolve()) for b in (fixed, sender, reviewer_fixed))
+                and bool(fixed.get('project_id'))
+                and all(b.get('project_id') == fixed['project_id'] for b in (sender, reviewer_fixed)),
+                'same fixed roles and project required')
+
+        def row(receipt_id, kind, role):
+            found = [r for r in receipts if r.get('receipt_id') == receipt_id]
+            require(len(found) == 1, 'unique original receipt required')
+            value = found[0]
+            require(value.get('receipt_type') == kind and value.get('department') == role
+                    and value.get('task_id') == task and value.get('scope') == scope
+                    and value.get('chat_task_id') == registry[role]['chat_binding']['task_id']
+                    and not any(value.get(k) for k in ('supersedes_receipt_id', 'replacement_reason', 'approval_id'))
+                    and not any(r.get('supersedes_receipt_id') == receipt_id for r in receipts), 'original role/receipt identity differs')
+            return value
+
+        require(snapshot['qa_review_plan'].get('current_assignment_review_source') == proof['original_A1_assignment'],
+                'original sole A1 frozen responsibility required')
+        assigned = _assigned_review_round(root, snapshot, receipts, plan)
+        require(assigned is not None and assigned['dispatch'].get('department') == reviewer
+                and assigned['ack'].get('ack_nonempty') is True, 'actual original A1 dispatch and ACK required')
+        producer = row(proof['primary_receipt_id'], 'outbox_received', owner)
+        require(producer['evidence'] == [proof['primary_outbox']]
+                and [r for r in receipts if r.get('receipt_type') == 'outbox_received'
+                     and r.get('department') == owner][-1] == producer,
+                'latest actual full producer must remain original V4')
+        original_dispatch = row(proof['original_dispatch_id'], 'dispatch_sent', owner)
+        original_ack = row(proof['original_ACK_id'], 'chat_ack', owner)
+        require(original_ack.get('ack_nonempty') is True
+                and original_ack.get('action_id') == original_dispatch.get('action_id')
+                and receipts.index(original_dispatch) < receipts.index(original_ack) < receipts.index(producer)
+                and receipts.index(producer) < receipts.index(dispatch), 'original production precedes only these later notices')
+        original_times = [_review_observed_at(r.get('created_at')) for r in (original_dispatch, original_ack, producer)]
+        require(all(original_times) and original_times == sorted(original_times), 'original dispatch/ACK must precede production in actual time')
+        box = _review_source_document(root, proof['primary_outbox'])
+        require(box.get('candidate_manifest') == proof['primary_manifest']
+                and box.get('candidate_version') == plan['candidate_version'], 'original producer fingerprint differs')
+        handoffs = w._result_handoff_rows(root, task)
+
+        def intake(pin, expected_id=None):
+            matches = [r for r in handoffs if r.get('event') == 'controller_received'
+                       and r.get('outbox') == pin and r.get('coordinator_role') == reviewer
+                       and r.get('responsible_assistant') == reviewer]
+            require(len(matches) == 1 and (expected_id is None or matches[0].get('record_id') == expected_id),
+                    'one actual original A1 intake required')
+            _committed_result(root, matches[0])
+            return matches[0]
+
+        intake(proof['primary_outbox'])
+        intake(proof['Q_supplement_outbox'], proof['Q_supplement_intake_id'])
+        queued = [r for r in handoffs if r.get('event') == 'notification_queued'
+                  and r.get('outbox') == proof['primary_outbox']]
+        require(len(queued) == 1, 'original V4 READY source required')
+        require(queued[0].get('result_source_phase') == 'delivery_ready'
+                and queued[0].get('batch_delivery_frozen') is True
+                and queued[0].get('source_thread_id') == fixed['task_id'], 'exact original frozen V4 READY required')
+        _knowledge_native_reply(root, queued[0], fixed, completed=False)
+        # The already adopted, independently proven one-file Q source closes
+        # the earlier missing-manifest request; it is not a new V4 producer.
+        manifest = _review_source_document(root, proof['Q_manifest'])
+        journal = _review_source_document(root, proof['Q_journal'])
+        require(proof['Q_journal']['sha256'] == 'ef5dea5b2d2cd44cb66363802c3929f52ddce0a6d177c5a7a313055ed3d1b97e'
+                and journal.get('task_id') == task and journal.get('state') == 'adopted'
+                and journal.get('actor') == journal.get('executor') == reviewer
+                and type(journal.get('external_writes')) is int and journal['external_writes'] == 0
+                and journal.get('candidate_manifest') == proof['Q_manifest']
+                and manifest.get('primary_producer_outbox') == proof['primary_outbox']
+                and manifest.get('normal_plan') == proof['normal_plan']
+                and len(journal.get('source_operations', [])) == 1, 'actual accepted original Q adoption required')
+        op = journal['source_operations'][0]
+        require(op.get('path') == 'tools/qa_review_plan.py' and op.get('mode') == 0o644
+                and op.get('applied') is True
+                and op.get('after_sha256') == manifest['changes'][0]['candidate']['sha256']
+                and op.get('before_sha256') == manifest['changes'][0]['expected_source']['sha256']
+                and w.file_digest(root, op['backup']['path']) == op['backup'], 'original Q journal/backup differs')
+        independent = journal['independent_review']
+        report_pin = independent['independent_review_report']
+        report = _review_source_document(root, report_pin)
+        native_review = _collaboration_native(root, independent['actual_A1_native'])
+        _review_native_containers(native_review)
+        require(all(native_review.get('thread', {}).get(k) == reviewer_fixed[v] for k, v in
+                    {'id': 'task_id', 'title': 'title', 'cwd': 'cwd'}.items())
+                and report.get('schema') == 'bounded-source-admission-independent-review/v1'
+                and report.get('task_id') == task
+                and report.get('source_admission_manifest') == proof['Q_manifest']
+                and report.get('primary_producer_outbox') == proof['primary_outbox']
+                and report.get('reviewer') == reviewer and report.get('verdict') == 'PASS_LOCAL'
+                and report.get('status') == 'INDEPENDENT_LOCAL_ACCEPTED_FOR_BOOTSTRAP'
+                and report.get('goal_QA_PASS') is False and report.get('whole_batch_adopted') is False,
+                'actual independent Q source proof differs')
+        review_turns = [t for t in native_review.get('turns', []) if t.get('id') == independent['source_turn_id']]
+        require(len(review_turns) == 1 and review_turns[0].get('status') in {'inProgress', 'completed'}
+                and not review_turns[0].get('error'), 'actual original independent review turn required')
+        review_items = review_turns[0].get('items', [])
+        commands = [(i, c) for i, c in enumerate(review_items) if c.get('id') == independent['source_command_id']]
+        messages = [(i, c) for i, c in enumerate(review_items) if c.get('id') == independent['source_message_id']]
+        checks_pin = report['actual_checks']
+        runs = _review_source_document(root, checks_pin)
+        require(len(commands) == len(messages) == 1
+                and commands[0][0] < messages[0][0]
+                and commands[0][1].get('type') == 'commandExecution'
+                and commands[0][1].get('status') == 'completed' and commands[0][1].get('exitCode') == 0
+                and commands[0][1].get('cwd') == str(Path(root).resolve())
+                and str(w.safe_path(root, manifest['checks']['unchanged_test']['path'])) in commands[0][1].get('command', '')
+                and str(w.safe_path(root, checks_pin['path']).parent) in commands[0][1].get('command', '')
+                and messages[0][1].get('type') == 'agentMessage'
+                and report_pin['sha256'] in messages[0][1].get('text', '')
+                and task in messages[0][1].get('text', '')
+                and runs.get('tests') == 15 and runs.get('failures') == runs.get('errors') == 0
+                and runs.get('validators_mocked') is False and runs.get('write_paths_isolated') is True,
+                'original successful independent command and subsequent exact report required')
+        if item.get('source_outbox'):
+            source_box = _review_source_document(root, item['source_outbox'])
+            require(source_box.get('task_id') == task and source_box.get('department') == owner
+                    and source_box.get('batch_complete') is True
+                    and source_box.get('not_a_new_whole_stage_producer') is True
+                    and source_box.get('candidate_manifest') == proof['previous_source_manifest']
+                    and source_box.get('primary_producer_outbox') == proof['primary_outbox']
+                    and source_box.get('normal_plan') == proof['normal_plan']
+                    and source_box.get('production_write_allowed') is False
+                    and source_box.get('external_permission_issued') is False,
+                    'actual independently received source-only predecessor required')
+            intake(item['source_outbox'], item['source_intake_id'])
+
+        # All sender/recipient calls below are selected from pinned actual
+        # native observations. No command string is evaluated or executed.
+        req = _review_source_document(root, item['prepare_request'])
+        prepared = _review_source_document(root, item['prepare_result'])
+        payload = item['payload']
+        require(w.file_digest(root, payload['path']) == payload, 'original payload bytes changed')
+        body = w.safe_path(root, payload['path']).read_text(encoding='utf-8')
+        require(_exact_text_reference(body, task)
+                and set(re.findall(r'project:[A-Za-z0-9_:.-]+', body)) == {scope}, 'exact original task/scope text required')
+        expected = {'task_id': task, 'sender_department': item['sender'], 'action_id': dispatch['action_id'],
+            'action_class': 'thread_message', 'scope': scope, 'source_project_id': fixed['project_id'],
+            'target_project_id': fixed['project_id'], 'target_department': owner, 'target_thread_id': fixed['task_id'],
+            'target_thread_title': fixed['title'], 'target_cwd': fixed['cwd'],
+            'target_sidebar_section_id': fixed['sidebar_section_id'], 'payload': payload, 'payload_sha256': payload['sha256']}
+        require(all(req.get(k) == v for k, v in expected.items()) and req.get('authorization_changes') == [],
+                'actual ordinary preparation identity differs')
+        require(dispatch == row(item['dispatch_id'], 'dispatch_sent', owner)
+                and dispatch.get('action_class') == 'thread_message', 'exact original ordinary dispatch required')
+        policies = [p for p in w.read_jsonl(root / w.POLICY_DECISIONS)
+                    if p.get('decision_id') == dispatch.get('policy_decision_id')]
+        policy_expected = {k: v for k, v in expected.items() if k not in {'sender_department', 'payload'}}
+        policy_expected.update(department=item['sender'], status='allow', routing_status='routing_allowed',
+                               routing_quarantine_mode=False, routing_health_probe_mode=False)
+        require(len(policies) == 1 and all(policies[0].get(k) == v for k, v in policy_expected.items())
+                and all(policies[0].get(k) is v for k, v in policy_expected.items() if type(v) is bool)
+                and prepared.get('policy_decision') == policies[0]
+                and prepared.get('authorization_precheck', {}).get('status') == 'within_original_authorization'
+                and prepared.get('authorization_precheck', {}).get('original_authorization') == proof['authorization']
+                and prepared.get('payload') == payload and prepared.get('external_permission_issued') is False,
+                'real allowed original authorization/policy required')
+        sender_page = _collaboration_native(root, item['native_sender'])
+        receiver_page = _collaboration_native(root, item['native_receiver'])
+
+        def native_identity(page, binding):
+            require(all(page.get('thread', {}).get(k) == binding[v] for k, v in
+                        {'id': 'task_id', 'title': 'title', 'cwd': 'cwd'}.items())
+                    and page['thread'].get('projectId') in {None, binding['project_id']}, 'actual fixed native role/project differs')
+
+        native_identity(sender_page, sender)
+        native_identity(receiver_page, fixed)
+        calls = [(t, c) for t in sender_page.get('turns', []) for c in t.get('items', [])
+                 if c.get('id') == item['source_call_id']]
+        require(len(calls) == 1, 'one actual successful sender invocation required')
+        sent_turn, call = calls[0]
+        require(sent_turn.get('status') in {'inProgress', 'completed'} and not sent_turn.get('error')
+                and call.get('status') == 'completed' and not call.get('error'), 'failed sender cannot grant continuation')
+        checked = _review_observed_at(policies[0].get('checked_at'))
+        sent = _review_observed_at(dispatch.get('created_at'))
+        primary_at = _review_observed_at(producer['created_at'])
+        require(checked and sent and primary_at and primary_at <= checked <= sent <= dt.datetime.now(dt.timezone.utc),
+                'ordinary source must follow actual original production')
+        selected = [t for t in receiver_page.get('turns', []) if t.get('id') == item['receiver_turn_id']]
+        require(len(selected) == 1, 'one actual original receiver turn required')
+        receiving = selected[0]
+        if item['kind'] == 'source_only_queue':
+            require(prepared.get('status') == 'ready_to_queue' and req.get('delivery_mode') == 'official_native_queue'
+                    and call.get('type') == 'commandExecution' and call.get('exitCode') == 0
+                    and call.get('cwd') == str(Path(root).resolve())
+                    and item['source_script']['path'] in call.get('command', '')
+                    and w.file_digest(root, item['source_script']['path']) == item['source_script'],
+                    'real original queue command/script required')
+            intent = _review_source_document(root, item['queue_intent'])
+            result = _review_source_document(root, item['queue_result'])
+            queued = re.fullmatch(r'Queued message ([0-9a-f-]{36}) for thread ([0-9a-f-]{36})\.\s*', result.get('stdout', ''))
+            require(queued and queued[2] == fixed['task_id'] and result.get('exit_code') == 0
+                    and result.get('started_at') == intent.get('started_at')
+                    and all(intent.get(k) == result.get(k) == v for k, v in
+                        {'thread_id': fixed['task_id'], 'payload_sha256': payload['sha256'],
+                         'policy_decision_id': policies[0]['decision_id'], 'transport': 'official_codex_queue', 'intake_claimed': False}.items()),
+                    'original queue effect differs')
+            output = call.get('output', {})
+            require(output.get('truncated') is False, 'complete actual original queue output required')
+            effects = [json.loads(line) for line in output.get('text', '').splitlines() if line.strip().startswith('{')]
+            matches = [x for x in effects if x.get('action_id') == dispatch['action_id']
+                       and x.get('message_id') == queued[1] and x.get('policy_decision_id') == policies[0]['decision_id']
+                       and x.get('status') == 'ACTUAL_OFFICIAL_QUEUE_ACCEPTED']
+            require(len(matches) == 1, 'successful native call must name this exact queue effect')
+            users = [m for m in receiving.get('items', []) if m.get('type') == 'userMessage' and m.get('id') == item['user_message_id']]
+            require(len(users) == 1 and ''.join(x.get('text', '') for x in users[0].get('content', [])) == body,
+                    'actual received original payload required')
+            begin, finish = [_review_observed_at(result.get(k)) for k in ('started_at', 'finished_at')]
+            require(begin and finish and checked <= begin <= finish <= sent
+                    and sent_turn['startedAt'] <= begin.timestamp()
+                    and finish.timestamp() <= receiving['startedAt'] <= dt.datetime.now(dt.timezone.utc).timestamp(),
+                    'original queue/receiver chronology differs')
+            if item['failed_source_container_preserved']:
+                require(receiving.get('status') == 'failed'
+                        and '401 Unauthorized' in receiving.get('error', {}).get('message', '')
+                        and receiving.get('completedAt') >= receiving['startedAt']
+                        and item.get('ACK_id') is None, 'only original failed input carrier is historical; never a result/ACK')
+            else:
+                require(receiving.get('status') in {'inProgress', 'completed'} and not receiving.get('error'),
+                        'actual successful current source repair receiver required')
+                decisions = [r for r in handoffs if r.get('record_id') == item['decision_id']]
+                require(len(decisions) == 1 and decisions[0].get('event') == 'controller_decision'
+                        and decisions[0].get('decision') == 'rework' and decisions[0].get('coordinator_role') == reviewer
+                        and decisions[0].get('outbox') == item.get('source_outbox', proof['Q_supplement_outbox'])
+                        and decisions[0].get('next_owner') == owner
+                        and _review_observed_at(decisions[0]['created_at']) <= checked, 'actual source-only rework decision required')
+                _committed_result(root, decisions[0])
+        else:
+            require(item['kind'] == 'HQ_401_original_source_resume' and item['sender'] == 'operations'
+                    and prepared.get('status') == 'ready_to_send'
+                    and call.get('type') == 'mcpToolCall' and call.get('server') == 'codex_app'
+                    and call.get('tool') == 'send_message_to_thread'
+                    and call.get('arguments') == {'threadId': fixed['task_id'], 'prompt': body}
+                    and _collaboration_native(root, item['native_send_return']) == {'threadId': fixed['task_id']}
+                    and receiving.get('status') in {'inProgress', 'completed'} and not receiving.get('error')
+                    and sent_turn['startedAt'] <= checked.timestamp() <= receiving['startedAt'] <= sent.timestamp() + 300,
+                    'actual original HQ recovery send/receiver differs')
+        if item.get('ACK_id'):
+            ack = row(item['ACK_id'], 'chat_ack', owner)
+            messages = [m for m in receiving.get('items', []) if m.get('type') == 'agentMessage'
+                        and m.get('phase') == 'commentary' and isinstance(m.get('text'), str) and m['text'].strip()
+                        and (not item.get('ACK_message_id') or m.get('id') == item['ACK_message_id'])]
+            require(len(messages) == 1 and ack.get('ack_nonempty') is True
+                    and ack.get('action_id') == dispatch['action_id']
+                    and ack.get('policy_decision_id') == dispatch.get('policy_decision_id')
+                    and item['native_receiver'] in ack.get('evidence', [])
+                    and receipts.index(dispatch) < receipts.index(ack)
+                    and receiving['startedAt'] <= _review_observed_at(ack['created_at']).timestamp(),
+                    'actual nonempty current ACK required; no historic ACK invented')
+        return True
+    except (w.WorkflowError, OSError, ValueError, TypeError, KeyError, AttributeError, ImportError):
+        return False
+
+
+
+
+def _congestion_approved_original_plan_notice(root, snapshot, receipts, dispatch, plan):
+    """Classify these real HQ transports without inventing a new QA round.
+
+    The still unobserved A2 prompt is a sent coordination notice only. Its
+    classification neither supplies an ACK nor claims intake; the original
+    independently authenticated responsibility/ACK remains mandatory.
+    """
+    task = 'fc-20261022-department-flow-congestion-optimization-v1'
+    if snapshot.get('task_id') != task:
+        return False
+    w = _workflow()
+    try:
+        from goal_delivery_runtime import _collaboration_native
+        proof = _review_source_document(root, {'path': 'logs/handoffs/2026-10-22-department-flow-congestion-optimization-v1/system-development-v1/current-Q20bb-compatible-source-v9/source/ACTUAL-APPROVED-PLAN-ORDINARY-NOTICES-v9.json', 'sha256': 'c4cd8a8dec07125c303d7e7b625a40f3e3f76182aa513fd38de8142cf075d732', 'size': 2811})
+        notices = [n for n in proof['notices'] if n['dispatch_id'] == dispatch.get('receipt_id')]
+        if len(notices) != 1:
+            return False
+        item = notices[0]; role = item['role']
+        original = _review_source_document(root, proof['normal_plan'])
+        hq_resumes = [r for r in receipts if r.get('receipt_id') == '59d3c4eb-88cf-42bd-b170-20ed98e5cd59']
+        if (len(hq_resumes) != 1 or not _congestion_actual_original_hq_resume(root,snapshot,receipts,hq_resumes[0],plan)
+                or any(plan.get(k) != original.get(k) for k in ('task_id','scope','producer_department','reviewer_department',
+                    'reviewer_thread_id','controller_department','controller_thread_id','action_id','action_class','risk_level',
+                    'single_final_reviewer','production_write_allowed','external_permission_issued'))):
+            return False
+        actual,invalid = w._validate_receipt_chain(root,task,through_receipt_id=receipts[-1]['receipt_id'])
+        if invalid or actual != receipts or dispatch not in receipts or w.validate_workflow_events(root,task):
+            return False
+        registry = w.department_registry(root)
+        fixed,hq = [registry[r]['chat_binding'] for r in (role,'operations')]
+        source = _review_source_document(root,item['source'])
+        request = _review_source_document(root,item['request'])
+        payload = source['payload']; body = w.safe_path(root,payload['path']).read_text(encoding='utf-8')
+        expected = {'task_id':task,'department':role,'receipt_type':'dispatch_sent','scope':plan['scope'],
+            'chat_task_id':fixed['task_id'],'action_class':'thread_message','action_id':source['action_id'],
+            'policy_decision_id':source['policy_decision_id'],'evidence':[item['source']]}
+        if (source.get('schema') != 'actual-approved-original-handoff-continuation-effect/v1'
+                or source.get('task_id') != task or w.file_digest(root,payload['path']) != payload
+                or any(dispatch.get(k) != v for k,v in expected.items())
+                or any(dispatch.get(k) for k in ('approval_id','supersedes_receipt_id','replacement_reason'))
+                or any(r.get('supersedes_receipt_id') == dispatch['receipt_id'] for r in receipts)
+                or any(b.get('cwd') != str(Path(root).resolve()) for b in (fixed,hq))
+                or not fixed.get('project_id') or hq.get('project_id') != fixed['project_id']
+                or set(re.findall(r'project:[A-Za-z0-9_:.-]+',body)) != {plan['scope']}
+                or not _exact_text_reference(body,task)):
+            return False
+        # The complete actual body is pinned; descriptive caller booleans are
+        # deliberately not used as authorization or as receipt evidence.
+        if w.file_digest(root,proof['implementation_plan']['path']) != proof['implementation_plan']:return False
+        req_expected = {'task_id':task,'sender_department':'operations','scope':plan['scope'],
+            'action_id':dispatch['action_id'],'action_class':'thread_message','payload':payload,'payload_sha256':payload['sha256'],
+            'target_department':role,'target_thread_id':fixed['task_id'],'target_thread_title':fixed['title'],
+            'target_cwd':fixed['cwd'],'source_project_id':fixed['project_id'],'target_project_id':fixed['project_id'],
+            'target_sidebar_section_id':fixed['sidebar_section_id'],'authorization_changes':[]}
+        policies = [p for p in w.read_jsonl(root/w.POLICY_DECISIONS) if p.get('decision_id') == dispatch['policy_decision_id']]
+        policy_expected = {k:v for k,v in req_expected.items() if k not in {'sender_department','payload','authorization_changes'}}
+        policy_expected.update(department='operations',status='allow',routing_status='routing_allowed',
+                               routing_quarantine_mode=False,routing_health_probe_mode=False)
+        if (any(request.get(k) != v for k,v in req_expected.items()) or len(policies) != 1
+                or any(policies[0].get(k) != v for k,v in policy_expected.items())
+                or any(policies[0].get(k) is not False for k in ('routing_quarantine_mode','routing_health_probe_mode'))):
+            return False
+        sender = _collaboration_native(root,proof['sender_native']);_review_native_containers(sender)
+        if (any(sender.get('thread',{}).get(k) != hq[v] for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items())
+                or sender['thread'].get('projectId') not in {None,hq['project_id']}):
+            return False
+        calls = [(t,c) for t in sender.get('turns',[]) for c in t.get('items',[]) if c.get('id') == item['call_id']]
+        if len(calls) != 1:return False
+        turn,call = calls[0]
+        _review_native_containers(turn);_review_native_containers(call)
+        if turn.get('status') not in {'inProgress','completed'} or turn.get('error') or call.get('status') != 'completed':
+            return False
+        if item['kind'] == 'native_send':
+            if (call.get('type') != 'mcpToolCall' or call.get('server') != 'codex_app'
+                    or call.get('tool') != 'send_message_to_thread'
+                    or call.get('arguments') != {'threadId':fixed['task_id'],'prompt':body}
+                    or _collaboration_native(root,source['actual_native_send']) != {'threadId':fixed['task_id']}):return False
+        else:
+            command = call.get('command','')
+            if (call.get('type') != 'commandExecution' or call.get('exitCode') != 0 or call.get('cwd') != fixed['cwd']
+                    or not all(token in command for token in ('OfficialQueueTransport','transport.enqueue',
+                        'SYS-prepare-request.json','SYS-actual-prepare-result.json','SYS-official-queue'))):return False
+            queued = _review_source_document(root,source['queue'])
+            receiver = _collaboration_native(root,source['native_evidence']);_review_native_containers(receiver)
+            if any(receiver.get('thread',{}).get(k) != fixed[v] for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()):return False
+            turns = [t for t in receiver.get('turns',[]) if t.get('id') == source['receiver_turn_id']]
+            if len(turns) != 1 or turns[0].get('status') not in {'inProgress','completed'} or turns[0].get('error'):return False
+            received = turns[0]
+            users = [m for m in received.get('items',[]) if m.get('id') == source['receiver_user_message_id']]
+            replies = [m for m in received.get('items',[]) if m.get('id') == source['ack_message_id']]
+            if (len(users) != 1 or users[0].get('type') != 'userMessage'
+                    or users[0].get('content') != [{'type':'text','text':body}]
+                    or len(replies) != 1 or replies[0].get('type') != 'agentMessage'
+                    or replies[0].get('phase') not in {'commentary','final_answer'} or not replies[0].get('text','').strip()
+                    or hashlib.sha256(replies[0]['text'].encode()).hexdigest() != source['ack_utf8_sha256']
+                    or queued.get('exit_code') != 0 or queued.get('thread_id') != fixed['task_id']
+                    or queued.get('payload_sha256') != payload['sha256'] or queued.get('policy_decision_id') != dispatch['policy_decision_id']
+                    or queued.get('stdout') != 'Queued message '+source['queue_message_id']+' for thread '+fixed['task_id']+'.\n'
+                    or queued.get('stderr') != ''):return False
+            acks = [r for r in receipts if r.get('receipt_id') == '86e460b4-6cb9-44a2-99a2-200528aedfed']
+            if (len(acks) != 1 or any(acks[0].get(k) != v for k,v in {**expected,'receipt_type':'chat_ack'}.items())
+                    or acks[0].get('ack_nonempty') is not True or receipts.index(acks[0]) <= receipts.index(dispatch)):return False
+        before = receipts[:receipts.index(dispatch)]
+        produced = [r for r in before if r.get('department') == 'system-development' and r.get('receipt_type') == 'outbox_received']
+        checked,sent = [_review_observed_at(v) for v in (policies[0].get('checked_at'),dispatch.get('created_at'))]
+        if (not produced or proof['primary_outbox'] not in produced[-1].get('evidence',[])
+                or checked is None or sent is None or not checked <= sent <= dt.datetime.now(dt.timezone.utc)
+                or type(turn.get('startedAt')) not in {int,float} or turn['startedAt'] > checked.timestamp()):return False
+        return True
+    except (w.WorkflowError,OSError,ValueError,TypeError,KeyError,AttributeError,IndexError):
+        return False
+
+
+def _congestion_actual_original_hq_resume(root, snapshot, receipts, dispatch, plan):
+    """Authenticate the committed 59d3 ordinary resume, not a new review round.
+
+    The native user item was absent from that export. The actual HQ send call,
+    exact policy/body/tool return and subsequent fixed-A2 ACK remain complete.
+    No receipt, user message, report, completion or permission is synthesized.
+    """
+    w = _workflow()
+    task = 'fc-20261022-department-flow-congestion-optimization-v1'
+    scope = 'project:flashcast:department-flow-congestion-optimization:20261022:v1'
+    if (snapshot.get('task_id') != task or dispatch.get('receipt_id') != '59d3c4eb-88cf-42bd-b170-20ed98e5cd59'
+            or plan.get('scope') != scope or plan.get('producer_department') != 'system-development'
+            or plan.get('reviewer_department') != 'operations-assistant-2'):
+        return False
+    from goal_delivery_runtime import _collaboration_native
+    try:
+        original_plan = {'path':'logs/handoffs/2026-10-22-department-flow-congestion-optimization-v1/system-development-v1/complete-two-consumer-successor-v3/ORIGINAL-A2-EXACT-NORMAL-PLAN-v3.json',
+                         'sha256':'66fe78c666d0665c0932e06bd32a5239ec5c5e4c917104100f24b7cb0d397fb8','size':2623}
+        source_plan = _review_source_document(root,original_plan)
+        if plan != source_plan:
+            # A later real same-goal version uses this original responsibility,
+            # never the old payload as authority to select a new candidate.
+            if any(plan.get(k) != source_plan.get(k) for k in ('task_id','scope','action_id','action_class',
+                    'producer_department','reviewer_department','reviewer_thread_id','controller_department',
+                    'controller_thread_id','risk_level','single_final_reviewer','production_write_allowed','external_permission_issued')):
+                return False
+            actually_bound = any(_review_source_document(root,b['pin']) == plan for b in _bindings(root,snapshot))
+            if not actually_bound:
+                verdicts = [r for r in receipts if r.get('receipt_type') == 'qa_verdict']
+                produced = [r for r in receipts if r.get('department') == 'system-development' and r.get('receipt_type') == 'outbox_received']
+                if (not verdicts or verdicts[-1].get('verdict') != 'blocked'
+                        or verdicts[-1].get('department') != 'operations-assistant-2'
+                        or verdicts[-1].get('scope') != scope or not produced
+                        or receipts.index(produced[-1]) <= receipts.index(verdicts[-1])
+                        or plan.get('candidate') not in produced[-1].get('evidence', [])
+                        or plan.get('rework_of') != verdicts[-1].get('receipt_id')):
+                    return False
+                box = _review_source_document(root,plan['candidate'])
+                if (box.get('task_id') != task or box.get('department') != 'system-development'
+                        or box.get('candidate_version') != plan.get('candidate_version')
+                        or plan.get('candidate_sha256') != plan['candidate']['sha256']):
+                    return False
+        goal, registry = _goal(root, snapshot), w.department_registry(root)
+        role = 'operations-assistant-2'; hq, fixed = [registry[x]['chat_binding'] for x in ('operations', role)]
+        expected = {'task_id':task, 'department':role, 'receipt_type':'dispatch_sent',
+                    'action_id':'HQ-congestionV3-completed-source-actual8-resume-20261023-v1',
+                    'action_class':'thread_message', 'scope':scope, 'chat_task_id':fixed['task_id'],
+                    'policy_decision_id':'pol-dcd77dacca18ad1cf919'}
+        if (goal is None or goal.get('primary_owner') != 'system-development'
+                or goal.get('responsible_assistant') != role or goal.get('producer_departments') != ['system-development']
+                or scope not in goal.get('authorized_scope', []) or _goal_reviewer(root, snapshot) != role
+                or plan.get('reviewer_thread_id') != fixed['task_id']
+                or any(dispatch.get(k) != v for k,v in expected.items())
+                or any(dispatch.get(k) for k in ('approval_id','supersedes_receipt_id','replacement_reason'))
+                or any(row.get('supersedes_receipt_id') == dispatch['receipt_id'] for row in receipts)
+                or hq.get('project_id') != fixed.get('project_id') or not hq.get('project_id')
+                or any(binding.get('cwd') != str(Path(root).resolve()) for binding in (hq, fixed))
+                or snapshot.get('goal_contract',{}).get('sha256') != 'a4724b2d4ed1167100fdcde502aca4f3dbfec4cc25177285c2d3a78e293e5943'
+                or goal.get('authorization_pin',{}).get('sha256') != '8443335e7d4adc76dce710225c0ebca9fba8e09b92fc43c1801469299263cc7d'):
+            return False
+        _review_source_document(root, snapshot['goal_contract']); _review_source_document(root,goal['authorization_pin'])
+        persisted = w.read_jsonl(w.receipts_path(root,task))
+        if not receipts or persisted[:len(receipts)] != receipts:
+            return False
+        previous = ''
+        for row in receipts:
+            if (row.get('previous_hash') != previous or row.get('receipt_hash') != w.sha256_value(w._receipt_payload_for_hash(row))):
+                return False
+            previous = row['receipt_hash']
+        index = receipts.index(dispatch)
+        initial = [r for r in receipts[:index] if r.get('department') == role and r.get('receipt_type') == 'dispatch_sent'
+                   and r.get('action_id') == 'assign-goal-review:'+task and _initial_assignment(root,snapshot,r)]
+        if len(initial) != 1:
+            return False
+        original_acks = [r for r in receipts[receipts.index(initial[0])+1:index] if r.get('department') == role
+                         and r.get('receipt_type') == 'chat_ack' and r.get('ack_nonempty') is True
+                         and r.get('action_id') == initial[0]['action_id'] and r.get('chat_task_id') == fixed['task_id']]
+        producer = [r for r in receipts[:index] if r.get('department') == 'system-development' and r.get('receipt_type') == 'outbox_received']
+        acks = [r for r in receipts[index+1:] if r.get('receipt_id') == '3272b797-ca2d-416f-a6f8-9cba46f198ae']
+        if (len(original_acks) != 1 or not producer or source_plan.get('candidate') not in producer[-1].get('evidence', [])
+                or len(acks) != 1 or any(acks[0].get(k) != v for k,v in {**expected,'receipt_type':'chat_ack'}.items())
+                or acks[0].get('ack_nonempty') is not True or acks[0].get('evidence') != dispatch.get('evidence')
+                or any(r.get('supersedes_receipt_id') in {initial[0]['receipt_id'],original_acks[0]['receipt_id'],acks[0]['receipt_id']} for r in receipts)):
+            return False
+        evidence = dispatch.get('evidence', [])
+        if len(evidence) != 1 or evidence[0].get('sha256') != 'c2df91958e3c07fa80f37e55c4a038438e2d75a5176309da903b5a70d3e4aae9':
+            return False
+        source = _review_source_document(root,evidence[0])
+        if (source.get('schema') != 'actual-original-message-and-nonempty-ACK-source/v1'
+                or source.get('task_id') != task or source.get('scope') != scope
+                or source.get('sender_department') != 'operations' or source.get('target_department') != role
+                or source.get('target_thread_id') != fixed['task_id'] or source.get('action_id') != expected['action_id']
+                or source.get('policy_decision_id') != expected['policy_decision_id']):
+            return False
+        payload = source['payload']
+        if w.file_digest(root,payload['path']) != payload:
+            return False
+        raw = w.safe_path(root,payload['path']).read_text()
+        policies = [p for p in w.read_jsonl(root/w.POLICY_DECISIONS) if p.get('decision_id') == expected['policy_decision_id']]
+        policy_expected = {'task_id':task,'department':'operations','action_id':expected['action_id'],'action_class':'thread_message',
+                           'scope':scope,'status':'allow','routing_status':'routing_allowed','payload_sha256':payload['sha256'],
+                           'source_project_id':hq['project_id'],'target_project_id':fixed['project_id'],'target_department':role,
+                           'target_thread_id':fixed['task_id'],'target_thread_title':fixed['title'],'target_cwd':fixed['cwd'],
+                           'target_sidebar_section_id':fixed['sidebar_section_id'],'routing_quarantine_mode':False,'routing_health_probe_mode':False}
+        if (len(policies) != 1 or any(policies[0].get(k) != v for k,v in policy_expected.items())
+                or any(policies[0].get(k) is not v for k,v in policy_expected.items() if type(v) is bool)):
+            return False
+        sender = _collaboration_native(root,source['actual_native_invocation'])
+        receiver = _collaboration_native(root,source['actual_native_recipient'])
+        returned = _collaboration_native(root,source['actual_native_send'])
+        if returned != {'threadId':fixed['task_id']}:
+            return False
+        for page,binding in ((sender,hq),(receiver,fixed)):
+            _review_native_containers(page)
+            if any(page.get('thread',{}).get(k) != binding.get(v) for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()):
+                return False
+        calls = [(t,c) for t in sender.get('turns',[]) for c in t.get('items',[]) if c.get('id') == source.get('source_call_id')]
+        turns = [t for t in receiver.get('turns',[]) if t.get('id') == source.get('receiver_turn_id')]
+        if len(calls) != 1 or len(turns) != 1:
+            return False
+        sent,call = calls[0]; received = turns[0]
+        for item in (sent,call,received): _review_native_containers(item)
+        if (sent.get('status') not in {'inProgress','completed'} or received.get('status') not in {'inProgress','completed'}
+                or call.get('type') != 'mcpToolCall' or call.get('server') != 'codex_app' or call.get('tool') != 'send_message_to_thread'
+                or call.get('status') != 'completed' or call.get('arguments') != {'threadId':fixed['task_id'],'prompt':raw}):
+            return False
+        messages = [m for m in received.get('items',[]) if m.get('id') == source.get('ack_message_id')]
+        if len(messages) != 1:
+            return False
+        message = messages[0]; _review_native_containers(message)
+        if (message.get('type') != 'agentMessage' or message.get('phase') not in {'commentary','final_answer'}
+                or not isinstance(message.get('text'),str) or not message['text'].strip()
+                or hashlib.sha256(message['text'].encode()).hexdigest() != source.get('ack_utf8_sha256')):
+            return False
+        times = [_review_observed_at(value) for value in (original_acks[0].get('created_at'),producer[-1].get('created_at'),
+                 policies[0].get('checked_at'),source.get('at'),dispatch.get('created_at'),acks[0].get('created_at'))]
+        if (any(value is None for value in times) or type(sent.get('startedAt')) not in {int,float}
+                or type(received.get('startedAt')) not in {int,float}
+                or not times[0] < times[1] <= times[2] <= times[3] < times[4]+dt.timedelta(seconds=1)
+                or not sent['startedAt'] <= times[2].timestamp() <= received['startedAt'] <= times[3].timestamp()
+                or not times[4] <= times[3] <= times[5] <= dt.datetime.now(dt.timezone.utc)):
+            return False
+        return True
+    except (w.WorkflowError,OSError,ValueError,TypeError,KeyError,AttributeError):
+        return False
+
+def _congestion_approved_plan_ACK(root, snapshot, receipts, ack, plan):
+    """Read the committed current A2 ACK, never manufacture an older one."""
+    w = _workflow()
+    if ack.get('receipt_id') != '0e137670-3f91-499d-9620-4bc77fc4d88a':return False
+    try:
+        from goal_delivery_runtime import _collaboration_native
+        source_pin = {'path':'logs/handoffs/2026-10-22-department-flow-congestion-optimization-v1/operations-assistant-2-reviewer-source-compatible-v8-review-20261023-v1/ACTUAL-CURRENT-HQ-RESUME-ACK-EXACT-SOURCE-v2.json',
+                      'sha256':'3476436b7ca97c25803d4ab731ae910c33d5a300a826cc24e7f20795b664f95a','size':1962}
+        source = _review_source_document(root,source_pin)
+        sends = [r for r in receipts if r.get('receipt_id') == source['original_dispatch_receipt_id']]
+        if len(sends) != 1 or not _congestion_approved_original_plan_notice(root,snapshot,receipts,sends[0],plan):return False
+        dispatch = sends[0]; fixed = w.department_registry(root)['operations-assistant-2']['chat_binding']
+        expected = {k:dispatch[k] for k in ('task_id','department','scope','action_id','action_class','policy_decision_id','chat_task_id')}
+        expected.update(receipt_type='chat_ack',ack_nonempty=True,evidence=[source_pin])
+        if (ack not in receipts or any(ack.get(k) != v for k,v in expected.items())
+                or any(ack.get(k) for k in ('approval_id','replacement_reason','supersedes_receipt_id'))
+                or any(r.get('supersedes_receipt_id') == ack['receipt_id'] for r in receipts)
+                or source.get('original_dispatch_evidence') != dispatch.get('evidence')):return False
+        native = _collaboration_native(root,source['actual_ACK_native']);_review_native_containers(native)
+        if (any(native.get('thread',{}).get(k) != fixed[v] for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items())
+                or native['thread'].get('kind') != 'codex' or native['thread'].get('hostId') != 'local'
+                or native['thread'].get('projectId') not in {None,fixed['project_id']}):return False
+        turns = [t for t in native.get('turns',[]) if t.get('id') == source['source_turn_id']]
+        if len(turns) != 1 or turns[0].get('status') not in {'inProgress','completed'} or turns[0].get('error'):return False
+        messages = [m for m in turns[0].get('items',[]) if m.get('id') == source['source_message_id']]
+        text = source['actual_ACK_UTF8']
+        if (len(messages) != 1 or messages[0].get('type') != 'agentMessage'
+                or messages[0].get('phase') not in {'commentary','final_answer'}
+                or not messages[0].get('text','').strip() or w.file_digest(root,text['path']) != text
+                or w.safe_path(root,text['path']).read_bytes() != messages[0]['text'].encode()
+                or text['sha256'] != source['source_reply_sha256']
+                or not all(_exact_text_reference(messages[0]['text'],v) for v in
+                           (snapshot['task_id'],dispatch['action_id'],dispatch['policy_decision_id']))):return False
+        sent,at,observed = [_review_observed_at(v) for v in (dispatch.get('created_at'),ack.get('created_at'),source.get('observed_at'))]
+        if (not all((sent,at,observed)) or not sent <= observed <= at <= dt.datetime.now(dt.timezone.utc)
+                or type(turns[0].get('startedAt')) not in {int,float} or not sent.timestamp() <= turns[0]['startedAt'] <= at.timestamp()
+                or receipts.index(dispatch) >= receipts.index(ack)):return False
+        return True
+    except (w.WorkflowError,OSError,ValueError,TypeError,KeyError,AttributeError):return False
+
+
+def _congestion_original_hq_ack_group(root, snapshot, receipts, dispatch, acks, plan):
+    """Keep the exact initial queue ACK and authenticated ordinary resume ACK."""
+    w = _workflow()
+    if len(acks) == 3:
+        later = [(i,r) for i,r in acks if r.get('receipt_id') == '0e137670-3f91-499d-9620-4bc77fc4d88a']
+        if (len(later) != 1 or later[0][0] != receipts.index(later[0][1])
+                or not _congestion_approved_plan_ACK(root,snapshot,receipts,later[0][1],plan)):
+            return None
+        return _congestion_original_hq_ack_group(root,snapshot,receipts,dispatch,[x for x in acks if x != later[0]],plan)
+    if (dispatch.get('receipt_id') != '33e72673-fae1-4faa-9d0b-90a1ac7fc747'
+            or len(acks) != 2 or {r.get('receipt_id') for _,r in acks} != {
+                '8bd2490e-6a4a-4b66-8999-df68c0051bfc','3272b797-ca2d-416f-a6f8-9cba46f198ae'}):
+        return None
+    resumes = [r for r in receipts if r.get('receipt_id') == '59d3c4eb-88cf-42bd-b170-20ed98e5cd59']
+    if len(resumes) != 1 or not _congestion_actual_original_hq_resume(root,snapshot,receipts,resumes[0],plan):
+        return None
+    if (not _initial_assignment(root,snapshot,dispatch) or any(i != receipts.index(r) for i,r in acks)
+            or any(r.get('ack_nonempty') is not True or r.get('department') != plan['reviewer_department']
+                   or r.get('chat_task_id') != plan['reviewer_thread_id'] for _,r in acks)):
+        return None
+    original = [(i,r) for i,r in acks if r.get('receipt_id') == '8bd2490e-6a4a-4b66-8999-df68c0051bfc']
+    if (len(original) != 1 or original[0][1].get('evidence') != dispatch.get('evidence')
+            or original[0][1].get('action_id') != dispatch.get('action_id')
+            or original[0][1].get('scope') != plan['scope']):
+        return None
+    return original[0]
+
+def _received_review_metadata_correction(root, snapshot, receipts, binding, plan, matches):
+    """Select a linear, received metadata repair; qualify only its real current source.
+
+    Old immutable reports remain historical, never retroactively qualified.
+    Every matching report must be accounted for; no latest-only/bad-row skip.
+    """
+    w = _workflow()
+    if (snapshot.get('task_id') != 'fc-20261022-department-flow-congestion-optimization-v1'
+            or plan.get('scope') != 'project:flashcast:department-flow-congestion-optimization:20261022:v1'
+            or plan.get('reviewer_department') != 'operations-assistant-2'
+            or plan.get('producer_department') != 'system-development'
+            or plan.get('risk_level') != 'R0' or len(matches) < 2):
+        raise w.WorkflowError('one pre-verdict metadata-only reviewer correction chain required')
+    metadata = {'created_at', 'reply_observed_at', 'report_metadata_correction',
+                'chat_reply', 'actual_native_reply', 'visible_reply', 'source_turn_id',
+                'source_message_id', 'source_reply_sha256', 'evidence'}
+    root_row, root_pin, original = matches[0]
+    if (root_row.get('receipt_id') != 'ea5c169d-308c-4f83-a59b-2b9b784e9d7f'
+            or root_pin.get('sha256') != '1914049acfb115aec494f92c9456c63eadcc71c3ca2366242d9d4ccd5e5804b0'
+            or binding.get('pin', {}).get('sha256') != '66fe78c666d0665c0932e06bd32a5239ec5c5e4c917104100f24b7cb0d397fb8'
+            or plan.get('candidate_sha256') != '3926859331356068b91e388100e9e2aa1310dc3bad883039a6a0a27ddafecc19'):
+        raise w.WorkflowError('exact original congestion metadata-correction root required')
+    current_row, current_pin, _ = matches[-1]
+    prior_verdicts = [r for r in receipts[:receipts.index(current_row)] if r.get('receipt_type') == 'qa_verdict']
+    if prior_verdicts:
+        raise w.WorkflowError('metadata correction cannot replace an already formally judged source')
+    later_verdicts = [r for r in receipts[receipts.index(current_row)+1:] if r.get('receipt_type') == 'qa_verdict']
+    if any(current_pin not in r.get('evidence', []) or r.get('department') != plan['reviewer_department']
+           or r.get('scope') != plan['scope'] for r in later_verdicts):
+        raise w.WorkflowError('historical correction may serve only its actual accepted verdict source')
+    core = {key: value for key, value in original.items() if key not in metadata}
+    if (any(key in original for key in ('created_at', 'reply_observed_at', 'report_metadata_correction'))
+            or original.get('qa_verdict') != 'blocked' or not original.get('actual_native_reply')):
+        raise w.WorkflowError('exact received missing-created-at original blocked report required')
+    expected_row = {'task_id': plan['task_id'], 'department': plan['reviewer_department'],
+                    'chat_task_id': plan['reviewer_thread_id'], 'receipt_type': 'outbox_received',
+                    'action_id': plan['action_id'], 'action_class': plan['action_class'], 'scope': plan['scope']}
+    previous = None
+    for row, pin, box in matches:
+        if (any(row.get(key) != value for key, value in expected_row.items())
+                or any(other.get('supersedes_receipt_id') == row.get('receipt_id') for other in receipts)
+                or {key: value for key, value in box.items() if key not in metadata} != core):
+            raise w.WorkflowError('same original reviewer/plan/candidate and unchanged judgment required')
+        received = _review_observed_at(row.get('created_at'))
+        if received is None or received > dt.datetime.now(dt.timezone.utc):
+            raise w.WorkflowError('actual committed reviewer intake time required')
+        # All history/evidence pins remain exact; a new source envelope cannot
+        # erase an old native reply or reinterpret old created_at as a send time.
+        _closed_review_source_pins(root, list(_evidence_pins(box.get('evidence', []))))
+        if previous is not None:
+            old_row, old_pin, old = previous
+            correction = box.get('report_metadata_correction')
+            if (not isinstance(correction, dict)
+                    or set(correction) != {'corrects_receipt_id', 'original_outbox', 'reason', 'old_code_QA_or_checks_repeated'}
+                    or correction.get('corrects_receipt_id') != old_row['receipt_id']
+                    or correction.get('original_outbox') != old_pin
+                    or not isinstance(correction.get('reason'), str) or not correction['reason'].strip()
+                    or correction.get('old_code_QA_or_checks_repeated') is not False
+                    or receipts.index(old_row) >= receipts.index(row) or pin == old_pin):
+                raise w.WorkflowError('one unambiguous append-only metadata correction lineage required')
+            old_evidence, evidence = old.get('evidence'), box.get('evidence')
+            if (not isinstance(old_evidence, list) or not isinstance(evidence, list)
+                    or evidence[:len(old_evidence)] != old_evidence
+                    or len({p['path'] for p in _evidence_pins(evidence)}) != len(list(_evidence_pins(evidence)))):
+                raise w.WorkflowError('metadata correction must preserve all original evidence')
+            source_fields = metadata - {'created_at', 'reply_observed_at', 'report_metadata_correction', 'evidence'}
+            if any(box.get(key) != old.get(key) for key in source_fields):
+                if (old.get('actual_native_reply') not in evidence or old.get('visible_reply') not in evidence):
+                    raise w.WorkflowError('real new source must retain original native reply pins')
+            old_at, created, observed = [_review_observed_at(value) for value in (
+                old_row.get('created_at'), box.get('created_at'), box.get('reply_observed_at'))]
+            second_precision = isinstance(row.get('created_at'), str) and re.fullmatch(
+                r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00', row['created_at']) is not None
+            ordered = created is not None and (created < received + dt.timedelta(seconds=1)
+                if second_precision else created <= received)
+            if (old_at is None or created is None or observed is None or not ordered
+                    or not old_at < created or not observed <= created <= dt.datetime.now(dt.timezone.utc)):
+                raise w.WorkflowError('actual later correction creation and ordered current intake required')
+        previous = row, pin, box
+    return matches[-1]
+
+def _congestion_actual_original_SYS_resume(root, snapshot, receipts, dispatch, plan):
+    """Read this actual post-interruption continuation without replacing producer392.
+
+    The receiver turn had already begun; its start is not invented as a send
+    timestamp. Actual first-party invocation/return and the exact nonempty
+    continuation reply prove the one original effect, with native times intact.
+    """
+    task = 'fc-20261022-department-flow-congestion-optimization-v1'
+    scope = 'project:flashcast:department-flow-congestion-optimization:20261022:v1'
+    if snapshot.get('task_id') != task or dispatch.get('receipt_id') != '5d5bf7a0-f3d1-4576-bc6d-0e387143ef8a':
+        return False
+    w = _workflow()
+    try:
+        from goal_delivery_runtime import _collaboration_native
+        goal, registry = _goal(root, snapshot), w.department_registry(root)
+        hq, fixed = [registry[k]['chat_binding'] for k in ('operations', 'system-development')]
+        expected = {'task_id':task,'department':'system-development','receipt_type':'dispatch_sent',
+            'action_id':'HQ-SYS-actual-interrupted-V5-original-work-resume-20261023-v2','action_class':'thread_message',
+            'scope':scope,'chat_task_id':fixed['task_id'],'policy_decision_id':'pol-aa75930af269bafa600f'}
+        if (goal is None or goal.get('primary_owner') != 'system-development'
+                or goal.get('producer_departments') != ['system-development']
+                or goal.get('responsible_assistant') != 'operations-assistant-2'
+                or goal.get('authorized_scope') != [scope]
+                or snapshot.get('goal_contract',{}).get('sha256') != 'a4724b2d4ed1167100fdcde502aca4f3dbfec4cc25177285c2d3a78e293e5943'
+                or goal.get('authorization_pin',{}).get('sha256') != '8443335e7d4adc76dce710225c0ebca9fba8e09b92fc43c1801469299263cc7d'
+                or any(plan.get(k) != v for k,v in {'task_id':task,'scope':scope,'producer_department':'system-development',
+                    'reviewer_department':'operations-assistant-2','action_class':'internal_control_candidate','risk_level':'R0',
+                    'production_write_allowed':False,'external_permission_issued':False}.items())
+                or any(dispatch.get(k) != v for k,v in expected.items())
+                or any(dispatch.get(k) for k in ('approval_id','replacement_reason','supersedes_receipt_id'))
+                or hq.get('project_id') != fixed.get('project_id') or not fixed.get('project_id')
+                or any(b.get('cwd') != str(Path(root).resolve()) for b in (hq,fixed))):
+            return False
+        _review_source_document(root,snapshot['goal_contract']);_review_source_document(root,goal['authorization_pin'])
+        persisted=w.read_jsonl(w.receipts_path(root,task));previous=''
+        if not receipts or persisted[:len(receipts)] != receipts or dispatch not in receipts:
+            return False
+        for row in receipts:
+            if row.get('previous_hash') != previous or row.get('receipt_hash') != w.sha256_value(w._receipt_payload_for_hash(row)):
+                return False
+            previous=row['receipt_hash']
+        if (len(dispatch.get('evidence',[])) != 1
+                or dispatch['evidence'][0].get('sha256') != '2ebd3a337eeb2b817842e5cd67644ccce21d932b010e885b219fcacb5604bbca'):
+            return False
+        source=_review_source_document(root,dispatch['evidence'][0]);payload=source['exact_payload']
+        if w.file_digest(root,payload['path']) != payload:return False
+        body=w.safe_path(root,payload['path']).read_text()
+        if not _exact_text_reference(body,task) or set(re.findall(r'project:[A-Za-z0-9_:.-]+',body)) != {scope}:return False
+        policy=[r for r in w.read_jsonl(root/w.POLICY_DECISIONS)if r.get('decision_id')==expected['policy_decision_id']]
+        policy_expected={'task_id':task,'department':'operations','action_id':expected['action_id'],'action_class':'thread_message',
+            'scope':scope,'status':'allow','routing_status':'routing_allowed','payload_sha256':payload['sha256'],
+            'source_project_id':hq['project_id'],'target_project_id':fixed['project_id'],'target_department':'system-development',
+            'target_thread_id':fixed['task_id'],'target_thread_title':fixed['title'],'target_cwd':fixed['cwd'],
+            'target_sidebar_section_id':fixed['sidebar_section_id'],'routing_quarantine_mode':False,'routing_health_probe_mode':False}
+        if len(policy)!=1 or any(policy[0].get(k)!=v for k,v in policy_expected.items()):return False
+        if any(policy[0].get(k) is not False for k in ('routing_quarantine_mode','routing_health_probe_mode')):return False
+        sender=_collaboration_native(root,source['actual_native_invocation'])
+        returned=_collaboration_native(root,source['native_send_return'])
+        seen=_collaboration_native(root,source['actual_new_turn'])
+        if returned != {'threadId':fixed['task_id']}:return False
+        for page,binding in ((sender,hq),(seen,fixed)):
+            _review_native_containers(page)
+            if any(page.get('thread',{}).get(k)!=binding[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()):return False
+            if page['thread'].get('projectId') not in {None,binding['project_id']}:return False
+        calls=[(t,c)for t in sender.get('turns',[])for c in t.get('items',[])if c.get('id')==source['source_call_id']]
+        if len(calls)!=1:return False
+        sender_turn,call=calls[0]
+        if (sender_turn.get('status') not in {'inProgress','completed'} or sender_turn.get('error')
+                or call.get('type')!='mcpToolCall' or call.get('server')!='codex_app' or call.get('tool')!='send_message_to_thread'
+                or call.get('status')!='completed' or call.get('arguments')!={'threadId':fixed['task_id'],'prompt':body}):return False
+        acks=[r for r in receipts if r.get('receipt_id')=='78ed1477-019b-40c5-be46-11f0e70ece88']
+        if len(acks)!=1:return False
+        ack=acks[0]
+        if (any(ack.get(k)!=v for k,v in {**expected,'receipt_type':'chat_ack'}.items())
+                or ack.get('ack_nonempty') is not True or len(ack.get('evidence',[]))!=1
+                or ack['evidence'][0].get('sha256')!='6774da4a1dd7d14b9f2a49bf98638b09a438a2ad7d32b8f04546c517176b32af'
+                or any(r.get('supersedes_receipt_id') in {dispatch['receipt_id'],ack['receipt_id']}for r in receipts)):return False
+        receiver=_collaboration_native(root,ack['evidence'][0]);_review_native_containers(receiver)
+        if any(receiver.get('thread',{}).get(k)!=fixed[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()):return False
+        turns=[t for t in receiver.get('turns',[])if t.get('id')==source['new_turn_id']]
+        observed=[t for t in seen.get('turns',[])if t.get('id')==source['new_turn_id']]
+        if len(turns)!=1 or len(observed)!=1:return False
+        turn=turns[0]
+        messages=[m for m in turn.get('items',[])if m.get('id')=='msg_baa21b0fa22d5639eff662af7d75314544b75bd2b6803ae228823460440d356e']
+        if (turn.get('status') not in {'inProgress','completed'} or turn.get('error') or len(messages)!=1
+                or messages[0].get('type')!='agentMessage' or messages[0].get('phase')!='commentary'
+                or not isinstance(messages[0].get('text'),str) or not messages[0]['text'].strip()):return False
+        checked,sent,at=[_review_observed_at(v)for v in (policy[0].get('checked_at'),dispatch.get('created_at'),ack.get('created_at'))]
+        if (not all((checked,sent,at)) or not checked<=sent<=at<=dt.datetime.now(dt.timezone.utc)
+                or turn.get('startedAt')!=observed[0].get('startedAt') or type(turn.get('startedAt')) not in {int,float}
+                or not turn['startedAt']<=at.timestamp() or receipts.index(dispatch)>=receipts.index(ack)):return False
+        return True
+    except (w.WorkflowError,OSError,ValueError,TypeError,KeyError,AttributeError):
+        return False
+
+
+def original_result_continuation_intent(root, snapshot, request, *, historical=False):
+    """Read a canonical, non-executing command through the ordinary prepare path.
+
+    This is a finite message grammar, not a caller's source_only exemption.
+    It can only refer to already bound, received original bytes. A new result,
+    contract, scope, participant or execution request has no representation here.
+    """
+    w = _workflow()
+    payload = request.get('payload', {})
+    if not isinstance(payload, dict) or not isinstance(payload.get('path'), str) or not payload['path']:
+        raise w.WorkflowError('exact original message payload required')
+    raw = w.safe_path(root, payload.get('path', '')).read_bytes()
+    try:
+        item = json.loads(raw)
+    except (ValueError, UnicodeError):
+        return None
+    if not isinstance(item, dict) or item.get('schema') != 'flashcast-original-result-continuation/v1':
+        return None
+    def require(value, message):
+        if not value:
+            raise w.WorkflowError('original result continuation: ' + message)
+    keys = {'schema', 'task_id', 'action_id', 'scope', 'operation', 'goal_contract',
+            'authorization_pin', 'original_plan', 'original_result', 'sender_department', 'target_department'}
+    require(set(item) == keys and raw == (json.dumps(item, ensure_ascii=False, sort_keys=True, indent=2) + '\n').encode(),
+            'exact finite message grammar required')
+    require(all(type(item.get(k)) is str and bool(item[k].strip()) for k in
+                ('schema', 'task_id', 'action_id', 'scope', 'operation', 'sender_department', 'target_department')),
+            'exact nonempty message identity strings required')
+    require(item['operation'] in {'read_original_result', 'resume_original_source', 'observe_original_ack'},
+            'only existing-result read/source/ACK observations are representable')
+    return _original_result_context(root, snapshot, request, item, payload, historical=historical)
+
+
+def _original_result_context(root, snapshot, request, item, payload, *, historical):
+    """Shared immutable result/authority proof, independent of message encoding."""
+    w = _workflow()
+    def require(value, message):
+        if not value:
+            raise w.WorkflowError("original result continuation: " + message)
+    goal = _goal(root, snapshot)
+    require(goal is not None and (historical or snapshot.get('current_state') not in w.TERMINAL_STATES),
+            'no new continuation of a terminal goal')
+    plan = _review_source_document(root, item['original_plan'])
+    task, owner, reviewer = snapshot['task_id'], plan.get('producer_department'), goal['responsible_assistant']
+    require(owner in goal['producer_departments'] and owner != reviewer
+            and (item['sender_department'], item['target_department']) in {
+                ('operations', owner), ('operations', reviewer), (reviewer, owner)}
+            and item['task_id'] == task and item['scope'] in goal['authorized_scope']
+            and item['goal_contract'] == snapshot.get('goal_contract')
+            and item['authorization_pin'] == goal['authorization_pin']
+            and request.get('action_class') == 'thread_message'
+            and not item['action_id'].startswith('assign-goal-review:')
+            and all(request.get(k) == item[k] for k in
+                    ('task_id', 'action_id', 'scope', 'sender_department', 'target_department'))
+            and request.get('authorization_changes') == []
+            and request.get('internal_repairs', []) == []
+            and w.file_digest(root, payload['path']) == payload
+            and request.get('payload_sha256') == payload['sha256'],
+            'original participants, task, authority, scope and exact message required')
+    contract = _review_source_document(root, item['goal_contract'])
+    contract = contract.get('goal_delivery', contract)
+    from goal_delivery_runtime import validate_goal
+    frozen = validate_goal(root, contract)
+    require(all(goal.get(k) == v for k, v in frozen.items()
+                if k not in {'approved_actions', 'current_route_observations', 'collaboration_records',
+                             'dependency_receipts', 'completion_evidence'})
+            and _review_source_document(root, item['authorization_pin']) is not None,
+            'unchanged validated original contract and human authorization required')
+    bindings = _bindings(root, snapshot)
+    require(any(b.get('pin') == item['original_plan'] for b in bindings), 'an actual frozen bound plan required')
+    plan = _review_source_document(root, item['original_plan'])
+    result = _review_source_document(root, item['original_result'])
+    require(plan.get('task_id') == task and plan.get('scope') == item['scope']
+            and plan.get('producer_department') == owner and plan.get('reviewer_department') == reviewer
+            and _producer_candidate_bound(root, plan, item['original_result'], result)
+            and result.get('goal_contract') == item['goal_contract']
+            and result.get('human_authorization') == item['authorization_pin'],
+            'one unchanged original producer result and its exact plan required')
+    rows = w.read_jsonl(w.receipts_path(root, task))
+    previous, seen = '', set()
+    for row in rows:
+        require(row.get('task_id') == task and isinstance(row.get('receipt_id'), str) and bool(row['receipt_id'])
+                and row.get('receipt_id') not in seen
+                and row.get('previous_hash') == previous
+                and row.get('receipt_hash') == w.sha256_value(w._receipt_payload_for_hash(row)),
+                'intact committed original receipt chain required')
+        previous = row['receipt_hash']; seen.add(row['receipt_id'])
+    require(not w.validate_workflow_events(root, task), 'intact original workflow events required')
+    boxes = [row for row in rows if row.get('department') == owner
+             and row.get('receipt_type') == 'outbox_received' and item['original_result'] in row.get('evidence', [])]
+    require(len(boxes) == 1 and not any(row.get('supersedes_receipt_id') == boxes[0]['receipt_id'] for row in rows),
+            'one real, unreplaced original producer receipt required')
+    initial = [row for row in rows if row.get('department') == reviewer and row.get('receipt_type') == 'dispatch_sent'
+               and row.get('action_id') == 'assign-goal-review:' + task]
+    require(len(initial) == 1 and _initial_assignment(root, snapshot, initial[0])
+            and any(row.get('receipt_type') == 'chat_ack' and row.get('department') == reviewer
+                    and row.get('ack_nonempty') is True
+                    and all(row.get(k) == initial[0].get(k) for k in ('task_id', 'action_id', 'scope', 'policy_decision_id', 'chat_task_id'))
+                    and rows.index(row) > rows.index(initial[0]) for row in rows),
+            'actual original sole reviewer dispatch/ACK required')
+    prefix = rows[:rows.index(boxes[0])]
+    producer_sends = [row for row in prefix if row.get('department') == owner and row.get('receipt_type') == 'dispatch_sent']
+    require(producer_sends and any(row.get('receipt_type') == 'chat_ack' and row.get('department') == owner
+                and row.get('ack_nonempty') is True and prefix.index(row) > prefix.index(producer_sends[-1])
+                and row.get('chat_task_id') == producer_sends[-1].get('chat_task_id') for row in prefix),
+            'original acknowledged producer round before the unchanged result required')
+    received = [row for row in w._result_handoff_rows(root, task) if row.get('event') == 'controller_received'
+                and row.get('sender_department') == owner and row.get('outbox') == item['original_result']
+                and row.get('candidate_version') == plan['candidate_version']
+                and row.get('result_sha256') == item['original_result']['sha256']
+                and row.get('coordinator_role', row.get('responsible_assistant')) == reviewer]
+    require(len(received) == 1, 'one actual original result intake required')
+    from result_coordination import _committed_result
+    _committed_result(root, received[0])
+    notifications = [row for row in w._result_handoff_rows(root, task) if row.get('event') == 'notification_queued'
+                     and row.get('sender_department') == owner and row.get('outbox') == item['original_result']
+                     and row.get('candidate_version') == plan['candidate_version']
+                     and row.get('result_sha256') == item['original_result']['sha256']]
+    require(len(notifications) == 1, 'one original native result source required')
+    w._validate_goal_completed_result(root, notifications[0],
+                                     w.department_registry(root)[owner]['chat_binding']['task_id'],
+                                     through_receipt_id=boxes[0]['receipt_id'])
+    registry = w.department_registry(root)
+    sender, target = [registry[name]['chat_binding'] for name in
+                      (item['sender_department'], item['target_department'])]
+    require(sender.get('cwd') == target.get('cwd') == str(Path(root).resolve())
+            and sender.get('project_id') == target.get('project_id') and bool(target.get('project_id'))
+            and plan.get('reviewer_thread_id') == registry[reviewer]['chat_binding']['task_id']
+            and all(request.get(k) == target[v] for k, v in {
+                'target_thread_id': 'task_id', 'target_thread_title': 'title', 'target_cwd': 'cwd',
+                'target_project_id': 'project_id', 'target_sidebar_section_id': 'sidebar_section_id'}.items())
+            and request.get('source_project_id') == sender['project_id'],
+            'fixed original role/project routing required')
+    return {'intent': item, 'original_result_receipt_id': boxes[0]['receipt_id'],
+            'actual_original_intake_id': received[0]['record_id'], 'payload': payload,
+            'original_result_receipt_at': boxes[0]['created_at'],
+            'actual_original_intake_at': received[0]['created_at'],
+            'sender_binding': {k:sender[k] for k in ('task_id','title','cwd','project_id','sidebar_section_id')},
+            'target_binding': {k:target[k] for k in ('task_id','title','cwd','project_id','sidebar_section_id')}}
+
+
+def original_continuation_queue_command(root, request):
+    """Exact installed official CLI argv, inspected as text and never evaluated."""
+    import shlex
+    from department_event_dispatcher import native_queue_capability
+    w = _workflow()
+    body = w.safe_path(root, request['payload']['path']).read_text()
+    return shlex.join([native_queue_capability(root), 'queue', '--thread', request['target_thread_id'], '--message', body])
+
+
+def _prepared_original_result_continuation(root, snapshot, receipts, dispatch, plan):
+    """Reuse one request's immutable proof; SQL/native intake stays a fresh read."""
+    w = _workflow()
+    context = w._VALIDATION_CONTEXT.get()
+    if context is None:
+        return _prepared_original_result_continuation_uncached(root, snapshot, receipts, dispatch, plan)
+    evidence = dispatch.get('evidence', [])
+    if len(evidence) != 1 or not evidence[0].get('path', '').endswith('.json'):
+        return None
+    source = _review_source_document(root, evidence[0])
+    if source.get('schema') != 'flashcast-original-result-continuation-send/v1':
+        return None
+    # Fresh request-local versions: no disk/time-based acceptance cache and no
+    # cached permit. A source change clears RequestValidationContext.proofs.
+    versions = [w.file_digest(root, str(p.relative_to(root))) for p in
+                (w.receipts_path(root, snapshot['task_id']), root / w.WORKFLOW_EVENTS,
+                 root / w.POLICY_DECISIONS, root / 'data/department-registry.json',
+                 w.result_handoff_path(root, snapshot['task_id']))]
+    key = ('ordinary-original-result-send', w.sha256_value([snapshot, receipts, dispatch, plan, versions]))
+    cached = context.proofs.get(key)
+    if cached is not None:
+        from result_coordination import _committed_result
+        _committed_result(root, cached['actual_intake'])
+        from copy import deepcopy
+        return deepcopy(cached['data'])
+    data = _prepared_original_result_continuation_uncached(root, snapshot, receipts, dispatch, plan)
+    if data is not None:
+        actual = [r for r in w._result_handoff_rows(root, snapshot['task_id'])
+                  if r.get('record_id') == data['actual_original_intake_id']]
+        if len(actual) != 1:
+            raise w.WorkflowError('one actual original result commit required')
+        context.proofs[key] = {'data': data, 'actual_intake': actual[0]}
+    return data
+
+
+def _prepared_original_result_continuation_uncached(root, snapshot, receipts, dispatch, plan):
+    """Authenticate a normally prepared send; never claim its recipient read it."""
+    w = _workflow()
+    evidence = dispatch.get('evidence', [])
+    if len(evidence) != 1 or not evidence[0].get('path', '').endswith('.json'):
+        return None
+    source = _review_source_document(root, evidence[0])
+    if source.get('schema') != 'flashcast-original-result-continuation-send/v1':
+        return None
+    def require(value, message):
+        if not value:
+            raise w.WorkflowError('original result continuation: ' + message)
+    request = _review_source_document(root, source['prepare_request'])
+    prepared = _review_source_document(root, source['prepare_result'])
+    source_keys = {'schema', 'prepare_request', 'prepare_result', 'actual_native_invocation', 'source_call_id'}
+    source_keys |= ({'actual_queue_intent', 'actual_queue_result'} if request.get('delivery_mode') == 'official_native_queue'
+                    else {'actual_native_return'})
+    require(set(source) == source_keys, 'exact native transport representation required')
+    data = original_result_continuation_intent(root, snapshot, request, historical=True)
+    require(data is not None, 'an existing original-result source is required')
+    original_plan = _review_source_document(root, data['intent']['original_plan'])
+    require(any(_review_source_document(root, b['pin']) == plan for b in _bindings(root, snapshot))
+            and all(plan.get(k) == original_plan.get(k) for k in
+                    ('task_id', 'scope', 'producer_department', 'reviewer_department', 'reviewer_thread_id')),
+            'the actual bound current/history plan and unchanged original participants/scope are required')
+    require(w.read_jsonl(w.receipts_path(root, snapshot['task_id']))[:len(receipts)] == receipts,
+            'the actual committed receipt prefix is required')
+    item, fixed, sender = data['intent'], data['target_binding'], data['sender_binding']
+    require(dispatch in receipts and dispatch.get('task_id') == item['task_id']
+            and dispatch.get('receipt_type') == 'dispatch_sent' and dispatch.get('department') == item['target_department']
+            and dispatch.get('action_id') == item['action_id'] and dispatch.get('action_class') == 'thread_message'
+            and dispatch.get('scope') == item['scope'] and dispatch.get('chat_task_id') == fixed['task_id']
+            and not any(dispatch.get(k) for k in ('approval_id', 'replacement_reason', 'supersedes_receipt_id'))
+            and not any(row.get('supersedes_receipt_id') == dispatch.get('receipt_id') for row in receipts),
+            'exact original dispatch identity required')
+    events = [e for e in w.read_jsonl(root / w.WORKFLOW_EVENTS)
+              if e.get('task_id') == item['task_id'] and e.get('details', {}).get('original_result_continuation_prepared', {}).get('action_id') == item['action_id']]
+    require(len(events) == 1, 'one normal prepared event required')
+    event = events[0]; frozen = event['details']['original_result_continuation_prepared']
+    require(event.get('state') not in w.TERMINAL_STATES
+            and frozen == {**data, 'action_id': item['action_id'], 'policy_decision_id': dispatch.get('policy_decision_id')},
+            'prepared event must retain its actual contract, result and role sources')
+    policies = [p for p in w.read_jsonl(root / w.POLICY_DECISIONS) if p.get('decision_id') == dispatch.get('policy_decision_id')]
+    expected = {'status': 'allow', 'routing_status': 'routing_allowed', 'department': item['sender_department'],
+                **{k: request[k] for k in ('task_id', 'action_id', 'action_class', 'scope', 'source_project_id',
+                    'target_project_id', 'target_department', 'target_thread_id', 'target_thread_title',
+                    'target_cwd', 'target_sidebar_section_id', 'payload_sha256')},
+                'routing_quarantine_mode': False, 'routing_health_probe_mode': False}
+    queue = request.get('delivery_mode') == 'official_native_queue'
+    require(len(policies) == 1 and all(policies[0].get(k) == v for k, v in expected.items())
+            and all(policies[0].get(k) is False for k in ('routing_quarantine_mode', 'routing_health_probe_mode'))
+            and prepared.get('status') == ('ready_to_queue' if queue else 'ready_to_send')
+            and prepared.get('policy_decision') == policies[0] and prepared.get('payload') == data['payload']
+            and prepared.get('authorization_precheck', {}).get('status') == 'within_original_authorization'
+            and prepared['authorization_precheck'].get('original_authorization') == item['authorization_pin']
+            and prepared['authorization_precheck'].get('actual_action_allowed') is False
+            and prepared['authorization_precheck'].get('external_permission_issued') is False
+            and prepared.get('message_sent') is False and prepared.get('external_permission_issued') is False,
+            'actual normal prepare and unchanged allowed policy required')
+    from goal_delivery_runtime import _collaboration_native
+    native = _collaboration_native(root, source['actual_native_invocation'])
+    _review_native_containers(native)
+    require(all(native.get('thread', {}).get(k) == sender[v] for k, v in
+                {'id': 'task_id', 'title': 'title', 'cwd': 'cwd'}.items())
+            and native['thread'].get('kind') == 'codex' and native['thread'].get('hostId') == 'local'
+            and native['thread'].get('projectId', sender['project_id']) == sender['project_id'],
+            'actual fixed native sender required')
+    calls = [(t, c) for t in native.get('turns', []) for c in t.get('items', []) if c.get('id') == source.get('source_call_id')]
+    require(len(calls) == 1, 'one original native invocation required')
+    turn, call = calls[0]; _review_native_containers(turn); _review_native_containers(call)
+    body = w.safe_path(root, data['payload']['path']).read_text()
+    times = [_review_observed_at(v) for v in (policies[0].get('checked_at'), event.get('created_at'), dispatch.get('created_at'))]
+    original_times = [_review_observed_at(data[k]) for k in ('original_result_receipt_at', 'actual_original_intake_at')]
+    require(all(times) and all(original_times) and max(original_times) <= times[0] <= times[1] <= times[2] <= dt.datetime.now(dt.timezone.utc)
+            and type(turn.get('startedAt')) in {int, float} and turn['startedAt'] <= times[2].timestamp()
+            and turn.get('status') == 'completed' and call.get('status') == 'completed',
+            'ordered actual policy/preparation/send source required')
+    if queue:
+        # A static exact invocation is inspected, never evaluated. Dynamic or
+        # unrelated programs remain an explicit source gap, not a success.
+        intent = _review_source_document(root, source['actual_queue_intent'])
+        result = _review_source_document(root, source['actual_queue_result'])
+        expected_transport = {'thread_id': fixed['task_id'], 'payload_sha256': data['payload']['sha256'],
+                              'policy_decision_id': policies[0]['decision_id'], 'transport': 'official_codex_queue', 'intake_claimed': False}
+        match = re.fullmatch(r'Queued message ([0-9a-f-]{36}) for thread ([0-9a-f-]{36})\.\s*', result.get('stdout', ''))
+        require(call.get('type') == 'commandExecution' and type(call.get('exitCode')) is int and call['exitCode'] == 0
+                and call.get('cwd') == sender['cwd']
+                and call.get('command') == original_continuation_queue_command(root, request)
+                and call.get('aggregatedOutput') == result.get('stdout')
+                and all(intent.get(k) == result.get(k) == v for k, v in expected_transport.items())
+                and type(result.get('exit_code')) is int and result['exit_code'] == 0 and result.get('stderr') == ''
+                and match is not None and match[2] == fixed['task_id']
+                and result.get('started_at') == intent.get('started_at'), 'exact official queue effect required')
+        started, finished = [_review_observed_at(result.get(k)) for k in ('started_at', 'finished_at')]
+        require(started and finished and times[1] <= started <= finished <= times[2]
+                and type(turn.get('completedAt')) in {int, float}
+                and turn['startedAt'] <= started.timestamp() <= finished.timestamp() <= turn['completedAt'] + 1,
+                'actual queue invocation chronology required')
+        data['queue_message_id'] = match[1]
+        data['sent_at'] = finished.timestamp()
+    else:
+        arguments = call.get('arguments', {})
+        require(call.get('type') == 'mcpToolCall' and call.get('server') == 'codex_app'
+                and call.get('tool') == 'send_message_to_thread'
+                and set(arguments) in ({'threadId', 'prompt'}, {'threadId', 'hostId', 'prompt'})
+                and arguments.get('hostId', 'local') == 'local'
+                and arguments.get('threadId') == fixed['task_id'] and arguments.get('prompt') == body
+                and _collaboration_native(root, source['actual_native_return']) == {'threadId': fixed['task_id']},
+                'exact first-party send arguments and successful return required')
+        data['sent_at'] = times[2].timestamp()
+    data.update(source_pin=evidence[0], source=source, request=request, prepared=prepared)
+    return data
+
+
+def _original_result_continuation_ack(root, snapshot, receipts, dispatch, ack, plan):
+    """A late or duplicate observation of one real input/ACK is not production."""
+    data = _prepared_original_result_continuation(root, snapshot, receipts, dispatch, plan)
+    if data is None:
+        return False
+    w = _workflow()
+    if (ack not in receipts or receipts.index(ack) <= receipts.index(dispatch)
+            or ack.get('receipt_type') != 'chat_ack' or ack.get('ack_nonempty') is not True
+            or any(ack.get(k) != dispatch.get(k) for k in
+                   ('task_id', 'department', 'chat_task_id', 'action_id', 'action_class', 'scope', 'policy_decision_id'))
+            or any(ack.get(k) for k in ('approval_id', 'replacement_reason', 'supersedes_receipt_id'))
+            or any(row.get('supersedes_receipt_id') == ack.get('receipt_id') for row in receipts)
+            or len(ack.get('evidence', [])) != 1):
+        return False
+    proof = _review_source_document(root, ack['evidence'][0])
+    if (set(proof) != {'schema', 'original_send', 'actual_native_recipient', 'receiver_turn_id', 'input_message_id', 'ack_message_id'}
+            or proof.get('schema') != 'flashcast-original-result-continuation-ACK/v1'
+            or proof['original_send'] != data['source_pin']):
+        return False
+    from goal_delivery_runtime import _collaboration_native
+    native = _collaboration_native(root, proof['actual_native_recipient']); _review_native_containers(native)
+    fixed = data['target_binding']
+    if (any(native.get('thread', {}).get(k) != fixed[v] for k, v in {'id': 'task_id', 'title': 'title', 'cwd': 'cwd'}.items())
+            or native['thread'].get('kind') != 'codex' or native['thread'].get('hostId') != 'local'
+            or native['thread'].get('projectId', fixed['project_id']) != fixed['project_id']):
+        return False
+    turns = [t for t in native.get('turns', []) if t.get('id') == proof['receiver_turn_id']]
+    if len(turns) != 1:
+        return False
+    turn = turns[0]; _review_native_containers(turn)
+    messages = turn.get('items', [])
+    inputs = [(i, m) for i, m in enumerate(messages) if m.get('id') == proof['input_message_id']]
+    replies = [(i, m) for i, m in enumerate(messages) if m.get('id') == proof['ack_message_id']]
+    at = _review_observed_at(ack.get('created_at'))
+    if (turn.get('status') not in {'inProgress', 'completed'} or len(inputs) != 1 or len(replies) != 1
+            or inputs[0][0] >= replies[0][0] or at is None or at > dt.datetime.now(dt.timezone.utc)
+            or type(turn.get('startedAt')) not in {int, float} or not data['sent_at'] <= turn['startedAt'] <= at.timestamp()):
+        return False
+    message = inputs[0][1]; reply = replies[0][1]
+    for part in (message, reply): _review_native_containers(part)
+    body = w.safe_path(root, data['payload']['path']).read_text()
+    if 'queue_message_id' in data:
+        if message.get('type') != 'userMessage' or message.get('content') != [{'type': 'text', 'text': body}]:
+            return False
+    else:
+        # Current first-party direct sends can persist the exact user input;
+        # older exports retain the function-call envelope. Both remain bound
+        # to the independently proven exact sender call/body/target above.
+        direct_user = (message.get('type') == 'userMessage'
+                       and message.get('content') == [{'type': 'text', 'text': body}])
+        output = message.get('output', {})
+        envelope = re.fullmatch(r'<codex_delegation>\s*<source_thread_id>([^<]+)</source_thread_id>\s*<input>([\s\S]*)</input>\s*</codex_delegation>', output.get('text', ''))
+        direct_envelope = (message.get('type') == 'functionCallOutput' and message.get('name') == 'send_message_to_thread'
+                           and message.get('namespace') == 'codex_app' and output.get('truncated') is False
+                           and envelope is not None and envelope[1] == data['sender_binding']['task_id'] and envelope[2] == body)
+        if not (direct_user or direct_envelope):return False
+    return (reply.get('type') == 'agentMessage' and reply.get('phase') in {'commentary', 'final_answer'}
+            and isinstance(reply.get('text'), str) and bool(reply['text'].strip())
+            and all(_exact_text_reference(reply['text'], v) for v in
+                    (plan['task_id'], dispatch['action_id'], data['payload']['sha256'])))
+
+
+def _generic_original_continuation_ack_group(root, snapshot, receipts, dispatch, acks, plan):
+    """Remove only authenticated additional observations from the original group."""
+    ordinary = []
+    for pair in acks:
+        _, ack = pair
+        sends = [row for row in receipts if row.get('receipt_type') == 'dispatch_sent'
+                 and row.get('department') == ack.get('department') and row.get('action_id') == ack.get('action_id')
+                 and row != dispatch]
+        if len(sends) == 1:
+            data = original_source_continuation(root,snapshot,receipts,sends[0],plan)
+            if (_original_result_continuation_ack(root,snapshot,receipts,sends[0],ack,plan)
+                    or (data is not None and data['kind'] == 'post_qa_interrupted_source_recovery'
+                        and _post_qa_source_ack_observation(root,data,receipts,sends[0],ack))):
+                ordinary.append(pair)
+    if not ordinary:
+        return None
+    remaining = [pair for pair in acks if pair not in ordinary]
+    if len(remaining) == 1:
+        index, ack = remaining[0]
+        if (index == receipts.index(ack) and ack.get('action_id') == dispatch.get('action_id')
+                and ack.get('policy_decision_id') == dispatch.get('policy_decision_id')
+                and ack.get('scope') == dispatch.get('scope') and ack.get('chat_task_id') == plan['reviewer_thread_id']
+                and ack.get('ack_nonempty') is True and _initial_assignment(root, snapshot, dispatch)):
+            return remaining[0]
+        return None
+    return _same_original_responsibility_ack_group(root, snapshot, receipts, dispatch, remaining, plan)
+
+
+def post_qa_source_continuation(root, snapshot, receipts, plan, observation):
+    """Authenticate an old successful send plus its interrupted source-only work.
+
+    No message echo, ACK, permission, new plan, or new producer is inferred.
+    Legacy plaintext is admitted only after the exact original formal PASS and
+    only for its existing reviewer's completion-source recovery. New messages
+    use the finite normal prepare grammar instead of an arbitrary text label.
+    """
+    w = _workflow()
+    def require(value, reason):
+        if not value:
+            raise w.WorkflowError('post-QA original source continuation: ' + reason)
+    keys = {'schema', 'task_id', 'dispatch_receipt_id', 'original_plan', 'original_result',
+            'prepare_request', 'prepare_result', 'send_source'}
+    require(isinstance(observation, dict) and set(observation) == keys
+            and observation['schema'] == 'post-qa-original-source-observation/v1'
+            and observation['task_id'] == snapshot['task_id'], 'exact observation schema/task required')
+    require(_review_source_document(root, observation['original_plan']) == plan,
+            'unchanged actual plan/candidate required')
+    request = _review_source_document(root, observation['prepare_request'])
+    prepared = _review_source_document(root, observation['prepare_result'])
+    early_source = _review_source_document(root,observation['send_source'])
+    from goal_delivery_runtime import _collaboration_native
+    early_native = _collaboration_native(root,early_source['native_invocation'])
+    require(len([c for t in early_native.get('turns',[]) for c in t.get('items',[])
+                 if c.get('id') == early_source.get('source_call_id')]) == 1,
+            'one actual original native call required')
+    goal = _goal(root, snapshot)
+    require(goal is not None and request.get('sender_department') == 'operations'
+            and request.get('target_department') == goal['responsible_assistant']
+            and request.get('authorization_changes') == [] and request.get('internal_repairs', []) == []
+            and not request.get('delivery_mode') and request.get('assignment_record_required') is False,
+            'original HQ to sole reviewer, no assignment or authority change required')
+    registry = w.department_registry(root)
+    fixed_request = registry[goal['responsible_assistant']]['chat_binding']
+    hq_request = registry['operations']['chat_binding']
+    require(request.get('source_project_id') == hq_request['project_id'] == fixed_request['project_id']
+            and all(request.get(k) == fixed_request[v] for k,v in
+                {'target_thread_id':'task_id','target_thread_title':'title','target_cwd':'cwd',
+                 'target_project_id':'project_id','target_sidebar_section_id':'sidebar_section_id'}.items()),
+            'exact original project/receiver routing required')
+    item = {'schema': 'flashcast-original-result-continuation/v1', 'task_id': snapshot['task_id'],
+            'action_id': request.get('action_id'), 'scope': request.get('scope'),
+            'operation': 'resume_original_source', 'goal_contract': snapshot['goal_contract'],
+            'authorization_pin': goal['authorization_pin'], 'original_plan': observation['original_plan'],
+            'original_result': observation['original_result'], 'sender_department': 'operations',
+            'target_department': goal['responsible_assistant']}
+    data = _original_result_context(root, snapshot, request, item, request.get('payload', {}), historical=True)
+    require(any(b['pin'] == observation['original_plan'] for b in _bindings(root, snapshot))
+            and load_plan(root, snapshot) == plan, 'current bound original plan required')
+    sends = [x for x in receipts if x.get('receipt_id') == observation['dispatch_receipt_id']]
+    require(len(sends) == 1 and w.read_jsonl(w.receipts_path(root, snapshot['task_id']))[:len(receipts)] == receipts,
+            'one actual intact dispatch prefix required')
+    dispatch = sends[0]; fixed, hq = data['target_binding'], data['sender_binding']
+    require(all(dispatch.get(k) == v for k, v in {
+        'task_id': item['task_id'], 'department': item['target_department'], 'receipt_type': 'dispatch_sent',
+        'action_id': item['action_id'], 'action_class': 'thread_message', 'scope': item['scope'],
+        'chat_task_id': fixed['task_id']}.items())
+        and not any(dispatch.get(k) for k in ('supersedes_receipt_id', 'replacement_reason', 'approval_id'))
+        and dispatch.get('evidence') == [observation['send_source']]
+        and not any(x.get('supersedes_receipt_id') == dispatch['receipt_id'] for x in receipts),
+        'unchanged original transport identity required')
+    policy = [x for x in w.read_jsonl(root / w.POLICY_DECISIONS)
+              if x.get('decision_id') == dispatch.get('policy_decision_id')]
+    expected = {'status': 'allow', 'routing_status': 'routing_allowed', 'department': 'operations',
+                **{k: request[k] for k in ('task_id','action_id','action_class','scope','source_project_id',
+                   'target_project_id','target_department','target_thread_id','target_thread_title',
+                   'target_cwd','target_sidebar_section_id','payload_sha256')},
+                'routing_quarantine_mode': False, 'routing_health_probe_mode': False}
+    auth = prepared.get('authorization_precheck', {})
+    require(len(policy) == 1 and all(policy[0].get(k) == v for k, v in expected.items())
+            and prepared.get('status') == 'ready_to_send' and prepared.get('policy_decision') == policy[0]
+            and prepared.get('payload') == data['payload'] and prepared.get('message_sent') is False
+            and prepared.get('external_permission_issued') is False
+            and auth.get('status') == 'within_original_authorization'
+            and auth.get('original_authorization') == item['authorization_pin']
+            and auth.get('actual_action_allowed') is False and auth.get('external_permission_issued') is False,
+            'actual normal prepare/policy and frozen original authority required')
+    sent_at = _review_observed_at(dispatch.get('created_at'))
+    checked = _review_observed_at(policy[0].get('checked_at'))
+    require(sent_at is not None and checked is not None and checked <= sent_at <= dt.datetime.now(dt.timezone.utc),
+            'actual ordered send/preparation timestamps required')
+    passes = [x for x in receipts[:receipts.index(dispatch)] if x.get('receipt_type') == 'qa_verdict'
+              and x.get('verdict') == 'pass' and x.get('department') == item['target_department']]
+    require(len(passes) == 1 and _review_observed_at(passes[0]['created_at']) <= checked,
+            'one preceding original formal PASS, not a caller local PASS, required')
+    # Validate the true original verdict at its original prefix; later transport
+    # observations cannot recursively become a new prerequisite for that PASS.
+    validate_verdict(root, snapshot, receipts[:receipts.index(passes[0]) + 1], passes[0])
+    require(not any(x.get('receipt_type') in {'qa_verdict','outbox_received'}
+                    and (x.get('receipt_type') == 'qa_verdict' or x.get('department') == plan['producer_department'])
+                    for x in receipts[receipts.index(passes[0]) + 1:]),
+            'a later real producer result is a new round')
+    source = _review_source_document(root, observation['send_source'])
+    require(all(source.get(k) == v for k, v in {'task_id': item['task_id'], 'action_id': item['action_id'],
+                'policy_decision_id': policy[0]['decision_id'], 'payload': data['payload']}.items()),
+            'receipt-bound exact payload and policy required')
+    body = w.safe_path(root, data['payload']['path']).read_text()
+    headers = [line for line in body.splitlines() if line.startswith(('task_id=', 'scope=', 'assignment_record_required='))]
+    require(headers == ['task_id=' + item['task_id'], 'scope=' + item['scope'], 'assignment_record_required=false']
+            and set(re.findall(r'project:[A-Za-z0-9_:.-]+', body)) == {item['scope']},
+            'unchanged exact task/scope headers required')
+    from goal_delivery_runtime import _collaboration_native
+    before = _collaboration_native(root,request['actual_target_state'])
+    # Native final wording is not an authorization grammar. Use the normal
+    # committed completion evidence's exact identity/selectors, not a title or
+    # a caller's assertion that its prose means source-only.
+    requirements = {x['requirement_id']:x for x in goal.get('completion_requirements',[])}
+    proof_pins = []
+    expected_identity = {'task_id':item['task_id'],'sender_department':plan['producer_department'],
+                         'candidate_version':plan['candidate_version'],
+                         'result_sha256':observation['original_result']['sha256']}
+    for event in w.read_jsonl(root / w.WORKFLOW_EVENTS):
+        details = event.get('details',{}); evidence = details.get('completion_evidence',{})
+        at = _review_observed_at(event.get('created_at'))
+        if (event.get('task_id') != item['task_id'] or at is None or at > sent_at
+                or details.get('completion_evidence_recorder') != item['target_department']
+                or details.get('original_authorization_pin') != goal['authorization_pin']
+                or requirements.get(evidence.get('requirement_id'),{}).get('requirement_type') != 'source_adoption'):
+            continue
+        pin = evidence.get('proof_pin'); proof = _review_source_document(root,pin)
+        if (proof.get('proof_type') == 'source_adoption' and proof.get('identity') == expected_identity
+                and proof.get('scope') == item['scope'] and pin not in proof_pins):
+            proof_pins.append(pin)
+    require(len(proof_pins) == 1, 'one normally committed original completion-source proof required')
+    proof = _review_source_document(root,proof_pins[0])
+    old_turn, old_message = w._completion_actual_final(root,before,item['target_department'],
+        turn_id=proof['source_turn_id'],message_id=proof['source_message_id'])
+    native_proof = _collaboration_native(root,proof['actual_native_completion'])
+    proven_turn, proven_message = w._completion_actual_final(root,native_proof,item['target_department'],
+        turn_id=proof['source_turn_id'],message_id=proof['source_message_id'])
+    require(type(old_turn.get('completedAt')) in {int,float}
+            and old_turn['completedAt'] == proven_turn.get('completedAt') <= checked.timestamp()
+            and old_message == proven_message
+            and w.file_digest(root,proof['visible_reply']['path']) == proof['visible_reply']
+            and w.safe_path(root,proof['visible_reply']['path']).read_bytes() == old_message['text'].encode(),
+            'genuine original completed source and original UTF8 must precede preparation')
+    sender = _collaboration_native(root, source['native_invocation'])
+    receiver = _collaboration_native(root, source['actual_continuation_observation'])
+    for native, binding in ((sender, hq), (receiver, fixed)):
+        _review_native_containers(native)
+        require(all(native.get('thread', {}).get(k) == binding[v] for k, v in
+                    {'id':'task_id','title':'title','cwd':'cwd'}.items())
+                and native['thread'].get('kind') == 'codex' and native['thread'].get('hostId') == 'local'
+                and native['thread'].get('projectId', binding['project_id']) == binding['project_id'],
+                'actual fixed same-project native participants required')
+    calls = [(t, c) for t in sender.get('turns', []) for c in t.get('items', [])
+             if c.get('id') == source.get('source_call_id')]
+    require(len(calls) == 1, 'one real original sender call required')
+    sender_turn, call = calls[0]
+    target_calls = [c for t in sender.get('turns',[]) for c in t.get('items',[])
+                    if c.get('type') == 'mcpToolCall' and c.get('server') == 'codex_app'
+                    and c.get('tool') == 'send_message_to_thread'
+                    and c.get('arguments',{}).get('threadId') == fixed['task_id']]
+    require(target_calls == [call], 'unambiguous original first-party send required')
+    require(sender_turn.get('status') in {'completed','inProgress'} and not sender_turn.get('error')
+            and call.get('type') == 'mcpToolCall' and call.get('server') == 'codex_app'
+            and call.get('tool') == 'send_message_to_thread' and call.get('status') == 'completed'
+            and not call.get('error') and call.get('arguments') == {'threadId':fixed['task_id'], 'prompt':body}
+            and _collaboration_native(root, source['actual_native_send']) == {'threadId':fixed['task_id']},
+            'exact successful first-party call/return required; no inferred delivery')
+    require(type(sender_turn.get('startedAt')) in {int,float}
+            and sender_turn['startedAt'] <= checked.timestamp(), 'actual sending source chronology required')
+    turns = sorted(receiver.get('turns', []), key=lambda x: x.get('startedAt', -1))
+    pairs = []
+    for previous, resumed in zip(turns, turns[1:]):
+        if previous.get('status') != 'interrupted' or previous.get('error') or resumed.get('error'):
+            continue
+        start, end, resume = previous.get('startedAt'), previous.get('completedAt'), resumed.get('startedAt')
+        if (any(type(v) not in {int,float} for v in (start,end,resume))
+                or not checked.timestamp() <= start <= end <= resume <= sent_at.timestamp()
+                or resumed.get('status') not in {'completed','inProgress'}):
+            continue
+        inputs = [m for m in resumed.get('items', []) if m.get('type') == 'userMessage']
+        replies = [m for m in resumed.get('items', []) if m.get('type') == 'agentMessage'
+                   and m.get('phase') in {'commentary','final_answer'} and m.get('text','').strip()]
+        if (len(inputs) == 1 and inputs[0].get('content') == [{'type':'text','text':'继续\n'}]
+                and replies and previous.get('items')
+                and any(m.get('type') == 'functionCallOutput' and m.get('name') == 'send_message_to_thread'
+                        and m.get('namespace') == 'codex_app' for m in previous['items'])
+                and all(m.get('type') != 'userMessage' for m in previous['items'])
+                and resumed['items'].index(inputs[0]) < resumed['items'].index(replies[0])):
+            pairs.append((previous, resumed))
+    require(len(pairs) == 1, 'one actual interruption followed by its same-thread continuation required')
+    # A bare continue is never a matching ACK for the old requested payload.
+    return {**data, 'kind':'post_qa_interrupted_source_recovery', 'dispatch_receipt_id': dispatch['receipt_id'],
+            'actual_requested_payload_ACK_proven':False, 'ordinary_receipt_ids':[dispatch['receipt_id']],
+            'source_pin':observation['send_source'],
+            'interrupted_turn_id':pairs[0][0]['id'], 'resumed_turn_id':pairs[0][1]['id'],
+            'original_formal_verdict_id':passes[0]['receipt_id'], 'execution_authority_added':False}
+
+
+def _post_qa_source_ack_observation(root, data, receipts, dispatch, ack):
+    """A genuine interrupted-turn reply is an observation, never a body echo."""
+    w = _workflow()
+    if (ack not in receipts or receipts.index(ack) <= receipts.index(dispatch)
+            or ack.get('receipt_type') != 'chat_ack' or ack.get('ack_nonempty') is not True
+            or any(ack.get(k) != dispatch.get(k) for k in
+                   ('task_id','department','chat_task_id','action_id','action_class','scope','policy_decision_id'))
+            or len(ack.get('evidence', [])) != 1
+            or any(ack.get(k) for k in ('approval_id','replacement_reason','supersedes_receipt_id'))
+            or any(x.get('supersedes_receipt_id') == ack.get('receipt_id') for x in receipts)):
+        return False
+    from goal_delivery_runtime import _collaboration_native
+    source = _review_source_document(root, data['source_pin'])
+    actual = _collaboration_native(root, source['actual_continuation_observation'])
+    observed = _collaboration_native(root, ack['evidence'][0])
+    try:
+        _review_native_containers(observed)
+    except ValueError:
+        return False
+    fixed = data['target_binding']
+    if (any(observed.get('thread', {}).get(k) != fixed[v] for k,v in
+           {'id':'task_id','title':'title','cwd':'cwd'}.items())
+            or observed['thread'].get('kind') != 'codex' or observed['thread'].get('hostId') != 'local'
+            or observed['thread'].get('projectId',fixed['project_id']) != fixed['project_id']):
+        return False
+    old = [t for t in actual.get('turns', []) if t.get('id') == data['interrupted_turn_id']]
+    seen = [t for t in observed.get('turns', []) if t.get('id') == data['interrupted_turn_id']]
+    stamp = _review_observed_at(ack.get('created_at'))
+    if (len(old) != 1 or len(seen) != 1 or seen[0].get('status') != 'interrupted' or seen[0].get('error')
+            or any(seen[0].get(k) != old[0].get(k) for k in ('startedAt','completedAt'))
+            or stamp is None or not old[0]['completedAt'] <= stamp.timestamp() <= dt.datetime.now(dt.timezone.utc).timestamp()):
+        return False
+    original = [m for m in old[0].get('items', []) if m.get('type') == 'agentMessage'
+                and m.get('phase') == 'commentary' and m.get('text', '').strip()]
+    matches = [m for m in seen[0].get('items', []) if m in original]
+    return len(matches) == 1
+
+
+def original_source_continuation(root, snapshot, receipts, dispatch, plan):
+    """One classification shared by READY, completed-final, and QA consumers."""
+    data = _prepared_original_result_continuation(root, snapshot, receipts, dispatch, plan)
+    if data is not None:
+        return {**data, 'kind':'prepared_original_result_observation',
+                'ordinary_receipt_ids':[dispatch['receipt_id']], 'execution_authority_added':False}
+    w = _workflow()
+    events = [e for e in w.read_jsonl(root / w.WORKFLOW_EVENTS)
+              if e.get('task_id') == snapshot['task_id'] and e.get('details', {}).get(
+                  'post_qa_source_continuation', {}).get('dispatch_receipt_id') == dispatch.get('receipt_id')]
+    if not events:
+        return None
+    if len(events) != 1:
+        raise w.WorkflowError('one immutable original source observation event required')
+    proof = events[0]['details']['post_qa_source_continuation']
+    appended = _review_observed_at(events[0].get('created_at'))
+    sent = _review_observed_at(dispatch.get('created_at'))
+    if appended is None or sent is None or not sent <= appended <= dt.datetime.now(dt.timezone.utc):
+        raise w.WorkflowError('actual ordered original source observation append time required')
+    observation = _review_source_document(root, proof['input'])
+    context = w._VALIDATION_CONTEXT.get()
+    key = ('post-QA-original-source',w.sha256_value([snapshot,receipts,plan,proof]))
+    if context is not None:
+        for path in list(context.files):
+            context.bytes(path)
+    data = context.proofs.get(key) if context is not None else None
+    if data is None:
+        data = post_qa_source_continuation(root, snapshot, receipts, plan, observation)
+        if context is not None:
+            context.proofs[key] = data
+    else:
+        from result_coordination import _committed_result
+        actual = [r for r in w._result_handoff_rows(root,snapshot['task_id'])
+                  if r.get('record_id') == data['actual_original_intake_id']]
+        if len(actual) != 1:
+            raise w.WorkflowError('one actual original SQL/native intake required')
+        _committed_result(root,actual[0])
+    if (proof.get('dispatch_receipt_id') != data['dispatch_receipt_id']
+            or proof.get('facts_sha256') != w.sha256_value(data)
+            or appended < sent):
+        raise w.WorkflowError('original observation event must retain its actual causal facts and append time')
+    return data
+
+
+def ordinary_original_source_receipt_ids(root, snapshot, receipts, plan):
+    """Only verified sends/ACK observations, never an unknown/new production row."""
+    result = set()
+    for dispatch in receipts:
+        if dispatch.get('receipt_type') != 'dispatch_sent' or dispatch.get('department') not in {
+                plan['producer_department'], plan['reviewer_department']}:
+            continue
+        data = original_source_continuation(root, snapshot, receipts, dispatch, plan)
+        if data is None:
+            continue
+        result.add(dispatch['receipt_id'])
+        if data['kind'] == 'post_qa_interrupted_source_recovery':
+            for ack in receipts:
+                if _post_qa_source_ack_observation(root,data,receipts,dispatch,ack):
+                    result.add(ack['receipt_id'])
+        if data['kind'] == 'prepared_original_result_observation':
+            for ack in receipts:
+                if (ack.get('receipt_type') == 'chat_ack' and ack.get('action_id') == dispatch['action_id']
+                        and _original_result_continuation_ack(root,snapshot,receipts,dispatch,ack,plan)):
+                    result.add(ack['receipt_id'])
+    return result
+
+
 def _same_original_source_notice(root, snapshot, receipts, dispatch, plan, *, source_pins=(), producer=False):
     """Authenticate existing clarification/routine rework without a new round."""
+    generic = original_source_continuation(root, snapshot, receipts, dispatch, plan)
+    if generic is not None:
+        return generic['intent']['target_department'] == (plan['producer_department'] if producer else plan['reviewer_department'])
+    if _congestion_approved_original_plan_notice(root, snapshot, receipts, dispatch, plan):
+        return True
+    if producer and _congestion_actual_original_SYS_resume(root, snapshot, receipts, dispatch, plan):
+        return True
+    if not producer and _congestion_actual_original_hq_resume(root, snapshot, receipts, dispatch, plan):
+        return True
+    if producer and _fe689_runtime_original_Q_source_notice(root, snapshot, receipts, dispatch, plan):
+        return True
     if producer and _fe689_original_producer_restart(root,snapshot,receipts,dispatch,plan):
         return True
     if producer and _owner_original_producer_HQ_resume(root,snapshot,receipts,dispatch,plan):
@@ -3983,21 +5507,22 @@ def _received_review_source_pins(root, snapshot, receipts, binding, plan):
             if (box.get("candidate_version") != plan["candidate_version"]
                     or binding["pin"] not in box.get("evidence", []) or plan["candidate"] not in box.get("evidence", [])):
                 continue
-            received, created = [_review_observed_at(value) for value in (row.get("created_at"), box.get("created_at"))]
-            # Existing receipt timestamps truncate fractional seconds; their
-            # recorded second is an interval, not the precise send instant.
-            second_precision = isinstance(row.get("created_at"), str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00", row["created_at"]) is not None
-            ordered = received is not None and created is not None and (
-                created < received + dt.timedelta(seconds=1) if second_precision else created <= received)
-            if (row.get("chat_task_id") != plan["reviewer_thread_id"] or received is None or created is None
-                    or not ordered or received > dt.datetime.now(dt.timezone.utc)
-                    or any(item.get("supersedes_receipt_id") == row.get("receipt_id") for item in receipts)):
-                raise w.WorkflowError("successful ordered current reviewer outbox intake required")
-            matches.append((pin, box))
-    if len(matches) != 1:
-        raise w.WorkflowError("one already received exact current reviewer box required")
-    pin, box = matches[0]
-    return _qualified_review_box_sources(root, snapshot, binding, plan, pin, box.get("qa_verdict"), require_manifest=True)
+            matches.append((row, pin, box))
+    if snapshot.get('task_id') == 'fc-20261022-department-flow-congestion-optimization-v1' and len(matches) > 1:
+        _, pin, box = _received_review_metadata_correction(root, snapshot, receipts, binding, plan, matches)
+    else:
+        for row, pin, box in matches:
+            received, created = [_review_observed_at(value) for value in (row.get('created_at'), box.get('created_at'))]
+            seconds = isinstance(row.get('created_at'), str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00', row['created_at']) is not None
+            ordered = received is not None and created is not None and (created < received + dt.timedelta(seconds=1) if seconds else created <= received)
+            if (row.get('chat_task_id') != plan['reviewer_thread_id'] or not ordered
+                    or received > dt.datetime.now(dt.timezone.utc)
+                    or any(item.get('supersedes_receipt_id') == row.get('receipt_id') for item in receipts)):
+                raise w.WorkflowError('successful ordered current reviewer outbox intake required')
+        if len(matches) != 1:
+            raise w.WorkflowError('one already received exact current reviewer box required')
+        _, pin, box = matches[0]
+    return _qualified_review_box_sources(root, snapshot, binding, plan, pin, box.get('qa_verdict'), require_manifest=True, receipts=receipts)
 
 
 def _verdict_review_source_pins(root, snapshot, receipts, receipt, binding, plan):
@@ -4028,7 +5553,8 @@ def _verdict_review_source_pins(root, snapshot, receipts, receipt, binding, plan
     if len(matches) != 1:
         return []
     row, pin = matches[0]
-    return _qualified_review_box_sources(root, snapshot, binding, plan, pin, receipt.get("verdict"), receipts=receipts)
+    return _qualified_review_box_sources(root, snapshot, binding, plan, pin, receipt.get("verdict"),
+        require_manifest=(snapshot.get("task_id") == "fc-20261022-department-flow-congestion-optimization-v1"), receipts=receipts)
 
 
 def _saved_original_source_index(root, snapshot, *, plan=None, source_pins=None):
@@ -5543,8 +7069,10 @@ def _assigned_review_round(root, snapshot, receipts, plan, *, source_pins=None):
     if native and (plan.get("reviewer_thread_id") != w.department_registry(root)[reviewer]["chat_binding"]["task_id"]
                    or plan.get("scope") != native_proof.get("scope")):
         raise w.WorkflowError("exact original multi-goal reviewer thread/scope required")
+    ordinary_ids = ordinary_original_source_receipt_ids(root,snapshot,receipts,plan)
     history = [(i, row) for i, row in enumerate(receipts)
-               if row.get("department") in {reviewer, "qa", "qa-technical"}]
+               if row.get("department") in {reviewer, "qa", "qa-technical"}
+               and row.get("receipt_id") not in ordinary_ids]
     if any(row.get("department") != reviewer for _, row in history):
         return None
     sends = [(i, row) for i, row in history
@@ -5572,6 +7100,10 @@ def _assigned_review_round(root, snapshot, receipts, plan, *, source_pins=None):
                             and row.get("scope") == plan.get("scope"))
         if strict_candidate:
             selected.append((send_index, row))
+        elif _congestion_approved_original_plan_notice(root, snapshot, receipts, row, plan):
+            # The exact HQ implementation/recovery transport resumes this
+            # original assignment; pending notice intake is not a new ACK.
+            continue
         elif (_saved_original_goal_continuation(root, snapshot, receipts, row, plan) is not None
               or _same_goal_hq_native_continuation(root, snapshot, receipts, row, plan) is not None
               or _actual_original_hq_20261013_notice(root, snapshot, receipts, row, plan) is not None
@@ -5782,9 +7314,9 @@ def _original_paid2_frozen_plan_read(root, snapshot, binding, plan):
     Returns the original IDs. Context ends before the current consumer resumes;
     historical context prohibits policy, receipt and all control writes.
     """
-    from department_rotation import historical_assignment_validator, validation_registry, _records, _id
+    from department_rotation import historical_assignment_validator, validation_registry, _records, _id, metadata_only_validation
     task = 'fc-20261019-chatgpt-paid2-execution-followthrough-v1'
-    if snapshot.get('task_id') != task or validation_registry(root) is not None:
+    if snapshot.get('task_id') != task or (validation_registry(root) is not None and not metadata_only_validation(root)):
         return False
     base = 'logs/handoffs/2026-10-19-chatgpt-paid2-task-transfer/'
     plan_pin = {'path': base + 'current-account-prelaunch-v1/A1-review-plan-v3-20261019.json',
@@ -5860,9 +7392,9 @@ def _original_next20_frozen_plan_read(root, snapshot, binding, plan):
     The original IDs are returned unchanged. Current receipt writers execute
     after this context has ended and retain all current identity/policy guards.
     """
-    from department_rotation import historical_assignment_validator, validation_registry, _records, _id
+    from department_rotation import historical_assignment_validator, validation_registry, _records, _id, metadata_only_validation
     task = 'fc-20261015-industry-keywords-site-coverage-plan-v1'
-    if snapshot.get('task_id') != task or validation_registry(root) is not None:
+    if snapshot.get('task_id') != task or (validation_registry(root) is not None and not metadata_only_validation(root)):
         return False
     plan_pin = {'path': 'logs/handoffs/2026-10-16-industry-keywords-real-execution-v1/assistant3-V5-limited-intake-v1/exact-original-A1-review-plan-restore.json',
                 'sha256': 'e71269b96b8d7f76f653edb9f0ddaaccbab02cce616edffe77a0f8a2ac15c8b3', 'size': 1074}
@@ -6384,6 +7916,131 @@ def _original_congestion_pre_verdict_successor(root, snapshot, receipts, old_bin
         return False
 
 
+def _fe689_runtime_stage_pre_verdict_successor(root, snapshot, receipts, old_binding, plan):
+    """Consume this original unverdicted task's real rework and received source.
+
+    A local CAS rejection is not converted to a formal blocked QA verdict.
+    Current producer bytes, the original sole reviewer/assignment and ordinary
+    changed-scope checks remain mandatory. Other tasks and formal QA are not
+    admitted by this reader.
+    """
+    task = 'fc-20261023-chatgpt-fe689-runtime-adoption-stage-v1'
+    scope = 'project:flashcast:chatgpt-fe689:runtime-adoption-stage:20261023:v1'
+    if snapshot.get('task_id') != task:
+        return False
+    w = _workflow()
+    try:
+        if (any(r.get('receipt_type') == 'qa_verdict' for r in receipts)
+                or 'rework_of' in plan or old_binding != snapshot.get('qa_review_plan')
+                or snapshot.get('current_state') in w.TERMINAL_STATES
+                or w.validate_workflow_events(root, task)):
+            return False
+        actual_receipts, invalid = w._validate_receipt_chain(root, task)
+        if invalid or actual_receipts != receipts:
+            return False
+        goal = _goal(root, snapshot)
+        contract = _review_source_document(root, snapshot.get('goal_contract'))
+        if (goal is None or goal.get('primary_owner') != 'system-development'
+                or goal.get('producer_departments') != ['system-development']
+                or goal.get('responsible_assistant') != 'operations-assistant'
+                or goal.get('authorized_scope') != [scope]
+                or any(contract.get(k) != goal.get(k) for k in GOAL_IDENTITY)
+                or contract.get('human_authorization') != goal.get('human_authorization')
+                or w.file_digest(root, contract['human_authorization']['evidence_path']) != goal.get('authorization_pin')):
+            return False
+        if (goal.get('parent_task_id') != 'fc-20261022-chatgpt-fe689-paused-draft-admission-repair-v1'
+                or snapshot.get('goal_contract', {}).get('sha256') != 'f06f371a593adcf8002eaa312e6dfaf6c9baa9d03df2055bcd5b422d8c17c725'
+                or goal.get('required_execution_actions') != []
+                or goal.get('production_write_allowed') is not False
+                or goal.get('external_permission_issued') is not False):
+            return False
+        old = load_plan(root, snapshot, old_binding)
+        same = ('task_id', 'action_id', 'action_class', 'scope', 'producer_department',
+                'reviewer_department', 'reviewer_thread_id', 'controller_department',
+                'controller_thread_id', 'single_final_reviewer', 'risk_level',
+                'production_write_allowed', 'external_permission_issued')
+        if any(plan.get(k) != old.get(k) for k in same):
+            return False
+        registry = w.department_registry(root)
+        producer = registry['system-development']['chat_binding']
+        reviewer = registry['operations-assistant']['chat_binding']
+        if (plan.get('reviewer_thread_id') != reviewer['task_id']
+                or producer.get('project_id') != reviewer.get('project_id')
+                or any(b.get('cwd') != str(Path(root).resolve()) for b in (producer, reviewer))):
+            return False
+        events = w.read_jsonl(root / w.WORKFLOW_EVENTS)
+        bound = [e for e in events if e.get('task_id') == task
+                 and e.get('details', {}).get('qa_review_plan_bound') == old_binding]
+        if len(bound) != 1:
+            return False
+        producers = [r for r in receipts if r.get('department') == 'system-development'
+                     and r.get('receipt_type') == 'outbox_received']
+        if not producers:
+            return False
+        latest = producers[-1]
+        pins = [p for p in latest.get('evidence', []) if p.get('path', '').endswith('.json')]
+        if len(pins) != 1:
+            return False
+        pin = pins[0]; box = _review_source_document(root, pin)
+        if (box.get('candidate_version') != plan.get('candidate_version')
+                or not _producer_candidate_bound(root, plan, pin, box)):
+            return False
+        rows = w._result_handoff_rows(root, task)
+        from scoped_candidate_adoption import _committed
+        decisions = []
+        for row in rows:
+            if (row.get('event') != 'controller_decision' or row.get('decision') != 'rework'
+                    or row.get('coordinator_role') != 'operations-assistant'
+                    or row.get('responsible_assistant') != 'operations-assistant'
+                    or row.get('next_owner') != 'system-development'):
+                continue
+            prior_pin = row.get('outbox')
+            prior_box = _review_source_document(root, prior_pin)
+            if (prior_box.get('department') == 'system-development' and prior_box.get('task_id') == task
+                    and (prior_pin == old.get('candidate') or prior_box.get('candidate_manifest') == old.get('candidate'))):
+                prior_intake = [p for p in rows if p.get('event') == 'controller_received'
+                                and p.get('outbox') == prior_pin
+                                and p.get('coordinator_role') == 'operations-assistant']
+                if len(prior_intake) != 1 or rows.index(prior_intake[0]) >= rows.index(row):
+                    return False
+                _committed(root, prior_intake[0]); _committed(root, row)
+                decisions.append(row)
+        if len(decisions) != 1:
+            return False
+        decision = decisions[0]
+        ident = {'task_id': task, 'sender_department': 'system-development',
+                 'candidate_version': box['candidate_version'], 'result_sha256': pin['sha256']}
+        matches = lambda row: all(row.get(k) == v for k, v in ident.items()) and row.get('outbox') == pin
+        queued = [row for row in rows if matches(row) and row.get('event') == 'notification_queued'
+                  and row.get('target_department') == 'operations-assistant']
+        received = [row for row in rows if matches(row) and row.get('event') == 'controller_received'
+                    and row.get('coordinator_role') == 'operations-assistant'
+                    and row.get('responsible_assistant') == 'operations-assistant']
+        if len(queued) != 1 or len(received) != 1 or rows.index(queued[0]) >= rows.index(received[0]):
+            return False
+        _committed(root, received[0])
+        w._validate_goal_completed_result(root, queued[0], producer['task_id'],
+                                         through_receipt_id=latest['receipt_id'])
+        stamps = [_review_observed_at(p.get('created_at')) for p in (decision, queued[0], received[0])]
+        observed = _review_observed_at(queued[0].get('reply_observed_at'))
+        latest_at = _review_observed_at(latest.get('created_at'))
+        if (any(t is None for t in stamps) or stamps != sorted(stamps)
+                or observed is None or latest_at is None
+                or not stamps[0] <= observed <= stamps[1] <= stamps[2] <= dt.datetime.now(dt.timezone.utc)
+                or not observed <= latest_at <= dt.datetime.now(dt.timezone.utc)):
+            return False
+        return {'schema_version': 1, 'kind': 'original_fe689_runtime_stage_pre_verdict_source_successor',
+                'prior_plan': old_binding['pin'], 'producer_outbox_receipt_id': latest['receipt_id'],
+                'producer_outbox': pin, 'original_rework_record_id': decision['record_id'],
+                'original_rework_record_hash': decision['record_hash'],
+                'notification_queued_record_id': queued[0]['record_id'],
+                'notification_queued_record_hash': queued[0]['record_hash'],
+                'controller_received_record_id': received[0]['record_id'],
+                'controller_received_record_hash': received[0]['record_hash']}
+    except (w.WorkflowError, OSError, ValueError, TypeError, KeyError, AttributeError):
+        return False
+
+
 def _validate_rework(root, snapshot, receipts, old_binding, plan):
     w = _workflow()
     goal = _goal(root, snapshot)
@@ -6391,7 +8048,8 @@ def _validate_rework(root, snapshot, receipts, old_binding, plan):
     verdicts = [row for row in receipts if row.get("receipt_type") == "qa_verdict"]
     original_pre_verdict = (_owner_original_pre_verdict_successor(root,snapshot,receipts,old_binding,plan)
                             or _fe689_original_pre_verdict_successor(root,snapshot,receipts,old_binding,plan)
-                            or _original_congestion_pre_verdict_successor(root,snapshot,receipts,old_binding,plan))
+                            or _original_congestion_pre_verdict_successor(root,snapshot,receipts,old_binding,plan)
+                            or _fe689_runtime_stage_pre_verdict_successor(root,snapshot,receipts,old_binding,plan))
     if not original_pre_verdict and (goal is None or not verdicts or verdicts[-1].get("verdict") != "blocked"
             or plan.get("rework_of") != verdicts[-1].get("receipt_id")
             or verdicts[-1].get("department") != plan["reviewer_department"]):
@@ -7628,8 +9286,10 @@ def validate_verdict(root: Path, snapshot: dict, receipts: list, receipt: dict) 
             or any(receipt.get(k) != plan[k] for k in ("task_id", "action_id", "action_class", "scope"))):
         raise w.WorkflowError("verdict differs from exact single-reviewer identity")
     source_pins = _verdict_review_source_pins(root, snapshot, receipts, receipt, binding, plan)
+    ordinary_ids = ordinary_original_source_receipt_ids(root,snapshot,receipts,plan)
     indices = [(i, r) for i, r in enumerate(receipts)
                if r.get("department") == reviewer and r.get("receipt_type") in {"dispatch_sent", "dispatch_failed"}
+               and r.get("receipt_id") not in ordinary_ids
                and not _original_owner_direct_authority_notice(root, snapshot, binding, plan, receipts, r)]
     inherited = None
     direct = None
@@ -7776,7 +9436,8 @@ def validate_verdict(root: Path, snapshot: dict, receipts: list, receipt: dict) 
                                and current_plan["candidate"] in later.get("evidence", [])
                                and later.get("chat_task_id") == current_plan["reviewer_thread_id"]
                                and later.get("scope") == current_plan["scope"])
-            if not (successor_bound or _same_goal_rework_notice(root, snapshot, receipts, later, current_plan)
+            if not (successor_bound or original_source_continuation(root, snapshot, receipts, later, current_plan) is not None
+                    or _same_goal_rework_notice(root, snapshot, receipts, later, current_plan)
                     or _same_goal_functional_result_notice(root, snapshot, receipts, later, current_plan)):
                 raise w.WorkflowError("later reviewer dispatch must retain its own authenticated round")
     _validate_goal_acceptance(root, snapshot, receipts, box, receipt.get("verdict"),

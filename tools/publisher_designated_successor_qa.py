@@ -7,7 +7,7 @@ import workflow_control as w
 
 BASE='drafts/operations/fc-20261007-owner-publisher-execution-takeover-v1/'
 CONTRACT='publisher-three-successor-v2-and-handover-v4'
-QA='<LOCAL_TASK_ID>'
+QA='example-native-11a474422a187c32'
 TASK='fc-20261007-publisher-three-execution-admission-qa-v2'
 CV='publisher-three-execution-admission-control-v2-20261007'
 ACTION='qa-publisher-three-execution-admission-v2'

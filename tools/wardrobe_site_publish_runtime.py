@@ -79,7 +79,7 @@ def _remote_main():
                                 capture_output=True, text=True, timeout=5, check=True).stdout.strip()
     except (OSError, subprocess.SubprocessError) as error:
         raise w.WorkflowError("current original website repository unavailable") from error
-    if origin not in {"git@github.com:wangchaozhuanyong/zhuangxiuwangzhan.git",
+    if origin not in {"user-3de132cd98be@example.invalid:wangchaozhuanyong/zhuangxiuwangzhan.git",
                       "https://github.com/wangchaozhuanyong/zhuangxiuwangzhan.git"}:
         raise w.WorkflowError("original website repository remote required")
     try:

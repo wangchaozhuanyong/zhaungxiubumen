@@ -2493,7 +2493,14 @@ def learning_freshness(review_after: str, last_verified_at: str) -> str:
     return "stale" if deadline < now_utc().astimezone(BUSINESS_TZ).date() else "current"
 
 
-def department_learning_effective(root: Path, department: str, *, phase: str = "startup",
+def department_learning_effective(root: Path, department: str, **kwargs):
+    import workflow_control as workflow
+    from readonly_work_view_cache import inventory_session
+    with workflow.request_validation_context(), inventory_session(root):
+        return _department_learning_effective_view(root,department,**kwargs)
+
+
+def _department_learning_effective_view(root: Path, department: str, *, phase: str = "startup",
                                  work_type: str = "general", known_rules: str = "",
                                  include_reference_details: bool = False,
                                  triggers: tuple[str, ...] = ()) -> tuple[dict[str, Any], list[Path]]:
@@ -3625,7 +3632,7 @@ def dispatch_plan(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any],
         except workflow.WorkflowError as exc:
             raise OpsError(str(exc)) from exc
         producers = goal_delivery["producer_departments"]
-        assistant = goal_delivery["responsible_assistant"]
+        assistant = goal_delivery.get("responsible_assistant")
         dependencies = {}
         for item in goal_delivery["dependencies"]:
             if isinstance(item, dict) and "depends_on" in item:
@@ -3634,9 +3641,9 @@ def dispatch_plan(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any],
                 if any(dep not in producers for dep in item["depends_on"]):
                     raise OpsError("goal dependency references unplanned producer")
                 dependencies[item["department"]] = item["depends_on"]
-        dependencies[assistant] = list(producers)
+        if assistant:dependencies[assistant] = list(producers)
         route = {"id": "complete-goal", "required_departments": list(producers),
-                 "parallel_departments": list(producers), "follow_up_departments": [assistant],
+                 "parallel_departments": list(producers), "follow_up_departments": [assistant] if assistant else [],
                  "department_dependencies": dependencies, "approval_required": False}
         route_source = "complete_goal"
     verification_ttl_hours = int(

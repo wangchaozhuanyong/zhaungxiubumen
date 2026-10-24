@@ -5,7 +5,7 @@ import original_task_publisher_handover as handover
 ROOT=Path('<PROJECT_ROOT>')
 TASK='fc-20260928-keyword-page-answer-implementation-v1'
 PUBLISHER='example-native-f4ba16119c32b000'
-QA='<LOCAL_TASK_ID>'
+QA='example-native-11a474422a187c32'
 PROJECT='<LOCAL_PROJECT_ID>'
 QA_TASK='fc-20261007-publisher-three-native-read-control-qa-v1'
 QA_ACTION='qa-publisher-three-native-read-control-v1'

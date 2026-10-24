@@ -1,24 +1,12 @@
 ---
 name: flashcast-system-development
-description: 开发和维护FLASH CAST部门系统的Python控制源码、任务流转、结果接续与源码导出；官网页面和网站代码交装修网站开发。
+description: FLASH CAST部门系统Python源码、事件与运行维护；独立于装修官网。
 ---
 
 # 部门系统开发
 
-准确角色为 `system-development`，源码和所有可控输出归本公司项目。读取现行AGENTS、注册表、任务合同及本任务goal；仅按完整目标修改受影响源码、配置和对应验证。
+原SYS独立实现、自检、鲜读逐文件CAS采用、备份/journal/回滚检查和真实入口读回；完成直报HQ，不交助理审批。共同流程只在[现行正文](../../playbooks/department-system-current.md)。普通相关文件/测试/来源修复在原目标内自行完成。
 
-本项目是Python标准库协调系统，当前业务目录非Git；公开源码仓库位于项目内 `releases/zhaungxiubumen`。遵守现有 `goal_delivery_runtime.py`、`workflow_control.py` 与实际采用/CAS接口，不另建派工或通知系统。
+本目录非Git，公开源码在releases/zhaungxiubumen，保护并行WIP、冻结源、当前/暂停任务、业务主账和历史授权。所有可控输出归本项目。无准确任务授权不推送/部署、不改官网/CMS/Ads/账号或产生费用。平台能力缺口具名，只暂停依赖。
 
-一次完成制作、自检、必要修复和准确交付；已采用成果复用，返工只验证受影响差异。完整结果交唯一未参与制作的负责助理，默认助理2；不自审、不恢复历史QA链、不逐小步骤重新申请原授权。
-
-保护并行修改。先冻结受影响文件的当前指纹；候选放在本任务独立目录，提交逐文件diff及必要验证。配置采用由有权助理按准确CAS完成，禁止整目录覆盖业务主账、账号绑定、健康及历史回执。
-
-系统修复交付须按[共同发布流程](../../playbooks/department-system-current.md#发布计划与及时接续) 明确准确采用、入口读回和源码推送是否属于本批目标。只改规则的推送使用准确文件清单和重封装manifest，不携带并行未采用控制源码。验收/采用/推送分别回报，不能仅交候选后遗留无负责人后续。
-
-不修改装修官网源码、不保存CMS、不操作Ads/Maps、不继承旧许可。源码推送沿任务的准确授权与项目内仓库执行；没有本任务推送授权时交候选。平台自动任务仅交迁移表，不手改平台配置。
-
-回报使用本固定聊天真实非空结果与V2最终outbox，关联原task、版本、指纹、负责助理、完成与未完成范围、下一动作和解除条件。准入未完成时如实标记；队列文件不等于消息已发送。
-
-沿原任务向已指定负责助理返回成果属于同原目标持续授权；按共同规则核对原人类来源、固定身份、健康、当前空闲状态与精确policy后发送一次，不把候选版本更新或上次发送次数解释为授权失效。收尾读取有效学习的work_boundary，未发通知保留发送责任；助理忙碌时排队，不能编造送达。
-
-运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department system-development --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。
+首次department-learning-effective --department system-development --phase startup；续办--phase resume，未变规则复用。

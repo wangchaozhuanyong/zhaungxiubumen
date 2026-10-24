@@ -1125,6 +1125,35 @@ def _prepare_adoption_notice(root, request):
         w.atomic_write_json(w.snapshot_path(root, request['task_id']), snapshot)
 
 
+def _record_original_result_continuation_prepared(root, request, data, policy):
+    """Append the verified normal preparation to the existing event journal.
+
+    This records only the finite read/source/ACK command and its actual policy.
+    It neither sends the message nor alters an assignment, permit or plan.
+    """
+    from goal_delivery_runtime import restore_goal
+    item = data['intent']
+    frozen = {**data, 'action_id': item['action_id'], 'policy_decision_id': policy['decision_id']}
+    with w.workflow_lock(root):
+        snapshot = restore_goal(root, w.read_json(w.snapshot_path(root, item['task_id'])))
+        if (snapshot.get('current_state') in w.TERMINAL_STATES
+                or snapshot.get('goal_contract') != item['goal_contract']
+                or snapshot['goal_delivery']['authorization_pin'] != item['authorization_pin']
+                or any(w.file_digest(root, pin['path']) != pin for pin in
+                       (item['goal_contract'], item['authorization_pin'], item['original_plan'], item['original_result'], data['payload']))):
+            raise w.WorkflowError('original result continuation changed during normal preparation')
+        events = [e for e in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS)
+                  if e.get('task_id') == item['task_id'] and e.get('details', {}).get(
+                      'original_result_continuation_prepared', {}).get('action_id') == item['action_id']]
+        if events:
+            if len(events) != 1 or events[0]['details']['original_result_continuation_prepared'] != frozen:
+                raise w.WorkflowError('original continuation action already frozen to different bytes/policy')
+            return
+        w.append_workflow_event(root, item['task_id'], snapshot['current_state'],
+                                {'original_result_continuation_prepared': frozen,
+                                 'actual_message_sent': False, 'external_permission_issued': False})
+
+
 def prepare_message(root, request):
     """The real preparation entry consumes authorization and exact policy checks."""
     if request.get('result_notification') is not None:
@@ -1154,6 +1183,15 @@ def prepare_message(root, request):
     checked = authorization_precheck(root,request['task_id'],request)
     if checked['status'] != 'within_original_authorization':
         return {'status':'blocked','authorization_precheck':checked,'message_sent':False}
+    # The normal authority/policy checks still run. A caller-provided label has
+    # no effect: only an exact command for already received immutable bytes can
+    # acquire an observation-only event, never a fresh production exemption.
+    from goal_delivery_runtime import restore_goal
+    from qa_review_plan import original_result_continuation_intent
+    from department_autonomy import message_route
+    autonomous_route=message_route(root,restore_goal(root,w.read_json(w.snapshot_path(root,request['task_id']))),request)
+    ordinary_snapshot = restore_goal(root, w.read_json(w.snapshot_path(root, request['task_id'])))
+    ordinary_continuation = None if autonomous_route else original_result_continuation_intent(root, ordinary_snapshot, request)
     native_queue = request.get('delivery_mode') == 'official_native_queue'
     if native_queue:
         from department_event_dispatcher import native_queue_capability
@@ -1251,7 +1289,10 @@ def prepare_message(root, request):
     fields = {k:request[k] for k in ('task_id','action_id','action_class','scope','source_project_id',
         'target_project_id','target_department','target_thread_id','target_thread_title','target_cwd',
         'target_sidebar_section_id','payload_sha256')}
-    policy,_ = w.policy_check(root,department=request['sender_department'],**fields)
+    policy,_ = w.policy_check(root,department=request['sender_department'],**fields,
+                             **({'original_message':request} if ordinary_continuation is not None or autonomous_route else {}))
+    if ordinary_continuation is not None and policy['status'] == 'allow':
+        _record_original_result_continuation_prepared(root, request, ordinary_continuation, policy)
     return {'status':('ready_to_queue' if native_queue else 'ready_to_send') if policy['status']=='allow' else 'blocked',
             'authorization_precheck':checked,'policy_decision':policy,
             'payload':payload,'message_sent':False,'external_permission_issued':False,
@@ -1390,12 +1431,41 @@ def collaboration_source(root, record):
             'proves_completion':False,'proves_next_action':False}
 
 
+def observe_post_qa_source_continuation(root, input_path):
+    """Append verified source facts; never replace a dispatch/ACK/goal/QA row."""
+    from goal_delivery_runtime import restore_goal
+    import qa_review_plan as q
+    root = Path(root).resolve()
+    pin = w.file_digest(root, input_path)
+    with w.workflow_lock(root):
+        item = q._review_source_document(root, pin)
+        snapshot = restore_goal(root, w.read_json(w.snapshot_path(root, item['task_id'])))
+        rows, bad = w._validate_receipt_chain(root, item['task_id'])
+        if bad:
+            raise w.WorkflowError('intact original receipts required before source observation')
+        plan = q.load_plan(root, snapshot)
+        facts = q.post_qa_source_continuation(root, snapshot, rows, plan, item)
+        proof = {'input':pin, 'dispatch_receipt_id':facts['dispatch_receipt_id'],
+                 'facts_sha256':w.sha256_value(facts)}
+        events = [e for e in w.read_jsonl(root / w.WORKFLOW_EVENTS)
+                  if e.get('task_id') == item['task_id'] and e.get('details', {}).get(
+                      'post_qa_source_continuation', {}).get('dispatch_receipt_id') == facts['dispatch_receipt_id']]
+        if events:
+            if len(events) != 1 or events[0]['details']['post_qa_source_continuation'] != proof:
+                raise w.WorkflowError('original source observation already frozen; no replacement')
+            return {'status':'duplicate_ignored', 'event_id':events[0]['event_id'], 'ACK_created':False}
+        event = w.append_workflow_event(root, item['task_id'], snapshot['current_state'],
+            {'post_qa_source_continuation':proof, 'external_permission_issued':False})
+        return {'status':'source_facts_observed', 'event_id':event['event_id'],
+                'ACK_created':False, 'responsibility_or_candidate_or_QA_changed':False}
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root',default=str(Path(__file__).resolve().parents[1]))
     p.add_argument('command',choices=['recover-source','recover-queued-assignment',
                                       'prepare-message','record-technical-responsibility',
-                                      'queue-oldhouse-technical'])
+                                      'queue-oldhouse-technical','observe-post-qa-source'])
     p.add_argument('--input')
     p.add_argument('--request')
     p.add_argument('--prepared')
@@ -1409,6 +1479,8 @@ def main():
         p.error('--input is required for this command')
     elif a.command == 'recover-queued-assignment':
         result = recover_queued_assignment(root, a.input)
+    elif a.command == 'observe-post-qa-source':
+        result = observe_post_qa_source_continuation(root,a.input)
     elif a.command == 'record-technical-responsibility':
         result = record_oldhouse_technical_source(root,a.input)
     else:

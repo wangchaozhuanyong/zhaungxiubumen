@@ -2,21 +2,20 @@
   "schema_version": "2.0",
   "updated_at": "2026-10-10",
   "routing_principles": [
-    "总部完整目标和准确权限；部门整批执行到发布；空闲合格助理一次验收并实际接续；总部只读结论。当前共同规则唯一为playbooks/department-system-current.md。",
-    "只调用完整目标所需的最少专业角色，独立工作并行、前置依赖顺序，原主负责人收回开发/发布子结果。",
-    "来源和目标按注册表+应用现场真实项目/固定聊天/标题/cwd/分组/健康核对，精确预检成功及工具真实发送才记sent。",
-    "总部完成真实派工和负责助理责任交接后可以结束协调。负责助理在本批在途期间用 wait_threads 聚合完成事件，每次最多60秒、按固定聊天去重、保存cursor；结果到达后逐项收取、验收并落实下一实际动作。部门active时普通消息排队。队列不能唤醒已结束聊天；中断保留原task/turn/cursor，先核实际回执再恢复。保留已有每日兜底，不新建高频轮询、监控窗口或后台循环。",
-    "真实生产动作仍须准确授权来源、执行者、范围、事实/必要自检、备份与可执行回滚以及既有合法通道；CMS保存交publishing；本公司部门系统控制源码、规则与源码导出由system-development负责，装修官网代码/构建/部署交designated-development，Ads操作归付费部。助理验收不授账号权限，不绕401、issuer、单次许可或通道。老板已给付费任务的直接执行授权保持有效，不重新加入旧QA/HQ阻断链；只按原精确授权处理，不能扩大到其他Ads、费用或项目。秘密、Cookie、Token和完整客户PII不存不读出。旧任务的准确执行限制留在原任务合同；日常路由按当前完整目标和真实授权。",
-    "部门系统源码交system-development，官网源码交designated-development；旧任务保留原执行者与许可，当前目标按真实授权接续。"
+    "一个任务一个专业主负责人，自检并完成已授权实际效果，完成一次直报总部知悉。",
+    "无助理派工/逐步审批；HQ只协调跨专业和提交真正敏感事项。",
+    "准确账号/项目/对象/范围/预算期限/版本/幂等/未知效果及平台本人边界保持，已有授权无需重复批准。",
+    "原任务授权和历史QA/回执只读保护，不修改旧来源或原业务负责人。",
+    "沿现有官方队列和真实完成/收取事件接续，既有18:00兜底保留，不新增高频轮询。"
   ],
   "execution_policy": {
-    "specialist_route_controller_action": "dispatch_complete_goal_and_assign_responsible_assistant",
+    "specialist_route_controller_action": "dispatch_complete_goal_to_original_professional_owner",
     "controller_may_execute_specialist_work": false,
     "dispatch_failure": "blocked_no_controller_fallback",
     "message_success_required_for_sent_status": true,
     "dependency_mode": "explicit_graph_with_legacy_parallel_follow_up_fallback",
     "HQ_wait_required_after_handoff": false,
-    "reviewer_source": "committed_goal_responsibility_or_idle_qualified_preacceptance_selection",
+    "reviewer_source": "not_required_for_current_tasks",
     "routine_steps_require_new_HQ_decision": false
   },
   "routes": [
@@ -40,10 +39,10 @@
         "paid-growth-data-2": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
+      "acceptance_from_goal_capability": false,
       "external_action_requires_exact_authorization": true,
-      "purpose": "同一付费部的ChatGPT执行窗口；技能知识业务数据共用；原已派目标保持原执行者，不自动转移许可。"
+      "purpose": "同一付费部的ChatGPT执行窗口；技能知识业务数据共用；原已派目标保持原执行者，不自动转移许可。",
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "department-system-development",
@@ -66,28 +65,10 @@
         "system-development": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant-2",
-      "acceptance_from_goal_capability": true,
+      "acceptance_from_goal_capability": false,
       "external_action_requires_exact_authorization": true,
-      "purpose": "新部门系统目标走本公司固定系统开发部；旧已派任务不重路由，官网仍走原指定开发。"
-    },
-    {
-      "id": "operations-assistant-control-r0",
-      "match_any": [
-        "总部助理闭环控制准入R0"
-      ],
-      "required_departments": [
-        "operations-assistant"
-      ],
-      "parallel_departments": [
-        "operations-assistant"
-      ],
-      "follow_up_departments": [],
-      "department_dependencies": {},
-      "approval_required": false,
-      "responsible_assistant_default": "operations-assistant",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "purpose": "新部门系统目标走本公司固定系统开发部；旧已派任务不重路由，官网仍走原指定开发。",
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "fixed-department-result-reconciliation",
@@ -125,9 +106,9 @@
       "approval_required": false,
       "external_write_permitted": false,
       "purpose": "Original result evidence reconciliation and bounded next-work proposals only; no repeated candidate production or external execution.",
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "publishing-department-internal-onboarding",
@@ -147,9 +128,9 @@
       },
       "approval_required": false,
       "external_write_permitted": false,
-      "responsible_assistant_default": "operations-assistant-2",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "organic-sales-evidence-bounded-support",
@@ -167,9 +148,9 @@
         "sales": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "organic-measurement-bounded-support",
@@ -187,9 +168,9 @@
         "paid-growth-data": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "organic-short-video-skill-learning",
@@ -209,9 +190,9 @@
       "approval_required": false,
       "approved_method_reference_manifest": "<PROJECT_ROOT>/data/learning/visual-short-video-method-reference-v1.json",
       "raw_external_subskills_invocation_approved": false,
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "organic-execution-governance",
@@ -230,9 +211,9 @@
         "operations": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "seo-content-research-work",
@@ -254,9 +235,9 @@
         "seo-content-research": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "local-seo-maps-work",
@@ -277,9 +258,9 @@
         "local-seo-maps": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "chinese-rm100-google-ads-local-maps-audit",
@@ -301,9 +282,9 @@
         "content-organic-website": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "google-ads-rm100-budget-plan",
@@ -322,9 +303,9 @@
         "paid-growth-data": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "google-ads-prelaunch-zero-spend",
@@ -346,9 +327,9 @@
         "sales": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "google-ads-launch-readiness-draft",
@@ -369,9 +350,9 @@
         "paid-growth-data": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "organic-measurement-source-refresh-readonly",
@@ -393,9 +374,9 @@
         "content-organic-website": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "google-ads-audit",
@@ -437,9 +418,9 @@
         "paid-growth-data": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "analytics-source-selection-regression",
@@ -459,9 +440,9 @@
         "paid-growth-data": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "conversion-diagnosis",
@@ -515,9 +496,9 @@
         "content-organic-website": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "content-campaign",
@@ -553,9 +534,9 @@
         "seo geo推广部门2",
         "seo geo推广部门3"
       ],
-      "responsible_assistant_default": "operations-assistant",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "visual-image-production",
@@ -584,9 +565,9 @@
         "visual-design-video": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "visual-video-production",
@@ -621,9 +602,9 @@
       "exclude_if_any": [
         "短视频自然增长技能学习"
       ],
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "website-cro",
@@ -664,9 +645,9 @@
         "content-organic-website": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "seo-review",
@@ -705,9 +686,9 @@
         "content-organic-website": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "lead-quality",
@@ -734,9 +715,9 @@
         "paid-growth-data": []
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     },
     {
       "id": "full-growth-review",
@@ -771,9 +752,9 @@
         ]
       },
       "approval_required": false,
-      "responsible_assistant_default": "operations-assistant-3",
-      "acceptance_from_goal_capability": true,
-      "external_action_requires_exact_authorization": true
+      "acceptance_from_goal_capability": false,
+      "external_action_requires_exact_authorization": true,
+      "delivery_model": "department_autonomous_delivery_v1"
     }
   ],
   "fallback": {
@@ -795,5 +776,6 @@
     "technical-QA2-initial-independent-readonly",
     "existing-deliverable-qa-only-review"
   ],
+  "delivery_model": "department_autonomous_delivery_v1",
   "public_template": true
 }

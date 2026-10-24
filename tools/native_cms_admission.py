@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import workflow_control as wc
 
-QA_THREAD = "<LOCAL_TASK_ID>"
+QA_THREAD = "example-native-11a474422a187c32"
 PROJECT_ID = "<LOCAL_PROJECT_ID>"
 FIELDS = {"content_en", "content_zh"}
 IDENTITY = ("task_id", "action_id", "candidate_version", "record_id", "slug",

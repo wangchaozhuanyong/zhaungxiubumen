@@ -1,6 +1,6 @@
 # 成熟女声装修讲解（2026-10-14老板批准）
 
-这是原六类视频的呈现方式，不另建第七类知识库或第二套生产流程。只在明确配音任务启用；保留现行封面、双语、细节、知识去重、轻抖、HyperFrames和唯一助理验收规则。展示片默认≤30秒不变，本模式45–60秒；不上传/发布、不收费、不安装Voicebox或改共享Skill运行时。
+这是原六类视频的呈现方式，不另建第七类知识库或第二套生产流程。只在明确配音任务启用；保留现行封面、双语、细节、知识去重、轻抖、HyperFrames和原专业自检与真实效果规则。展示片默认≤30秒不变，本模式45–60秒；不上传/发布、不收费、不安装Voicebox或改共享Skill运行时。
 
 ## 已认可的制作基线
 
@@ -20,7 +20,7 @@
 
 1. 首次制作五种原创成年女声：A克制女设计师、B温暖知性顾问、C低沉圆润生活讲述、D干练清楚讲解、E柔润经验分享。不得用明星/博主/未经授权录音，也不变调同一音色冒充五声。初轮同一20–25秒中文文案（包含铰链、踢脚线、柜体收口），各有纯声和配乐版，同响度、公平试听。老板明确调整节奏时沿准确新指令，不强凑旧时长，不截字或加空白；仅处理最终旁白，原始声音参考保持不变。
 2. 老板在聊天明确选定编号后，才冻结原始参考音频、对应全文、设计指令、模型revision、参数、种子、音频SHA和准确选择证据到 `assets/voice/voice-profiles.json`。固定一个 `active_voice_profile_id`，不把“优先试听B”当选择，不随机换声；选择/质量未定仍标等待。正式示范片先做衣柜收纳单问题。
-3. 示例经唯一未参与生产的负责助理独立验收后正式采用。首次建档检查五声差异；后续固定A的视频只核当前成片的自然感、正确读音、跨句稳定和完整审听，不要求重做五声。机器解码/时间/响度通过不能替代耳听，不自行写独立PASS或adopted。
+3. 示例由本专业负责人完成自检和真实体验核对后，在原授权内实际采用。首次建档检查五声差异；后续固定A的视频只核当前成片的自然感、正确读音、跨句稳定和完整审听，不要求重做五声。机器解码/时间/响度通过不能替代耳听，不自行写独立PASS或adopted。
 
 `narration_audio.py select`仅在实际收到老板选择后使用，`--authorization-evidence`必须是本任务真实选择证据，引用reference原音SHA；不能预造决定。档案未选、哈希变更、模型失败一律明确阻断正式配音，不静默换声音/服务或降级无声片。
 
@@ -104,10 +104,10 @@
 
 原 `source-brief`/`video-contract`/`production-contract`保持 `presentation_mode=copy_led`、`copy_mode=narrative`，加 `timing_driver=narration`，`narration={enabled:true,language:"zh-CN",voice_profile_id:<已选>,voice_audio_path,alignment_path,spoken_copy_path,audio_mix_report_path,timing_path,tempo_calibration_path,experience_review_path,evidence_sha256:{<所有七个路径字段>:<真实文件SHA>}}`。先拼接/响度归一化，针对最终纯声做对齐，避免对齐原始声而混音引用另一哈希。storyboard沿用原scenes并增加语句ID、语义证据、实际切点，不建立平行视频合同。缺narration的旧任务不变。
 
-final机器门核真实文件/引用/时间和听检回执中的项目：`voice_pace`、`voice_naturalness`、`voice_pronunciation`、`fixed_voice_stability`、`music_audibility`、`voice_music_balance`、`narration_visual_sync`。这些须由真实完整检查填写，不能由工具自动置PASS；producer记录不充当唯一助理独立验收。技术探针 `probe-clone`只能验证上游能生成，永不激活声音档案。
+final机器门核真实文件/引用/时间和听检回执中的项目：`voice_pace`、`voice_naturalness`、`voice_pronunciation`、`fixed_voice_stability`、`music_audibility`、`voice_music_balance`、`narration_visual_sync`。这些须由真实完整检查填写，不能由工具自动置PASS；producer记录不充当专业自检与真实效果读回。技术探针 `probe-clone`只能验证上游能生成，永不激活声音档案。
 
 配音全文、全部中英字幕/封面、相同中英描述及两套各5话题同批冻结检测；中文固定 `#马来西亚装修公司`，英语逐项对应。只在右侧iab真实检测，无命中不再问截图确认。实见命中并保存绑定截图后由执行者自身身份记录 `AGENT_VERIFIED_REAL_QINGDOU_HIT_BATCH`，改写整包复检；只避用公开文字，内部声音指令不冒充公开内容。修改任何文案旧结果失效。没有实际检查、错版、模拟图或推测一律HOLD。
 
 验收覆盖：首次建档或明确换声时核五声差异；每条固定声成片核成熟自然/清晰读音、跨句一致；实际45–60秒；语句-字幕-画面同步误差；不静帧到底、同源细节可见；音乐可听且不压人声；封面、双语手机可读、整包检测齐全。交付仍两份完整“相同双语描述＋中文5话题/英语5话题”，可点击视频与文件夹，不上传发布。
 
-未完成项明确唯一负责人、下一动作和解除条件。老板未选择声音→老板选A–E；技术/制作返工→本视觉部；独立采用→注册负责助理。安装/试听不代表整片、独立验收或商业流量。
+未完成项明确唯一负责人、下一动作和解除条件。老板未选择声音→老板选A–E；技术/制作返工→本视觉部；实际采用→原专业负责人。安装/试听不代表整片、独立验收或商业流量。

@@ -12,7 +12,9 @@ from pathlib import Path, PurePosixPath
 import re
 import sys
 
-MODEL = "goal_delivery_assistant_v1"
+MODEL = "department_autonomous_delivery_v1"
+LEGACY_MODEL = "goal_delivery_assistant_v1"
+SUPPORTED_MODELS = {MODEL, LEGACY_MODEL}
 SCHEMA = "department-system-package-v1"
 CONFIG_NAMES = ("department-registry", "department-routing-rules", "task-contract", "action-policy", "delegation-policy")
 COMPANY_NAMES = ("company-context", "service-area", "services-and-pricing", "customer-personas", "brand-guidelines", "case-studies", "faq")
@@ -85,10 +87,11 @@ def validate_model(contract):
     current = contract.get("goal_delivery_runtime", {}) if isinstance(contract, dict) else {}
     if not isinstance(current, dict):
         raise ValueError("Current goal/assistant runtime contract required")
-    if current.get("model") != MODEL or current.get("assistant_decisions_enabled") is not True:
+    if current.get("model") not in SUPPORTED_MODELS or current.get("assistant_decisions_enabled") is not (current.get("model")==LEGACY_MODEL):
         raise ValueError("Current goal/assistant runtime contract required")
-    for name, expected in (("HQ_second_review_required", False), ("producer_self_review_allowed", False),
-                           ("fixed_qa_new_dispatch_enabled", False), ("single_acceptance_owner", True)):
+    legacy=current.get("model")==LEGACY_MODEL
+    for name, expected in (("HQ_second_review_required", False), ("producer_self_review_allowed", not legacy),
+                           ("fixed_qa_new_dispatch_enabled", False), ("single_acceptance_owner", legacy)):
         if name in current and current[name] is not expected:
             raise ValueError("Obsolete or self-review runtime setting: " + name)
     reader = current.get("rule_execution")
@@ -150,11 +153,11 @@ def _check_routes(value, retired):
     elif isinstance(value, dict):
         if "goal_delivery_runtime" in value:
             current = value["goal_delivery_runtime"]
-            if not isinstance(current, dict) or current.get("model") != MODEL:
+            if not isinstance(current, dict) or current.get("model") not in SUPPORTED_MODELS:
                 raise ValueError("Obsolete declared default runtime model")
-            if "assistant_decisions_enabled" in current and current["assistant_decisions_enabled"] is not True:
+            if "assistant_decisions_enabled" in current and current["assistant_decisions_enabled"] is not (current.get("model")==LEGACY_MODEL):
                 raise ValueError("Obsolete assistant runtime flag")
-        if "runtime_model" in value and value["runtime_model"] != MODEL:
+        if "runtime_model" in value and value["runtime_model"] not in SUPPORTED_MODELS:
             raise ValueError("Obsolete default runtime model")
         if value.get("reviewer_department") in retired:
             raise ValueError("Default input would revive retired fixed QA reviewer")
@@ -210,7 +213,7 @@ def _check_text(text, rel):
 def non_runtime_paths(payloads, registry):
     """Classify explicit history, never let a manifest exempt current rules."""
     result = set()
-    for row in registry["departments"]:
+    for row in [*registry["departments"], *registry.get("historical_departments",{}).values()]:
         if row.get("new_dispatch_enabled") is False:
             prefix = "departments/" + row["id"] + "/"
             result.update(path for path in payloads if path.startswith(prefix))
@@ -242,6 +245,19 @@ def validate_payloads(payloads, roles, retired_roles, non_runtime_files):
         raise ValueError("Manifest non-runtime classification mismatch")
     contract = parse_json(payloads["examples/task-contract.example.json"], "task-contract")
     validate_model(contract)
+    if contract['goal_delivery_runtime']['model']==MODEL:
+        if 'tools/department_autonomy.py' not in payloads:
+            raise ValueError('Current autonomous runtime module required')
+        active_ids={row['id']for row in rows if row.get('new_dispatch_enabled')is not False}
+        if active_ids.intersection({'operations-assistant','operations-assistant-2','operations-assistant-3','qa','qa-technical'}):
+            raise ValueError('Current autonomous package must not reactivate assistant approval roles')
+        standby=[row for row in rows if row['id']=='operations-assistant']
+        if len(standby)!=1 or standby[0].get('mode')!='standby' or standby[0].get('automatic_wakeup_enabled')is not False:
+            raise ValueError('Exactly one nonautomatic standby assistant required')
+        code=payloads['tools/department_autonomy.py'].decode('utf-8')
+        flags={target.id:node.value.value for node in ast.parse(code).body if isinstance(node,ast.Assign) and isinstance(node.value,ast.Constant)for target in node.targets if isinstance(target,ast.Name)}
+        if flags.get('PUBLIC_TEMPLATE_ONLY')is not True:
+            raise ValueError('Public autonomous source must have no inherited native owner authority')
     missing_context = rule_context_dependencies(contract).difference(payloads)
     if missing_context:
         raise ValueError("Missing conditional rule context dependency: " + ", ".join(sorted(missing_context)))
@@ -304,7 +320,7 @@ def validate_release(root, allow_local=True):
     if root.is_symlink() or any(parent.is_symlink() for parent in root.parents):
         raise ValueError("Symlink package root blocked")
     manifest = parse_json(_normal_file(root, "release-manifest.json").read_bytes(), "release-manifest.json")
-    if not isinstance(manifest, dict) or manifest.get("schema_version") != SCHEMA or manifest.get("runtime_model") != MODEL:
+    if not isinstance(manifest, dict) or manifest.get("schema_version") != SCHEMA or manifest.get("runtime_model") not in SUPPORTED_MODELS:
         raise ValueError("Current declared package/runtime model required")
     if seal_manifest(manifest) != manifest:
         raise ValueError("Package manifest fingerprint mismatch")

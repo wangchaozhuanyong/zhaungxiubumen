@@ -82,4 +82,4 @@ $full-house-custom-ad
 做一条厨房装修避坑讲解，中英双语，先给脚本、分镜和素材需求，等我确认后再出片。
 ```
 
-已正式接入的静态方法参考包：`data/learning/visual-short-video-method-reference-v1.json`，5份准确路径/hash经唯一负责助理通过；后续短视频任务通过本部门主Skill读取。原第三方10项未授调用/安装权限，原4项制作Skill保持。
+已正式接入的静态方法参考包：`data/learning/visual-short-video-method-reference-v1.json`，5份准确路径/hash经当时负责助理通过（仅历史事实，不作现行审批门禁）；后续短视频任务通过本部门主Skill读取。原第三方10项未授调用/安装权限，原4项制作Skill保持。

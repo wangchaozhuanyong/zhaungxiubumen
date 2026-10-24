@@ -22,5 +22,8 @@
   "external_permission_issued": false,
   "model": "goal_delivery_assistant_v1",
   "example_only_not_dispatch_or_permission": true,
-  "HQ_second_review_required": false
+  "HQ_second_review_required": false,
+  "historical_only": true,
+  "operational_template": false,
+  "historical_model": "goal_delivery_assistant_v1"
 }

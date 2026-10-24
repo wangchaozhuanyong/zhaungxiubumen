@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = "<PROJECT_ROOT>"
 PROJECT = "<LOCAL_PROJECT_ID>"
 SOURCE = "example-native-0bec6d516b372cb9"
-QA = "<LOCAL_TASK_ID>"
+QA = "example-native-11a474422a187c32"
 TASK = "fc-20260920-google-ads-rm100-budget-plan"
 PREFIX = "owner_paid_completion:example-ads-account:v42:"
 AUTH = 'synthetic-evidence-not-native'

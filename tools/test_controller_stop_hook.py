@@ -26,7 +26,7 @@ class StopHookTests(unittest.TestCase):
         return hook.decide(self.event, self.state, self.pending, self.now)
 
     def test_other_department_is_never_continued(self):
-        self.event['session_id'] = '<LOCAL_TASK_ID>'
+        self.event['session_id'] = 'example-native-11a474422a187c32'
         self.pending['pending_count'] = 1
         self.assertEqual(self.check(), {})
 

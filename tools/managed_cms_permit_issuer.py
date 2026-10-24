@@ -31,7 +31,7 @@ REPOSITORY = "wangchaozhuanyong/zhuangxiuwangzhan"
 SUPABASE_HOST = 'example-project.supabase.co'
 KEYCHAIN_SERVICE = "com.flashcast.managed-cms-permit-issuer"
 KEYCHAIN_ACCOUNT = 'example-project'
-QA_THREAD_ID = "<LOCAL_TASK_ID>"
+QA_THREAD_ID = "example-native-11a474422a187c32"
 OPERATIONS_THREAD_ID = "example-native-0d0689f4e3a4c895"
 if __package__:
     from .native_cms_issuer_integration import (load_native_issuer_targets, validate_native_issuer_candidate, native_release_qa_matches)
