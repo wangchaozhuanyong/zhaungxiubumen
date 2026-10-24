@@ -1007,9 +1007,9 @@
     },
     {
       "path": "tools/department_event_dispatcher.py",
-      "source_sha256": "5efcac5c5e77290d8d32aa9390491fa9abac6d9d40f2a62df4e0089437ad2dbb",
-      "release_sha256": "5efcac5c5e77290d8d32aa9390491fa9abac6d9d40f2a62df4e0089437ad2dbb",
-      "bytes": 106622
+      "source_sha256": "9d27ae3bdf5af2b8b50ad0d6c0adbe878da5fd2facd1915acd2e81d7c40b9cd9",
+      "release_sha256": "9d27ae3bdf5af2b8b50ad0d6c0adbe878da5fd2facd1915acd2e81d7c40b9cd9",
+      "bytes": 113152
     },
     {
       "path": "tools/department_next_work.py",
@@ -1727,5 +1727,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "a3ab082c16074f7db21b228df55235b117cf6ce381032b0a6e86e49df1a7cc26"
+  "fingerprint": "d4a29b7540b6b098e9833150bf9245a56f36b6cab45e36b5f9a679553ee7ed51"
 }

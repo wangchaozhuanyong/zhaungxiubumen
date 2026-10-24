@@ -17,6 +17,8 @@ import json
 import os
 from pathlib import Path
 import signal
+import stat
+import resource
 import queue
 import re
 import select
@@ -186,17 +188,87 @@ def now():
 LOGIN_LABEL = 'com.flashcast.department-event-dispatcher'
 
 
+def service_python(root):
+    """Pinned existing local interpreter; this binding grants no OS consent."""
+    path = root / CONFIG
+    config = json.loads(path.read_text()) if path.is_file() else {}
+    runtime = config.get('service_runtime')
+    if runtime is None:
+        return sys.executable
+    if not isinstance(runtime, dict) or runtime.get('schema') != 'existing-local-python-service-runtime/v1':
+        raise DispatchError('exact existing service runtime binding required')
+    binary = runtime.get('binary', {})
+    executable = Path(binary.get('path', ''))
+    if not executable.is_absolute() or not re.fullmatch(r'python3(?:\.[0-9]+)?', executable.name):
+        raise DispatchError('exact pinned local Python executable required')
+    resolved = executable.resolve()
+    if str(resolved) != binary.get('real_path') or not resolved.is_file():
+        raise DispatchError('existing service interpreter path drift; preserve current runtime')
+    observed = resolved.stat()
+    if (observed.st_uid != binary.get('uid') or observed.st_uid != os.getuid()
+            or stat.S_IMODE(observed.st_mode) != binary.get('mode')
+            or observed.st_mode & 0o022 or not os.access(resolved, os.X_OK)
+            or hashlib.sha256(resolved.read_bytes()).hexdigest() != binary.get('sha256')):
+        raise DispatchError('existing service interpreter bytes/owner/mode drift; rebind exact real source')
+    return str(executable)
+
+
 def _login_expected(root):
     """Read-only description of this user's one actual project entry."""
     if Path(root).resolve() != ROOT.resolve():
         raise DispatchError('only this actual project login service is supported')
     return {'Label': LOGIN_LABEL,
-            'ProgramArguments': [sys.executable, '-u', '-B', str(root / 'tools/department_event_dispatcher.py'), 'serve-queue'],
+            'ProgramArguments': [service_python(root), '-u', '-B', str(root / 'tools/department_event_dispatcher.py'), 'serve-queue'],
             'WorkingDirectory': str(root), 'RunAtLoad': True, 'KeepAlive': {'SuccessfulExit': False},
             'ThrottleInterval': 10, 'ProcessType': 'Background',
-            'StandardOutPath': str(root / STATE / 'app-background.stdout.jsonl'),
-            'StandardErrorPath': str(root / STATE / 'app-background.stderr.log')}
+            # launchd cannot pre-open these Desktop logs in this user session.
+            # The same Python entry opens its owned project logs after spawn.
+            'StandardOutPath': '/dev/null', 'StandardErrorPath': '/dev/null'}
 
+
+
+def configure_login_stdio(root):
+    """Open project logs inside the actual original LaunchAgent process.
+
+    The service label selects logging only, never identity or execution authority.
+    Manual service startup retains its existing parent-opened log descriptors.
+    """
+    if os.environ.get('XPC_SERVICE_NAME') != LOGIN_LABEL:
+        return False
+    if Path(root).resolve() != ROOT.resolve():
+        raise DispatchError('only the owned project login log directory is supported')
+    directory = root / STATE
+    if directory.is_symlink() or not directory.resolve().is_relative_to(Path(root).resolve()):
+        raise DispatchError('project log directory must not escape through a symlink')
+    directory.mkdir(parents=True, exist_ok=True)
+    if directory.stat().st_uid != os.getuid():
+        raise DispatchError('actual user-owned project log directory required')
+    descriptors = []
+    try:
+        for name in ('app-background.stdout.jsonl', 'app-background.stderr.log'):
+            path = directory / name
+            descriptor = os.open(str(path), os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o644)
+            descriptors.append(descriptor)
+            observed = os.fstat(descriptor)
+            if not stat.S_ISREG(observed.st_mode) or observed.st_uid != os.getuid():
+                raise DispatchError('only regular current-user project logs may receive service output')
+        for descriptor, stream in zip(descriptors, (1, 2)):
+            os.dup2(descriptor, stream)
+        (directory / 'login-stdio-readback.json').write_text(json.dumps({
+            'pid': os.getpid(), 'uid': os.getuid(), 'project_root': str(root),
+            'service_label': LOGIN_LABEL, 'initialized_at': now(),
+            'stdout': str(directory / 'app-background.stdout.jsonl'),
+            'stderr': str(directory / 'app-background.stderr.log'),
+            'security_settings_changed': False}, sort_keys=True) + '\n')
+        return True
+    except (OSError, DispatchError) as error:
+        import syslog
+        syslog.syslog(syslog.LOG_ERR, 'FLASH CAST original login stdio initialization failed: '
+                      + type(error).__name__ + ' errno=' + str(getattr(error, 'errno', None)))
+        raise
+    finally:
+        for descriptor in descriptors:
+            os.close(descriptor)
 
 
 def login_plan(root):
@@ -344,8 +416,11 @@ def service_source_hashes(root):
     names = ("department_event_dispatcher", "result_coordination", "workflow_control",
              "readonly_work_view_cache", "department_autonomy", "goal_continuity", "goal_source_recovery",
              "flashcast_ops", "goal_delivery_runtime", "department_rotation")
-    return {"tools/" + name + ".py": hashlib.sha256((root / "tools" / (name + ".py")).read_bytes()).hexdigest()
-            for name in names}
+    values = {"tools/" + name + ".py": hashlib.sha256((root / "tools" / (name + ".py")).read_bytes()).hexdigest()
+              for name in names}
+    if (root / CONFIG).is_file():
+        values[str(CONFIG)] = hashlib.sha256((root / CONFIG).read_bytes()).hexdigest()
+    return values
 
 
 def background_status(root):
@@ -356,7 +431,8 @@ def background_status(root):
         ready = {}
     current = bool(owned['running'] and ready.get('pid') == owned.get('pid')
                    and ready.get('uid') == os.getuid() and ready.get('project_root') == str(root)
-                   and ready.get('loaded_sources') == service_source_hashes(root))
+                   and ready.get('loaded_sources') == service_source_hashes(root)
+                   and ready.get('python_real_path') == str(Path(service_python(root)).resolve()))
     try:
         scan = json.loads((root / STATE / 'service-scan-readback.json').read_text())
     except (OSError, ValueError):
@@ -391,7 +467,7 @@ def _background_start_locked(root):
     directory.mkdir(parents=True, exist_ok=True)
     with (directory / 'app-background.stdout.jsonl').open('a') as out, \
             (directory / 'app-background.stderr.log').open('a') as err:
-        child = subprocess.Popen([sys.executable, '-u', '-B', str(root / 'tools/department_event_dispatcher.py'), 'serve-queue'],
+        child = subprocess.Popen([service_python(root), '-u', '-B', str(root / 'tools/department_event_dispatcher.py'), 'serve-queue'],
                                  cwd=root, stdin=subprocess.DEVNULL, stdout=out, stderr=err,
                                  start_new_session=True, close_fds=True)
     (directory / 'service.pid').write_text(str(child.pid) + '\n')
@@ -1578,6 +1654,28 @@ def attach_completion_events(watcher, transport, store):
             continue
 
 
+def ensure_descriptor_capacity(additional):
+    """Match this process's soft limit to real watch demand; preserve hard/system limits."""
+    if type(additional) is not int or additional < 0:
+        raise DispatchError('nonnegative actual descriptor demand required')
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    opened = len(os.listdir('/dev/fd'))
+    required = opened + additional + 64  # bounded RPC/SQLite/stdout headroom
+    if soft != resource.RLIM_INFINITY and soft < required:
+        if hard != resource.RLIM_INFINITY and required > hard:
+            raise DispatchError('owned watcher needs ' + str(required) + ' descriptors; process hard limit is ' + str(hard))
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (required, hard))
+        except (OSError, ValueError) as error:
+            raise DispatchError('cannot set owned process soft descriptor limit: ' + str(error)) from error
+    actual_soft, actual_hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if actual_hard != hard or actual_soft != resource.RLIM_INFINITY and actual_soft < required:
+        raise DispatchError('owned descriptor capacity readback differs; hard limit must remain unchanged')
+    return {'before_soft':soft, 'current_soft':actual_soft, 'hard':hard,
+            'actual_open_count':opened, 'additional_watch_count':additional,
+            'required_with_headroom':required, 'hard_or_system_limit_changed':False}
+
+
 class VnodeEvents:
     """macOS kqueue: block on file/native events, never a timed chat poll."""
     def __init__(self, paths, root=None):
@@ -1588,7 +1686,12 @@ class VnodeEvents:
         self.queue = select.kqueue()
         self.fds = {}
         self.paths = [Path(v) for v in paths]
-        self.refresh()
+        self.fd_capacity_changes = []
+        try:
+            self.refresh()
+        except BaseException:
+            self.close()
+            raise
 
     def refresh(self):
         current = set(self.paths)
@@ -1600,7 +1703,11 @@ class VnodeEvents:
             if not path.exists() or os.fstat(fd).st_ino != path.stat().st_ino:
                 os.close(fd)
                 del self.fds[path]
-        for path in current:
+        pending = [path for path in current if path not in self.fds and path.exists() and not path.is_symlink()]
+        capacity = ensure_descriptor_capacity(len(pending))
+        if capacity['before_soft'] != capacity['current_soft']:
+            self.fd_capacity_changes.append(capacity)
+        for path in pending:
             if path not in self.fds and path.exists() and not path.is_symlink():
                 fd = os.open(path, os.O_RDONLY)
                 self.fds[path] = fd
@@ -1659,6 +1766,11 @@ def main():
     parser.add_argument('--desktop-proof', help='project-relative fresh native ACTIVE observation')
     parser.add_argument('--event', help='exact original event key for HQ activation recovery')
     args = parser.parse_args()
+    if args.command == 'serve-queue':
+        chosen = service_python(ROOT)
+        if Path(sys.executable).resolve() != Path(chosen).resolve():
+            os.execv(chosen, [chosen, '-u', '-B', str(ROOT/'tools/department_event_dispatcher.py'), 'serve-queue'])
+        configure_login_stdio(ROOT)
     if args.command == 'activation-plan':
         if not args.event or not args.desktop_proof:
             raise DispatchError('exact original event and fresh pinned desktop observation required')
@@ -1753,7 +1865,7 @@ def main():
                     (ROOT/STATE/'service-ready.json').write_text(json.dumps({'pid':os.getpid(),'uid':os.getuid(),
                         'project_root':str(ROOT),'native_transport_ready':isinstance(transport,OfficialQueueTransport),
                         'native_readonly_child_pid':rpc.proc.pid if rpc else None,
-                        'loaded_sources':service_source_hashes(ROOT),'ready_at':now()},sort_keys=True)+'\n')
+                        'descriptor_capacity_changes':watcher.fd_capacity_changes if watcher else [],'loaded_sources':service_source_hashes(ROOT),'python_executable':sys.executable,'python_real_path':str(Path(sys.executable).resolve()),'ready_at':now()},sort_keys=True)+'\n')
                 registry_version=(ROOT/'data/department-registry.json').stat().st_mtime_ns
                 code_sources=service_source_hashes(ROOT)
                 deadline_only = None
@@ -1765,7 +1877,7 @@ def main():
                             'pid':os.getpid(),'uid':os.getuid(),'project_root':str(ROOT),
                             'before':code_sources,'after':service_source_hashes(ROOT),'at':now(),
                             'transport_ids_retained':True})+'\n')
-                        os.execv(sys.executable,[sys.executable,'-u','-B',str(ROOT/'tools/department_event_dispatcher.py'),'serve-queue'])
+                        os.execv(service_python(ROOT),[service_python(ROOT),'-u','-B',str(ROOT/'tools/department_event_dispatcher.py'),'serve-queue'])
                     changed=(ROOT/'data/department-registry.json').stat().st_mtime_ns
                     if watcher and changed!=registry_version:
                         attach_completion_events(watcher,transport,store);registry_version=changed
@@ -1790,7 +1902,7 @@ def main():
                             'pid':os.getpid(),'uid':os.getuid(),'project_root':str(ROOT),
                             'loaded_sources':code_sources,'scan_completed_at':now(),
                             'enrolled_results_found':len(valid),'isolated_source_error_count':len(errors),
-                            'transport_rows':len(store.rows()),'transport_ids_retained':True},sort_keys=True)+'\n')
+                            'transport_rows':len(store.rows()),'descriptor_capacity_changes':watcher.fd_capacity_changes if watcher else [],'transport_ids_retained':True},sort_keys=True)+'\n')
                     if store.changed_summary(summary):
                         print(json.dumps({'observed_at':now(),**summary}),flush=True)
                     if watcher is None:
