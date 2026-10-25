@@ -109,7 +109,7 @@ def acceptance(root,target,operation):
     event=rows[0]
     return {'acceptance_model':MODEL,'verdict':'selfcheck_ready','operation':operation,'task_id':target['task_id'],'action_id':action,
       'scope':target['scope'],'candidate_version':target['candidate_version']+('-rollback-v1'if operation=='rollback'else''),
-      'risk_level':'R1','receipt_id':event['event_id'],'receipt_hash':event['event_hash'],'created_at':event['created_at'],
+      'risk_level':'R2','receipt_id':event['event_id'],'receipt_hash':event['event_hash'],'created_at':event['created_at'],
       'authorization_pin':snapshot['goal_delivery']['authorization_pin'],'candidate':w.file_digest(root,target['candidate'][0]),
       'execution_preflight':context['pin'],'execution_preflight_event_id':event['event_id'],
       'review_outbox':context['owner_result'],'review_plan':context['registration'],
@@ -122,7 +122,7 @@ def policy_context(root,target,operation,payload):
     context=src.execution_context(root,snapshot,{'task_id':target['task_id'],'action_id':accepted['action_id'],'action_class':'cms_write','scope':target['scope'],'department':target['execution_owner']})
     expected=target['payload_sha256']if operation=='publish'else target['rollback_fields_sha256']
     a.require(payload==expected,'exact actual two-field operator payload digest required')
-    return {'preflight':{**context['preflight'],'payload_sha256':payload},'acceptance_model':MODEL,'risk_level':'R1',
+    return {'preflight':{**context['preflight'],'payload_sha256':payload},'acceptance_model':MODEL,'risk_level':'R2',
             'task_id':target['task_id'],'action_id':accepted['action_id'],'scope':target['scope'],'department':target['execution_owner'],
             'payload_sha256':payload,'external_permission_issued':False}
 

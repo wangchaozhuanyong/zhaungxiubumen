@@ -245,7 +245,7 @@ def _request(root,snapshot,pin):
     a.require(a.sensitive_state(root,snapshot,req)['state']=='within_original_authorization','sensitive expansion is not this source')
     return {**x,'request':req,'pin':pin,'authorization':snapshot['goal_delivery']['authorization_pin'],
             'department':x['executor'],'preflight':{**{k:req[k]for k in ('task_id','department','action_id','action_class','scope','facts','self_check','backup','rollback')},
-            'risk_level':'R1','request':pin,'source_registration':x['registration']}}
+            'risk_level':'R2','request':pin,'source_registration':x['registration']}}
 
 def record_preflight(root,task,input_path):
     import department_autonomy as a
