@@ -389,7 +389,9 @@
       "path": "departments/visual-design-video/scripts/music_scout_preflight.py",
       "source_sha256": "f76088c51747cf38969f1195d48afe4fa4fc37d06bee0f267a2b8c99f705eac1",
       "release_sha256": "8e4f00fe2d498c2ef3903d924ad77b686acd23bd05d81c7e27a6eb26144ff883",
-      "bytes": 4929
+      "bytes": 4929,
+      "source_selection": "preserve_existing_verified_source",
+      "source_origin": "git:695e941d3adca784b3f768d75b7766018ff20fc1:departments/visual-design-video/scripts/music_scout_preflight.py"
     },
     {
       "path": "departments/visual-design-video/scripts/narration_audio.py",
@@ -1001,15 +1003,15 @@
     },
     {
       "path": "tools/department_autonomy.py",
-      "source_sha256": "8b90495cd1c81ee18a5d963f791fd8e8c7fbd288c6ce9605c07473f8af541e43",
-      "release_sha256": "9e1a7830ed8f28b25ba7caec8d57e6fc89df014491b863753245c9efcb330580",
-      "bytes": 94436
+      "source_sha256": "541c49281a4fced97a63639b0e14eda87a851dc328435c1dca5e471aa48372f1",
+      "release_sha256": "644226f0877d5f782bffe017c81d46661025c2bb5ca291332877c3f6a0dd7752",
+      "bytes": 95042
     },
     {
       "path": "tools/department_event_dispatcher.py",
-      "source_sha256": "9d27ae3bdf5af2b8b50ad0d6c0adbe878da5fd2facd1915acd2e81d7c40b9cd9",
-      "release_sha256": "9d27ae3bdf5af2b8b50ad0d6c0adbe878da5fd2facd1915acd2e81d7c40b9cd9",
-      "bytes": 113152
+      "source_sha256": "bb3b946bf9b967ee50a26b53278ae0b5c2853758727f00c2993bb997505393b0",
+      "release_sha256": "bb3b946bf9b967ee50a26b53278ae0b5c2853758727f00c2993bb997505393b0",
+      "bytes": 119385
     },
     {
       "path": "tools/department_next_work.py",
@@ -1079,9 +1081,9 @@
     },
     {
       "path": "tools/managed_cms_permit_issuer.py",
-      "source_sha256": "33e8a43d1c449dea1af4386922652889acaef2ff7b8b015146a32c72b6df9ac1",
-      "release_sha256": "e1f2fc7b447cc2eb2a1936f4e7809a730de7df35055fe916944b4fdd215268c6",
-      "bytes": 129134
+      "source_sha256": "aeebc6f054401c7c7e875400846d065c7f89597745295440c3d30380602a3240",
+      "release_sha256": "00029c31c1b7348919c23b22cb51c6d11dc3bd2a51dc0351e0d9a038c48112ae",
+      "bytes": 129914
     },
     {
       "path": "tools/native_cms_admission.py",
@@ -1289,15 +1291,15 @@
     },
     {
       "path": "tools/shop_office_six_field_execution.py",
-      "source_sha256": "407c68e8bcb7edf281227d5852cdd469e48a69a70329f0bceac5878b032905a8",
-      "release_sha256": "e8001a1e77af4e052f7c86855e1154458d6781b653e17644a13d304f43c3ac59",
-      "bytes": 31123
+      "source_sha256": "9c4fecb05275b69cb84f502599ba99f8ea8b2d48bb839e43ece93e385053b483",
+      "release_sha256": "a9fde12168e3b25f49c512af202d34591d9131fefadf3c91b54a2a7c29b29ac1",
+      "bytes": 46065
     },
     {
       "path": "tools/shop_office_web_execution.py",
-      "source_sha256": "c535910389334de2eed7a8bfec4d2787c61031aa2f3fef13e12455ee0ca7359a",
-      "release_sha256": "1e339a5c50d45122907962ccfb5d09a0cd1f0182d9c11418d77682a651d52fcb",
-      "bytes": 31327
+      "source_sha256": "8815c175ae12816f5b5a794835c8d5dd5a485141ca5da77e0e91ca6ecf3ea078",
+      "release_sha256": "c6cee923e5eb3751f2a19899fcf665b7c0c941d3f4290ed4557b813e181ac675",
+      "bytes": 40619
     },
     {
       "path": "tools/site_ci_prepare_policy.py",
@@ -1739,5 +1741,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "7db74156916e54df3d887ef1c3c24c84ee11fd71b6e9014bbe18f9f79cf16b7b"
+  "fingerprint": "1487e776f4738ff31a39d3a6f8ad70374e328fb03364b31874a8c32d1b511b31"
 }

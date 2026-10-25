@@ -1365,6 +1365,54 @@ def _activation_probe(store, row):
         store.activation_state(row, 'source_or_effect_blocked', str(exc))
 
 
+def _autonomous_activation_context(root, snapshot, value, record, row):
+    """Authenticate the frozen professional task and original delivery, never retarget it."""
+    import workflow_control as w
+    import result_coordination as rc
+    import department_autonomy as autonomous
+    frozen = autonomous.document(root, snapshot['goal_contract'])
+    goal = snapshot['goal_delivery']
+    if (not autonomous.autonomous_goal(frozen) or not autonomous.autonomous_goal(goal)
+            or frozen.get('task_id') != value['task_id']
+            or any(goal.get(k) != frozen.get(k) for k in (
+                'delivery_model', 'primary_owner', 'producer_departments', 'authorized_scope',
+                'human_authorization', 'collaboration_scopes', 'parent_task_id'))
+            or goal.get('source_mode') != frozen.get('source_mode', 'approved_dispatch')
+            or frozen.get('authorization_pin') is not None
+               and goal.get('authorization_pin') != frozen['authorization_pin']):
+        raise DispatchError('unchanged frozen autonomous owner/producer/scope/authority required')
+    expected = autonomous._autonomous_result_current_owner(root, snapshot, value)
+    if expected == value['sender_department'] == frozen['primary_owner']:
+        expected = 'operations'
+    route = rc.frozen_notification_route(root, record)
+    exact = record['delivery_identity']
+    lane = 'HQ_knowledge' if expected == 'operations' else 'professional_acceptance'
+    if (row['target'] != expected or route['target_department'] != expected
+            or route['lane'] != lane or exact['target_department'] != expected
+            or exact['target_thread_id'] != binding(root, expected)['task_id']):
+        raise DispatchError('original frozen professional/HQ result route required; no retarget')
+    queued = rc._validate_queued(root, value)
+    outbox = autonomous.document(root, queued['outbox'])
+    scope = outbox.get('scope')
+    if scope is None and len(frozen.get('authorized_scope', [])) == 1:
+        scope = frozen['authorized_scope'][0]
+    if (scope not in frozen.get('authorized_scope', [])
+            or queued['outbox']['sha256'] != value['result_sha256']
+            or outbox.get('task_id') != value['task_id']
+            or outbox.get('department') != value['sender_department']
+            or outbox.get('candidate_version') != value['candidate_version']):
+        raise DispatchError('exact frozen result task/producer/version/SHA/scope required')
+    # The receiver is not a new reviewer. The original professional producer
+    # and owner retain their actual task responsibility/ACK (or human-direct source).
+    for role in dict.fromkeys((frozen['primary_owner'], value['sender_department'])):
+        autonomous.original_assignment_ready(root, snapshot, role)
+    return {'scope': scope, 'sender_department': value['sender_department']
+            if expected == 'operations' else 'operations',
+            'delivery_model': autonomous.MODE, 'goal_contract': snapshot['goal_contract'],
+            'original_owner': frozen['primary_owner'], 'original_producer': value['sender_department'],
+            'frozen_recipient': expected, 'original_outbox': queued['outbox']}
+
+
 def activation_plan(root, store, event, proof_pin):
     """Only produce/reserve an exact normal HQ request; never activate or adopt."""
     import workflow_control as w
@@ -1408,52 +1456,86 @@ def activation_plan(root, store, event, proof_pin):
     goal = snapshot.get('goal_delivery', {}); contract = snapshot.get('goal_contract')
     receipts, bad = w._validate_receipt_chain(root, value['task_id'])
     if (bad or snapshot.get('current_state') in w.TERMINAL_STATES or not contract
-            or w.file_digest(root, contract['path']) != contract
-            or goal.get('responsible_assistant') != row['target'] or len(goal.get('authorized_scope', [])) != 1):
-        raise DispatchError('active exact original goal, sole assistant, contract and receipt chain required')
-    scope = goal['authorized_scope'][0]
-    sent = [p for p in receipts if p.get('receipt_type') == 'dispatch_sent' and p.get('department') == row['target']]
-    paired = [(p, a) for p in sent for a in receipts if a.get('receipt_type') == 'chat_ack'
-              and a.get('department') == row['target'] and a.get('action_id') == p.get('action_id')
-              and a.get('ack_nonempty') is True and receipts.index(p) < receipts.index(a)]
-    directory = root / STATE / 'prepared' / event / 'activation'
-    directory.mkdir(parents=True, exist_ok=True)
-    if not paired:
-        if sent:
-            return {'state': 'initial_responsibility_ACK_effect_required', 'recovery_owner': 'operations',
-                    'next_action': 'read and recover the actual original initial dispatch/ACK; never resend it', 'message_sent': False}
-        intents = [p['details']['initial_responsibility_message'] for p in w.read_jsonl(root / w.WORKFLOW_EVENTS)
-                   if p.get('task_id') == value['task_id'] and p.get('details', {}).get('initial_responsibility_message')]
-        if len(intents) != 1:
-            return {'state': 'original_initial_responsibility_source_required', 'recovery_owner': 'operations',
-                    'next_action': 'use original contract-linked assign-goal-review entry, then recover actual dispatch/ACK', 'message_sent': False}
-        payload = intents[0]['payload']
-        if (w.file_digest(root, payload['path']) != payload or intents[0].get('goal_contract') != contract
-                or intents[0].get('sender_department') != 'operations' or intents[0].get('target_department') != row['target']
-                or intents[0].get('scope') != scope):
-            raise DispatchError('original initial responsibility source differs')
-        action = 'assign-goal-review:' + value['task_id']
-        prior_policy = [p for p in w.read_jsonl(root / w.POLICY_DECISIONS) if p.get('task_id') == value['task_id']
-                        and p.get('action_id') == action and p.get('status') == 'allow']
-        if prior_policy:
-            return {'state': 'original_initial_send_effect_unknown', 'recovery_owner': 'operations',
-                    'next_action': 'read original HQ invocation and original queued assignment; use recover-queued-assignment with actual receiver ACK',
-                    'initial_action': action, 'message_sent': False}
-        mode = 'original_initial_responsibility'
-    else:
+            or w.file_digest(root, contract['path']) != contract):
+        raise DispatchError('active exact original goal, contract and receipt chain required')
+    import department_autonomy as autonomous
+    frozen = w.read_json(inside(root, contract['path']))
+    autonomous_source = None
+    if frozen.get('delivery_model') == autonomous.MODE:
+        autonomous_source = _autonomous_activation_context(root, snapshot, value, record, row)
+        scope = autonomous_source['scope']
+        sender = autonomous_source['sender_department']
+        source = binding(root, sender)
         action = 'resume-original-queue:' + record['native_queue_transport']['native_message_id']
-        body = ('原任务 ' + value['task_id'] + '\nscope=' + scope + '\n原合同=' + contract['path']
-                + '\n仅恢复已接受原消息 ' + record['native_queue_transport']['native_message_id']
-                + '\n准确原结果=' + json.dumps(value, ensure_ascii=False, sort_keys=True)
-                + '\n保留当前及暂停工作；沿原正常入口实收后执行已授权下一动作。已收取不重收，不复制结果包。'
-                  '本通知不授账号、费用、网站/CMS/Ads、Git或生产许可。\n')
-        body_path = directory / 'HQ-exact-resume.txt'
-        if body_path.exists() and body_path.read_text() != body:
-            raise DispatchError('original recovery payload is immutable')
-        body_path.write_text(body)
+        directory = root / STATE / 'prepared' / event / 'activation'
+        directory.mkdir(parents=True, exist_ok=True)
+        body = ('task_id=' + value['task_id'] + '\n' + 'scope=' + scope
+                + '\nsender_department=' + sender + '\ntarget_department=' + row['target']
+                + '\n原合同=' + contract['path']
+                + '\n仅接续原已接受消息=' + record['native_queue_transport']['native_message_id']
+                + '\n准确原成果=' + json.dumps(value, ensure_ascii=False, sort_keys=True)
+                + '\n原成果路径=' + autonomous_source['original_outbox']['path']
+                + '\n保留当前及暂停位置；忙时保留原队列。未收沿原入口实收并执行已授权下一动作；'
+                  '已收不重收、不重复自检，只接原剩余动作。不复制原成果包，不新增任务、'
+                  '账号、费用、网站/CMS/Ads、Git或生产权限。\n')
+        body_path = directory / 'professional-exact-resume.txt'
+        if body_path.exists():
+            if body_path.read_text() != body:
+                raise DispatchError('original autonomous recovery payload is immutable')
+        else:
+            body_path.write_text(body)
         payload = w.file_digest(root, str(body_path.relative_to(root)))
-        mode = 'ordinary_original_responsibility_resume'
-    request = {'task_id': value['task_id'], 'sender_department': 'operations', 'scope': scope,
+        mode = 'ordinary_original_professional_result_resume'
+    else:
+        if (frozen.get('delivery_model') not in {None, 'goal_delivery_assistant_v1'}
+                or goal.get('delivery_model') not in {None, 'goal_delivery_assistant_v1'}
+                or goal.get('responsible_assistant') != row['target']
+                or len(goal.get('authorized_scope', [])) != 1):
+            raise DispatchError('original historical assistant contract and sole binding required')
+        sender = 'operations'
+        scope = goal['authorized_scope'][0]
+        sent = [p for p in receipts if p.get('receipt_type') == 'dispatch_sent' and p.get('department') == row['target']]
+        paired = [(p, a) for p in sent for a in receipts if a.get('receipt_type') == 'chat_ack'
+                  and a.get('department') == row['target'] and a.get('action_id') == p.get('action_id')
+                  and a.get('ack_nonempty') is True and receipts.index(p) < receipts.index(a)]
+        directory = root / STATE / 'prepared' / event / 'activation'
+        directory.mkdir(parents=True, exist_ok=True)
+        if not paired:
+            if sent:
+                return {'state': 'initial_responsibility_ACK_effect_required', 'recovery_owner': 'operations',
+                        'next_action': 'read and recover the actual original initial dispatch/ACK; never resend it', 'message_sent': False}
+            intents = [p['details']['initial_responsibility_message'] for p in w.read_jsonl(root / w.WORKFLOW_EVENTS)
+                       if p.get('task_id') == value['task_id'] and p.get('details', {}).get('initial_responsibility_message')]
+            if len(intents) != 1:
+                return {'state': 'original_initial_responsibility_source_required', 'recovery_owner': 'operations',
+                        'next_action': 'use original contract-linked assign-goal-review entry, then recover actual dispatch/ACK', 'message_sent': False}
+            payload = intents[0]['payload']
+            if (w.file_digest(root, payload['path']) != payload or intents[0].get('goal_contract') != contract
+                    or intents[0].get('sender_department') != 'operations' or intents[0].get('target_department') != row['target']
+                    or intents[0].get('scope') != scope):
+                raise DispatchError('original initial responsibility source differs')
+            action = 'assign-goal-review:' + value['task_id']
+            prior_policy = [p for p in w.read_jsonl(root / w.POLICY_DECISIONS) if p.get('task_id') == value['task_id']
+                            and p.get('action_id') == action and p.get('status') == 'allow']
+            if prior_policy:
+                return {'state': 'original_initial_send_effect_unknown', 'recovery_owner': 'operations',
+                        'next_action': 'read original HQ invocation and original queued assignment; use recover-queued-assignment with actual receiver ACK',
+                        'initial_action': action, 'message_sent': False}
+            mode = 'original_initial_responsibility'
+        else:
+            action = 'resume-original-queue:' + record['native_queue_transport']['native_message_id']
+            body = ('原任务 ' + value['task_id'] + '\nscope=' + scope + '\n原合同=' + contract['path']
+                    + '\n仅恢复已接受原消息 ' + record['native_queue_transport']['native_message_id']
+                    + '\n准确原结果=' + json.dumps(value, ensure_ascii=False, sort_keys=True)
+                    + '\n保留当前及暂停工作；沿原正常入口实收后执行已授权下一动作。已收取不重收，不复制结果包。'
+                      '本通知不授账号、费用、网站/CMS/Ads、Git或生产许可。\n')
+            body_path = directory / 'HQ-exact-resume.txt'
+            if body_path.exists() and body_path.read_text() != body:
+                raise DispatchError('original recovery payload is immutable')
+            body_path.write_text(body)
+            payload = w.file_digest(root, str(body_path.relative_to(root)))
+            mode = 'ordinary_original_responsibility_resume'
+    request = {'task_id': value['task_id'], 'sender_department': sender, 'scope': scope,
                'action_id': action, 'action_class': 'thread_message', 'source_project_id': source['project_id'],
                'target_department': row['target'], 'target_project_id': target['project_id'],
                'target_thread_id': target['task_id'], 'target_thread_title': target['title'],
@@ -1461,9 +1543,16 @@ def activation_plan(root, store, event, proof_pin):
                'payload': payload, 'payload_sha256': payload['sha256'],
                'actual_target_state': observation['actual_native_target_turn'],
                'assignment_record_required': mode == 'original_initial_responsibility', 'authorization_changes': []}
-    reasons = w._ordinary_thread_dispatch_precheck(root, snapshot=snapshot, task_id=value['task_id'],
-        target_department=row['target'], target_thread_id=target['task_id'], action_id=action,
-        scope=scope, sender_department='operations', payload_sha256=payload['sha256'])
+    if autonomous_source is not None:
+        # Same normal authorization reader used by prepare-message; no assistant
+        # plan/ACK projection and no new policy/send before the durable intent.
+        from goal_delivery_runtime import authorization_precheck
+        checked = authorization_precheck(root, value['task_id'], request)
+        reasons = [] if checked.get('status') == 'within_original_authorization' else checked.get('reasons') or ['normal_autonomous_authorization_required']
+    else:
+        reasons = w._ordinary_thread_dispatch_precheck(root, snapshot=snapshot, task_id=value['task_id'],
+            target_department=row['target'], target_thread_id=target['task_id'], action_id=action,
+            scope=scope, sender_department=sender, payload_sha256=payload['sha256'])
     if reasons:
         return {'state': 'normal_original_source_blocked', 'reasons': reasons, 'recovery_owner': 'operations',
                 'mode': mode, 'message_sent': False}
@@ -1473,9 +1562,10 @@ def activation_plan(root, store, event, proof_pin):
         return {'state': 'source_changed_before_intent', 'message_sent': False}
     plan = {'event_key': event, 'original_message_id': record['native_queue_transport']['native_message_id'],
             'owner': 'operations', 'mode': mode, 'request': request, 'desktop_observation': proof_pin,
+            'original_professional_source': autonomous_source,
             'state': 'reserved_not_sent', 'headless_activation_capability': 'DATA_MISSING',
             'before_actual_send': 'original HQ re-reads desktop; busy means retain this intent without sending. Normal fresh prepare/policy must allow. Unknown effect: read exact original request in target native history, never send twice.',
-            'send_api': 'codex_app.send_message_to_thread on original fixed thread only; never independent app-server start'}
+            'send_api': 'actual request sender uses codex_app.send_message_to_thread on original fixed recipient only after normal prepare; never impersonate another role or use independent app-server start'}
     return store.reserve_activation(row, plan)
 
 

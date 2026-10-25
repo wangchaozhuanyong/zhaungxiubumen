@@ -130,6 +130,7 @@ def validate_request(root,req,target):
   elif name=='facts':
    require(obj.get('raw_updated_at')==target['expected_updated_at']and obj.get('version')==target['observed_version']and obj.get('baseline_sha256')==target['baseline_fields_sha256'],'exact native timestamp/version and full projection')
    context=doc(root,obj.get('actual_read_context'));require(context.get('observed_at')==req.get('observed_at')and context.get('credentials_or_headers_exported')is False,'real original authenticated row-read context/time, never synthesized freshness')
+ if req.get('execution_instance')is not None:execution_instance(root,req,target)
  return candidate
 
 def record_preflight(root,path):
@@ -142,7 +143,10 @@ def record_preflight(root,path):
    if previous['input']==pin:return {'result':'duplicate_ignored','input':pin,'permit_issued':False}
    original=doc(root,doc(root,previous['input'])['request'])
    require(all(req.get(k)==original.get(k)for k in ('task_id','department','action_id','action_class','scope','source_project_id','account_id','object_ids','operation','desired','before','expected_version','parent_permit_id','parent_run_id','completed_parent')),'fresh observation must retain the exact effect and baseline')
-   require(not any(p.get('task_id')==TASK and p.get('action_id')==req['action_id']and p.get('status')=='allow'for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)),'issued or unknown effect cannot refresh into another execution request')
+   issued=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('task_id')==TASK and p.get('action_id')==req['action_id']and p.get('status')=='allow']
+   if issued:
+    instance=execution_instance(root,req,target)
+    require(instance is not None and all(p.get('decision_id')==OLD_POLICY for p in issued),'issued or unknown effect requires the registered reconciled instance; no second reuse')
   event=w.append_workflow_event(root,TASK,snapshot['current_state'],{'shop_office_six_field_preflight':{'action_id':req['action_id'],'input':pin,'request':item['request'],'original_authority':AUTH}})
  return {'result':'recorded','event_id':event['event_id'],'input':pin,'permit_issued':False}
 
@@ -164,6 +168,7 @@ def acceptance(root,target,operation):
  action=target['action_id']if operation=='publish'else'rollback-'+target['candidate_version']
  item,pin,event=preflight(root,snapshot,action,'cms_write',SCOPE,'publishing')
  result={'acceptance_model':'goal_authorized_cms_selfcheck_v1','verdict':'selfcheck_ready','task_id':TASK,'action_id':action,'scope':SCOPE,'candidate_version':target['candidate_version']if operation=='publish'else target['candidate_version']+'-rollback-v1','candidate':w.file_digest(root,target['candidate'][0]),'risk_level':'R2','authorization_pin':AUTH,'execution_preflight':pin,'execution_preflight_event_id':event['event_id'],'receipt_id':event['event_id'],'receipt_hash':event['event_hash'],'created_at':event['created_at'],'review_plan':None,'review_outbox':None,'goal_completion_claimed':False,'production_write_allowed':False,'final_assistant_acceptance_required':False}
+ result.update(execution_scope=physical_scope(root,target),execution_scope_carrier=scope_carrier(root))
  if operation=='rollback':
   req=doc(root,item['request']);result.update(operation='rollback',parent_permit_id=req['parent_permit_id'],parent_run_id=req['parent_run_id'],completed_parent=req['completed_parent'],post_save_row=req['before'],reverse_request=item['request'],rollback_payload_sha256=target['rollback_fields_sha256'])
  return result
@@ -172,6 +177,8 @@ def acceptance(root,target,operation):
 def consumed_policy(root,row,target,operation,payload,decision,now):
  snapshot=authority(root);require(operation in {'publish','rollback'}and payload==operation_payload(target,operation),'exact original operation/payload')
  context=action_authority(root,snapshot,row)
+ instance=execution_instance(root,context['request'],target)
+ require(row.get('execution_instance')==instance and row.get('decision_id')!=OLD_POLICY,'new exact instance must not reconsume the original failed policy')
  require(row.get('status')=='allow'and row.get('approval_basis')=='department_autonomous_delivery_v1'and row.get('approval_status')=='consumed_for_original_exact_autonomous_action'
   and row.get('original_authority')==AUTH and row.get('exact_request')==context['pin']and row.get('decision_id'),'actual original normal consumed policy, not caller allow')
  matches=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('decision_id')==row['decision_id']];require(matches==[row],'one unchanged normal policy row')
@@ -218,7 +225,7 @@ def validate_reverse_parent(root,request,target):
  require(isinstance(permit,str)and re.fullmatch(r'[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}',permit)and type(run)is int and run>0,'actual original publish permit/run required')
  expected={'permitId':permit,'status':'completed','operation':'publish','taskId':TASK,'actionId':target['action_id'],'candidateVersion':target['candidate_version'],'githubRunId':run,'savedId':target['record_id']}
  require(all(parent.get(k)==v for k,v in expected.items())and w._parse_observed_at(parent.get('savedUpdatedAt'))is not None,'only the completed original exact publish effect can be reversed; unknown is not completed')
- for key,value in [('recordId',target['record_id']),('slug',target['slug']),('scope',SCOPE)]:require(key not in parent or parent[key]==value,'exact original parent '+key)
+ for key,value in [('recordId',target['record_id']),('slug',target['slug']),('scope',physical_scope(root,target))]:require(key not in parent or parent[key]==value,'exact original parent '+key)
  return parent
 
 def validate_reverse_request(root,req,target):
@@ -270,9 +277,140 @@ def live_reverse_parent(root,target,accepted,status,parent_permit,parent_run,new
  keys=['permitId','status','operation','taskId','actionId','candidateVersion','githubRunId','savedId']
  require(all(status.get(k)==original.get(k)for k in keys)and w._parse_observed_at(status.get('savedUpdatedAt'))==w._parse_observed_at(doc(root,accepted['post_save_row'])['updated_at']),'fresh protected original parent status/CAS must still match before issue')
 
+
+# Physical CMS carrier is separate from the immutable business authorization.
+EXECUTION_SCOPE='company.example:shop-office:existing-six-fields-and-five-blocks:20261025:v1'
+SCOPE_SCHEMA='exact-shop-office-physical-scope-carrier/v1'
+OLD_POLICY='pol-cb6abef1ab703fee972f'
+SITE_REPORTS=Path('<WEBSITE_PROJECT_ROOT>/reports/shop-office-six-and-five-implementation-release-20261025-v1')
+PUB_BASE='drafts/publishing/'+TASK+'/live-production-execution-v1/'
+RECOVERY_SOURCES={
+ 'intent':{'path':PUB_BASE+'shop-first-issuer-issue-and-dispatch-once-intent.json','sha256':'f87d3256ea35e98422f42038eaf0ca0783850d6ab99525e2ed045896a9254eca','size':1399},
+ 'return':{'path':PUB_BASE+'shop-actual-first-issuer-issue-and-dispatch-return.json','sha256':'b82a86448ccc5ee2ca68a30a9bc268e06d544d4ae1aa1b0294b73d62a02f30e5','size':161},
+ 'native':{'path':PUB_BASE+'actual-first-protected-issue-HTTP403-native.json','sha256':'5baa7513528bbb17664f27103ca0fd5bee483bc75d89591e04eec9a29fe30e92','size':10105},
+ 'runs':{'path':PUB_BASE+'actual-original-shop-publish-run-readback-after-403.json','sha256':'4c9144eea90a20f0750514c0f5ddde252c8823ebdb0f624a1a5a4dc1a9bd44f2','size':240},
+ 'row':{'path':PUB_BASE+'shop-after-403-readback/shop-after-403-complete-row.json','sha256':'50cda0196326dcc7894e079fd89f4ba3e3e481136ff3416b9b4e8ac51f14db87','size':0},
+ 'exact_query':{'path':str(SITE_REPORTS/'ACTUAL-ORIGINAL-SHOP-ISSUE-PERMIT-LOOKUP.json'),'sha256':'5c0c1be62eab0c9c6addbd6b954121e1ee6f06a77ae3b5588978f33a33d650a0','size':845},
+ 'collision_query':{'path':str(SITE_REPORTS/'ACTUAL-ORIGINAL-SHOP-ACTION-PERMIT-COLLISION-LOOKUP.json'),'sha256':'c28e381fd3419d621ae361b83592e149dab047d8e2011cd912ed73ff0003aeb5','size':920},
+}
+
+def external_observation(pin):
+ require(isinstance(pin,dict)and set(pin)=={'path','sha256','size'},'exact external readonly source pin')
+ p=Path(pin['path']);require(p.is_absolute()and p.parent==SITE_REPORTS and not p.is_symlink(),'original WEB report directory only')
+ raw=p.read_bytes();require(hashlib.sha256(raw).hexdigest()==pin['sha256']and len(raw)==pin['size'],'unchanged external observation bytes')
+ return json.loads(raw)
+
+def physical_scope_document(root):
+ authority(root);rows=registration_rows(root);require(rows,'original two-target registration required')
+ pin=rows[-1]['details']['shop_office_six_field_registration'];registered=registration(root,pin)
+ entries=[]
+ for name,t in sorted(registered.items()):
+  entries.append({k:t[k]for k in ['task_id','action_id','candidate_version','scope','record_id','slug','changed_fields','payload_sha256','rollback_fields_sha256','retained_fields_sha256','baseline_fields_sha256']}|{'target':name,'candidate':w.file_digest(root,t['candidate'][0]),'execution_scope':EXECUTION_SCOPE,'reverse_action_id':'rollback-'+t['candidate_version'],'reverse_candidate_version':t['candidate_version']+'-rollback-v1'})
+ return {'schema':SCOPE_SCHEMA,'task_id':TASK,'business_scope':SCOPE,'execution_scope':EXECUTION_SCOPE,'goal_contract':CONTRACT,'authorization_pin':AUTH,'original_registration':pin,'targets':entries,'DB_constraint_changed':False,'permit_issued':False,'CMS_write':False}
+
+def scope_carrier(root):
+ rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==TASK and e.get('details',{}).get('shop_office_physical_scope_carrier')]
+ require(len(rows)==1 and not w.validate_workflow_events(root,TASK),'one committed physical carrier in intact original chain')
+ pin=rows[0]['details']['shop_office_physical_scope_carrier'];require(doc(root,pin)==physical_scope_document(root),'exact two-target physical carrier and original source required')
+ return pin
+
+def physical_scope(root,target):
+ require(target.get('candidate_shape')==SHAPE and target==target_for(root,target.get('action_id')),'no other target, historical86 or caller-supplied tuple')
+ scope_carrier(root);require(target['scope']==SCOPE,'business authorization scope must remain unchanged')
+ return EXECUTION_SCOPE
+
+def register_scope_carrier(root,path):
+ import department_autonomy as a
+ pin=w.file_digest(root,path);require(doc(root,pin)==physical_scope_document(root),'exact original two-target scope mapping, no grants')
+ with w.workflow_lock(root):
+  snapshot=authority(root);a.original_assignment_ready(root,snapshot,'system-development')
+  old=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==TASK and e.get('details',{}).get('shop_office_physical_scope_carrier')]
+  if old:
+   require(len(old)==1 and old[0]['details']['shop_office_physical_scope_carrier']==pin,'immutable physical carrier already registered')
+   return {'result':'duplicate_ignored','event_id':old[0]['event_id'],'carrier':pin,'permit_issued':False}
+  event=w.append_workflow_event(root,TASK,snapshot['current_state'],{'shop_office_physical_scope_carrier':pin,'business_scope_changed':False,'permit_issued':False})
+ return {'result':'recorded','event_id':event['event_id'],'carrier':pin,'permit_issued':False,'remote_loaded':False}
+
+def physical_preview(root,request):
+ target=target_for(root,request.get('action_id'));candidate=validate_request(root,request,target)
+ row=doc(root,request['before']);operation=request['operation'];version=target['candidate_version']+('-rollback-v1'if operation=='rollback'else'')
+ return {'mode':'dry-run','contentType':'service','nextStatus':'published','expectedUpdatedAt':row['updated_at'],'record':{'id':target['record_id'],'slug':target['slug'],**request['desired']},'managedCandidate':{'taskId':TASK,'actionId':request['action_id'],'candidateVersion':version,'scope':physical_scope(root,target),'operation':operation}}
+
+def _zero_query(value,target,collision=False):
+ require(isinstance(value,dict)and 'query_error'in value,'explicit successful query result required')
+ filters={'task_id':TASK,'action_id':target['action_id']}
+ filters.update({'record_id':target['record_id'],'slug':target['slug']}if collision else{'policy_decision_id':OLD_POLICY})
+ require(value.get('task_id')in {None,TASK}and value.get('project_ref')==REF and value.get('filters')==filters
+  and value.get('http_status')==200 and value.get('query_error')is None and type(value.get('exact_count'))is int and value['exact_count']==0 and value.get('rows')==[]
+  and value.get('external_write_requested')is False and 'SELECT only'in value.get('operation',''),'successful exact original-key privileged readonly zero rows, not missing/ambiguous effects')
+ return w._parse_observed_at(value.get('completed_at'))
+
+def recovery_document(root):
+ authority(root);scope_carrier(root);target=next(t for t in targets(root).values()if t['record_id']==ROWS['shop'][0])
+ docs={k:(external_observation(pin)if Path(pin['path']).is_absolute()else doc(root,pin))for k,pin in RECOVERY_SOURCES.items()if k!='row'}
+ rowpin=w.file_digest(root,RECOVERY_SOURCES['row']['path']);require(rowpin['sha256']==RECOVERY_SOURCES['row']['sha256'],'original after403 complete row source')
+ candidate=doc(root,w.file_digest(root,target['candidate'][0]));require(doc(root,rowpin)==doc(root,candidate['before']),'known original unchanged full row; do not overwrite a changed/Saved effect')
+ policies=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('decision_id')==OLD_POLICY]
+ require(len(policies)==1,'one actual original consumed policy');old=policies[0]
+ require(all(old.get(k)==v for k,v in {'task_id':TASK,'department':'publishing','action_id':target['action_id'],'scope':SCOPE,'payload_sha256':target['payload_sha256'],'status':'allow','approval_status':'consumed_for_original_exact_autonomous_action','original_authority':AUTH}.items()),'exact old consumed business policy, never another grant')
+ start=w._parse_observed_at(docs['intent'].get('started_at'));finish=w._parse_observed_at(docs['return'].get('finished_at'));checked=w._parse_observed_at(old.get('checked_at'))
+ require(checked and start and finish and checked<=start<=finish<dt.datetime.now(dt.timezone.utc)and dt.datetime.now(dt.timezone.utc)-checked>dt.timedelta(minutes=30),'real failed effect order and expired policy, no time rewriting')
+ argv=docs['intent'].get('argv',[]);require(docs['intent'].get('original_policy')==OLD_POLICY and '--issue-and-dispatch'in argv and target['candidate_version']in argv and OLD_POLICY in argv
+  and docs['return'].get('exit_code')==1 and docs['return'].get('stdout')==''and docs['return'].get('stderr')=='BLOCKED_MANAGED_CMS_PERMIT: HTTP Error 403: Forbidden\n','one original real issue403, not a default readonly failure')
+ exact=_zero_query(docs['exact_query'],target);collision=_zero_query(docs['collision_query'],target,True)
+ require(exact and collision and finish<exact<=collision<=dt.datetime.now(dt.timezone.utc)and docs['runs'].get('matching_new_publish_runs')==[]and docs['runs'].get('original_once_intent')==RECOVERY_SOURCES['intent']['path'],'ordered original effects reconciled at actual readback; unknown is not clear')
+ return {'schema':'exact-shop-office-expired-failed-instance-recovery/v1','task_id':TASK,'scope':SCOPE,'execution_scope':EXECUTION_SCOPE,'action_id':target['action_id'],'candidate':w.file_digest(root,target['candidate'][0]),'original_policy_id':OLD_POLICY,'original_policy_sha256':w.sha256_value(old),'sources':{**RECOVERY_SOURCES,'row':rowpin},'scope_carrier':scope_carrier(root),'fresh_original_key_collision_run_and_row_native_recheck_required':True,'new_permit_or_policy_issued':False,'old_policy_reconsumed':False}
+
+def register_recovery(root,path):
+ import department_autonomy as a
+ pin=w.file_digest(root,path);require(doc(root,pin)==recovery_document(root),'only the real original failed expired instance, immutable source')
+ with w.workflow_lock(root):
+  snapshot=authority(root);a.original_assignment_ready(root,snapshot,'system-development')
+  old=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==TASK and e.get('details',{}).get('shop_office_expired_instance_recovery')]
+  if old:
+   require(len(old)==1 and old[0]['details']['shop_office_expired_instance_recovery']==pin,'original recovery source already registered')
+   return {'result':'duplicate_ignored','event_id':old[0]['event_id'],'permit_issued':False}
+  event=w.append_workflow_event(root,TASK,snapshot['current_state'],{'shop_office_expired_instance_recovery':pin,'old_policy_reconsumed':False,'permit_issued':False})
+ return {'result':'recorded','event_id':event['event_id'],'permit_issued':False,'fresh_effects_still_required':True}
+
+def execution_instance(root,request,target):
+ """Authenticate a new attempt from real effect reconciliation, not a retry flag."""
+ value=request.get('execution_instance')
+ if value is None:return None
+ require(isinstance(value,dict)and set(value)=={'recovery_event_id','recovery_source','fresh_effects'},'exact registered original-instance source required')
+ events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==TASK and e.get('event_id')==value['recovery_event_id']and e.get('details',{}).get('shop_office_expired_instance_recovery')==value['recovery_source']]
+ require(len(events)==1 and not w.validate_workflow_events(root,TASK)and doc(root,value['recovery_source'])==recovery_document(root),'real unique append-only recovery in original chain')
+ source=doc(root,value['recovery_source']);require(request.get('operation')=='publish'and request.get('action_id')==source['action_id']==target['action_id'],'only the reconciled original forward instance')
+ fresh=doc(root,value['fresh_effects']);require(all(fresh.get(k)==v for k,v in {'schema':'actual-original-shop-issue-fresh-effect-recheck/v1','task_id':TASK,'action_id':target['action_id'],'scope':SCOPE,'execution_scope':EXECUTION_SCOPE,'original_policy_id':OLD_POLICY}.items()),'exact original effect namespace, not a caller recovery grant')
+ exact=_zero_query(external_observation(fresh.get('exact_query')),target);collision=_zero_query(external_observation(fresh.get('collision_query')),target,True)
+ now=dt.datetime.now(dt.timezone.utc);require(exact and collision and all(dt.timedelta()<=now-v<=dt.timedelta(seconds=300)for v in [exact,collision]),'fresh real original-key collision queries required before the new instance')
+ run=doc(root,fresh.get('publish_runs'));row=doc(root,fresh.get('full_row'));candidate=doc(root,w.file_digest(root,target['candidate'][0]))
+ require(run.get('matching_new_publish_runs')==[]and run.get('original_once_intent')==RECOVERY_SOURCES['intent']['path']and row==doc(root,candidate['before']),'unknown/new run or changed full row blocks recovery')
+ for obj in [run,fresh]:
+  at=w._parse_observed_at(obj.get('observed_at'));require(at and dt.timedelta()<=now-at<=dt.timedelta(seconds=300),'real current effect readback time required')
+ from tools.shop_office_web_execution import native
+ web=native(root,fresh.get('actual_WEB_native'),fresh.get('WEB_command_id'))
+ require(all(p['sha256']in web.decode('utf-8')for p in [fresh['exact_query'],fresh['collision_query']]),'actual original WEB native output must name both complete query hashes')
+ import department_autonomy as a
+ _,_,pub=a.native_execution(root,fresh.get('actual_PUB_native'),fresh.get('PUB_command_id'),'publishing')
+ if isinstance(pub,bytes):pub=pub.decode('utf-8')
+ require(all(p['sha256']in pub for p in [fresh['publish_runs'],fresh['full_row']]),'actual original PUB output must name run/row hashes')
+ require(not any(p.get('task_id')==TASK and p.get('action_id')==target['action_id']and p.get('status')=='allow'and p.get('decision_id')!=OLD_POLICY and p.get('execution_instance',{}).get('recovery_event_id')!=value['recovery_event_id']for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)),'another issued or unknown instance cannot be bypassed')
+ return value
+
+def policy_instance(root,context):
+ request=context['request'];target=target_for(root,request['action_id']);value=execution_instance(root,request,target)
+ return value
+
+
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['register','readiness','preflight-record','rollback-capability-record']);p.add_argument('--root',default=str(ROOT));p.add_argument('--input');args=p.parse_args();root=Path(args.root).resolve()
- if args.command=='rollback-capability-record':result=register_rollback_capability(root,args.input)
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['register','readiness','preflight-record','rollback-capability-record','scope-carrier-draft','scope-carrier-record','recovery-draft','recovery-record','physical-preview']);p.add_argument('--root',default=str(ROOT));p.add_argument('--input');args=p.parse_args();root=Path(args.root).resolve()
+ if args.command=='scope-carrier-draft':result=physical_scope_document(root)
+ elif args.command=='scope-carrier-record':result=register_scope_carrier(root,args.input)
+ elif args.command=='recovery-draft':result=recovery_document(root)
+ elif args.command=='recovery-record':result=register_recovery(root,args.input)
+ elif args.command=='physical-preview':result=physical_preview(root,doc(root,w.file_digest(root,args.input)))
+ elif args.command=='rollback-capability-record':result=register_rollback_capability(root,args.input)
  elif args.command=='register':result=register(root,args.input)
  elif args.command=='preflight-record':result=record_preflight(root,args.input)
  else:result={'task_id':TASK,'targets':targets(root),'CMS_write_executed':False,'permit_issued':False,'protected_execution_still_required':True}

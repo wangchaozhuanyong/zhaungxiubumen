@@ -1720,6 +1720,14 @@ def validate_new_permit_target(target: dict, *, assistant_acceptance: dict | Non
                 "Current exact assistant acceptance required for a modern permit target")
 
 
+def exact_execution_scope(root: Path, target: dict) -> str:
+    """Physical transport only; ordinary policy/contract scope is unchanged."""
+    if target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4":
+        from tools.shop_office_six_field_execution import physical_scope
+        return physical_scope(root, target)
+    return target["scope"]
+
+
 def main() -> None:
     raise ValueError("public_template_has_no_native_authorization")
     parser = argparse.ArgumentParser(description=__doc__)
@@ -1764,7 +1772,7 @@ def main() -> None:
             receipt_versions.add(target["candidate_version"])  # Existing CLI artifacts retain the base candidate; permit identity is still inverse.
         require(receipt.get("task_id") == target["task_id"] and receipt.get("candidate_version") in receipt_versions
                 and receipt.get("action_id") == expected_action and receipt.get("operation") == args.operation
-                and receipt.get("scope") == target["scope"],
+                and receipt.get("scope") == exact_execution_scope(ROOT, target),
                 "Dry-run receipt target differs from the locked candidate")
         require(digest.get("task_id") == target["task_id"] and digest.get("operation") == args.operation
                 and len(str(digest.get("payload_sha256", ""))) == 64,
@@ -1829,6 +1837,11 @@ def main() -> None:
                     "policy_decision_id": policy["decision_id"], "dry_run_id": args.dry_run_run_id,
                     "dry_run_receipt_sha256": sha256_file(backup_path.parent / "locked-dry-run-receipt.json"),
                     "payload_sha256": payload_sha256}
+        if target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4":
+            from tools.shop_office_six_field_execution import scope_carrier
+            evidence["physical_scope_carrier"] = scope_carrier(ROOT)
+            evidence["business_scope"] = target["scope"]
+            evidence["execution_scope"] = exact_execution_scope(ROOT, target)
         if exact_reverse_binding is not None:
             evidence["exact_original_reverse_binding"] = exact_reverse_binding
         evidence_sha256 = hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -1836,7 +1849,7 @@ def main() -> None:
         candidate_version = target["candidate_version"] if args.operation == "publish" else f"{target['candidate_version']}-rollback-v1"
         request = {"controlAction": "issue", "permitId": str(uuid4()), "taskId": target["task_id"],
                    "actionId": action_id, "actionClass": "cms_write", "operation": args.operation,
-                   "scope": target["scope"], "candidateVersion": candidate_version,
+                   "scope": exact_execution_scope(ROOT, target), "candidateVersion": candidate_version,
                    "recordId": target["record_id"], "slug": target["slug"],
                    "expectedUpdatedAt": digest["expected_updated_at"], "payloadSha256": payload_sha256,
                    "rollbackPayloadSha256": rollback_digest["payload_sha256"] if rollback_digest else None,

@@ -681,12 +681,19 @@ def policy(root,requested):
  request=context['request'];observed=w._parse_observed_at(request.get('observed_at'))
  require(observed is not None and 0<=(dt.datetime.now(dt.timezone.utc)-observed).total_seconds()<=300,'fresh actual execution observation required; reports do not expire')
  key=w.sha256_value([requested[k]for k in ('task_id','department','action_id','action_class','scope')])
+ instance=None
+ if requested.get('task_id')=='fc-20261025-shop-office-existing-six-and-five-implementation-release-v1'and requested.get('action_class')=='cms_write':
+  from tools.shop_office_six_field_execution import policy_instance
+  instance=policy_instance(root,context)
+  require('execution_instance'not in requested or requested['execution_instance']==instance,'instance derives only from the authenticated current preflight')
+  if instance is not None:key=w.sha256_value([key,instance['recovery_event_id'],instance['recovery_source']])
  with w.workflow_lock(root):
   prior=[x for x in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if x.get('autonomous_action_key')==key and x.get('status')=='allow']
   require(not prior,'original exact action already issued; read actual/unknown effect before any recovery, never replay')
   value={**requested,'status':'preflight_ready_not_a_permit','actual_action_allowed':False,'approval_basis':MODE,
    'original_authority':context['authorization'],'mode_authorization':OWNER,'exact_request':context['pin'],
    'autonomous_action_key':key,'checked_at':w.utc_timestamp(),'assistant_approval_required':False,'retry_authorized':False}
+  if instance is not None:value['execution_instance']=instance
   if not requested.get('consume_approval'):return value,[Path(root)/w.ACTION_POLICY]
   value.update(status='allow',actual_action_allowed=True,decision_id='pol-'+w.sha256_value([value,key])[:20],approval_status='consumed_for_original_exact_autonomous_action')
   w.append_jsonl_locked(Path(root)/w.POLICY_DECISIONS,value)
