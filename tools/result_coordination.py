@@ -153,6 +153,12 @@ def review_capabilities(root, role):
 
 def _goal_actor(root, identity, role, *, assigned=True):
     """Check routine responsibility without interpreting actor metadata as auth."""
+    from department_autonomy import MODE, autonomous_result_route
+    route = autonomous_result_route(root, identity) or {}
+    if route.get('source_mode') == MODE:
+        if role != route.get('target_department') or role == identity['sender_department']:
+            _fail('only the frozen original professional receiver may handle this result')
+        return goal_delivery(root, identity['task_id'])
     source = _collaboration_source(root, identity)
     if source is not None and role != source['responsible_assistant']:
         _fail('only original responsible assistant may handle this collaboration result')
@@ -1207,8 +1213,14 @@ def _validate_queued(root, identity):
 
 
 def _role(root, role, owner, identity=None):
-    original_target = (result_lane(root, identity).get('target_department')
-                       if identity and goal_delivery(root, identity['task_id']) is None else None)
+    from department_autonomy import MODE, autonomous_result_route
+    route = (autonomous_result_route(root, identity) or {}) if identity else {}
+    if route.get('source_mode') == MODE:
+        if role != route.get('target_department') or role == identity['sender_department']:
+            _fail('only the frozen original professional receiver may claim this result')
+    original_target = (route.get('target_department') if route.get('source_mode') == MODE else
+                       (result_lane(root, identity).get('target_department')
+                        if identity and goal_delivery(root, identity['task_id']) is None else None))
     if role not in coordinator_roles(root, task_id=identity["task_id"] if identity else None) and role != original_target:
         _fail("registered coordinator role required")
     if not isinstance(owner, str) or not owner.strip() or len(owner) > 200:
