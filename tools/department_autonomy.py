@@ -157,6 +157,10 @@ def runtime_health_route(root,snapshot,request,packet,payload):
 
 def message_route(root,snapshot,request):
  if not isinstance(request,dict)or request.get('action_class')!='thread_message':return None
+ # External collaborators retain the original complete-goal path. It checks
+ # the declared collaboration, exact approved payload, original authority and
+ # fresh native identity; the internal autonomous lane grants none of these.
+ if request.get('target_department')not in w.department_registry(root):return None
  payload=request.get('payload')
  if not isinstance(payload,dict):return None
  require(w.file_digest(root,payload.get('path',''))==payload,'exact payload bytes required')
@@ -581,6 +585,11 @@ def autonomous_result_route(root,identity):
   parent=w.read_json(w.snapshot_path(root,collab.get('parent_task_id','')));owner=parent.get('goal_delivery',{}).get('primary_owner')
   require(parent and owner==collab.get('primary_owner')and professional(root,owner)and snapshot['goal_delivery'].get('parent_task_id')==parent['task_id'], 'actual original parent owner for collaboration return')
   target=owner
+ # A full business owner reporting inside its own parent business is not a
+ # child specialist returning work to another owner. Never retarget an
+ # already frozen transport, including a historical self-recipient.
+ if not queued and target==identity['sender_department']==snapshot['goal_delivery']['primary_owner']:
+  target='operations'
  return {'lane':'HQ_knowledge'if target=='operations'else'professional_acceptance','target_department':target,'source_mode':MODE,
   'acceptance_proven':False,'notification_proven':False,'HQ_second_review_required':False,'automatic_wakeup_allowed':True,'knowledge_only':target=='operations'}
 

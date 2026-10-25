@@ -1207,6 +1207,19 @@ def prepare_message(root, request):
     registry=w.department_registry(root)
     binding=registry.get(request['target_department'],{}).get('chat_binding')
     external_target=binding is None
+    if external_target:
+        snapshot=restore_goal(root,w.read_json(w.snapshot_path(root,request['task_id'])))
+        goal=snapshot['goal_delivery'];contract=snapshot.get('goal_contract')
+        if not isinstance(contract,dict) or w.file_digest(root,contract.get('path','')) != contract:
+            raise w.WorkflowError('unchanged original external collaboration contract required')
+        original=w.read_json(w.safe_path(root,contract['path']))
+        declared=[x for x in original.get('collaboration_scopes',[]) if all(
+            x.get(k)==request.get(k) for k in ('sender_department','target_department','scope'))]
+        if (len(declared)!=1 or original.get('primary_owner')!=goal.get('primary_owner')
+                or request['sender_department']!=original.get('primary_owner')
+                or request['scope'] not in original.get('authorized_scope',[])
+                or original.get('human_authorization')!=goal.get('human_authorization')):
+            raise w.WorkflowError('exact original owner, human source and declared external collaboration required')
     if binding is None:
         external=w.read_json(Path(root)/'data/department-registry.json').get('collaboration_bindings',{}).get(request['target_department'])
         if not external or request['target_department'] not in {
@@ -1217,6 +1230,10 @@ def prepare_message(root, request):
     if any(page.get('thread',{}).get(k) != binding.get(v) for k,v in
            {'id':'task_id','title':'title','cwd':'cwd'}.items()):
         raise w.WorkflowError('actual target fixed identity differs')
+    if external_target and (page.get('thread',{}).get('kind') != 'codex'
+            or not binding.get('host_id')
+            or page.get('thread',{}).get('hostId') != binding['host_id']):
+        raise w.WorkflowError('actual external collaboration host and native kind differ')
     turns = page.get('turns',[])
     if not turns:
         raise w.WorkflowError('real latest target turn required; notLoaded is not idle')
@@ -1248,7 +1265,7 @@ def prepare_message(root, request):
         for fixed in [source,binding]:
             rows=[x for x in [*inventory.get('threads',[]),*inventory.get('pinnedThreads',[])] if x.get('id')==fixed['task_id']]
             if len(rows)!=1 or any(rows[0].get(k)!=fixed[v] for k,v in
-                    {'projectId':'project_id','title':'title','cwd':'cwd'}.items()):
+                    {'projectId':'project_id','title':'title','cwd':'cwd','hostId':'host_id'}.items()):
                 raise w.WorkflowError('fresh actual collaboration sender and target identities required')
             selected.append(rows[0])
         live={'observed_at':request['live_observed_at'],'threads':selected,'actual_native_observation':inventory_pin,
