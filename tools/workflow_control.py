@@ -921,7 +921,9 @@ def validate_workflow_events(root: Path, task_id: str) -> list[str]:
             if event.get('state')=='closed' and i!=len(task_events)-1:
                 if any(e.get('state')!='closed'for e in task_events[i+1:]):invalid.append('autonomous_closed_task_cannot_reopen')
         return invalid
-    reviewer = _final_qa_department(root, original_snapshot, preparation_only=True)
+    from department_autonomy import historical_professional_workflow_reviewer
+    reviewer = (historical_professional_workflow_reviewer(root, original_snapshot)
+                or _final_qa_department(root, original_snapshot, preparation_only=True))
     task_receipts = read_jsonl(receipts_path(root, task_id))
     replacement_times = {
         row.get("created_at")
@@ -5075,6 +5077,7 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
             or isinstance(snapshot.get("goal_delivery", {}).get("qualified_assistant_selection"), dict)):
         receipt["created_at"] = dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
     path = receipts_path(root, task_id)
+    professional_transport = None
     with workflow_lock(root):
         if snapshot_before is not None and file_digest(
                 root, rel_path(root, snapshot_path(root, task_id))) != snapshot_before:
@@ -5112,8 +5115,13 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
             if receipt_type == "dispatch_failed" and not re.fullmatch(r"[a-z0-9][a-z0-9_-]{2,80}", replacement_reason):
                 raise WorkflowError("派工失败更正必须提供原因代码")
         else:
-            _validate_receipt_prerequisite(snapshot, receipts, receipt_type, department, root=root)
-        if receipt_type == "dispatch_sent":
+            from department_autonomy import original_professional_transport_receipt
+            professional_transport = original_professional_transport_receipt(root, snapshot, receipts, receipt)
+            if professional_transport is not None:
+                receipt["autonomous_transport_continuation"] = professional_transport
+            else:
+                _validate_receipt_prerequisite(snapshot, receipts, receipt_type, department, root=root)
+        if receipt_type == "dispatch_sent" and professional_transport is None:
             from parent_initial_dispatch import validate_sent
             parent_initial = validate_sent(root, snapshot, receipt, routing_decision)
             if parent_initial:
@@ -5155,7 +5163,11 @@ def record_receipt(root: Path, args: Any) -> tuple[dict[str, Any], list[Path]]:
         receipt["previous_hash"] = str(receipts[-1].get("receipt_hash", "")) if receipts else ""
         receipt["receipt_hash"] = sha256_value(_receipt_payload_for_hash(receipt))
         append_jsonl_locked(path, receipt)
-    reconcile, artifacts = reconcile_workflow(root, task_id=task_id, shadow=False)
+    if professional_transport is not None:
+        from department_autonomy import reconcile_professional_transport
+        reconcile, artifacts = reconcile_professional_transport(root, task_id, receipt)
+    else:
+        reconcile, artifacts = reconcile_workflow(root, task_id=task_id, shadow=False)
     assignment_status = None
     if receipt_type == 'dispatch_sent':
         from goal_continuity import ASSIGNMENT_SCHEMA, record_assignment

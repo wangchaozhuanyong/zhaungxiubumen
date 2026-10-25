@@ -391,7 +391,7 @@
       "release_sha256": "8e4f00fe2d498c2ef3903d924ad77b686acd23bd05d81c7e27a6eb26144ff883",
       "bytes": 4929,
       "source_selection": "preserve_existing_verified_source",
-      "source_origin": "git:695e941d3adca784b3f768d75b7766018ff20fc1:departments/visual-design-video/scripts/music_scout_preflight.py"
+      "source_origin": "git:fcc70b309850268691f97c44fcc837d64976bcf8:departments/visual-design-video/scripts/music_scout_preflight.py"
     },
     {
       "path": "departments/visual-design-video/scripts/narration_audio.py",
@@ -1003,9 +1003,9 @@
     },
     {
       "path": "tools/department_autonomy.py",
-      "source_sha256": "541c49281a4fced97a63639b0e14eda87a851dc328435c1dca5e471aa48372f1",
-      "release_sha256": "644226f0877d5f782bffe017c81d46661025c2bb5ca291332877c3f6a0dd7752",
-      "bytes": 95042
+      "source_sha256": "d5982839ba6cbbd78cdd69b89a648245be550e4d3352c46224725d8055247d89",
+      "release_sha256": "3b923525d6d738ea4745bc2400a2fe7e0072352e1d598bc95e2cc55d657c4f85",
+      "bytes": 105982
     },
     {
       "path": "tools/department_event_dispatcher.py",
@@ -1723,9 +1723,9 @@
     },
     {
       "path": "tools/workflow_control.py",
-      "source_sha256": "13d2c277e3c8c6830ed0c7b5eb4e042153ac59d9ab47e8a253d5a13e3733a7e4",
-      "release_sha256": "d91abbc7d4b848c63d85d712325a62fc944c1fa2bcf2fad3b196c15e7ca0e1c7",
-      "bytes": 594239
+      "source_sha256": "2b736d6829b3973e360debb4c382b3c846828d5957999364e6b2e811b3f85913",
+      "release_sha256": "686fdcb235689beb512a2f3bda8cb4e60bd6d05db3cdba8f6eebb1473c02a26a",
+      "bytes": 595047
     }
   ],
   "retired_roles": [
@@ -1741,5 +1741,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "1487e776f4738ff31a39d3a6f8ad70374e328fb03364b31874a8c32d1b511b31"
+  "fingerprint": "e42118edada8e98e2a6b126bb0aaa56e3962307dcff2632fda7f8206f30b2dd8"
 }

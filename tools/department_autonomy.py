@@ -485,6 +485,138 @@ def completion(root,snapshot):
  return {'state':'PROVEN'if not missing and not blocked else'BLOCKED'if blocked else'MISSING','requirements':results,
   'missing':missing,'blockers':blocked,'business_goal_closed':False,'closed_scope_only':not missing and not blocked,'HQ_technical_review_required':False}
 
+
+def historical_professional_workflow_reviewer(root, snapshot):
+ """Frozen history identity only; never qualifies a new reviewer or verdict."""
+ goal=snapshot.get('goal_delivery',{})
+ if (autonomous_goal(goal)or not current_mode(root)or not goal
+  or not snapshot.get('goal_contract')or not professional(root,goal.get('primary_owner'))):return None
+ from qa_review_plan import _binding
+ if _binding(root,snapshot)is not None:return None  # Existing bound history keeps its exact reviewer.
+ frozen=document(root,snapshot.get('goal_contract'))
+ reviewer=frozen.get('responsible_assistant')
+ if reviewer not in ASSISTANTS or goal.get('responsible_assistant')!=reviewer:return None
+ require(all(goal.get(k)==frozen.get(k)for k in ('primary_owner','producer_departments','authorized_scope','human_authorization')),
+  'unchanged professional contract required for historical workflow reading')
+ return reviewer
+
+
+def original_professional_transport_receipt(root, snapshot, rows, receipt):
+ """Only new authenticated transport on an open migrated legacy professional goal."""
+ kind=receipt.get('receipt_type');goal=snapshot.get('goal_delivery',{})
+ if kind not in {'dispatch_sent','chat_ack'}or autonomous_goal(goal)or not current_mode(root):return None
+ role=receipt.get('department')
+ if role in ASSISTANTS or role not in goal.get('producer_departments',[]):return None
+ require(snapshot.get('current_state')not in w.TERMINAL_STATES,'closed original goal cannot append a continuation')
+ frozen=document(root,snapshot.get('goal_contract'));participant(root,snapshot,role)
+ require(all(goal.get(k)==frozen.get(k)for k in ('primary_owner','producer_departments','authorized_scope','human_authorization','parent_task_id')),
+  'original professional transport cannot change frozen goal/owner/authority/scope')
+ require(professional(root,role)and goal.get('primary_owner')not in ASSISTANTS
+  and receipt.get('scope')in frozen['authorized_scope']and receipt.get('action_class')=='thread_message'
+  and not receipt.get('approval_id')and not receipt.get('verdict')
+  and receipt.get('action_id')and not receipt['action_id'].startswith('assign-goal-review:'),
+  'only original professional ordinary transport; no new assistant, execution or verdict')
+ fixed=w.department_registry(root)[role]['chat_binding']
+ require(receipt.get('chat_task_id')==fixed['task_id']and fixed.get('project_id')==PROJECT
+  and fixed.get('cwd')==str(Path(root).resolve()),'exact current original professional target required')
+ _,bad=w._validate_receipt_chain(root,snapshot['task_id'])
+ require(not bad and not w.validate_workflow_events(root,snapshot['task_id']),'intact original transport and workflow history required')
+ original_assignment_ready(root,snapshot,role)
+ if kind=='chat_ack':
+  candidates=[r for r in rows if r.get('receipt_type')=='dispatch_sent'
+   and all(r.get(k)==receipt.get(k)for k in ('department','chat_task_id','action_id','scope','action_class'))
+   and r.get('autonomous_transport_continuation',{}).get('mode_authorization')==OWNER]
+  require(len(candidates)==1,'one exact recorded professional continuation dispatch required before ACK')
+  sent=candidates[0];validate_native_ack(root,snapshot,role,receipt.get('evidence',[]))
+  ackpins=[p for p in receipt['evidence']if document(root,p).get('schema')=='department-native-ack/v1']
+  proof=document(root,ackpins[0])
+  import goal_delivery_runtime as g
+  page=g._native_document(root,proof['actual_native'])
+  turn=next(t for t in page['turns']if t['id']==proof['source_turn_id'])
+  index=next(i for i,m in enumerate(turn['items'])if m.get('id')==proof['source_message_id'])
+  original=sent['autonomous_transport_continuation'];body=(Path(root)/original['payload']['path']).read_text()
+  users=[m for m in turn['items'][:index]if m.get('type')=='userMessage'and m.get('content')==[{'type':'text','text':body}]]
+  at=w._parse_observed_at(original['queue_finished_at'])
+  require(len(users)==1 and type(turn.get('startedAt'))in {int,float}and at
+   and at.timestamp()<=turn['startedAt']<=dt.datetime.now(dt.timezone.utc).timestamp(),
+   'real original queued payload followed by this nonempty professional ACK required')
+  require(not any(r.get('receipt_type')=='chat_ack'and r.get('autonomous_transport_continuation',{}).get('dispatch_receipt_id')==sent['receipt_id']
+   for r in rows),'actual continuation ACK already recorded; recover original key, never duplicate')
+  return {'schema':'original-autonomous-professional-transport/v1','mode_authorization':OWNER,
+   'goal_contract':snapshot['goal_contract'],'kind':'chat_ack','dispatch_receipt_id':sent['receipt_id'],
+   'actual_ack':ackpins[0],'queue_message_id':original['queue_message_id'],'payload':original['payload'],
+   'policy_decision_id':sent['policy_decision_id'],'transport_only':True,'external_permission_issued':False}
+ policies=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('decision_id')==receipt.get('policy_decision_id')]
+ require(len(policies)==1,'one original normal transport policy required');policy=policies[0]
+ expected={'status':'allow','task_id':snapshot['task_id'],'action_id':receipt['action_id'],
+  'action_class':'thread_message','scope':receipt['scope'],'target_department':role,
+  'target_thread_id':fixed['task_id'],'target_project_id':PROJECT,'target_cwd':str(Path(root).resolve()),
+  'target_thread_title':fixed['title'],'target_sidebar_section_id':fixed['sidebar_section_id'],
+  'source_project_id':PROJECT,'routing_status':'routing_allowed','approval_basis':MODE}
+ require(all(policy.get(k)==v for k,v in expected.items())and policy.get('department')=='operations'
+  and policy.get('external_permission_issued')is False,'actual original autonomous HQ policy/task/action/recipient required')
+ evidence=receipt.get('evidence',[])
+ payloads=[p for p in evidence if p.get('sha256')==policy.get('payload_sha256')]
+ require(len(payloads)==1,'one exact original policy-bound payload required');payload=payloads[0]
+ require(w.file_digest(root,payload['path'])==payload,'unchanged original transport bytes required')
+ body=(Path(root)/payload['path']).read_text()
+ import re
+ require(all(re.search(r'(?m)^'+k+'='+re.escape(str(v))+r'\s*$',body)for k,v in [('task_id',snapshot['task_id']),('scope',receipt['scope'])]),
+  'original task/scope text required; caller role labels grant no authority')
+ from goal_source_recovery import _strict_queue_document
+ documents=[(p,_strict_queue_document(root,p))for p in evidence if p['path'].endswith('.json')]
+ prepared=[(p,x)for p,x in documents if x.get('status')=='ready_to_queue'and x.get('policy_decision')==policy]
+ intents=[(p,x)for p,x in documents if x.get('transport')=='official_codex_queue'and 'exit_code'not in x]
+ results=[(p,x)for p,x in documents if x.get('transport')=='official_codex_queue'and 'exit_code'in x]
+ require(len(prepared)==len(intents)==len(results)==1,'one actual original prepare/queue intent/result chain required')
+ prep_pin,prep=prepared[0];intent_pin,intent=intents[0];result_pin,result=results[0]
+ require(Path(intent_pin['path']).name=='native-queue-intent.json'
+  and Path(result_pin['path']).name=='native-queue-result.json'
+  and Path(intent_pin['path']).parent==Path(result_pin['path']).parent
+  and Path(result_pin['path']).parent.parent==Path(prep_pin['path']).parent==Path(payload['path']).parent,
+  'original normal prepare/payload and canonical owned queue artifacts required; no substitute effect file')
+ require(prep.get('payload')==payload and prep.get('delivery_mode')=='official_native_queue'
+  and prep.get('message_sent')is False and prep.get('external_permission_issued')is False
+  and all(prep.get('authorization_precheck',{}).get(k)==v for k,v in {'status':'within_original_authorization','task_id':snapshot['task_id'],
+   'scope':receipt['scope'],'action_class':'thread_message','original_authorization':goal['authorization_pin'],
+   'actual_action_allowed':False,'external_permission_issued':False}.items()),
+  'original full-goal authority and normal exact queue preparation required')
+ expected_queue={'thread_id':fixed['task_id'],'payload_sha256':payload['sha256'],'policy_decision_id':policy['decision_id'],
+  'transport':'official_codex_queue','intake_claimed':False}
+ match=re.fullmatch(r'Queued message ([0-9a-f-]{36}) for thread ([0-9a-f-]{36})\.\s*',result.get('stdout',''))
+ require(all(intent.get(k)==v and result.get(k)==v for k,v in expected_queue.items())
+  and type(result.get('exit_code'))is int and result['exit_code']==0 and result.get('stderr')==''
+  and match and match[2]==fixed['task_id']and intent.get('started_at')==result.get('started_at'),
+  'actual one successful original queue effect required; unknown effects are not dispatch')
+ start=w._parse_observed_at(result.get('started_at'));finish=w._parse_observed_at(result.get('finished_at'));checked=w._parse_observed_at(policy.get('checked_at'))
+ require(start and finish and checked and checked<=start<=finish<=dt.datetime.now(dt.timezone.utc),
+  'actual original policy-before-queue chronology required; never backdate')
+ require(not any(r.get('receipt_type')=='dispatch_sent'and r.get('policy_decision_id')==policy['decision_id']
+  and r.get('action_id')==receipt['action_id']for r in rows),
+  'original dispatch effect already recorded; recover its original key')
+ return {'schema':'original-autonomous-professional-transport/v1','mode_authorization':OWNER,
+  'goal_contract':snapshot['goal_contract'],'kind':'dispatch_sent','policy_decision_id':policy['decision_id'],
+  'payload':payload,'normal_prepare':prep_pin,'queue_intent':intent_pin,'queue_result':result_pin,
+  'queue_message_id':match[1],'queue_finished_at':result['finished_at'],'transport_only':True,'external_permission_issued':False}
+
+
+def reconcile_professional_transport(root, task, receipt):
+ """Only commit the existing receipt cursor; preserve frozen goal, QA and work state."""
+ with w.workflow_lock(root):
+  snapshot=w.read_json(w.snapshot_path(root,task));rows,bad=w._validate_receipt_chain(root,task)
+  require(not bad and any(r.get('receipt_id')==receipt['receipt_id']for r in rows),'actual recorded transport chain required')
+  require(receipt['autonomous_transport_continuation']['goal_contract']==snapshot.get('goal_contract'),
+   'original transport contract changed before cursor readback')
+  event=w.append_workflow_event(root,task,snapshot['current_state'],{
+   'autonomous_professional_transport_recorded':{'receipt_id':receipt['receipt_id'],'receipt_type':receipt['receipt_type'],
+    'mode_authorization':OWNER,'goal_contract':snapshot['goal_contract'],'business_stage_changed':False}})
+  snapshot.update(last_receipt_hash=rows[-1]['receipt_hash'],receipt_count=len(rows),
+   event_count=len([e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==task]),
+   updated_at=w.utc_timestamp())
+  w.atomic_write_json(w.snapshot_path(root,task),snapshot)
+ return snapshot,[w.snapshot_path(root,task),Path(root)/w.WORKFLOW_EVENTS]
+
+
 def receipt_prerequisite(root,snapshot,rows,kind,role):
  goal=snapshot['goal_delivery'];require(role in goal['producer_departments'],'original professional receipt only')
  require(kind!='qa_verdict','assistant QA is historical only; ordinary tasks do not create QA verdicts')
