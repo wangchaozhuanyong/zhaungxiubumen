@@ -32,7 +32,7 @@ dispatch-plan --goal；receipt-record实际派送/ACK；`python3 tools/goal_deli
 
 ## maintenance
 
-仅准确授权的本项目专业维护；旧flash-cast-20-00仍PAUSED，HQ按原排程重新绑定专业owner前不激活、不删除。
+仅准确授权的本项目专业维护。原flash-cast-20-00的当前状态、专业执行绑定和检查范围沿maintenance-preflight实时读取；激活、真实排程运行与清理效果分别记实，历史A3许可不继承，预检不执行删除。
 
 ## target-state
 
@@ -47,4 +47,4 @@ dispatch-plan --goal；receipt-record实际派送/ACK；`python3 tools/goal_deli
 真实老板新授权改变模式，原合同/业务权限不扩大。
 
 
-维护接线读回：`python3 tools/department_autonomy.py maintenance-preflight`。原flash-cast-20-00由SYS承接本项目检查，HQ按原排程重绑定；该命令不清理文件、不继承A3许可。实际清理仍须准确使用/引用、任务结束事实、精确清单和当前授权，不可恢复范围另向老板确认。
+维护接线读回：`python3 tools/department_autonomy.py maintenance-preflight`。原flash-cast-20-00由SYS承接本项目检查，平台状态和绑定以准确实际读回为准；该命令不清理文件、不继承A3许可。实际清理仍须准确使用/引用、任务结束事实、精确清单和当前授权，不可恢复范围另向老板确认。

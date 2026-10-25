@@ -701,15 +701,15 @@
     },
     {
       "path": "playbooks/department-system-runtime-reference.md",
-      "source_sha256": "689cd06db4a3820da05f50fe62631590e8af3e3badcd42720e1b985a97e6d2e7",
-      "release_sha256": "689cd06db4a3820da05f50fe62631590e8af3e3badcd42720e1b985a97e6d2e7",
-      "bytes": 2085
+      "source_sha256": "be7f7694c5944e7a6067164e22b68039f8bfcc45526d88851f9591783afd0ca7",
+      "release_sha256": "be7f7694c5944e7a6067164e22b68039f8bfcc45526d88851f9591783afd0ca7",
+      "bytes": 2231
     },
     {
       "path": "playbooks/department-system-source-release.md",
-      "source_sha256": "9f24fcdf6cbc77e9325fa63c4c519c10cc2b00999f5ba519a1f47bb6f8b36046",
-      "release_sha256": "9f24fcdf6cbc77e9325fa63c4c519c10cc2b00999f5ba519a1f47bb6f8b36046",
-      "bytes": 648
+      "source_sha256": "00e90da487209254517dbad66ee8fdefdcbd410851ec934e26b574de095945fe",
+      "release_sha256": "00e90da487209254517dbad66ee8fdefdcbd410851ec934e26b574de095945fe",
+      "bytes": 726
     },
     {
       "path": "playbooks/flashcast-growth-data-and-backend-operations.md",
@@ -1739,5 +1739,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "e1bd73e7a7c6a75ed2d044783c6386ad1f1f641dd92c6be0ce24b0bcbd177133"
+  "fingerprint": "7db74156916e54df3d887ef1c3c24c84ee11fd71b6e9014bbe18f9f79cf16b7b"
 }
