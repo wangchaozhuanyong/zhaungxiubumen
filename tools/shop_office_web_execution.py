@@ -128,7 +128,7 @@ def external_source(pin,parse=True):
  return json.loads(raw)if parse else raw
 
 def validate_request(root,req):
- op,state,b,desired=source_state(root,req);c=_source_candidate(root,state['candidate_commit']);is_current=state['candidate_commit']==CURRENT_COMMIT;delivery_sha=CURRENT_TYPED['sha256']if is_current else TYPED_SHA;intent=w.sha256_value({k:v for k,v in req.items()if k not in {'facts','self_check','backup','rollback'}})
+ op,state,b,desired=source_state(root,req);c=_source_candidate(root,state['candidate_commit']);is_current=state['candidate_commit']==CURRENT_COMMIT;is_fa6=state['candidate_commit']==FA6_COMMIT;delivery_sha=CURRENT_TYPED['sha256']if is_current else(_fa6_module(root).CURRENT_TYPED['sha256']if is_fa6 else TYPED_SHA);intent=w.sha256_value({k:v for k,v in req.items()if k not in {'facts','self_check','backup','rollback'}})
  for k in ['facts','self_check','backup','rollback']:
   d=doc(root,req.get(k));require(all(d.get(v)==req.get(v)for v in ['task_id','department','action_id','action_class','scope'])and d.get('intent_sha256')==intent,'exact request-bound '+k)
   if k=='facts':
@@ -140,9 +140,9 @@ def validate_request(root,req):
    raw=external_source(d.get('source_backup'),False);require(hashlib.sha256(raw).hexdigest()==c['patch_sha256'],'exact actual fourteen-file rollback patch, not another backup')
   if k=='rollback':
    rehearsal=external_source(d.get('source_recovery'))
-   if is_current:
-    runbook=doc(root,d.get('production_recovery'));require(runbook==current_production_recovery(root),'exact current physical source/CMS recovery carrier, not old invalid scope')
-    require(rehearsal.get('base')==CURRENT_PARENT and rehearsal.get('candidate_file_sha256')==c['causal_diff_file_sha256']and rehearsal.get('commit')==CURRENT_COMMIT and rehearsal.get('actual_forward_reverse_byte_exact')is True,'actual current three-file inverse rehearsal')
+   if is_current or is_fa6:
+    runbook=doc(root,d.get('production_recovery'));require(runbook==(current_production_recovery(root)if is_current else _fa6_module(root).current_production_recovery(root)),'exact current physical source/CMS recovery carrier, not old invalid scope')
+    require(rehearsal.get('base')==c['base'] and rehearsal.get('candidate_file_sha256')==c['causal_diff_file_sha256']and rehearsal.get('commit')==c['commit'] and rehearsal.get('actual_forward_reverse_byte_exact')is True,'actual current three-file inverse rehearsal')
    else:
     runbook=external_source(d.get('production_recovery'))
     require(rehearsal.get('base')==PARENT and rehearsal.get('candidate_sha256')==c['file_sha256']and rehearsal.get('actual_forward_reverse_byte_exact')is True and rehearsal.get('commit')==COMMIT,'actual source inverse rehearsal for same fourteen files')
@@ -239,72 +239,125 @@ def build_preflight(root,base_path,facts_native,facts_command,self_native,self_c
  w.atomic_write_json(out/'preflight.json',item);return {'preflight':w.file_digest(root,str((out/'preflight.json').relative_to(root))),'external_permission_issued':False}
 
 
-CURRENT_COMMIT='fa6b611fbf9e07b1d2d22a6c6f8f3f2cd3870825'
-CURRENT_PARENT='8f5b19601660e42c87f0dac17c8f0bccb07becfd'
-CURRENT_TREE='98a7eafea04f9527c8c0acc360f8adc394120c00'
-CURRENT_BRANCH='codex/shop-office-physical-cms-scope-20261025-v2'
-CURRENT_TYPED={'path':str(TYPED.with_name('CANDIDATE-DELIVERY-TYPED-v4-PHYSICAL-SCOPE.json')),'sha256':'84ccd36932525f40e5f798125f2634775c7502fe0d5666175c68c51130a2456e','size':9809}
-PRECEDING_PRODUCTION={'path':str(TYPED.with_name('ACTUAL-WEB-PRODUCTION-DELIVERY-v3.json')),'sha256':'69938db3537472034f108eb9125e13368f5e5df6681737245528d1b03f2c4c4e','size':9975}
+CURRENT_COMMIT='035b08ea42dec08a71bb8d0e6ad2f8971e58e741'
+CURRENT_PARENT='a60c1a454bf565e814aa4141a2d6f0fb4b8f52aa'
+CURRENT_TREE='bbf6155dd490e173c92d391b4e80db59a1d5c801'
+CURRENT_BRANCH='codex/shop-office-physical-cms-scope-current-20261025-v3'
+CURRENT_TYPED={'path':str(TYPED.with_name('CANDIDATE-DELIVERY-TYPED-v5-CURRENT-BASE.json')),'sha256':'f0d2b40a7c6fda1bc12b5b1d155906df20d3f048fc992e92c5e92658e9c3dce5','size':10505}
+PRECEDING_PRODUCTION={'path':str(TYPED.with_name('ACTUAL-CURRENT-A60-PRODUCTION-BASE-v5.json')),'sha256':'8c25ecbd4c3723cf3fba0117a3f0d5f295e430c6c5b120644b2ae03ca4494b48','size':1513}
 LEGACY_PRODUCTION_RECOVERY={'path':str(TYPED.with_name('PRODUCTION-RECOVERY-RUNBOOK.json')),'sha256':'961c57a8948c670f507d3cf9bd953f658fd75a246b245cddc3010afb7a0bf02f','size':4087}
-CURRENT_RECOVERY_PATH='logs/handoffs/2026-10-25-shop-office-six-field-execution-wiring-v1/exact-WEB-physical-head-fa6b-source-v9/EXACT-PHYSICAL-SOURCE-PRODUCTION-RECOVERY-v9.json'
+CURRENT_RECOVERY_PATH='logs/handoffs/2026-10-25-shop-office-six-field-execution-wiring-v1/exact-WEB-current-head035b-source-v10/EXACT-CURRENT-MATERIAL-SOURCE-PRODUCTION-RECOVERY-v10.json'
 PHYSICAL_DIFF_PATHS=frozenset({'scripts/managed-cms-targets-shop-office-six-field-v4.mjs','src/lib/contentPublishShopOfficeSixFields.test.ts','supabase/functions/_shared/shop-office-six-field-targets.ts'})
+
+FA6_COMMIT='fa6b611fbf9e07b1d2d22a6c6f8f3f2cd3870825'
+FA6_MODULE={'path':'logs/handoffs/2026-10-25-shop-office-six-field-execution-wiring-v1/exact-WEB-physical-head-fa6b-source-v9/shop_office_web_execution.py','sha256':'8815c175ae12816f5b5a794835c8d5dd5a485141ca5da77e0e91ca6ecf3ea078','size':40658}
+MATERIAL_PATH='supabase/functions/content-publish/service.ts'
+MATERIAL_BEFORE='5105497782b0c082dbdc4f91321be80e6e56fa77eb09fb1de19fa367f53be5b1'
+MATERIAL_CURRENT='8bfc6c7b8f709ed8d3236b49ccc4951ae5e2fbbccf72860877cc50bdda5641f3'
+
+def _fa6_module(root):
+ """Reuse the actually adopted immutable predecessor solely as its historical reader."""
+ import importlib.util,sys
+ require(w.file_digest(root,FA6_MODULE['path'])==FA6_MODULE,'unchanged actually adopted fa6 source required')
+ name='_shop_office_adopted_fa6_8815c175'
+ if name not in sys.modules:
+  spec=importlib.util.spec_from_file_location(name,w.safe_path(root,FA6_MODULE['path']))
+  module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);sys.modules[name]=module
+ return sys.modules[name]
+
+def _fa6_registration(root):
+ old=_fa6_module(root)
+ rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==TASK and e.get('details',{}).get('shop_office_WEB_execution_registration')]
+ require(len(rows)>=3 and not w.validate_workflow_events(root,TASK),'actual intact original fa6 registration prefix required')
+ original=rows[0]['details']['shop_office_WEB_execution_registration'];previous=rows[1]['details']['shop_office_WEB_execution_registration'];row=rows[2]
+ pin={'path':'logs/handoffs/2026-10-25-shop-office-six-field-execution-wiring-v1/exact-WEB-physical-head-fa6b-source-v9/EXACT-FA6B-NORMAL-WEB-SOURCE-REGISTRATION.json','sha256':'b538803c3163a4986e86afaad779673741aceb7956c68150c18065f3e345b77d','size':6693}
+ frozen=doc(root,pin);prior=doc(root,previous);doc(root,original)
+ require(original==ORIGINAL_REGISTRATION and rows[1]['details'].get('supersedes_WEB_registration')==original
+  and row['details'].get('supersedes_WEB_registration')==previous and row['details'].get('shop_office_WEB_execution_registration')==pin
+  and frozen.get('causal_predecessor')==previous and prior.get('causal_predecessor')==original
+  and all(frozen.get(k)==v for k,v in {'task_id':TASK,'scope':SCOPE,'goal_contract':CONTRACT,'authorization_pin':AUTH,
+    'candidate_commit':FA6_COMMIT,'candidate_delivery':old.CURRENT_TYPED,'original_owner':OWNER,'execution_department':ROLE}.items()),
+  'exact frozen accepted fa6 registration/authority/source prefix; no revalidation or rewrite of old production')
+ return pin
+
 
 def current_candidate(root):
  """Read the genuine local causal head; local tests never stand for official CI."""
  d=external_source(CURRENT_TYPED)
- require((d.get('schema'),d.get('task_id'),d.get('scope'),d.get('commit'),d.get('parent'),d.get('base'),d.get('tree'),d.get('branch'))==('shop-office-physical-CMS-scope-causal-candidate/v4',TASK,SCOPE,CURRENT_COMMIT,CURRENT_PARENT,CURRENT_PARENT,CURRENT_TREE,CURRENT_BRANCH),'exact real physical-scope candidate/parent/tree/branch')
+ require((d.get('schema'),d.get('task_id'),d.get('scope'),d.get('commit'),d.get('parent'),d.get('base'),d.get('tree'),d.get('branch'))==('shop-office-physical-CMS-scope-current-base-causal-candidate/v5',TASK,SCOPE,CURRENT_COMMIT,CURRENT_PARENT,CURRENT_PARENT,CURRENT_TREE,CURRENT_BRANCH),'exact real physical-scope candidate/parent/tree/branch')
  require(d.get('proposed_exact_physical_CMS_execution_scope')==cms.EXECUTION_SCOPE,'physical execution scope equals the adopted two-target carrier')
  cms.scope_carrier(root)
  require(git('show','-s','--format=%H %P %T',CURRENT_COMMIT).decode().strip()==CURRENT_COMMIT+' '+CURRENT_PARENT+' '+CURRENT_TREE,'actual real Git causal object')
  require(set(git('diff','--name-only',CURRENT_PARENT,CURRENT_COMMIT).decode().splitlines())==PHYSICAL_DIFF_PATHS,'only original exact three scope/test paths')
  oldpin={'path':str(TYPED),'sha256':TYPED_SHA,'size':16190};require(d.get('predecessor_reviewed_delivery')==oldpin and d.get('predecessor_actual_production_delivery')==PRECEDING_PRODUCTION,'original source and real production predecessor pins')
  old=external_source(oldpin);production=external_source(PRECEDING_PRODUCTION)
- require(production.get('task_id')==TASK and production.get('scope')==SCOPE and production.get('main_sha')==CURRENT_PARENT,'actual preceding deployed main, not a guessed future merge')
+ require(production.get('schema')=='shop-office-current-production-base-readback/v5'
+  and production.get('main_sha')==production.get('remote_main_sha')==production.get('public_deployment_version')==CURRENT_PARENT
+  and production.get('material_service_source_sha256')==MATERIAL_CURRENT and production.get('material_successor_release_preserved')is True,
+  'exact actual current material production baseline required, never old Edge82')
+ for key,path in [('existing_Pages_run','.github/workflows/cloudflare-pages-deploy.yml'),('existing_R3_run',R3_WORKFLOW)]:
+  run=production.get(key,{})
+  require(type(run.get('id'))is int and run['id']>0 and run.get('head_sha')==CURRENT_PARENT
+   and run.get('path')==path and run.get('run_attempt')==1 and run.get('status')=='completed'and run.get('conclusion')=='success',
+   'actual preceding same-a60 production run; never a future035b run')
+ prior=external_source(_fa6_module(root).CURRENT_TYPED)
+ require(d.get('predecessor_physical_scope_candidate')==_fa6_module(root).CURRENT_TYPED,
+  'actual prior fa6 physical-scope source retained')
+ expected_material=[{'path':MATERIAL_PATH,'prior_fa6_sha256':MATERIAL_BEFORE,
+  'actual_a60_base_sha256':MATERIAL_CURRENT,'actual_successor_sha256':MATERIAL_CURRENT}]
+ require(d.get('legitimate_material_successor_inherited')==expected_material,
+  'only the one accurately inherited material service hash may differ')
  full=d.get('full_batch_file_sha256',{});changed=d.get('file_sha256',{})
  require(set(full)==set(old.get('file_sha256',{}))and len(full)==19 and set(changed)==PHYSICAL_DIFF_PATHS,'exact prior19 and three-file causal delta')
  for p,sha in full.items():
   require(not Path(p).is_absolute()and '..'not in Path(p).parts and hashlib.sha256(git('show',CURRENT_COMMIT+':'+p)).hexdigest()==sha,'actual causal Git blob differs: '+p)
   base=hashlib.sha256(git('show',CURRENT_PARENT+':'+p)).hexdigest()
-  require(base==old['file_sha256'][p]and(p in PHYSICAL_DIFF_PATHS or sha==base),'original other16 or published baseline changed')
+  expected=MATERIAL_CURRENT if p==MATERIAL_PATH else old['file_sha256'][p]
+  require(base==expected and(p in PHYSICAL_DIFF_PATHS or sha==base),'current base/other16 changed outside exact inherited material')
+  require((p==MATERIAL_PATH and prior['full_batch_file_sha256'][p]==MATERIAL_BEFORE and sha==MATERIAL_CURRENT)
+   or(p!=MATERIAL_PATH and sha==prior['full_batch_file_sha256'][p]),'one inherited material delta only; retain all other18 fa6 bytes')
   if p in PHYSICAL_DIFF_PATHS:require(changed[p]==sha,'exact changed-path digest')
  patch=d.get('source_patch');raw=external_source(patch,False)
- require(patch=={'path':str(SITE/'backups/shop-office-six-and-five-implementation-release-20261025-v1/PHYSICAL-CMS-SCOPE-CORRECTION-fa6b611f.patch'),'sha256':'5bf587e697d4a32dc05f1b3e35577f4d52c325161acd5715f814fc782f537dd5','size':7022},'exact immutable causal patch')
+ require(patch=={'path':str(SITE/'backups/shop-office-six-and-five-implementation-release-20261025-v1/PHYSICAL-CMS-SCOPE-CURRENT-035b08ea.patch'),'sha256':'5bf587e697d4a32dc05f1b3e35577f4d52c325161acd5715f814fc782f537dd5','size':7022},'exact immutable causal patch')
  require(hashlib.sha256(git('diff','--binary',CURRENT_PARENT,CURRENT_COMMIT)).hexdigest()==hashlib.sha256(raw).hexdigest(),'patch must equal actual Git diff')
  for p in d.get('check_logs',[]):external_source(p,False)
- final=[p for p in d.get('check_logs',[])if p.get('sha256')=='28d4fab49a89597663af7fa22c4b862b49fdb8b88739ceac5b0eac85988f4f8e'];protected=[p for p in d.get('check_logs',[])if p.get('sha256')=='bab277da017a6c4de49a2dcb76d7bbb8454d2d3e0c09ee2ca41e28c24da71670']
- require(len(final)==len(protected)==1 and b'16 passed'in external_source(final[0],False)and b'171 passed'in external_source(protected[0],False),'final actual local16/171 logs; withdrawn intermediate is not PASS')
+ actual=[p for p in d.get('check_logs',[])if p.get('sha256')=='7fee9cbd54df6dd6717a6ff765eb3c2a22624b73e34eb053129f69149fb8629e']
+ require(len(actual)==1 and b'132 passed'in external_source(actual[0],False)
+  and d.get('tests',{}).get('new_current_base',{}).get('tests')==132,'actual current-base132 log; old16/171 are historical only')
  rehearsal=external_source(d.get('source_recovery_rehearsal'))
  require(rehearsal.get('base')==CURRENT_PARENT and rehearsal.get('commit')==CURRENT_COMMIT and rehearsal.get('patch')==patch and rehearsal.get('candidate_file_sha256')==changed and rehearsal.get('actual_forward_reverse_byte_exact')is True,'actual three-file inverse rehearsal')
  for p,sha in rehearsal.get('before_file_sha256',{}).items():require(p in changed and hashlib.sha256(git('show',CURRENT_PARENT+':'+p)).hexdigest()==sha,'actual inverse before bytes')
  return {**d,'causal_diff_file_sha256':changed,'file_sha256':full,'patch_sha256':patch['sha256']}
 
 def registration_document(root):
- _,b,_=authority(root);c=current_candidate(root);previous=_legacy_registration(root)
- return {'schema':'shop-office-original-WEB-execution-registration/v1','source_generation':'actual-physical-scope-fa6b-v4','task_id':TASK,'scope':SCOPE,'action_class':'site_ci_prepare','original_owner':OWNER,'execution_department':ROLE,'executor_binding':{k:b.get(k)for k in ['thread_id','title','project_id','cwd']},'goal_contract':CONTRACT,'authorization_pin':AUTH,'candidate_delivery':CURRENT_TYPED,'candidate_commit':CURRENT_COMMIT,'candidate_parent':CURRENT_PARENT,'complete_diff_base':CURRENT_PARENT,'candidate_tree':CURRENT_TREE,'branch':CURRENT_BRANCH,'causal_predecessor':previous,'predecessor_actual_production':PRECEDING_PRODUCTION,'physical_execution_carrier':cms.scope_carrier(root),'changed_paths':sorted(PHYSICAL_DIFF_PATHS),'full_batch_file_sha256':c['file_sha256'],'operations':{k:{'action_class':v[0],'scope':v[1]}for k,v in OPS.items()},'future_main_or_run_authorized':False,'external_write_or_permission_issued':False}
+ _,b,_=authority(root);c=current_candidate(root);previous=_fa6_registration(root)
+ return {'schema':'shop-office-original-WEB-execution-registration/v1','source_generation':'actual-current-material-base035b-v5','task_id':TASK,'scope':SCOPE,'action_class':'site_ci_prepare','original_owner':OWNER,'execution_department':ROLE,'executor_binding':{k:b.get(k)for k in ['thread_id','title','project_id','cwd']},'goal_contract':CONTRACT,'authorization_pin':AUTH,'candidate_delivery':CURRENT_TYPED,'candidate_commit':CURRENT_COMMIT,'candidate_parent':CURRENT_PARENT,'complete_diff_base':CURRENT_PARENT,'candidate_tree':CURRENT_TREE,'branch':CURRENT_BRANCH,'causal_predecessor':previous,'predecessor_actual_production':PRECEDING_PRODUCTION,'physical_execution_carrier':cms.scope_carrier(root),'changed_paths':sorted(PHYSICAL_DIFF_PATHS),'full_batch_file_sha256':c['file_sha256'],'operations':{k:{'action_class':v[0],'scope':v[1]}for k,v in OPS.items()},'future_main_or_run_authorized':False,'external_write_or_permission_issued':False}
 
 def registration(root):
- _legacy_registration(root)
+ _fa6_registration(root)
  rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==TASK and e.get('details',{}).get('shop_office_WEB_execution_registration')]
- require(len(rows)==3,'current exact causal physical source must be normally registered')
- previous=rows[1]['details']['shop_office_WEB_execution_registration'];last=rows[2]
+ require(len(rows)==4,'current exact causal physical source must be normally registered')
+ previous=rows[2]['details']['shop_office_WEB_execution_registration'];last=rows[3]
  require(last['details'].get('supersedes_WEB_registration')==previous and doc(root,last['details']['shop_office_WEB_execution_registration'])==registration_document(root),'append-only actual current source relation, not old head permission')
  return last['details']['shop_office_WEB_execution_registration']
 
 def record_registration(root,task,path):
  import department_autonomy as a
- require(task==TASK,'same original stage');pin=w.file_digest(root,path);require(doc(root,pin)==registration_document(root),'exact real fa6b source and original authorization')
+ require(task==TASK,'same original stage');pin=w.file_digest(root,path);require(doc(root,pin)==registration_document(root),'exact real035b source/current material base and original authorization')
  with w.workflow_lock(root):
   snap,_,_=authority(root);a.original_assignment_ready(root,snap,'system-development')
   rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==TASK and e.get('details',{}).get('shop_office_WEB_execution_registration')]
-  if len(rows)==3:
+  if len(rows)==4:
    require(registration(root)==pin,'current source already registered with another pin');return {'result':'duplicate_ignored','registration':pin,'permission_issued':False}
-  previous=_legacy_registration(root);require(len(rows)==2,'one actual causal predecessor before new source')
+  previous=_fa6_registration(root);require(len(rows)==3,'one actual causal predecessor before new source')
   event=w.append_workflow_event(root,TASK,snap['current_state'],{'shop_office_WEB_execution_registration':pin,'supersedes_WEB_registration':previous,'original_versions_and_consumed_effects_preserved':True,'permission_issued':False})
  return {'result':'recorded','event_id':event['event_id'],'registration':pin,'permission_issued':False}
 
 def _source_candidate(root,commit):
  if commit==COMMIT:
   _legacy_registration(root);return candidate()
+ if commit==FA6_COMMIT:
+  _fa6_registration(root);return _fa6_module(root).current_candidate(root)
  require(commit==CURRENT_COMMIT,'unknown source is not a valid old or current causal version')
  registration(root);return current_candidate(root)
 
@@ -323,6 +376,13 @@ def current_production_recovery(root):
  for row in mapped['CMS_recovery']['exact_targets']:
   t=actual[row['row_id']];inverse=row['normal_inverse'];require(inverse.get('taskId')==TASK and inverse.get('scope')==SCOPE and inverse.get('actionId')=='rollback-'+t['candidate_version']and inverse.get('candidateVersion')==t['candidate_version']+'-rollback-v1','exact original inverse antecedent')
   inverse.update(business_scope=SCOPE,scope=cms.physical_scope(root,t))
+ mapped['source_recovery'].update(minimum_known_pre_candidate_main=CURRENT_PARENT,
+  inherited_material_service={'path':MATERIAL_PATH,'sha256':MATERIAL_CURRENT,'must_not_revert_to_fa6_or_Edge82':True},
+  predecessor_production_source=PRECEDING_PRODUCTION,
+  R3_source_restore='Before any new R3 execution capture the then-current complete verified source/build dependency closure and actual Edge facts. Restore only that authorized closure retaining the a60 material successor or later independently authorized changes; never use old Edge82 or its incomplete source. Unknown effects require original-key readback first.')
+ mapped['current_remote_effects']={'snapshot_source':PRECEDING_PRODUCTION,'observed_predecessor_main':CURRENT_PARENT,
+  'actual_Edge_function_version':'NOT_READ_NOT_INFERRED','new_candidate_remote_effects':'NOT_EXECUTED_AT_FROZEN_READY',
+  'fresh_actual_main_and_complete_Edge_source_build_backup_required_before_effect':True}
  mapped['before_source_rollback_after_CMS_Save']=c['recovery_boundary']
  mapped['production_or_CMS_rollback_executed']=False
  return mapped

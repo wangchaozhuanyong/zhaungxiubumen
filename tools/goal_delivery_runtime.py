@@ -773,11 +773,11 @@ def collaboration_route(root, snapshot, requested):
             if w.file_digest(root, pin["path"]) != pin:
                 raise w.WorkflowError("actual collaboration ledger bytes changed")
             prior = w.read_json(w.safe_path(root, pin["path"]))
-            if prior.get("action_id") == requested.get("action_id") and prior.get("status") in {"sent", "result_received"}:
+            if prior.get("action_id") == requested.get("action_id") and prior.get("status") in {"sent", "queue_accepted", "message_received", "result_received"}:
                 reasons.append("goal_collaboration_already_dispatched_read_before_retry")
         if w.file_digest(root, goal["authorization_pin"]["path"]) != goal["authorization_pin"]:
             reasons.append("goal_collaboration_original_human_provenance_changed")
-        action = approved_action(root, snapshot, requested)
+        action = approved_action(root, snapshot, {k:v for k,v in requested.items() if k != "delivery_mode"})
         if action is None:
             reasons.append("goal_collaboration_frozen_approved_message_required")
         else:
@@ -794,11 +794,35 @@ def collaboration_route(root, snapshot, requested):
                             {**binding, 'task_id': binding['thread_id']})
                             if len(targets) == 1 else 'unknown_target')
             now = dt.datetime.now(dt.timezone.utc)
+            queue_mode = requested.get('delivery_mode') == 'official_native_queue'
+            if queue_mode:
+                if snapshot.get('current_state') in w.TERMINAL_STATES:
+                    raise w.WorkflowError('terminal original collaboration cannot queue')
+                intents = [e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)
+                           if e.get('task_id') == snapshot['task_id'] and e.get('details', {}).get(
+                               'collaboration_queue_intent', {}).get('action_id') == action['action_id']]
+                if intents:
+                    raise w.WorkflowError('original queue intent exists; read its effect before retry')
+                from goal_source_recovery import collaboration_queue_binding
+                collaboration_queue_binding(root, snapshot, action)
+                from department_event_dispatcher import native_queue_capability
+                native_queue_capability(root)
+                if live.get('delivery_mode') != 'official_native_queue':
+                    raise w.WorkflowError('same normal official queue observation required')
+                inventory = _collaboration_native(root, live.get('actual_native_observation'))
+                for fixed, selected in ((source, sources), ({**binding, 'task_id':binding['thread_id']}, targets)):
+                    actual = [x for x in [*inventory.get('threads', []), *inventory.get('pinnedThreads', [])] if x.get('id') == fixed['task_id']]
+                    if len(actual) != 1 or len(selected) != 1 or actual[0] != selected[0]:
+                        raise w.WorkflowError('original native inventory rows required for queue')
+                target_page = _collaboration_native(root, live.get('actual_native_target_turns', {}).get(binding['thread_id']))
+                if (target_page.get('thread', {}).get('kind') != 'codex' or
+                        target_page.get('thread', {}).get('hostId') != binding.get('host_id')):
+                    raise w.WorkflowError('original native external kind/host required')
             if (observed is None or not 0 <= (now - observed).total_seconds() <= 300
                     or len(targets) != 1 or len(sources) != 1
                     or any(targets[0].get(k) != v for k, v in {"projectId": binding["project_id"],
                            "title": binding["title"], "cwd": binding["cwd"]}.items())
-                    or target_state != 'idle'
+                    or target_state not in ({'idle', 'active'} if queue_mode else {'idle'})
                     or any(sources[0].get(k) != v for k, v in {"projectId": source.get("project_id"),
                            "title": source.get("title"), "cwd": source.get("cwd")}.items())
                     or live.get("target_sidebar_section_id") != requested.get("target_sidebar_section_id")
@@ -1741,6 +1765,9 @@ def record_collaboration(root, task_id, input_path):
         if not enabled(root, snapshot) or record.get("task_id") != task_id:
             raise w.WorkflowError("exact parent complete goal required")
         goal = snapshot["goal_delivery"]
+        if record.get('source_kind') == 'official_native_queue':
+            from goal_source_recovery import record_collaboration_queue
+            return record_collaboration_queue(root, snapshot, record, pin)
         if record.get('source_kind')=='historical_native_collaboration':
             from goal_source_recovery import collaboration_source
             collaboration_source(root,record)
@@ -2060,6 +2087,18 @@ def _collaboration_wait_states(root, snapshot):
             if not isinstance(pin, dict) or w.file_digest(root, pin.get("path", "")) != pin:
                 raise CollaborationProofError("collaboration_receipt_changed_or_missing", "frozen collaboration receipt changed")
             record = w.read_json(w.safe_path(root, pin["path"]))
+            if record.get('source_kind') == 'official_native_queue':
+                from goal_source_recovery import collaboration_queue_source
+                current = collaboration_queue_source(root, snapshot, record)
+                state = states.get(record['action_id'])
+                rank = {'queue_accepted':0, 'message_received':1, 'result_received':2}
+                if ((not state and current['status'] != 'queue_accepted') or
+                        (state and (state.get('queue_identity') != current['queue_identity'] or
+                                    rank.get(current['status'], -1) != rank.get(state.get('status'), -2) + 1))):
+                    raise CollaborationProofError('queue_order_or_identity_invalid', 'one original queue -> actual receipt -> final result sequence required')
+                current.update(collaboration=pin, result_receipt=pin)
+                states[record['action_id']] = current
+                continue
             if record.get('source_kind')=='historical_native_collaboration':
                 from goal_source_recovery import collaboration_source
                 recovered=collaboration_source(root,record)
@@ -2122,7 +2161,7 @@ def _collaboration_wait_states(root, snapshot):
             key = action.get("action_id") or record.get("action_id") or "unresolved:" + str(pin.get("path") if isinstance(pin, dict) else pin)
             states[key] = {"task_id": snapshot["task_id"], "action_id": action.get("action_id") or record.get("action_id"),
                 "department": action.get("target_department"), "threadId": action.get("target_thread_id"),
-                "responsible_assistant": goal["responsible_assistant"], "proof_state": "NOT_PROVEN",
+                "responsible_assistant": goal.get("responsible_assistant"), "proof_state": "NOT_PROVEN",
                 "status": "not_proven", "observed_status": record.get("status"),
                 "reason": getattr(exc, "reason", "collaboration_proof_invalid"), "detail": str(exc),
                 "original_receipt": pin, "proves_completion": False, "proves_next_action": False}

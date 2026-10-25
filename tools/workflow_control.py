@@ -3031,6 +3031,7 @@ def _routing_precheck(
     task_id: str = "",
     scope: str = "",
     action_id: str = "",
+    delivery_mode: str = "",
 ) -> tuple[list[str], list[str]]:
     routing = policy.get("routing_policy", {})
     if not isinstance(routing, dict):
@@ -3131,7 +3132,7 @@ def _routing_precheck(
             "target_thread_id": target_thread_id, "target_thread_title": target_thread_title,
             "target_cwd": target_cwd, "target_sidebar_section_id": target_sidebar_section_id,
             "payload_sha256": payload_sha256, "action_id": action_id, "action_class": action_class,
-            "scope": scope, "task_id": task_id})
+            "scope": scope, "task_id": task_id, "delivery_mode": delivery_mode})
         if collaboration is not None:
             return collaboration, ["goal_delivery:exact_collaboration_binding", "human_authorization:original_scope_only"]
 
@@ -3960,10 +3961,13 @@ def policy_check(
     retry_blocked_execution_receipt_id: str = "",
     draft_admission: dict | None = None,
     original_message: dict | None = None,
+    delivery_mode: str = "",
 ) -> tuple[dict[str, Any], list[Path]]:
     from department_rotation import prohibit_validation_write
     prohibit_validation_write()
     task_id = validate_task_id(task_id)
+    if delivery_mode not in ('', 'mcp_direct_send', 'official_native_queue') or (delivery_mode and action_class != 'thread_message'):
+        raise WorkflowError('known message transport only; never an execution exemption')
     if original_message is not None and action_class != 'thread_message':
         raise WorkflowError('original-result observation cannot authorize an execution action')
     if original_message is not None and action_class == 'thread_message':
@@ -4277,6 +4281,7 @@ def policy_check(
             task_id=task_id,
             scope=scope,
             action_id=action_id,
+            delivery_mode=delivery_mode,
         )
         required_receipts.extend(routing_receipts)
         if action_class == "cross_project_access":
@@ -4631,7 +4636,7 @@ def policy_check(
             source_project_id, target_project_id, target_department, target_thread_id,
             target_thread_title, target_cwd, target_sidebar_section_id, payload_sha256,
             target_automation_status.upper(),
-            retry_receipt_id,
+            retry_receipt_id, delivery_mode,
             utc_timestamp(),
         ]
     )[:20]
@@ -4687,6 +4692,8 @@ def policy_check(
         "project_layer_only": True,
         "checked_at": utc_timestamp(),
     }
+    if delivery_mode:
+        result["delivery_mode"] = delivery_mode
     if cms_goal_context is not None and cms_goal_context.get("acceptance_model") == "condo_faq_v7_candidate_scope_only_v1":
         result["cms_candidate_acceptance"] = {
             "acceptance_model": cms_goal_context["acceptance_model"],

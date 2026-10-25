@@ -1285,7 +1285,8 @@ def prepare_message(root, request):
         live={'observed_at':request['live_observed_at'],'threads':selected,'actual_native_observation':inventory_pin,
               'native_receipt_ref':inventory_pin['path'],
               'actual_native_target_turns':{binding['task_id']:request['actual_target_state']},
-              'target_sidebar_section_id':request['target_sidebar_section_id']}
+              'target_sidebar_section_id':request['target_sidebar_section_id'],
+              'delivery_mode':request.get('delivery_mode', 'mcp_direct_send')}
         path=Path(root)/'logs/goal-delivery-observations'/request['task_id']/(w.sha256_value(live)+'.json')
         if not path.exists():w.atomic_write_json(path,live)
         live_pin=w.file_digest(root,str(path.relative_to(root)))
@@ -1321,6 +1322,7 @@ def prepare_message(root, request):
         'target_project_id','target_department','target_thread_id','target_thread_title','target_cwd',
         'target_sidebar_section_id','payload_sha256')}
     policy,_ = w.policy_check(root,department=request['sender_department'],**fields,
+                             delivery_mode=request.get('delivery_mode', ''),
                              **({'original_message':request} if ordinary_continuation is not None or autonomous_route else {}))
     if ordinary_continuation is not None and policy['status'] == 'allow':
         _record_original_result_continuation_prepared(root, request, ordinary_continuation, policy)
@@ -1491,18 +1493,234 @@ def observe_post_qa_source_continuation(root, input_path):
                 'ACK_created':False, 'responsibility_or_candidate_or_QA_changed':False}
 
 
+def collaboration_queue_binding(root, snapshot, action):
+    """The original declared external actor and frozen message, never a caller exemption."""
+    from goal_delivery_runtime import approved_action, _collaboration_binding
+    goal=snapshot.get('goal_delivery',{});contract=_strict_queue_document(root,snapshot.get('goal_contract'))
+    keys=('task_id','sender_department','action_id','action_class','scope','source_project_id',
+          'target_project_id','target_department','target_thread_id','target_thread_title',
+          'target_cwd','target_sidebar_section_id','payload_sha256')
+    expected={k:action.get(k)for k in keys}
+    binding=_collaboration_binding(root,snapshot,action.get('target_department'))
+    source=w.department_registry(root).get(action.get('sender_department'),{}).get('chat_binding',{})
+    declared=[d for d in contract.get('collaboration_scopes',[])if all(d.get(k)==action.get(k)
+              for k in ('sender_department','target_department','scope'))]
+    if (len(declared)!=1
+            or contract.get('primary_owner')!=goal.get('primary_owner')
+            or action.get('sender_department')!=contract.get('primary_owner')
+            or contract.get('human_authorization')!=goal.get('human_authorization')
+            or w.file_digest(root,contract.get('human_authorization',{}).get('evidence_path',''))!=goal.get('authorization_pin')
+            or action.get('task_id')!=snapshot.get('task_id') or action.get('action_class')!='thread_message'
+            or action.get('scope')not in contract.get('authorized_scope',[]) or not binding
+            or any(action.get(k)!=binding.get(v)for k,v in {'target_project_id':'project_id',
+                'target_thread_id':'thread_id','target_thread_title':'title','target_cwd':'cwd'}.items())
+            or source.get('project_id')!=action.get('source_project_id')
+            or approved_action(root,snapshot,expected) is None):
+        raise w.WorkflowError('exact frozen declared external collaboration/owner/authorization required')
+    _strict_queue_document(root,goal.get('authorization_pin'))
+    return source,binding
+
+
+def _collaboration_queue_preparation(root, snapshot, request_pin, prepared_pin):
+    request=_strict_queue_document(root,request_pin);prepared=_strict_queue_document(root,prepared_pin)
+    source,target=collaboration_queue_binding(root,snapshot,request)
+    rows=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)
+          if p.get('decision_id')==prepared.get('policy_decision',{}).get('decision_id')]
+    fields=('task_id','action_id','action_class','scope','source_project_id','target_project_id',
+            'target_department','target_thread_id','target_thread_title','target_cwd',
+            'target_sidebar_section_id','payload_sha256','delivery_mode')
+    auth=prepared.get('authorization_precheck',{})
+    if (len(rows)!=1 or rows[0]!=prepared.get('policy_decision') or rows[0].get('status')!='allow'
+            or rows[0].get('routing_status')!='routing_allowed'
+            or rows[0].get('department')!=request.get('sender_department')
+            or any(rows[0].get(k)!=request.get(k)for k in fields)
+            or request.get('delivery_mode')!='official_native_queue' or request.get('authorization_changes',[])!=[]
+            or prepared.get('status')!='ready_to_queue' or prepared.get('delivery_mode')!='official_native_queue'
+            or prepared.get('ordinary_send_allowed') is not False or prepared.get('message_sent') is not False
+            or prepared.get('external_permission_issued') is not False
+            or auth.get('status')!='within_original_authorization'
+            or auth.get('original_authorization')!=snapshot['goal_delivery']['authorization_pin']
+            or prepared.get('payload')!=request.get('payload')
+            or w.file_digest(root,request['payload']['path'])!=request['payload']
+            or request['payload']['sha256']!=request.get('payload_sha256')):
+        raise w.WorkflowError('actual exact allowed normal official queue preparation required')
+    return request,prepared,rows[0],source,target
+
+
+def queue_collaboration(root, request_path, prepared_path, directory):
+    """Reserve the one task/action before the official call; never activate a busy window."""
+    from goal_delivery_runtime import restore_goal,collaboration_route
+    from department_event_dispatcher import OfficialQueueTransport
+    request_pin=w.file_digest(root,request_path);prepared_pin=w.file_digest(root,prepared_path)
+    request=_strict_queue_document(root,request_pin);task=request.get('task_id')
+    actual_dir=w.safe_path(root,directory)
+    if Path(directory).parts[:2]!=('logs','handoffs') or actual_dir.is_symlink():
+        raise w.WorkflowError('project-owned original queue directory required')
+    with w.workflow_lock(root):
+        snapshot=restore_goal(root,w.read_json(w.snapshot_path(root,task)))
+        request,prepared,policy,source,target=_collaboration_queue_preparation(root,snapshot,request_pin,prepared_pin)
+        prior=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==task
+               and e.get('details',{}).get('collaboration_queue_intent',{}).get('action_id')==request['action_id']]
+        if prior:raise w.WorkflowError('original queue intent exists; read original effect, never resend')
+        keys=('task_id','sender_department','action_id','action_class','scope','source_project_id',
+              'target_project_id','target_department','target_thread_id','target_thread_title',
+              'target_cwd','target_sidebar_section_id','payload_sha256','delivery_mode')
+        checked=w._parse_observed_at(policy.get('checked_at'))
+        if not checked or not 0<=(w._parse_observed_at(w.utc_timestamp())-checked).total_seconds()<=300:
+            raise w.WorkflowError('fresh normal queue policy required before enqueue')
+        if collaboration_route(root,snapshot,{k:request.get(k)for k in keys})!=[]:
+            raise w.WorkflowError('fresh normal official queue route required before enqueue')
+        if actual_dir.exists():raise w.WorkflowError('existing original queue directory: read effect')
+        actual_dir.mkdir(parents=True)
+        intent={'action_id':request['action_id'],'request':request_pin,'prepared':prepared_pin,
+                'directory':directory,'payload':request['payload'],'policy_decision_id':policy['decision_id'],
+                'target_thread_id':target['thread_id'],'accepted_is_received':False}
+        w.append_workflow_event(root,task,snapshot['current_state'],{'collaboration_queue_intent':intent,
+                                'external_permission_issued':False})
+    # The durable reservation remains even on disconnect/unknown output.
+    result=OfficialQueueTransport(root,None).enqueue({'directory':actual_dir,'thread_id':target['thread_id'],
+        'message':w.safe_path(root,request['payload']['path']).read_bytes().decode('utf-8'),
+        'payload_sha256':request['payload_sha256'],'policy_decision_id':policy['decision_id']})
+    return {'state':'queue_accepted','message_id':result['message_id'],'thread_id':target['thread_id'],
+            'policy_decision_id':policy['decision_id'],'payload_sha256':request['payload_sha256'],
+            'received':False,'sent_or_mcp_claimed':False}
+
+
+def collaboration_queue_source(root, snapshot, record):
+    """Read genuine CLI/accepted effect, then exact native user/ACK and final independently."""
+    from goal_delivery_runtime import _collaboration_native,_collaboration_final_message
+    request,prepared,policy,source,target=_collaboration_queue_preparation(root,snapshot,
+        record.get('original_prepare_request'),record.get('original_prepare_result'))
+    for k in ('task_id','action_id','scope','payload_sha256','target_thread_id'):
+        if record.get(k)!=request.get(k):raise w.WorkflowError('exact queue record/action identity required')
+    if record.get('source_kind')!='official_native_queue' or record.get('policy_decision_id')!=policy['decision_id']:
+        raise w.WorkflowError('actual official queue policy and source kind required')
+    status=record.get('status')
+    if status not in {'queue_accepted','message_received','result_received'}:
+        raise w.WorkflowError('queue acceptance is not sent/received/completed')
+    intent=_strict_queue_document(root,record.get('actual_queue_intent'))
+    result=_strict_queue_document(root,record.get('actual_queue_result'))
+    expected={'thread_id':target['thread_id'],'payload_sha256':request['payload_sha256'],
+              'policy_decision_id':policy['decision_id'],'transport':'official_codex_queue','intake_claimed':False}
+    match=re.fullmatch(r'Queued message ([0-9a-f-]{36}) for thread ([0-9a-f-]{36})\.\s*',result.get('stdout',''))
+    start,finish,checked=(w._parse_observed_at(x)for x in (result.get('started_at'),result.get('finished_at'),policy.get('checked_at')))
+    if (any(intent.get(k)!=v or result.get(k)!=v for k,v in expected.items())
+            or intent.get('started_at')!=result.get('started_at') or result.get('exit_code')!=0
+            or type(result.get('exit_code'))is not int or result.get('stderr')!='' or not match
+            or match[1]!=record.get('queue_message_id') or match[2]!=target['thread_id']
+            or not start or not finish or not checked or not checked<=start<=finish<=w._parse_observed_at(w.utc_timestamp())+__import__('datetime').timedelta(seconds=1) or (start-checked).total_seconds()>300):
+        raise w.WorkflowError('exact successful original official queue effect and chronology required')
+    qdir=str(Path(record['actual_queue_result']['path']).parent)
+    if record['actual_queue_intent']['path']!=qdir+'/native-queue-intent.json' or record['actual_queue_result']['path']!=qdir+'/native-queue-result.json':
+        raise w.WorkflowError('same original queue directory required')
+    reservations=[e['details']['collaboration_queue_intent']for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)
+                  if e.get('task_id')==snapshot['task_id'] and e.get('details',{}).get('collaboration_queue_intent',{}).get('action_id')==record['action_id']]
+    frozen={'action_id':record['action_id'],'request':record['original_prepare_request'],
+            'prepared':record['original_prepare_result'],'directory':qdir,'payload':request['payload'],
+            'policy_decision_id':policy['decision_id'],'target_thread_id':target['thread_id'],'accepted_is_received':False}
+    if reservations!=[frozen]:raise w.WorkflowError('one original durable official queue intent required')
+    page=_collaboration_native(root,record.get('actual_native_invocation'))
+    if any(page.get('thread',{}).get(k)!=source.get(v)for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()):
+        raise w.WorkflowError('actual original owner queue invocation identity required')
+    calls=[(t,c)for t in page.get('turns',[])for c in t.get('items',[])if c.get('id')==record.get('queue_command_id')]
+    if len(calls)!=1:raise w.WorkflowError('one real original owner queue command required')
+    turn,call=calls[0];parts=shlex.split(call.get('command',''))
+    if len(parts)==3 and parts[:2]in (['/bin/zsh','-lc'],['zsh','-lc']):parts=shlex.split(parts[2])
+    allowed_environment={'PYTHONDONTWRITEBYTECODE=1', 'PYTHONPATH='+str(Path(root))+':'+str(Path(root)/'tools')}
+    while parts and parts[0] in allowed_environment:parts.pop(0)
+    # Parse only the documented CLI; environment values and command strings are never executed.
+    argv=['-B','tools/goal_source_recovery.py','queue-collaboration','--request',record['original_prepare_request']['path'],
+          '--prepared',record['original_prepare_result']['path'],'--directory',qdir]
+    if (len(parts)!=10 or Path(parts[0]).name not in {'python3','python3.11','python3.12'} or parts[1:]!=argv
+            or call.get('type')!='commandExecution' or not _selected_native_valid(call,statuses=('completed',))
+            or call.get('exitCode')!=0 or type(call.get('exitCode'))is not int
+            or not _selected_native_valid(turn,statuses=('inProgress','completed'))
+            or Path(call.get('cwd','')).resolve()!=Path(root).resolve()
+            or type(turn.get('startedAt'))not in {int,float} or turn['startedAt']>start.timestamp()
+            or (turn.get('status')=='completed' and (type(turn.get('completedAt'))not in {int,float}or finish.timestamp()>turn['completedAt']+1))):
+        raise w.WorkflowError('real successful same-owner exact queue CLI and time required')
+    output=json.loads(w._source_continuation_execution_output(call))
+    if any(output.get(k)!=v for k,v in {'state':'queue_accepted','message_id':match[1],
+            'thread_id':target['thread_id'],'policy_decision_id':policy['decision_id'],
+            'payload_sha256':request['payload_sha256'],'received':False,'sent_or_mcp_claimed':False}.items()):
+        raise w.WorkflowError('actual complete queue CLI output must bind original effect')
+    state={'task_id':snapshot['task_id'],'action_id':record['action_id'],'department':request['target_department'],
+           'threadId':target['thread_id'],'proof_state':'ACCEPTED','status':status,'approved_action':request,
+           'queue_identity':w.sha256_value(frozen|{'message_id':match[1]}),'native_transport':record['actual_native_invocation'],
+           'policy_decision_id':policy['decision_id'],'received':False,'proves_completion':False,'proves_next_action':False}
+    if status=='queue_accepted':return state
+    recipient=_collaboration_native(root,record.get('actual_native_recipient'))
+    if any(recipient.get('thread',{}).get(k)!=target.get(v)for k,v in {'id':'thread_id','title':'title','cwd':'cwd'}.items()):
+        raise w.WorkflowError('actual original recipient identity required')
+    turns=[t for t in recipient.get('turns',[])if t.get('id')==record.get('recipient_turn_id')]
+    if len(turns)!=1 or not _selected_native_valid(turns[0]):raise w.WorkflowError('actual recipient turn required')
+    received=turns[0];users=[(i,m)for i,m in enumerate(received.get('items',[]))if m.get('id')==record.get('recipient_message_id')and m.get('type')=='userMessage']
+    acks=[(i,m)for i,m in enumerate(received.get('items',[]))if m.get('id')==record.get('ack_message_id')and m.get('type')=='agentMessage']
+    body=w.safe_path(root,request['payload']['path']).read_bytes().decode('utf-8')
+    if (len(users)!=1 or len(acks)!=1 or users[0][0]>=acks[0][0] or users[0][1].get('content')!=[{'type':'text','text':body}]
+            or not _selected_native_valid(users[0][1]) or not _selected_native_valid(acks[0][1])
+            or not str(acks[0][1].get('text','')).strip() or acks[0][1].get('phase')not in {'commentary','final_answer'}
+            or type(received.get('startedAt'))not in {int,float} or not finish.timestamp()<=received['startedAt']<=w._parse_observed_at(w.utc_timestamp()).timestamp()+1):
+        raise w.WorkflowError('real exact original body then nonempty recipient ACK after queue required')
+    state.update(proof_state='RECEIVED',received=True,native_recipient=record['actual_native_recipient'])
+    if status=='result_received':
+        native=_collaboration_native(root,record.get('actual_native_result'))
+        finals=[(t,m)for t in native.get('turns',[])for m in t.get('items',[])
+                if m.get('id')==record.get('message_ref') and m.get('type')=='agentMessage']
+        if (native.get('thread',{}).get('id')!=target['thread_id']or len(finals)!=1
+                or not _selected_native_valid(finals[0][0],statuses=('completed',))
+                or not _selected_native_valid(finals[0][1])
+                or type(finals[0][0].get('startedAt'))not in {int,float}
+                or type(finals[0][0].get('completedAt'))not in {int,float}
+                or not received['startedAt']<=finals[0][0]['startedAt']<=finals[0][0]['completedAt']<=w._parse_observed_at(w.utc_timestamp()).timestamp()+1):
+            raise w.WorkflowError('actual completed original recipient turn and exact final required')
+        final=finals[0][1]
+        reply=record.get('visible_reply',{});result_pin=record.get('result',{})
+        if (final.get('id')!=record.get('message_ref')or final.get('phase')!='final_answer'
+                or w.file_digest(root,reply.get('path',''))!=reply or not isinstance(final.get('text'),str)
+                or w.safe_path(root,reply['path']).read_bytes()!=final['text'].encode('utf-8')
+                or w.file_digest(root,result_pin.get('path',''))!=result_pin
+                or w.read_json(w.safe_path(root,result_pin['path'])).get('task_id')!=snapshot['task_id']):
+            raise w.WorkflowError('real independently completed exact final/result bytes required')
+        state.update(proof_state='PROVEN',result=result_pin,visible_reply=reply,native_result=record['actual_native_result'])
+    return state
+
+
+def record_collaboration_queue(root, snapshot, record, pin):
+    from goal_delivery_runtime import _collaboration_wait_states
+    state=collaboration_queue_source(root,snapshot,record);goal=snapshot['goal_delivery']
+    prior=goal.get('collaboration_records',[])
+    if snapshot.get('current_state') in w.TERMINAL_STATES and pin not in prior:
+        raise w.WorkflowError('terminal collaboration is historical read-only; no new receipt')
+    if pin in prior:return {'result':'duplicate_ignored','status':state['status'],'parent_closed':False}
+    current=next((s for s in _collaboration_wait_states(root,snapshot)if s.get('action_id')==record['action_id']),None)
+    rank={'queue_accepted':0,'message_received':1,'result_received':2}
+    if ((current is None and state['status']!='queue_accepted')or(current is not None and
+        (current.get('queue_identity')!=state['queue_identity']or rank.get(state['status'],-1)!=rank.get(current.get('status'),-2)+1))):
+        raise w.WorkflowError('original accepted -> real recipient -> real result order; no replay/replacement')
+    snapshot['goal_delivery']={**goal,'collaboration_records':prior+[pin]}
+    w.append_workflow_event(root,snapshot['task_id'],snapshot['current_state'],{'goal_delivery':snapshot['goal_delivery'],
+         'collaboration_receipt':pin,'actual_transport_status':state['status'],'external_permission_issued':False})
+    w.atomic_write_json(w.snapshot_path(root,snapshot['task_id']),snapshot)
+    return {'result':'recorded','status':state['status'],'received':state['received'],'parent_closed':False,'does_not_grant_permission':True}
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root',default=str(Path(__file__).resolve().parents[1]))
     p.add_argument('command',choices=['recover-source','recover-queued-assignment',
                                       'prepare-message','record-technical-responsibility',
-                                      'queue-oldhouse-technical','observe-post-qa-source'])
+                                      'queue-oldhouse-technical','queue-collaboration','observe-post-qa-source'])
     p.add_argument('--input')
     p.add_argument('--request')
     p.add_argument('--prepared')
     p.add_argument('--directory')
     a=p.parse_args();root=Path(a.root).resolve()
-    if a.command == 'queue-oldhouse-technical':
+    if a.command == 'queue-collaboration':
+        if a.input or not all((a.request,a.prepared,a.directory)):
+            p.error('exact request, prepared result and project queue directory required')
+        result=queue_collaboration(root,a.request,a.prepared,a.directory)
+    elif a.command == 'queue-oldhouse-technical':
         if a.input or not all((a.request,a.prepared,a.directory)):
             p.error('exact old-house queue request, prepared result and directory required')
         result=queue_oldhouse_technical(root,a.request,a.prepared,a.directory)

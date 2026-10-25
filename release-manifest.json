@@ -387,11 +387,9 @@
     },
     {
       "path": "departments/visual-design-video/scripts/music_scout_preflight.py",
-      "source_sha256": "f76088c51747cf38969f1195d48afe4fa4fc37d06bee0f267a2b8c99f705eac1",
-      "release_sha256": "8e4f00fe2d498c2ef3903d924ad77b686acd23bd05d81c7e27a6eb26144ff883",
-      "bytes": 4929,
-      "source_selection": "preserve_existing_verified_source",
-      "source_origin": "git:fcc70b309850268691f97c44fcc837d64976bcf8:departments/visual-design-video/scripts/music_scout_preflight.py"
+      "source_sha256": "79f01c0e7909a4f1dc2c11033a399e80999475db7225a605a4b1ff73db003e0b",
+      "release_sha256": "8e5f8801e9663824f119eea437ec1f21affa017204a161808b82b65089e124f7",
+      "bytes": 4913
     },
     {
       "path": "departments/visual-design-video/scripts/narration_audio.py",
@@ -703,9 +701,9 @@
     },
     {
       "path": "playbooks/department-system-runtime-reference.md",
-      "source_sha256": "be7f7694c5944e7a6067164e22b68039f8bfcc45526d88851f9591783afd0ca7",
-      "release_sha256": "be7f7694c5944e7a6067164e22b68039f8bfcc45526d88851f9591783afd0ca7",
-      "bytes": 2231
+      "source_sha256": "59ea4b78cbf016f04853449a996ec0d6d0d38a77a2258296452d19d57c8b0ad9",
+      "release_sha256": "59ea4b78cbf016f04853449a996ec0d6d0d38a77a2258296452d19d57c8b0ad9",
+      "bytes": 3262
     },
     {
       "path": "playbooks/department-system-source-release.md",
@@ -1003,9 +1001,9 @@
     },
     {
       "path": "tools/department_autonomy.py",
-      "source_sha256": "f2fbf96515797ec26c995ac36c91731f8ed1d588e06b02678b55c32225e79baa",
-      "release_sha256": "d9616215c646837ee6a2ad4bcfe625cb15b7b22e01b7da17a06adf6402fc748a",
-      "bytes": 115984
+      "source_sha256": "bb8155ee5ab0f4ce1f54ace3240e84e3101c7052543150173c3fc6b90df69e53",
+      "release_sha256": "c636e66837523859cef8d4b8f5286b352c914fc1a78abff09e4c023787cfad26",
+      "bytes": 116073
     },
     {
       "path": "tools/department_event_dispatcher.py",
@@ -1069,15 +1067,15 @@
     },
     {
       "path": "tools/goal_delivery_runtime.py",
-      "source_sha256": "ad6d7e1d933a50bbcfc0b3e130adb2177b971bec002808d5d5080ed7a60808d1",
-      "release_sha256": "3a95806a291e946d565070dea0e03c3288948490abd809844edc93b21f9a7c8b",
-      "bytes": 188955
+      "source_sha256": "2f9f38020de0077321c56937b3cd8091eabf41c38d2a422a8a92da7e16a6ecc2",
+      "release_sha256": "1cad0360da39ba106afa9e7832c5b5bb2bcb01791aa15c55917a893160898494",
+      "bytes": 192326
     },
     {
       "path": "tools/goal_source_recovery.py",
-      "source_sha256": "a2cceb2e161d55dbb36fc24978a0cf24c7a5f33ada4ecd6da492ca7fe887db7b",
-      "release_sha256": "9818a0b87598a3681392cbb5095a07ea3183f6cac55cccfc9663a462c6b6ef57",
-      "bytes": 111324
+      "source_sha256": "d06f5b63795c51893573aa22b5197b320cafed932bbe0ac47314a128830c83ce",
+      "release_sha256": "0f6e72c5f268548813aa4b1a7bf46dd64edfa27745cc2384f5597ff26e41141d",
+      "bytes": 130226
     },
     {
       "path": "tools/managed_cms_permit_issuer.py",
@@ -1297,9 +1295,9 @@
     },
     {
       "path": "tools/shop_office_web_execution.py",
-      "source_sha256": "8815c175ae12816f5b5a794835c8d5dd5a485141ca5da77e0e91ca6ecf3ea078",
-      "release_sha256": "c6cee923e5eb3751f2a19899fcf665b7c0c941d3f4290ed4557b813e181ac675",
-      "bytes": 40619
+      "source_sha256": "0056111a296ff0e0b300a026f988716897a966445448f37dfc67718c8f639cbf",
+      "release_sha256": "fbc6e0b2ca6f32d78ffce837026613922e1bcd466245f0cdbd6066208d69fdac",
+      "bytes": 45892
     },
     {
       "path": "tools/site_ci_prepare_policy.py",
@@ -1723,9 +1721,9 @@
     },
     {
       "path": "tools/workflow_control.py",
-      "source_sha256": "2b736d6829b3973e360debb4c382b3c846828d5957999364e6b2e811b3f85913",
-      "release_sha256": "686fdcb235689beb512a2f3bda8cb4e60bd6d05db3cdba8f6eebb1473c02a26a",
-      "bytes": 595047
+      "source_sha256": "80cb0b438c935f20f6d7fe58c9be497371d0afe076c7f2b67b8934cd08f4a001",
+      "release_sha256": "16e7d35455fe11237c8356173cc8428b33f722936dba3fe686493c436bbf5567",
+      "bytes": 595487
     }
   ],
   "retired_roles": [
@@ -1741,5 +1739,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "117381e000367fe2f1ea45c7badd741085eb56bac299aaf9ff5a741e480a4bd4"
+  "fingerprint": "671e818aa139e3c3fa8a88ff2200019566f1537f49a1b7e7a3d883adf3331ea3"
 }

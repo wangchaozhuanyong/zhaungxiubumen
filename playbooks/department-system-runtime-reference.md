@@ -4,7 +4,11 @@
 
 ## messages
 
-正常prepare-message沿原task/scope、真实固定身份、原授权及完整payload；专业部门直报operations和协作回原owner。
+正常prepare-message沿原task/scope、真实固定身份、原授权及完整payload；专业部门直报operations和协作回原owner。完整当前目标的专业owner回operations知悉；明确协作回原owner，历史parent的当前owner不自动替换本目标接收者，已有队列目标保持冻结。
+
+声明外协的官方队列：`python3 tools/goal_source_recovery.py prepare-message --input <真实当前request>`；仅`delivery_mode=official_native_queue`且正常返回`ready_to_queue`后，原发送方用`python3 -B tools/goal_source_recovery.py queue-collaboration --request <request> --prepared <prepared> --directory <本项目原唯一logs/handoffs目录>`。真实active窗口可排队；普通直接send仍须idle，unknown不能填idle。
+
+运输回执沿原`goal_delivery_runtime.py collaboration-record`：`source_kind=official_native_queue`分别记录`queue_accepted`、真实原生正文/非空ACK齐全的`message_received`、真实completed完整结果的`result_received`。先持久化原task/action意图；断线/未知效果读原目录，不换目录重发。接受不证明窗口启动或实收，实收不证明业务完成。
 
 ## delivery
 

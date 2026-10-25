@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path("<PROJECT_ROOT>")
 PROJECT_ID = "<LOCAL_PROJECT_ID>"
-THREAD_ID = "example-native-39da140a3fa0ebb9"
+THREAD_ID = "<LOCAL_TASK_ID>"
 DEPARTMENT = "visual-design-video"
 
 

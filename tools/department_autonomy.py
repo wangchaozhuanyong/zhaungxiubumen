@@ -835,10 +835,8 @@ def _autonomous_result_current_owner(root,snapshot,identity):
   fixed=w.department_registry(root)[actor]['chat_binding']
   require(fixed.get('project_id')==PROJECT and Path(fixed.get('cwd','')).resolve()==Path(root).resolve(),'original same-project owner/producer required')
  if role!=owner:return owner
- parent_id=goal.get('parent_task_id')
- if parent_id:
-  parent=w.read_json(w.snapshot_path(root,w.validate_task_id(parent_id)));parent_owner=parent.get('goal_delivery',{}).get('primary_owner')
-  if parent and parent_owner and professional(root,parent_owner):return parent_owner
+ # A task owner reports this task to HQ. An ancestry link alone is not a
+ # specialist-return contract; explicit authenticated collaboration follows below.
  return 'operations'
 
 def autonomous_result_route(root,identity):
@@ -866,8 +864,12 @@ def autonomous_result_route(root,identity):
  if autonomous_goal(snapshot['goal_delivery']):
   target=_autonomous_result_current_owner(root,snapshot,identity)
  elif parent_id:
-  parent=w.read_json(w.snapshot_path(root,w.validate_task_id(parent_id)));owner=parent.get('goal_delivery',{}).get('primary_owner')
-  target=owner if parent and owner and professional(root,owner)else _legacy_parent_owner_report(root,snapshot,identity,queued)
+  original_owner=document(root,snapshot['goal_contract']).get('primary_owner')
+  if identity['sender_department']==original_owner:
+   target=_legacy_parent_owner_report(root,snapshot,identity,queued)
+  else:
+   parent=w.read_json(w.snapshot_path(root,w.validate_task_id(parent_id)));owner=parent.get('goal_delivery',{}).get('primary_owner')
+   target=owner if parent and owner and professional(root,owner)else _legacy_parent_owner_report(root,snapshot,identity,queued)
  producer=[r for r in w.read_jsonl(w.receipts_path(root,identity['task_id']))if r.get('receipt_type')=='outbox_received'and r.get('department')==identity['sender_department']and any(p.get('sha256')==identity['result_sha256']for p in r.get('evidence',[]))]
  if producer:
   pins=[p for p in producer[-1]['evidence']if p.get('sha256')==identity['result_sha256']];require(len(pins)==1,'exact original producer outbox');source=document(root,pins[0])
