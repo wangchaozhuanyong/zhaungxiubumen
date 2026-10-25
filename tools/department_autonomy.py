@@ -500,6 +500,9 @@ def native_result(root,request,fixed_id):
  original_assignment_ready(root,snapshot,role)
  require(request.get('source_thread_id')==fixed_id,'exact actual result source thread')
  page=g._native_document(root,request.get('actual_native_completion'))
+ fixed=w.department_registry(root)[role]['chat_binding']
+ require(page.get('thread',{}).get('cwd')==str(Path(root).resolve())==fixed.get('cwd')
+  and fixed.get('project_id')==PROJECT,'actual result must remain in its fixed original project/directory')
  if request.get('result_source_phase')=='delivery_ready':
   fixed=w.department_registry(root)[role]['chat_binding'];require(page.get('thread',{}).get('id')==fixed_id==fixed['task_id'],'actual READY author identity')
   pairs=[(t,m)for t in page.get('turns',[])if t.get('id')==request.get('source_turn_id')for m in t.get('items',[])
@@ -521,6 +524,37 @@ def native_result(root,request,fixed_id):
   'source_message_id':message['id'],'source_reply_sha256':raw['sha256'],'result_source_phase':request.get('result_source_phase','completed_final'),
   'mode_authorization':OWNER,'assistant_approval_required':False}
 
+def _legacy_parent_owner_report(root,snapshot,identity,queued):
+ """A frozen legacy ancestry link does not replace this task's real owner."""
+ role=identity['sender_department'];goal=participant(root,snapshot,role,allow_completed_report=bool(queued))
+ frozen=document(root,snapshot['goal_contract']);human=frozen.get('human_authorization',{})
+ require(not autonomous_goal(goal)and professional(root,role)
+  and role==goal.get('primary_owner')==frozen.get('primary_owner')
+  and all(goal.get(k)==frozen.get(k)for k in ('parent_task_id','producer_departments','authorized_scope')),
+  'original frozen professional owner, scope and historical parent required')
+ auth=document(root,goal.get('authorization_pin'));message=auth.get('message',{})
+ require(human.get('executor')==role and human.get('scope')in goal['authorized_scope']
+  and human.get('evidence_path')==goal['authorization_pin']['path']
+  and auth.get('source_thread_id')==human.get('source_thread_id')
+  and message.get('id')==human.get('message_id')and message.get('type')=='userMessage',
+  'unchanged actual original professional human authority required')
+ mode=document(root,OWNER);started=next(t['startedAt']for t in mode['turns']if t['id']==OWNER_TURN)
+ bindings=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==snapshot['task_id']
+  and e.get('details',{}).get('goal_contract')==snapshot['goal_contract']]
+ require(len(bindings)==1 and w._parse_observed_at(bindings[0].get('created_at'))is not None
+  and w._parse_observed_at(bindings[0]['created_at']).timestamp()<started
+  and all(bindings[0]['details'].get('goal_delivery',{}).get(k)==frozen.get(k)
+   for k in ('primary_owner','parent_task_id','producer_departments','authorized_scope')),
+  'actual unchanged pre-migration goal binding required; no new business authority')
+ original_assignment_ready(root,snapshot,role)
+ require(not queued or len(queued)==1 and queued[0].get('target_department')=='operations',
+  'a historical original recipient cannot be replaced')
+ for actor in (role,'operations'):
+  fixed=w.department_registry(root)[actor]['chat_binding']
+  require(fixed.get('project_id')==PROJECT and Path(fixed.get('cwd','')).resolve()==Path(root).resolve(),
+   'same original project and fixed professional/HQ directory required')
+ return 'operations'
+
 def autonomous_result_route(root,identity):
  snapshot=w.read_json(w.snapshot_path(root,identity['task_id']))
  if not current_mode(root)or not snapshot.get('goal_delivery'):return None
@@ -536,8 +570,7 @@ def autonomous_result_route(root,identity):
  parent_id=snapshot['goal_delivery'].get('parent_task_id')
  if parent_id:
   parent=w.read_json(w.snapshot_path(root,w.validate_task_id(parent_id)));owner=parent.get('goal_delivery',{}).get('primary_owner')
-  require(parent and owner and professional(root,owner),'real original parent professional owner required')
-  target=owner
+  target=owner if parent and owner and professional(root,owner)else _legacy_parent_owner_report(root,snapshot,identity,queued)
  if queued:source=document(root,queued[0]['outbox'])
  else:
   producer=[r for r in w.read_jsonl(w.receipts_path(root,identity['task_id']))if r.get('receipt_type')=='outbox_received'and r.get('department')==identity['sender_department']and any(p.get('sha256')==identity['result_sha256']for p in r.get('evidence',[]))]
@@ -617,6 +650,64 @@ def received_knowledge(root,request):
   'acceptance_proven':False,'HQ_second_review_required':False}
 
 
+def recovered_report_delivery(root,source):
+ """Recover a real prior first-party report, never backfill a send/claim."""
+ observation=source.get('recovered_native_report')
+ if observation is None:return None
+ import re
+ import goal_delivery_runtime as g
+ proof=document(root,observation);original=document(root,proof.get('original_queue_request'))
+ require(all(source.get(k)==v for k,v in original.items()if k not in {'outbox_path','evidence_paths'})
+  and(source.get('outbox_path')or source.get('outbox',{}).get('path'))==original['outbox_path'],
+  'unchanged original queued request and idempotency required')
+ req=document(root,proof.get('normal_report_request'));prepared=document(root,proof.get('normal_report_result'))
+ intent=document(root,proof.get('original_send_intent'));payload=req.get('payload')
+ require(isinstance(payload,dict)and w.file_digest(root,payload.get('path',''))==payload,'original normal report payload required')
+ body=(Path(root)/payload['path']).read_text();snap=g.restore_goal(root,w.read_json(w.snapshot_path(root,source['task_id'])))
+ route=message_route(root,snap,req)
+ require(route and route['target_department']=='operations'and req.get('sender_department')==source['sender_department']
+  and req.get('task_id')==source['task_id']and source['result_sha256']in body and original['outbox_path']in body,
+  'same original professional result and normal HQ report required')
+ require('scope'not in source or source['scope']==req['scope'],'same original report scope required')
+ evidence=source.get('evidence_paths')
+ require(evidence==original.get('evidence_paths')if evidence is not None else source.get('evidence')==[w.file_digest(root,p)for p in original.get('evidence_paths',[])],
+  'original queue evidence must remain unchanged')
+ policy=prepared.get('policy_decision',{});fields=('task_id','action_id','action_class','scope','department','source_project_id','target_project_id','target_department','target_thread_id','payload_sha256')
+ actual=[x for x in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if x.get('decision_id')==policy.get('decision_id')]
+ require(prepared.get('status')=='ready_to_send'and policy.get('status')=='allow'and len(actual)==1
+  and all(actual[0].get(k)==policy.get(k)for k in fields)
+  and all(policy.get(k)==req.get(k)for k in fields if k!='department')
+  and policy.get('department')==source['sender_department']and intent.get('payload')==payload
+  and intent.get('policy_decision_id')==policy.get('decision_id'),
+  'genuine original exact normal report policy/intent required')
+ started=w._parse_observed_at(intent.get('started_at'));checked=w._parse_observed_at(policy.get('checked_at'))
+ require(started is not None and checked is not None and checked<=started<=dt.datetime.now(dt.timezone.utc),
+  'original policy then actual send chronology required')
+ sender=g._native_document(root,proof.get('sender_after'));receiver=g._native_document(root,proof.get('receiver_after'))
+ before_sender=g._native_document(root,intent.get('actual_before_sender'));before_receiver=g._native_document(root,intent.get('actual_before_receiver'))
+ registry=w.department_registry(root);fixed=registry[source['sender_department']]['chat_binding'];hq=registry['operations']['chat_binding']
+ for page,expected in ((sender,fixed),(before_sender,fixed),(receiver,hq),(before_receiver,hq)):
+  require(all(page.get('thread',{}).get(k)==expected[v]for k,v in {'id':'task_id','cwd':'cwd','title':'title'}.items()),
+   'original fixed professional/HQ before/after native identities required')
+ previous={m['id']for t in before_sender.get('turns',[])for m in t.get('items',[])}
+ calls=[m for t in sender.get('turns',[])if not t.get('error')for m in t.get('items',[])
+  if m.get('type')=='mcpToolCall'and m.get('tool')=='send_message_to_thread'
+  and m.get('arguments',{}).get('threadId')==hq['task_id']and m.get('arguments',{}).get('prompt')==body]
+ require(len(calls)==1 and calls[0]['id']not in previous and calls[0].get('server')=='codex_app'
+  and calls[0].get('status')=='completed'and not calls[0].get('error'), 'one actual new successful original report invocation required')
+ from qa_review_plan import _review_native_containers
+ _review_native_containers(calls[0])
+ before_ids={m['id']for t in before_receiver.get('turns',[])for m in t.get('items',[])}
+ pattern=r'\A<codex_delegation>\s*<source_thread_id>([^<\s]+)</source_thread_id>\s*<input>([\s\S]*)</input>\s*</codex_delegation>\Z';effects=[]
+ for turn in receiver.get('turns',[]):
+  for item in turn.get('items',[]):
+   output=item.get('output',{});match=re.fullmatch(pattern,output.get('text',''))if isinstance(output,dict)else None
+   if item.get('type')=='functionCallOutput'and item['id']not in before_ids and output.get('truncated')is False and match and match[1]==fixed['task_id']and match[2]==body:effects.append(item)
+ require(len(effects)==1,'one real newly received exact UTF8 report effect required')
+ return {'source':observation,'payload':payload,'policy_decision_id':policy['decision_id'],
+  'actual_sender_call_id':calls[0]['id'],'actual_recipient_effect_id':effects[0]['id'],
+  'actual_native_delivery_proven':True,'HQ_intake_proven':False,'notification_sent_backfilled':False}
+
 def record_autonomous_result(root,request):
  import result_coordination as rc,uuid
  task=w.validate_task_id(request['task_id']);identity=rc.exact_identity(request);event=request['event']
@@ -628,6 +719,7 @@ def record_autonomous_result(root,request):
   require(len(existing)==1 and existing[0].get('idempotency_key')==request.get('idempotency_key'),'one exact original result event only')
   return {**existing[0],'result':'duplicate_ignored'},[w.result_handoff_path(root,task)]
  source=native_result(root,request,fixed)if event=='notification_queued'else None
+ if event=='notification_queued':recovered_report_delivery(root,request)
  queued=[x for x in same if x.get('event')=='notification_queued']
  if event!='notification_queued':require(len(queued)==1,'one original queued source before intake/transport')
  route=autonomous_result_route(root,identity);require(route and route.get('automatic_wakeup_allowed'),'current professional result route required')

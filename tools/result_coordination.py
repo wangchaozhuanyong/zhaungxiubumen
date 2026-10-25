@@ -2295,6 +2295,11 @@ def notification_enqueue(root, identity, *, _coordination_locked=False):
                    'defer_reason': 'fresh_actual_target_idle_or_completion_event_required',
                    'recovery_condition': 'original sender reads exact native effect/status then sends once when legally idle',
                    'native_wakeup_guaranteed': False, 'queued_at': _w().utc_timestamp(), 'attempts': []}
+        from department_autonomy import recovered_report_delivery
+        prior_delivery=recovered_report_delivery(root,source)
+        if prior_delivery:
+            payload.update(state='actual_native_report_delivered',delivered=True,
+                           recovered_original_report=prior_delivery,HQ_intake_proven=False)
         _w().atomic_write_json(path, payload)
         return payload
 
