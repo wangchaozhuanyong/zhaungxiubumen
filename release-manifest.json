@@ -701,9 +701,9 @@
     },
     {
       "path": "playbooks/department-system-runtime-reference.md",
-      "source_sha256": "a15e17a3ce038edee253810217b3724bc205b3594bfa5d30920f05d7587e3a97",
-      "release_sha256": "a15e17a3ce038edee253810217b3724bc205b3594bfa5d30920f05d7587e3a97",
-      "bytes": 7942
+      "source_sha256": "5ad8bc9b927356245d6246b917c6fcee14111a26fad60d6e94ce82ee32b01ff4",
+      "release_sha256": "5ad8bc9b927356245d6246b917c6fcee14111a26fad60d6e94ce82ee32b01ff4",
+      "bytes": 9258
     },
     {
       "path": "playbooks/department-system-source-release.md",
@@ -1001,9 +1001,9 @@
     },
     {
       "path": "tools/department_autonomy.py",
-      "source_sha256": "3070eab27029a88474cab4cae32585b3c8be68a88e0eeeaadbf890a1d1e39cf9",
-      "release_sha256": "ddc13c3555cb9f08b04a3b1e05a2bdf3c96e6c3acd0ee2fb491e4f81ef307af0",
-      "bytes": 147153
+      "source_sha256": "31a10c0f21fd207d1efd08625cdc8c3d5b7b4c7ccf53a52a37be6dd7c2942f9d",
+      "release_sha256": "4f094c4c543763458bf9ac86e992ce6029abda5d6c03de74d2b52025a72aca2a",
+      "bytes": 147582
     },
     {
       "path": "tools/department_event_dispatcher.py",
@@ -1079,9 +1079,9 @@
     },
     {
       "path": "tools/managed_cms_permit_issuer.py",
-      "source_sha256": "72b49f957c676a01dfeb1f7a36339c5590c6d7777b759ab696b22f1a7614fbf3",
-      "release_sha256": "c1e05483ff9ab65356ea3e98c3602947dc87e7cc5d51032143685fe64db718c5",
-      "bytes": 134648
+      "source_sha256": "f77a4fd1c4a57408b5d90313dcb1e28c03a6ccaa7a842e756d3ef51aad4f61ec",
+      "release_sha256": "f0780f5e639c3340584ab7aff758bc44b36f7e49d3ccbdd18edfca8d47c859f1",
+      "bytes": 135384
     },
     {
       "path": "tools/native_cms_admission.py",
@@ -1211,15 +1211,21 @@
     },
     {
       "path": "tools/professional_cms_execution.py",
-      "source_sha256": "aecf17c5c8c1b19465ed71d27a110c12bc43663c2eb144d75cd3108a3dc94469",
-      "release_sha256": "301376d85eed21ae6ef343e5ea2e75d40d2a74350bd38e49ed81515c3d85a805",
-      "bytes": 22477
+      "source_sha256": "ed277a746948529b7a73c530b0cb1cf5bb3b12f954beb86ec5fab34d727877e3",
+      "release_sha256": "74e61ee94d909f99f657ee5d393ea1e650aca9a92d23239bb1ec89867b0b317f",
+      "bytes": 22618
     },
     {
       "path": "tools/professional_cms_issuer.py",
       "source_sha256": "a88227bc4967e4139a2866879c478af31fd74c6c9a249d8b2883deab945c7950",
       "release_sha256": "a88227bc4967e4139a2866879c478af31fd74c6c9a249d8b2883deab945c7950",
       "bytes": 13090
+    },
+    {
+      "path": "tools/professional_cms_pre_main_recovery.py",
+      "source_sha256": "a5360d0d1c030465cac970caef543ee27e7e3a9ea4d97ed5da57c19e35a48a7f",
+      "release_sha256": "a5360d0d1c030465cac970caef543ee27e7e3a9ea4d97ed5da57c19e35a48a7f",
+      "bytes": 19556
     },
     {
       "path": "tools/professional_web_execution.py",
@@ -1763,5 +1769,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "305d50d698a042d930a8a41350161e4debbd06881c42324cfe146afd0297af6f"
+  "fingerprint": "ecaf6368a6220060ed354ffc5c568f1177c67a455afc6cf87fbbf38a81c4b8cf"
 }

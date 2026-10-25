@@ -1215,7 +1215,11 @@ def policy(root,requested):
   from tools.shop_office_six_field_execution import policy_instance
   instance=policy_instance(root,context)
   require('execution_instance'not in requested or requested['execution_instance']==instance,'instance derives only from the authenticated current preflight')
-  if instance is not None:key=w.sha256_value([key,instance['recovery_event_id'],instance['recovery_source']])
+ if requested.get('action_class')=='cms_write'and context.get('request',{}).get('professional_execution_source')is not None:
+  from professional_cms_pre_main_recovery import instance as original_pre_main_instance
+  instance=original_pre_main_instance(root,request)
+  require('execution_instance'not in requested or requested['execution_instance']==instance,'instance derives only from authenticated current professional request')
+ if instance is not None:key=w.sha256_value([key,instance['recovery_event_id'],instance['recovery_source']])
  with w.workflow_lock(root):
   prior=[x for x in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if x.get('autonomous_action_key')==key and x.get('status')=='allow']
   require(not prior,'original exact action already issued; read actual/unknown effect before any recovery, never replay')

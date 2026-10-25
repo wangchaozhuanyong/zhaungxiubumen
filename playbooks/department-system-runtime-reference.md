@@ -30,6 +30,12 @@
 
 源内新增PUB/WEB协作消息仍由原owner正常approved-action-record及prepare-message办理；消息必须带professional_execution_source注册pin、原execution_tuple和准确payload，保留业务scope，物理CMS scope另映射。原PUB实际收到该精确协作后，fresh preflight使用schema=professional-cms-fresh-preflight/v1（request为完整当前请求pin）沿既有preflight-record进入；全行/CAS、真实查效、零写预演、自检/备份和自身新单次许可仍须满足。源登记不是远端target/CLI/runtime已加载，也不代替实际Save。
 
+## CMS pre-main consumed-instance recovery
+
+原已消费policy后的真实issuer import失败，只能用`python3 tools/professional_cms_pre_main_recovery.py draft --failure-report <真实完整PUB报告> --issuer-source <准确旧issuer源码> --output <新不可变来源>`和`record --input <该准确来源>`登记事实边；它不签发/重置/重消费policy，不创建permit或调用HTTP。入口核原授权/请求/实际policy、原PUB完整failed原生输出、observer/旧issuer代码的main前边界，以及零permit/run和全行未变；主函数/UUID/HTTP阶段及未知效果不适用。闭合目标不能新增执行实例。
+
+原PUB用`status --task-id <原task>`读取真实event/source和fresh-effects结构。原键SELECT、全行/微秒CAS、run列表和自身真实读回命令须新鲜；历史dryrun或零行不是未来freshness。先把execution_instance（event/source/fresh_effects）加入新请求，再生成intent与四证，沿正常preflight/自身readiness/新policy一次执行。旧spent行与原失败保持，作为已核真前驱，不能直接重放或当新请求许可；同一新实例不重复消费。最终UUID/HTTP前重新核对实例与源。逆向仍走自身真实completed父permit/run和当前postSave CAS的独立新许可，不沿用forward恢复实例。
+
 ## R3 normal binding transport
 
 已登记的外部WEB完整发布源使用`python3 tools/r3_platform_binding_transport.py describe --task-id <原task>`读取现行入口。原WEB先在原worktree用`inspect --task-id <原task> --run-id <真实既有pending run>`核同账号、实际main/run/attempt1和原环境保护；这只是只读运输前提，未探测写权限、未签发或审核环境。即时可执行后才沿原fresh preflight/approval-record真实签发短期引用，再用`install --task-id <原task> --approval-id <真实已签发引用>`承运并读回；`status`只核原键。SYS不代操作平台；不得以预期apr、fixture或旧source构造真实绑定。

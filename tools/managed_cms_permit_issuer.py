@@ -239,12 +239,18 @@ if BUILTIN_WARDROBE_NAME in TARGETS:
 TARGETS[BUILTIN_WARDROBE_NAME] = BUILTIN_WARDROBE_TARGET
 
 def _available_shop_office_six_targets(root: Path) -> dict:
-    # A malformed new namespace must fail closed without disabling historical reads.
-    from tools.shop_office_six_field_execution import targets
+    # Only the verified closed original stage is optional at import time.
+    # Its module owns its exception class (package and top-level differ).
+    from tools import shop_office_six_field_execution as shop
     try:
-        return targets(root)
-    except (OSError, ValueError, TypeError, KeyError, wc.WorkflowError):
-        return {}
+        return shop.targets(root)
+    except shop.w.WorkflowError as error:
+        snapshot = shop.w.read_json(shop.w.snapshot_path(root, shop.TASK))
+        if (snapshot.get("goal_contract") == shop.CONTRACT
+                and snapshot.get("current_state") in shop.w.TERMINAL_STATES
+                and str(error) == 'shop/office exact execution: open exact new implementation stage required'):
+            return {}
+        raise
 
 
 SHOP_OFFICE_SIX_TARGETS = {}
@@ -1455,7 +1461,10 @@ def validate_operations(decision: dict, target: dict, operation: str, payload_sh
 def validate_policy(row: dict, target: dict, operation: str, payload_sha256: str, operations: dict, now: datetime) -> dict:
     if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
         from professional_cms_issuer import consumed
-        return consumed(ROOT,row,target,operation,payload_sha256,operations,now)
+        result = consumed(ROOT,row,target,operation,payload_sha256,operations,now)
+        from professional_cms_pre_main_recovery import verify_policy
+        verify_policy(ROOT, result)
+        return result
     if target.get('candidate_shape') == 'owner_authorized_shop_office_six_field_v4':
         from tools.shop_office_six_field_execution import consumed_policy
         return consumed_policy(ROOT, row, target, operation, payload_sha256, operations, now)
@@ -1907,6 +1916,10 @@ def _main(validation) -> None:
         evidence_sha256 = hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         action_id = target["action_id"] if args.operation == "publish" else f"rollback-{target['candidate_version']}"
         candidate_version = target["candidate_version"] if args.operation == "publish" else f"{target['candidate_version']}-rollback-v1"
+        if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
+            from professional_cms_pre_main_recovery import verify_policy
+            validation.recheck()
+            verify_policy(ROOT, policy)
         request = {"controlAction": "issue", "permitId": str(uuid4()), "taskId": target["task_id"],
                    "actionId": action_id, "actionClass": "cms_write", "operation": args.operation,
                    "scope": exact_execution_scope(ROOT, target), "candidateVersion": candidate_version,

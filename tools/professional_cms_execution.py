@@ -243,6 +243,9 @@ def _request(root,snapshot,pin):
               if (s.get('status'),s.get('proof_state')) in {('message_received','RECEIVED'),('result_received','PROVEN')}}
     a.require(any(v['action_id']in received for v in actions), 'original PUB must actually receive this precise execution collaboration; old readonly receipt is insufficient')
     a.require(a.sensitive_state(root,snapshot,req)['state']=='within_original_authorization','sensitive expansion is not this source')
+    if req.get('execution_instance') is not None:
+        from professional_cms_pre_main_recovery import instance
+        instance(root,req)
     return {**x,'request':req,'pin':pin,'authorization':snapshot['goal_delivery']['authorization_pin'],
             'department':x['executor'],'preflight':{**{k:req[k]for k in ('task_id','department','action_id','action_class','scope','facts','self_check','backup','rollback')},
             'risk_level':'R2','request':pin,'source_registration':x['registration']}}
