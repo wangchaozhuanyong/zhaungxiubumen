@@ -1001,9 +1001,9 @@
     },
     {
       "path": "tools/department_autonomy.py",
-      "source_sha256": "5e94b8d40a01524af4e7efb446a16da268f3ca31d33aa242faaec418d3603353",
-      "release_sha256": "06a0bfd488dcf38d3fa8064f820d250eadb629dccc7ee9f6349edeb96d058b51",
-      "bytes": 87789
+      "source_sha256": "51d916fcdb9cbd345a07b411d6f4b394f5820b4b40e982649ad942320eca519e",
+      "release_sha256": "25cb166444dc5446d28575a081c38c43a175c4ff76e7b9d98d325255b85516ba",
+      "bytes": 88308
     },
     {
       "path": "tools/department_event_dispatcher.py",
@@ -1067,9 +1067,9 @@
     },
     {
       "path": "tools/goal_delivery_runtime.py",
-      "source_sha256": "099261e4dfcc561d236568f49e68e379c4435a959918fa7ebdd961ee1a875ecc",
-      "release_sha256": "56e374a65c8e1243f8709a28cb07f4a32c00c064e3fe7e5f54f42d1179140b80",
-      "bytes": 187834
+      "source_sha256": "5507a66c80735ffb1a281a88f282277a59ad96b7501bd8e4004efb0e96f3036f",
+      "release_sha256": "1343d1ddaf83f00ee84cb832a921624b4cb6262af59226a78d76c14742d6db5f",
+      "bytes": 188226
     },
     {
       "path": "tools/goal_source_recovery.py",
@@ -1079,9 +1079,9 @@
     },
     {
       "path": "tools/managed_cms_permit_issuer.py",
-      "source_sha256": "e0e46c96ed93ed6d6b16ae01bd67abe7d6b49e88c80349052e715fd4f65ea98c",
-      "release_sha256": "5b5e9a01881685eb42c4a2c85e190815b69e13b7ad05758abf83b75a9af7b362",
-      "bytes": 120564
+      "source_sha256": "0c8bbe0b83c9363db548f0dcfa2cddcc6d4b8224feef3efcd2aa350f1f8f06a4",
+      "release_sha256": "c7cd9d69f9c501c05b3ae81b568504604d9867f35314d31ab359c302728d76a8",
+      "bytes": 122275
     },
     {
       "path": "tools/native_cms_admission.py",
@@ -1286,6 +1286,12 @@
       "source_sha256": "cb2c48f73f1da8ee85d3ce2287a966fbdd56dfe8cf1ea660e8b814331cbe61c4",
       "release_sha256": "cb2c48f73f1da8ee85d3ce2287a966fbdd56dfe8cf1ea660e8b814331cbe61c4",
       "bytes": 8994
+    },
+    {
+      "path": "tools/shop_office_six_field_execution.py",
+      "source_sha256": "06a02df51521f42c37c6f657c0cdb4dd0765cf5de400a0ec310c541a3a4a1ba2",
+      "release_sha256": "dac6cc7f0607d63f5753647980a8b060a50d1c577e1c05249504fa0d52137bd2",
+      "bytes": 18719
     },
     {
       "path": "tools/site_ci_prepare_policy.py",
@@ -1727,5 +1733,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "39a43d0cea0cc3b751168f8ada60b4529bd32f33b50bc497fe6f17b98c4aba85"
+  "fingerprint": "9d7cd4f01d59527af8db9373b9d2e785a153d86383f4cac92e6e5e59b98e5a19"
 }

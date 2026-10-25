@@ -318,9 +318,9 @@ def authorization_precheck(root, task_id, request):
         declarations = [x for x in goal.get("collaboration_scopes", [])
                         if x.get("target_department") == target and x.get("scope") == request["scope"]
                         and x.get("sender_department") == goal["primary_owner"]
-                        and sender in {goal['primary_owner'],goal['responsible_assistant']}]
+                        and sender in {goal['primary_owner'],goal.get('responsible_assistant')}]
         exact_preapproved = approved_action(root,snapshot,request) if target not in registry else None
-        if target not in {*producers, goal["responsible_assistant"]} and not declarations and not exact_preapproved:
+        if target not in {*producers, goal.get("responsible_assistant")} and not declarations and not exact_preapproved:
             changes = changes + ["new_department"]
         bindings = w.read_json(Path(root) / "data/department-registry.json").get("collaboration_bindings", {})
         binding = (_collaboration_binding(root, snapshot, target) or {} if declarations or exact_preapproved
@@ -907,6 +907,9 @@ def execution_preflight(root, snapshot, action_id, action_class, scope, departme
     if not enabled(root, snapshot):
         return None
     goal = snapshot["goal_delivery"]
+    if snapshot.get('task_id') == 'fc-20261025-shop-office-existing-six-and-five-implementation-release-v1' and action_class == 'cms_write':
+        from tools.shop_office_six_field_execution import preflight as exact_cms_preflight
+        return exact_cms_preflight(root, snapshot, action_id, action_class, scope, department)[0]
     from paid_three_page_bounded_cms import exact_tuple, preflight
     if exact_tuple(snapshot.get("task_id"), action_id, scope, department, action_class):
         return preflight(root, snapshot, action_id, action_class, scope, department)
@@ -1331,21 +1334,23 @@ def record_approved_action(root, task_id, input_path):
         elif parent_linked_initial:
             from parent_initial_dispatch import validate_action
             validate_action(root, snapshot, action, phase="prepare")
+        assistant = goal.get('responsible_assistant')
+        authorized_senders = {goal['primary_owner']} | ({assistant} if assistant else set())
         declarations = [d for d in goal.get('collaboration_scopes', []) if isinstance(d, dict)
                         and d.get('target_department') == action.get('target_department')
                         and d.get('scope') == action.get('scope')
                         and d.get('sender_department') == goal['primary_owner']
-                        and action.get('sender_department') in {goal['primary_owner'],goal['responsible_assistant']}]
+                        and action.get('sender_department') in authorized_senders]
         preauthorized = [a for a in goal.get('continuation_actions', [])
                          if all(a.get(k)==action.get(k) for k in ('action_id','action_class','scope','target_department','payload'))]
         batch_authorized=(len(preauthorized)==1 and action.get('sender_department') in
-                          {goal['primary_owner'],goal['responsible_assistant']})
+                          authorized_senders)
         declared = len(declarations) == 1 or batch_authorized
         decisions = ([] if special else [row for row in w._result_handoff_rows(root, task_id)
                      if row.get("event") == "controller_decision" and row.get("record_id") == action.get("decision_record_id")])
-        if not special and not declared and not parent_linked_initial and not responsibility_initial and (len(decisions) != 1 or decisions[0].get("decision") not in {"rework", "continue", "accept"}
-                or decisions[0].get("coordinator_role") != goal["responsible_assistant"]
-                or action.get("sender_department") != goal["responsible_assistant"]
+        if not special and not declared and not parent_linked_initial and not responsibility_initial and (not assistant or len(decisions) != 1 or decisions[0].get("decision") not in {"rework", "continue", "accept"}
+                or decisions[0].get("coordinator_role") != assistant
+                or action.get("sender_department") != assistant
                 or action.get("target_department") != decisions[0].get("next_owner")
                 or action.get("target_department") not in goal["producer_departments"]
                 or action.get("action_class") != "thread_message" or action.get("task_id") != task_id

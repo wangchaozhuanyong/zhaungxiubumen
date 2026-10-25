@@ -236,6 +236,21 @@ if BUILTIN_WARDROBE_NAME in TARGETS:
     raise ValueError("Exact new builtin wardrobe action collides with a registered target")
 TARGETS[BUILTIN_WARDROBE_NAME] = BUILTIN_WARDROBE_TARGET
 
+def _available_shop_office_six_targets(root: Path) -> dict:
+    # A malformed new namespace must fail closed without disabling historical reads.
+    from tools.shop_office_six_field_execution import targets
+    try:
+        return targets(root)
+    except (OSError, ValueError, TypeError, KeyError, wc.WorkflowError):
+        return {}
+
+
+SHOP_OFFICE_SIX_TARGETS = {}
+if set(TARGETS) & set(SHOP_OFFICE_SIX_TARGETS):
+    raise ValueError('Exact new six-field namespace collides with a historical target')
+TARGETS.update(SHOP_OFFICE_SIX_TARGETS)
+
+
 BLOG_TARGETS = frozenset()
 BLOG_MEDIA_TARGETS = frozenset()
 PARENT_RUN_TARGETS = {}
@@ -548,6 +563,10 @@ def validate_candidate_binding(candidate: dict, target: dict, *, root: Path | No
     """Bind newly added targets to one approved row and its exact field set."""
     evidence_root = Path(root) if root is not None else ROOT
     shape = target.get("candidate_shape")
+    if shape == 'owner_authorized_shop_office_six_field_v4':
+        from tools.shop_office_six_field_execution import validate_candidate
+        validate_candidate(evidence_root, candidate, target)
+        return
     if shape == CONDO_FAQ_V7_SHAPE:
         validate_condo_faq_v7_candidate(evidence_root, candidate, target)
         return
@@ -786,8 +805,8 @@ def _current_registered_targets(root: Path) -> dict:
                load_shop_children_body_registration, load_five_source_projection_registration,
                load_publisher_exact_registration, load_sparse_publisher_targets,
                _available_english_kitchen_en2_targets,
-               _available_two_original_material_targets)
-    dynamic_names = set(NATIVE_TARGETS) | set(REPAIR_FAQ_TARGETS) | set(WAVE234_BODY_TARGETS) | set(REMAINING186_BLOG_TARGETS) | set(SHOP_CHILDREN_BODY_TARGETS) | set(FIVE_PROJECTION_TARGETS) | set(PUBLISHER_EXACT_TARGETS) | set(SPARSE_PUBLISHER_TARGETS) | set(ENGLISH_KITCHEN_EN2_TARGETS) | set(TWO_ORIGINAL_MATERIAL_TARGETS)
+               _available_two_original_material_targets, _available_shop_office_six_targets)
+    dynamic_names = set(NATIVE_TARGETS) | set(REPAIR_FAQ_TARGETS) | set(WAVE234_BODY_TARGETS) | set(REMAINING186_BLOG_TARGETS) | set(SHOP_CHILDREN_BODY_TARGETS) | set(FIVE_PROJECTION_TARGETS) | set(PUBLISHER_EXACT_TARGETS) | set(SPARSE_PUBLISHER_TARGETS) | set(ENGLISH_KITCHEN_EN2_TARGETS) | set(TWO_ORIGINAL_MATERIAL_TARGETS) | set(SHOP_OFFICE_SIX_TARGETS)
     for name in dynamic_names:
         targets.pop(name, None)
     for loader in loaders:
@@ -1055,6 +1074,9 @@ def validate_goal_cms_acceptance(root: Path, target: dict, operation: str,
         snapshot = wc.read_json(wc.snapshot_path(root, target["task_id"]))
         return review.validate_cms_candidate_acceptance(root, snapshot, target, operation)
     root = Path(root).resolve()
+    if target.get('candidate_shape') == 'owner_authorized_shop_office_six_field_v4':
+        from tools.shop_office_six_field_execution import acceptance
+        return acceptance(root, target, operation)
     snapshot = restore_goal(root, wc.read_json(wc.snapshot_path(root, target["task_id"])))
     require(enabled(root, snapshot), "Current complete goal is required for assistant CMS acceptance")
     goal = snapshot["goal_delivery"]
@@ -1398,6 +1420,9 @@ def validate_operations(decision: dict, target: dict, operation: str, payload_sh
 
 
 def validate_policy(row: dict, target: dict, operation: str, payload_sha256: str, operations: dict, now: datetime) -> dict:
+    if target.get('candidate_shape') == 'owner_authorized_shop_office_six_field_v4':
+        from tools.shop_office_six_field_execution import consumed_policy
+        return consumed_policy(ROOT, row, target, operation, payload_sha256, operations, now)
     action_id = target["action_id"] if operation == "publish" else f"rollback-{target['candidate_version']}"
     require(row.get("status") == "allow" and row.get("department") == target.get("execution_owner", "content-organic-website")
             and row.get("task_id") == target["task_id"] and row.get("action_id") == action_id
@@ -1515,6 +1540,10 @@ def endpoint_request(control: dict, secret: str, base_url: str) -> dict:
 def validate_new_permit_target(target: dict, *, assistant_acceptance: dict | None = None) -> None:
     """Keep historical evidence readable without reissuing a colliding action."""
     from paid_three_page_bounded_cms import MODEL as bounded_model
+    if target.get('candidate_shape') == 'owner_authorized_shop_office_six_field_v4':
+        require(isinstance(assistant_acceptance, dict), 'Exact original publisher selfcheck required; registration is not a permit')
+        from tools.shop_office_six_field_execution import acceptance
+        require(assistant_acceptance == acceptance(ROOT, target, 'publish'), 'Original registered current selfcheck/effect source differs')
     if target.get("candidate_shape") == bounded_model:
         require(isinstance(assistant_acceptance, dict)
                 and assistant_acceptance.get("acceptance_model") == bounded_model,

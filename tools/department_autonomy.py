@@ -384,6 +384,9 @@ def sensitive_state(root,snapshot,request):
  return {'state':'within_original_authorization','actual_action_allowed':False,'owner':goal['primary_owner']}
 
 def action_authority(root,snapshot,requested):
+ if snapshot.get('task_id')=='fc-20261025-shop-office-existing-six-and-five-implementation-release-v1'and requested.get('action_class')=='cms_write':
+  from tools.shop_office_six_field_execution import action_authority as exact_cms_authority
+  return exact_cms_authority(root,snapshot,requested)
  authority(root);goal=snapshot['goal_delivery'];require(effective_mode(root,snapshot),'current autonomous task required')
  department=requested['department'];original_assignment_ready(root,snapshot,department);require(department in goal['producer_departments']and professional(root,department)
   and requested['scope']in goal['authorized_scope'],'exact original professional/scope required')
@@ -601,6 +604,9 @@ def autonomous_result_route(root,identity):
   'acceptance_proven':False,'notification_proven':False,'HQ_second_review_required':False,'automatic_wakeup_allowed':True,'knowledge_only':target=='operations'}
 
 def register_preflight(root,task,input_path):
+ if task=='fc-20261025-shop-office-existing-six-and-five-implementation-release-v1':
+  from tools.shop_office_six_field_execution import record_preflight as exact_cms_preflight
+  return exact_cms_preflight(root,input_path)
  import goal_delivery_runtime as g
  pin=w.file_digest(root,input_path);item=document(root,pin)
  with w.workflow_lock(root):
