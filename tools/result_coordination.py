@@ -1655,6 +1655,30 @@ def _queued_source_pin_equivalence(root, payload, row, rows):
     return normalized
 
 
+def _autonomous_intake_readback(root, payload, row):
+    """Authenticate the new intake schema; absent legacy QA fields stay absent."""
+    from department_autonomy import OWNER, authority, queued_source, received_knowledge
+    if row.get('mode_authorization') != OWNER:
+        return False
+    request=payload['request'];identity=exact_identity(request)
+    if (request.get('event') != 'controller_received' or row.get('event') != 'controller_received'
+            or row.get('assistant_approval_required') is not False
+            or row.get('acceptance_proven') is not False or row.get('business_goal_closed') is not False):
+        _fail('exact autonomous knowledge intake schema required')
+    authority(root);queued=queued_source(root,identity)
+    target=queued.get('target_department') or queued.get('responsible_assistant')
+    if (row.get('target_department') != target or row.get('coordinator_role') != target
+            or row.get('outbox') != queued.get('outbox') or row.get('outbox') != payload['pins']['outbox']):
+        _fail('autonomous intake must retain its original frozen receiver and bytes')
+    observed=[_w()._parse_observed_at(x.get('created_at')) for x in (queued,row)]
+    if (any(x is None for x in observed) or not observed[0] <= observed[1] <= dt.datetime.now(dt.timezone.utc)):
+        _fail('original queue then real native intake chronology required')
+    proof=received_knowledge(root,{**request,'coordinator_role':target})
+    if any(row.get(k)!=v for k,v in proof.items()):
+        _fail('unchanged actual original receiver native proof required')
+    return True
+
+
 def _native_readback(root, payload):
     w = _w()
     request, pins = payload["request"], payload["pins"]
@@ -1681,15 +1705,18 @@ def _native_readback(root, payload):
     defaults = {"qa_status": "NOT_VERIFIED", "execution_status": "NOT_EXECUTED",
                 "public_postcheck_status": "NOT_VERIFIED"}
     event = request.get("event")
+    autonomous_intake = _autonomous_intake_readback(root,payload,row)
     required_fields = {
         "controller_received": ("intake_mode", "source_reply_sha256", "source_thread_id", "reply_observed_at"),
         "controller_decision": ("decision", "next_owner", "next_action"),
         "controller_followthrough": ("followthrough_status",),
         "assistant_conclusion": ("conclusion_status", "next_owner", "next_action"),
     }
-    expected.update({key: str(request.get(key) or "") for key in required_fields[event]})
+    expected.update({key: str(request.get(key) or "") for key in required_fields[event]
+                     if not autonomous_intake or key in request})
     if event == "controller_received":
-        expected["source_reply_sha256"] = expected["source_reply_sha256"].lower()
+        if 'source_reply_sha256' in expected:
+            expected["source_reply_sha256"] = expected["source_reply_sha256"].lower()
         if request.get("intake_mode") == "fallback":
             expected["fallback_reason"] = str(request.get("fallback_reason") or "")
     if event == "controller_decision":
@@ -1841,6 +1868,42 @@ def handoff_guard(root, request):
             store.close()
 
 
+def _recover_autonomous_reservation(root, request, reason):
+    """Reconcile one already appended effect; never issue a claim or append."""
+    w=_w();identity=exact_identity(request)
+    if not w.safe_path(root,DATABASE).is_file():
+        _fail('existing original reservation database required')
+    payload=_payload(root,request);effect=_sha([request['event'],request.get('idempotency_key')])
+    with coordination_lock(root):
+        store=CoordinationStore(root)
+        try:
+            store._begin()
+            reserved=store.conn.execute('SELECT * FROM reservations WHERE result_key=? AND effect_key=?',(_key(identity),effect)).fetchone()
+            if (not reserved or json.loads(reserved['payload_json'])!=payload
+                    or reserved['status'] not in {'uncertain','committed'}):
+                _fail('exact existing autonomous reservation required; no payload replacement')
+            native=_native_readback(root,payload)
+            if native is None or not _autonomous_intake_readback(root,payload,native):
+                _fail('existing actual autonomous native effect required; absence remains uncertain')
+            if (request.get('coordination_claim') or any(k in request and request[k]!=native.get(k)
+                    for k in ('coordinator_role','coordinator_owner'))):
+                _fail('recovery cannot replace the original actual professional receiver')
+            if reserved['status']=='committed':
+                if json.loads(reserved['native_record_json'] or 'null')!=native:
+                    _fail('original committed native reservation differs')
+                store.conn.rollback()
+                return {'status':'committed','result':'duplicate_ignored','native_record':native,'side_effect_executed':False}
+            store.conn.execute('UPDATE reservations SET status=?,native_record_json=? WHERE result_key=? AND effect_key=?',
+                ('committed',_canonical(native),_key(identity),effect))
+            store._audit(identity,'effect_recovery_readback',{'effect_key':effect,'status':'committed','reason':reason,
+                'original_receiver':native['coordinator_role'],'native_record_id':native['record_id'],'native_append_executed':False})
+            store.conn.commit()
+            return {'status':'committed','native_record':native,'side_effect_executed':False}
+        finally:
+            if store.conn.in_transaction:store.conn.rollback()
+            store.close()
+
+
 def recover_reservation(root, request, reason):
     """Explicitly reconcile an uncertain append, never execute its side effect."""
     if not isinstance(reason, str) or not reason.strip() or request.get("event") not in FINAL_EVENTS:
@@ -1849,6 +1912,9 @@ def recover_reservation(root, request, reason):
     identity = exact_identity(request)
     role = request.get("coordinator_role", "operations")
     route = result_lane(root, identity)
+    from department_autonomy import MODE
+    if route.get('source_mode')==MODE and request['event']=='controller_received':
+        return _recover_autonomous_reservation(root,request,reason)
     own_conclusion = request['event'] == 'assistant_conclusion'
     if own_conclusion:
         if not is_original_a3_conclusion_identity(identity) or role != 'operations-assistant-3':

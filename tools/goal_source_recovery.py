@@ -1165,6 +1165,20 @@ def prepare_message(root, request):
                 or request.get('task_id')!=value['task_id']
                 or request.get('sender_department')!=value['sender_department']):
             raise w.WorkflowError('exact original sender and admitted native result-notification mode required')
+        route=rc.result_lane(root,value);fixed=w.department_registry(root).get(route.get('target_department'),{}).get('chat_binding',{})
+        source=w.department_registry(root).get(value['sender_department'],{}).get('chat_binding',{})
+        action='notify-result-'+rc._delivery_key(rc.delivery_identity(root,value,route=route)).split(':',1)[-1]
+        expected={'source_project_id':source.get('project_id'),'target_project_id':fixed.get('project_id'),
+            'target_department':route.get('target_department'),'target_thread_id':fixed.get('task_id'),
+            'target_thread_title':fixed.get('title'),'target_cwd':fixed.get('cwd'),
+            'target_sidebar_section_id':fixed.get('sidebar_section_id')}
+        if (not fixed or any(request.get(k)!=v for k,v in expected.items())
+                or request.get('payload_sha256')!=request.get('payload',{}).get('sha256')
+                or request.get('action_class','thread_message')!='thread_message'
+                or request.get('action_id',action)!=action
+                or request.get('scope',f"department_result:{value['task_id']}:{value['sender_department']}")
+                    !=f"department_result:{value['task_id']}:{value['sender_department']}"):
+            raise w.WorkflowError('exact original notification identity, scope, fixed recipient and payload SHA required')
         prepared=rc.notification_claim(root,value,value['sender_department'],
             'official-event-dispatcher:'+value['sender_department'],
             request['notification_request_id'],request['actual_target_state'],request['payload'],

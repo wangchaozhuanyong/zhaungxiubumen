@@ -2574,7 +2574,24 @@ def _queued_notification_route(root: Path, requested: dict[str, Any]) -> list[st
     if scope != f"department_result:{task_id}:{sender}":
         return None
     from result_coordination import notification_plan, result_lane, validate_notification_delivery
-    matches = [row for row in notification_plan(root)["notifications"]
+    # Modern notices name their exact frozen delivery key. Authenticate that
+    # source directly; an unrelated historical result cannot block its policy.
+    matches = None
+    match = re.fullmatch(r'notify-result-([0-9a-f]{64})',str(requested.get('action_id','')))
+    if match:
+        original=read_json(safe_path(root,'logs/result-notifications/'+match[1]+'.json'))
+        if original:
+            from result_coordination import exact_identity, _validate_queued
+            from department_autonomy import MODE
+            identity=exact_identity(original.get('identity',{}));route=result_lane(root,identity)
+            if route.get('source_mode')==MODE:
+                if (identity['task_id']!=task_id or identity['sender_department']!=sender
+                        or original.get('payload',{}).get('sha256')!=requested.get('payload_sha256')):
+                    return ['exact_original_notification_identity_required']
+                _validate_queued(root,identity)
+                matches=[original]
+    if matches is None:
+        matches = [row for row in notification_plan(root)["notifications"]
                if row.get("identity", {}).get("task_id") == task_id
                and row.get("identity", {}).get("sender_department") == sender
                and row.get("payload", {}).get("sha256") == requested.get("payload_sha256")]
@@ -2597,7 +2614,10 @@ def _queued_notification_route(root: Path, requested: dict[str, Any]) -> list[st
     if route.get("lane") == "legacy_unmapped":
         return ["legacy_result_requires_original_mapping_not_resend"]
     if route.get("lane") == "HQ_knowledge" and route.get("notification_proven") is not True:
-        return ["accepted_exact_assistant_summary_required"]
+        from department_autonomy import MODE, authority
+        if route.get('source_mode') != MODE:
+            return ["accepted_exact_assistant_summary_required"]
+        authority(root)  # Real owner mode source; exact queue/lease checks follow.
     binding = department_registry(root).get(route.get("target_department"), {}).get("chat_binding", {})
     expected = {"target_department": route.get("target_department"),
                 "target_thread_id": binding.get("task_id"), "target_thread_title": binding.get("title"),
