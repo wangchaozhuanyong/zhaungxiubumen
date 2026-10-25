@@ -1173,7 +1173,11 @@ def validate_goal_cms_policy(root: Path, task_id: str, action_id: str, scope: st
             "Exact CMS payload digest required")
     matches = []
     from paid_three_page_bounded_cms import TASK as bounded_task, targets as bounded_targets
-    registered = bounded_targets(root) if task_id == bounded_task else _current_registered_targets(Path(root))
+    if task_id == "fc-20261025-shop-office-existing-six-and-five-implementation-release-v1":
+        from tools.shop_office_six_field_execution import targets as original_six_targets
+        registered = original_six_targets(root)
+    else:
+        registered = bounded_targets(root) if task_id == bounded_task else _current_registered_targets(Path(root))
     for name, target in registered.items():
         if (target.get("task_id") != task_id or target.get("scope") != scope
                 or target.get("execution_owner") != department):
@@ -1729,7 +1733,14 @@ def exact_execution_scope(root: Path, target: dict) -> str:
 
 
 def main() -> None:
+    # Reuse parsing/native proofs only inside this invocation. No disk PASS,
+    # policy or permit cache; all observed bytes are fenced before HTTP issue.
     raise ValueError("public_template_has_no_native_authorization")
+    with wc.request_validation_context() as validation:
+        _main(validation)
+
+
+def _main(validation) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     from paid_three_page_bounded_cms import ROWS as bounded_rows, MODEL as bounded_model, targets as bounded_targets
     bounded_names = {f"paid-three-page-{slug}-exact-fields-v1" for slug, _, _ in bounded_rows}
@@ -1744,6 +1755,10 @@ def main() -> None:
     parser.add_argument("--issue-and-dispatch", action="store_true")
     args = parser.parse_args()
     target = bounded_targets(ROOT)[args.target] if args.target in bounded_names else TARGETS[args.target]
+    if target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4":
+        from tools.shop_office_six_field_execution import target_for
+        target = target_for(ROOT, target["action_id"])
+        validation.strict_unchanged = True
     require(args.operation != "rollback" or target.get("rollback_allowed", True),
             "Rollback to the prior public media is not rights-safe")
     parent_binding = rollback_parent_binding(args.target, args.operation,
@@ -1885,6 +1900,10 @@ def main() -> None:
                         and parent_status.get("savedUpdatedAt") == qa["row"]["raw_updated_at"]
                         and request["permitId"] != args.parent_permit_id,
                         "Exact actual SavedCAS/completed parent and new distinct rollback permit required")
+        if target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4":
+            from tools.shop_office_six_field_execution import final_instance_check
+            validation.recheck()
+            final_instance_check(ROOT, policy, target)
         issued = endpoint_request(request, secret, base_url)
         require(issued.get("status") == "issued" and issued.get("permitId") == request["permitId"],
                 "Permit issue receipt mismatch; inspect status before retry")

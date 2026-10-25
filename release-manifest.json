@@ -701,9 +701,9 @@
     },
     {
       "path": "playbooks/department-system-runtime-reference.md",
-      "source_sha256": "59ea4b78cbf016f04853449a996ec0d6d0d38a77a2258296452d19d57c8b0ad9",
-      "release_sha256": "59ea4b78cbf016f04853449a996ec0d6d0d38a77a2258296452d19d57c8b0ad9",
-      "bytes": 3262
+      "source_sha256": "727c248be65642c9dcfce32cf83db7eace2b3ae28006355e2eead71bbd3c5db1",
+      "release_sha256": "727c248be65642c9dcfce32cf83db7eace2b3ae28006355e2eead71bbd3c5db1",
+      "bytes": 3880
     },
     {
       "path": "playbooks/department-system-source-release.md",
@@ -1079,9 +1079,9 @@
     },
     {
       "path": "tools/managed_cms_permit_issuer.py",
-      "source_sha256": "aeebc6f054401c7c7e875400846d065c7f89597745295440c3d30380602a3240",
-      "release_sha256": "00029c31c1b7348919c23b22cb51c6d11dc3bd2a51dc0351e0d9a038c48112ae",
-      "bytes": 129914
+      "source_sha256": "ffc4adb59cd8ca0523d2c16fe3ab2725481ddc1dd0c05865639f719ef4a7742a",
+      "release_sha256": "6cf1816710adb419580634d42dbf43d4209e2e0f42e8a743e17ed38fdf3f91d0",
+      "bytes": 130942
     },
     {
       "path": "tools/native_cms_admission.py",
@@ -1289,9 +1289,9 @@
     },
     {
       "path": "tools/shop_office_six_field_execution.py",
-      "source_sha256": "9c4fecb05275b69cb84f502599ba99f8ea8b2d48bb839e43ece93e385053b483",
-      "release_sha256": "a9fde12168e3b25f49c512af202d34591d9131fefadf3c91b54a2a7c29b29ac1",
-      "bytes": 46065
+      "source_sha256": "0c43b2590be2e93161e757b44d2720bf3ed6a0a9229366981b772abc91180ae0",
+      "release_sha256": "b99c2ecc93e38022202eefe6f1df4e935e17a2e5ef91ba2ca6c113666b44bd45",
+      "bytes": 57831
     },
     {
       "path": "tools/shop_office_web_execution.py",
@@ -1739,5 +1739,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "671e818aa139e3c3fa8a88ff2200019566f1537f49a1b7e7a3d883adf3331ea3"
+  "fingerprint": "a5edd3c971092736723ead904f63653aad76a9e219e54272198941931b35a06f"
 }

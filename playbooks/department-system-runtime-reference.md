@@ -26,6 +26,8 @@
 
 先核已发生效果和原幂等键；中断不伪造completed。保留原当前/暂停位置，普通恢复不换生产者。
 
+店铺原实例已消费策略后在本地签发前过期时，现有有界入口为`python3 tools/shop_office_six_field_execution.py preissue-recovery-draft --input <真实完整失败报告>`及`preissue-recovery-record --input <准确不可变恢复源>`。入口核原请求/消费策略、真实PUB完整原生失败和原键效果，仅追加恢复来源，不签发permit或保存CMS。原PUB仍须临近执行重新取得真实查效、完整行/CAS及保护预演，先绑定新实例再构造intent四证，并使用独立的新正常policy；旧策略不重用，300秒查效和最终执行门禁保持。
+
 ## finish
 
 dispatch-plan --goal；receipt-record实际派送/ACK；`python3 tools/goal_delivery_runtime.py completion-evidence-record`登记真实证明；`python3 tools/goal_delivery_runtime.py status --task-id <原task>`读回。证明schema为department-autonomous-actual-effect/v1。
