@@ -384,6 +384,11 @@ def sensitive_state(root,snapshot,request):
  return {'state':'within_original_authorization','actual_action_allowed':False,'owner':goal['primary_owner']}
 
 def action_authority(root,snapshot,requested):
+ from tools.shop_office_web_execution import applies as web_applies, preflight as web_preflight, AUTH as web_auth
+ if web_applies(snapshot.get("task_id"),requested.get("action_class")):
+  item,req,_=web_preflight(root,requested.get("action_id"),requested.get("action_class"),requested.get("scope"),requested.get("department"))
+  require(requested.get("payload_sha256")==item["request"]["sha256"],"exact external WEB request hash")
+  return {"action":{k:req[k]for k in ["task_id","department","action_id","action_class","scope"]},"request":req,"pin":item["request"],"authorization":web_auth,"department":req["department"]}
  if snapshot.get('task_id')=='fc-20261025-shop-office-existing-six-and-five-implementation-release-v1'and requested.get('action_class')=='cms_write':
   from tools.shop_office_six_field_execution import action_authority as exact_cms_authority
   return exact_cms_authority(root,snapshot,requested)
@@ -505,6 +510,7 @@ def native_result(root,request,fixed_id):
  role=request['sender_department'];snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,request['task_id'])))
  require(role in snapshot['goal_delivery']['producer_departments']and role not in ASSISTANTS,'actual original professional result required')
  original_assignment_ready(root,snapshot,role)
+ if autonomous_goal(snapshot['goal_delivery'])and 'scope'in request:require(request['scope']in snapshot['goal_delivery']['authorized_scope'],'exact original result scope required')
  require(request.get('source_thread_id')==fixed_id,'exact actual result source thread')
  page=g._native_document(root,request.get('actual_native_completion'))
  fixed=w.department_registry(root)[role]['chat_binding']
@@ -562,6 +568,32 @@ def _legacy_parent_owner_report(root,snapshot,identity,queued):
    'same original project and fixed professional/HQ directory required')
  return 'operations'
 
+def _autonomous_result_current_owner(root,snapshot,identity):
+ """A new professional subtask retains its own frozen owner and ancestry."""
+ role=identity['sender_department'];goal=participant(root,snapshot,role)
+ frozen=document(root,snapshot['goal_contract'])
+ require(autonomous_goal(goal)and autonomous_goal(frozen)and frozen.get('task_id')==snapshot['task_id']==identity['task_id']
+  and all(goal.get(k)==frozen.get(k)for k in ('primary_owner','parent_task_id','producer_departments','authorized_scope','human_authorization','collaboration_scopes')),
+  'unchanged original autonomous task/owner/scope/parent/source required')
+ owner=goal['primary_owner'];require(professional(root,owner)and professional(root,role)and role in frozen['producer_departments'], 'current original professional owner and producer required')
+ human=frozen['human_authorization'];auth=document(root,goal['authorization_pin']);message=auth.get('message',{})
+ require(human.get('executor')==owner and human.get('scope')in frozen['authorized_scope']
+  and human.get('evidence_path')==goal['authorization_pin']['path']
+  and auth.get('source_thread_id')==human.get('source_thread_id')and message.get('id')==human.get('message_id')
+  and message.get('type')=='userMessage','actual frozen autonomous human authority required')
+ require(not w.validate_workflow_events(root,snapshot['task_id']),'intact original autonomous binding chain required')
+ bindings=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==snapshot['task_id']and e.get('details',{}).get('goal_contract')==snapshot['goal_contract']]
+ require(len(bindings)==1 and all(bindings[0]['details'].get('goal_delivery',{}).get(k)==frozen.get(k)for k in ('primary_owner','parent_task_id','producer_departments','authorized_scope','human_authorization','delivery_model')),'one real unchanged original autonomous binding required')
+ for actor in (owner,role):
+  fixed=w.department_registry(root)[actor]['chat_binding']
+  require(fixed.get('project_id')==PROJECT and Path(fixed.get('cwd','')).resolve()==Path(root).resolve(),'original same-project owner/producer required')
+ if role!=owner:return owner
+ parent_id=goal.get('parent_task_id')
+ if parent_id:
+  parent=w.read_json(w.snapshot_path(root,w.validate_task_id(parent_id)));parent_owner=parent.get('goal_delivery',{}).get('primary_owner')
+  if parent and parent_owner and professional(root,parent_owner):return parent_owner
+ return 'operations'
+
 def autonomous_result_route(root,identity):
  snapshot=w.read_json(w.snapshot_path(root,identity['task_id']))
  if not current_mode(root)or not snapshot.get('goal_delivery'):return None
@@ -584,7 +616,9 @@ def autonomous_result_route(root,identity):
    'acceptance_proven':False,'notification_proven':False,'HQ_second_review_required':False,'automatic_wakeup_allowed':True,'knowledge_only':target=='operations'}
  target='operations';source={}
  parent_id=snapshot['goal_delivery'].get('parent_task_id')
- if parent_id:
+ if autonomous_goal(snapshot['goal_delivery']):
+  target=_autonomous_result_current_owner(root,snapshot,identity)
+ elif parent_id:
   parent=w.read_json(w.snapshot_path(root,w.validate_task_id(parent_id)));owner=parent.get('goal_delivery',{}).get('primary_owner')
   target=owner if parent and owner and professional(root,owner)else _legacy_parent_owner_report(root,snapshot,identity,queued)
  producer=[r for r in w.read_jsonl(w.receipts_path(root,identity['task_id']))if r.get('receipt_type')=='outbox_received'and r.get('department')==identity['sender_department']and any(p.get('sha256')==identity['result_sha256']for p in r.get('evidence',[]))]
@@ -592,6 +626,7 @@ def autonomous_result_route(root,identity):
   pins=[p for p in producer[-1]['evidence']if p.get('sha256')==identity['result_sha256']];require(len(pins)==1,'exact original producer outbox');source=document(root,pins[0])
  collab=source.get('collaboration_return')
  if isinstance(collab,dict):
+  require(not autonomous_goal(snapshot['goal_delivery'])or identity['sender_department']==snapshot['goal_delivery']['primary_owner'],'a specialist result returns to this task owner, not an arbitrary parent')
   parent=w.read_json(w.snapshot_path(root,collab.get('parent_task_id','')));owner=parent.get('goal_delivery',{}).get('primary_owner')
   require(parent and owner==collab.get('primary_owner')and professional(root,owner)and snapshot['goal_delivery'].get('parent_task_id')==parent['task_id'], 'actual original parent owner for collaboration return')
   target=owner
@@ -604,7 +639,10 @@ def autonomous_result_route(root,identity):
   'acceptance_proven':False,'notification_proven':False,'HQ_second_review_required':False,'automatic_wakeup_allowed':True,'knowledge_only':target=='operations'}
 
 def register_preflight(root,task,input_path):
- if task=='fc-20261025-shop-office-existing-six-and-five-implementation-release-v1':
+ from tools.shop_office_web_execution import applies as web_applies, record_preflight as web_record
+ incoming=w.read_json(w.safe_path(root,input_path))
+ if web_applies(task,incoming.get("action_class")):return web_record(root,input_path)
+ if task=='fc-20261025-shop-office-existing-six-and-five-implementation-release-v1'and incoming.get('action_class')=='cms_write':
   from tools.shop_office_six_field_execution import record_preflight as exact_cms_preflight
   return exact_cms_preflight(root,input_path)
  import goal_delivery_runtime as g
@@ -627,6 +665,8 @@ def register_preflight(root,task,input_path):
  return {'result':'recorded','input':pin,'assistant_approval_required':False,'external_permission_issued':False}
 
 def policy(root,requested):
+ from tools.shop_office_web_execution import applies as web_applies, policy as web_policy
+ if web_applies(requested.get("task_id"),requested.get("action_class")):return web_policy(root,requested)
  snapshot=w.read_json(w.snapshot_path(root,requested['task_id']))
  if not autonomous_goal(snapshot.get('goal_delivery')):return None
  if requested['action_class']not in w.EXTERNAL_ACTION_CLASSES:return None
@@ -671,6 +711,27 @@ def received_knowledge(root,request):
  return {'actual_receiver_native':request['actual_receiver_native'],'actual_receiver_message_id':request['actual_receiver_message_id'],
   'acceptance_proven':False,'HQ_second_review_required':False}
 
+
+def existing_receiver_result_knowledge(root,source):
+ """Actual professional knowledge can suppress a redundant notice, not sign intake."""
+ proof=source.get('actual_existing_receiver_knowledge')
+ if proof is None:return None
+ require(isinstance(proof,dict)and set(proof)=={'actual_receiver_native','actual_receiver_message_id'},'exact existing receiver native source, never caller flags')
+ snapshot=w.read_json(w.snapshot_path(root,source['task_id']));role=source['sender_department']
+ route=autonomous_result_route(root,source);owner=snapshot['goal_delivery']['primary_owner']
+ require(autonomous_goal(snapshot['goal_delivery'])and route.get('target_department')==owner
+  and role!=owner and professional(root,owner),'only this actual autonomous professional owner can have prior specialist knowledge')
+ import result_coordination as rc
+ require(not w.read_json(rc._notification_path(root,source)),'existing notification effect must be recovered by its original key, not reclassified')
+ original_assignment_ready(root,snapshot,owner)
+ import goal_delivery_runtime as g
+ page=g._native_document(root,proof['actual_receiver_native'])
+ pairs=[(t,m)for t in page.get('turns',[])for m in t.get('items',[])if m.get('id')==proof['actual_receiver_message_id']]
+ require(len(pairs)==1 and any(source['task_id']in m.get('text','')for m in pairs[0][0].get('items',[])if m.get('type')in {'agentMessage','userMessage'}),'actual receiver task context required')
+ observed=w._parse_observed_at(source.get('reply_observed_at'));updated=page.get('thread',{}).get('updatedAt')
+ require(observed is not None and type(updated)in {int,float}and observed.timestamp()<=updated<=dt.datetime.now(dt.timezone.utc).timestamp(),'actual receiver knowledge after original result source required')
+ checked=received_knowledge(root,{**source,**proof,'coordinator_role':owner})
+ return {**checked,'receiver_department':owner,'knowledge_proven':True,'formal_intake_proven':False,'native_transport_proven':False,'repeat_transport_required':False}
 
 def recovered_report_delivery(root,source):
  """Recover a real prior first-party report, never backfill a send/claim."""
@@ -741,7 +802,9 @@ def record_autonomous_result(root,request):
   require(len(existing)==1 and existing[0].get('idempotency_key')==request.get('idempotency_key'),'one exact original result event only')
   return {**existing[0],'result':'duplicate_ignored'},[w.result_handoff_path(root,task)]
  source=native_result(root,request,fixed)if event=='notification_queued'else None
- if event=='notification_queued':recovered_report_delivery(root,request)
+ if event=='notification_queued':
+  recovered_report_delivery(root,request)
+  existing_receiver_result_knowledge(root,request)
  queued=[x for x in same if x.get('event')=='notification_queued']
  if event!='notification_queued':require(len(queued)==1,'one original queued source before intake/transport')
  route=autonomous_result_route(root,identity);require(route and route.get('automatic_wakeup_allowed'),'current professional result route required')

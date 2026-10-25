@@ -2358,6 +2358,15 @@ def notification_enqueue(root, identity, *, _coordination_locked=False):
                 'actionable': False, 'block_reason': route.get('reason'),
                 'next_action': 'restore_exact_original_evidence_mapping',
                 'native_send_executed': False, 'legacy_notification_store_unchanged': True}
+    from department_autonomy import existing_receiver_result_knowledge
+    prior_knowledge = existing_receiver_result_knowledge(root, source)
+    if prior_knowledge:
+        if _w().read_json(_notification_path(root, identity)):
+            _fail('existing notification effect must be read by its original key before knowledge-only recovery')
+        return {'identity': identity, 'route': route, 'state': 'actual_owner_knowledge_no_repeat_transport',
+                'actual_owner_knowledge': prior_knowledge, 'actionable': False, 'delivered': False,
+                'formal_intake_proven': False, 'native_send_executed': False, 'queue_is_delivery': False,
+                'delivery_owner': identity['sender_department'], 'recovery_owner': route['target_department']}
     exact = delivery_identity(root, identity, route=route)
     with (nullcontext() if _coordination_locked else coordination_lock(root)):
         path = _notification_path(root, identity)
@@ -2509,6 +2518,8 @@ def notification_claim(root, identity, role, owner, request_id, live_identity, p
     if delivery_mode not in {'ordinary', 'official_native_queue'}:
         _fail('unknown notification delivery mode')
     queued = notification_enqueue(root, identity)
+    if queued.get('state') == 'actual_owner_knowledge_no_repeat_transport':
+        return {**queued, 'result': 'duplicate_ignored', 'notification_responsibility_retained': False}
     intake = _received_delivery(root, identity, route)
     if intake:
         return {'result': 'duplicate_ignored', 'resolved_by_actual_intake': True,

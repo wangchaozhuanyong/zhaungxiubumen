@@ -4371,7 +4371,7 @@ def build_parser() -> argparse.ArgumentParser:
     approval_parser.add_argument("--approval-id", default="")
     approval_parser.add_argument("--source-thread-id", default="")
     approval_parser.add_argument("--source-message-ref", default="")
-    approval_parser.add_argument("--source-evidence", default="", help="原衣柜 R3 当前源码和自检的项目内精确证据；其他任务不用")
+    approval_parser.add_argument("--source-evidence", default="", help="原衣柜或准确店铺/办公室发布阶段的当前源码、自检与真实运行证据；不授其他任务许可")
     approval_parser.add_argument("--revoke", action="store_true")
     approval_parser.set_defaults(handler=lambda root, args: approval_record(root, args))
 

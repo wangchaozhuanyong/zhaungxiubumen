@@ -11,11 +11,13 @@ import argparse
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -1227,6 +1229,10 @@ def validate_goal_cms_decision(root: Path, decision: dict, target: dict, operati
         require(operation == "publish" and payload_sha256 == CONDO_FAQ_V7_TARGET["payload_sha256"],
                 "Condo FAQ candidate acceptance cannot authorize another operation or payload")
         return _condo_faq_candidate_decision(root, decision, target, payload_sha256, acceptance, now)
+    if (target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4"
+            and operation == "rollback" and acceptance.get("acceptance_model") == SELF_CHECK_EXECUTION_MODEL):
+        from tools.shop_office_six_field_execution import reverse_decision
+        return reverse_decision(root, decision, target, payload_sha256, acceptance, now)
     if acceptance.get("acceptance_model") == SELF_CHECK_EXECUTION_MODEL:
         require(operation=="publish" and payload_sha256==target["payload_sha256"],
                 "Selfcheck cannot grant a different operation or payload")
@@ -1498,8 +1504,27 @@ def gh_json(*args: str) -> dict:
 
 def artifact_for_run(run_id: int, target_name: str, folder: Path) -> tuple[dict, dict, dict, Path]:
     run = gh_json("api", f"repos/{REPOSITORY}/actions/runs/{run_id}")
+    valid_name = run.get("name") == "Approved website content publish"
+    if not valid_name and target_name in {
+            "shop-office-shop-six-v4-ba79401d2ed2-20261025-v1",
+            "shop-office-office-six-v4-eb6eef35d390-20261025-v1"}:
+        from tools.shop_office_six_field_execution import targets as exact_targets
+        actual_target = exact_targets(ROOT).get(target_name)
+        require(actual_target is not None and TARGETS.get(target_name) == actual_target,
+                "Exact original registered shop/office target required")
+        workflow = gh_json("api", f"repos/{REPOSITORY}/actions/workflows/content-publish-approved.yml")
+        require(workflow.get("name") == "Approved website content publish"
+                and workflow.get("path") == ".github/workflows/content-publish-approved.yml"
+                and workflow.get("id") == run.get("workflow_id")
+                and type(workflow.get("id")) is int and workflow["id"] > 0
+                and workflow.get("state") == "active"
+                and run.get("repository", {}).get("full_name") == REPOSITORY
+                and run.get("repository", {}).get("id") == 1248188229
+                and run.get("status") == "completed" and run.get("run_attempt") == 1,
+                "Exact active original workflow/repository and first completed preview required")
+        valid_name = run.get("name") == f"{target_name} | dry-run"
     require(run.get("event") == "workflow_dispatch" and run.get("head_branch") == "main"
-            and run.get("conclusion") == "success" and run.get("name") == "Approved website content publish"
+            and run.get("conclusion") == "success" and valid_name
             and run.get("path") == ".github/workflows/content-publish-approved.yml"
             and run.get("id") == run_id and len(str(run.get("head_sha", ""))) == 40,
             "Dry-run workflow identity or conclusion is invalid")
@@ -1525,14 +1550,75 @@ def artifact_for_run(run_id: int, target_name: str, folder: Path) -> tuple[dict,
     return run, receipt, digest, target_dir / "backup.json"
 
 
+def safe_control_http_diagnostic(error: HTTPError, control: dict) -> dict:
+    """Classify a bounded error; never emit credentials, raw body or raw headers."""
+    categories = {
+        "Origin not allowed": "origin_not_allowed",
+        "Managed permit issuer authentication failed": "issuer_authentication_failed",
+        "Managed permit issuer is not configured": "issuer_not_configured",
+        "Managed CMS release is disabled": "managed_release_disabled",
+        "Invalid managed permit control body": "invalid_control_body",
+        "Managed permit identity, evidence, or short expiry is invalid": "invalid_permit_identity_evidence_or_expiry",
+        "Exact frozen target version or changed-fields payload digest is invalid": "target_version_or_payload_mismatch",
+        "Publish requires the exact independently restorable prior payload digest": "invalid_prior_payload_binding",
+        "Rollback requires a distinct completed publish permit": "invalid_rollback_parent",
+        "Managed rollback requires the exact completed parent run ID": "invalid_rollback_parent_run",
+        "Rollback does not restore the completed candidate's exact prior version": "rollback_parent_source_mismatch",
+        "Unknown permit or control action": "unknown_permit_or_action",
+        "Invalid permit ID": "invalid_permit_id",
+    }
+    result = {"http_status": error.code if type(error.code) is int else None,
+              "error_category": "unclassified_http_error", "raw_body_or_headers_logged": False,
+              "execution_effect": "UNKNOWN_READ_ORIGINAL_KEY_NO_AUTOMATIC_RETRY"}
+    if control.get("controlAction") in {"issue", "status", "revoke"}:
+        result["control_action"] = control["controlAction"]
+    if control.get("operation") in {"publish", "rollback"}:
+        result["operation"] = control["operation"]
+    permit = control.get("permitId")
+    if isinstance(permit, str) and re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", permit):
+        result["permit_id_sha256"] = hashlib.sha256(permit.encode()).hexdigest()
+    policy = control.get("policyDecisionId")
+    if isinstance(policy, str) and re.fullmatch(r"pol-[0-9a-f]{20}", policy):
+        result["policy_decision_id"] = policy
+    ids = {}
+    for name in ("sb-request-id", "x-request-id", "x-deno-execution-id", "cf-ray"):
+        value = error.headers.get(name) if error.headers else None
+        pattern = r"[0-9a-fA-F]{16}-[A-Z]{3}" if name == "cf-ray" else r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
+        if isinstance(value, str) and re.fullmatch(pattern, value):ids[name] = value
+    if ids:result["request_ids"] = ids
+    def unique(pairs):
+        value = {}
+        for key, item in pairs:
+            if key in value:raise ValueError("ambiguous error object")
+            value[key] = item
+        return value
+    try:
+        raw = error.read(8193)
+        if len(raw) <= 8192:
+            body = json.loads(raw.decode("utf-8"), object_pairs_hook=unique,
+                              parse_constant=lambda value: (_ for _ in ()).throw(ValueError("finite JSON required")))
+            message = body.get("error") if isinstance(body, dict) else None
+            if isinstance(message, str):
+                result["error_category"] = categories.get(message, "permit_insert_failed" if message.startswith("Managed permit insert failed: ") else "unclassified_http_error")
+    except (OSError, ValueError, TypeError, UnicodeError, RecursionError):
+        pass
+    finally:
+        error.close()
+    return result
+
+
 def endpoint_request(control: dict, secret: str, base_url: str) -> dict:
     parsed = urlparse(base_url)
     require(parsed.scheme == "https" and parsed.netloc == SUPABASE_HOST and parsed.path in {"", "/"}, "Wrong Supabase project")
     request = Request(f"{base_url.rstrip('/')}/functions/v1/content-publish",
                       data=json.dumps(control, separators=(",", ":")).encode(), method="POST",
                       headers={"Content-Type": "application/json", "x-managed-permit-issuer-secret": secret})
-    with urlopen(request, timeout=20) as response:
-        body = json.load(response)
+    try:
+        with urlopen(request, timeout=20) as response:
+            body = json.load(response)
+    except HTTPError as error:
+        diagnostic = safe_control_http_diagnostic(error, control)
+        raise PermitEvidenceError("Managed permit HTTP rejection: " + json.dumps(diagnostic, sort_keys=True)) from None
     require(body.get("ok") is True, "Permit issuer endpoint did not confirm success")
     return body
 
@@ -1543,7 +1629,7 @@ def validate_new_permit_target(target: dict, *, assistant_acceptance: dict | Non
     if target.get('candidate_shape') == 'owner_authorized_shop_office_six_field_v4':
         require(isinstance(assistant_acceptance, dict), 'Exact original publisher selfcheck required; registration is not a permit')
         from tools.shop_office_six_field_execution import acceptance
-        require(assistant_acceptance == acceptance(ROOT, target, 'publish'), 'Original registered current selfcheck/effect source differs')
+        require(assistant_acceptance == acceptance(ROOT, target, assistant_acceptance.get('operation', 'publish')), 'Original registered current selfcheck/effect source differs')
     if target.get("candidate_shape") == bounded_model:
         require(isinstance(assistant_acceptance, dict)
                 and assistant_acceptance.get("acceptance_model") == bounded_model,
@@ -1672,8 +1758,11 @@ def main() -> None:
         require(now - timedelta(minutes=30) <= timestamp(run["updated_at"]) <= now,
                 "Protected dry-run is stale or future-dated")
         expected_action = target["action_id"] if args.operation == "publish" else f"rollback-{target['candidate_version']}"
-        receipt_version = qa["candidate_version"] if qa.get("acceptance_model") == bounded_model else target["candidate_version"]
-        require(receipt.get("task_id") == target["task_id"] and receipt.get("candidate_version") == receipt_version
+        receipt_version = qa["candidate_version"] if (qa.get("acceptance_model") == bounded_model or target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4") else target["candidate_version"]
+        receipt_versions = {receipt_version}
+        if target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4" and args.operation == "rollback":
+            receipt_versions.add(target["candidate_version"])  # Existing CLI artifacts retain the base candidate; permit identity is still inverse.
+        require(receipt.get("task_id") == target["task_id"] and receipt.get("candidate_version") in receipt_versions
                 and receipt.get("action_id") == expected_action and receipt.get("operation") == args.operation
                 and receipt.get("scope") == target["scope"],
                 "Dry-run receipt target differs from the locked candidate")
@@ -1691,6 +1780,11 @@ def main() -> None:
             require(json.loads(backup_path.read_text()).get("record", {}).get("id") == target["record_id"],
                     "Rollback readback does not contain the target record")
 
+        exact_reverse_binding = None
+        if target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4" and args.operation == "rollback":
+            from tools.shop_office_six_field_execution import reverse_artifacts
+            exact_reverse_binding = reverse_artifacts(ROOT, target, qa, run, receipt, digest,
+                json.loads(backup_path.read_text()), args.parent_permit_id, args.parent_run_id)
         bound_machine = None
         if qa.get("acceptance_model") == bounded_model:
             from paid_three_page_bounded_cms import validate_issuer_machine
@@ -1735,6 +1829,8 @@ def main() -> None:
                     "policy_decision_id": policy["decision_id"], "dry_run_id": args.dry_run_run_id,
                     "dry_run_receipt_sha256": sha256_file(backup_path.parent / "locked-dry-run-receipt.json"),
                     "payload_sha256": payload_sha256}
+        if exact_reverse_binding is not None:
+            evidence["exact_original_reverse_binding"] = exact_reverse_binding
         evidence_sha256 = hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         action_id = target["action_id"] if args.operation == "publish" else f"rollback-{target['candidate_version']}"
         candidate_version = target["candidate_version"] if args.operation == "publish" else f"{target['candidate_version']}-rollback-v1"
@@ -1767,6 +1863,9 @@ def main() -> None:
             parent_status = endpoint_request({"controlAction": "status", "permitId": args.parent_permit_id},
                                              secret, base_url)
             validate_completed_parent_status(parent_status, target, args.parent_permit_id, args.parent_run_id)
+            if target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4":
+                from tools.shop_office_six_field_execution import live_reverse_parent
+                live_reverse_parent(ROOT, target, qa, parent_status, args.parent_permit_id, args.parent_run_id, request["permitId"])
             if qa.get("acceptance_model") == bounded_model:
                 from paid_three_page_bounded_cms import doc as bounded_document
                 require(parent_status == bounded_document(ROOT, qa["completed_parent"])

@@ -263,6 +263,9 @@ def authorization_precheck(root, task_id, request):
         return outcome("original_source_binding_required", ["recover_real_original_authority_without_new_dispatch"])
     snapshot = restore_goal(root, snapshot)
     goal = snapshot["goal_delivery"]
+    from tools.shop_office_web_execution import applies as exact_WEB_applies, authorization_precheck as exact_WEB_authorization
+    if exact_WEB_applies(task_id, request.get("action_class")):
+        return exact_WEB_authorization(root, request)
     auth = goal.get("human_authorization", {})
     pin = goal["authorization_pin"]
     source = w.read_json(w.safe_path(root, pin["path"]))
@@ -907,6 +910,9 @@ def execution_preflight(root, snapshot, action_id, action_class, scope, departme
     if not enabled(root, snapshot):
         return None
     goal = snapshot["goal_delivery"]
+    from tools.shop_office_web_execution import applies as exact_WEB_applies, preflight as exact_WEB_preflight
+    if exact_WEB_applies(snapshot.get("task_id"), action_class):
+        return exact_WEB_preflight(root, action_id, action_class, scope, department)[0]
     if snapshot.get('task_id') == 'fc-20261025-shop-office-existing-six-and-five-implementation-release-v1' and action_class == 'cms_write':
         from tools.shop_office_six_field_execution import preflight as exact_cms_preflight
         return exact_cms_preflight(root, snapshot, action_id, action_class, scope, department)[0]
@@ -1315,6 +1321,9 @@ def record_approved_action(root, task_id, input_path):
     if action.get("schema") == "current-autonomous-readonly-coordination-action/v1":
         from department_autonomy import record_readonly_coordination
         return record_readonly_coordination(root, task_id, input_path)
+    if action.get("schema") == "shop-office-original-WEB-execution-registration/v1":
+        from tools.shop_office_web_execution import record_registration
+        return record_registration(root, task_id, input_path)
     special = action.get("action_id") == CONDO_FAQ_V7_POST_CANDIDATE_ACTION or "condo_faq_v7_post_candidate_source" in action
     validation = (_condo_faq_v7_post_candidate_preflight(root, task_id, input_path, action)
                   if special else None)
