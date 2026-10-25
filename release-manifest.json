@@ -689,9 +689,9 @@
     },
     {
       "path": "playbooks/department-system-current.md",
-      "source_sha256": "cb4bec2cf9a59ca314c14bef21a778317b7b06217952e8b802d7589c404b70c5",
-      "release_sha256": "cb4bec2cf9a59ca314c14bef21a778317b7b06217952e8b802d7589c404b70c5",
-      "bytes": 8330
+      "source_sha256": "66d39cf865a44ebb23a9079e0b698263da0fa4a27af395e331270e52ab4f8728",
+      "release_sha256": "66d39cf865a44ebb23a9079e0b698263da0fa4a27af395e331270e52ab4f8728",
+      "bytes": 8681
     },
     {
       "path": "playbooks/department-system-release-inventory.md",
@@ -701,9 +701,9 @@
     },
     {
       "path": "playbooks/department-system-runtime-reference.md",
-      "source_sha256": "727c248be65642c9dcfce32cf83db7eace2b3ae28006355e2eead71bbd3c5db1",
-      "release_sha256": "727c248be65642c9dcfce32cf83db7eace2b3ae28006355e2eead71bbd3c5db1",
-      "bytes": 3880
+      "source_sha256": "b0f57f9507a27c20a05781ca1b4cc74ee9ec1bf712a30785c19cba348efff36f",
+      "release_sha256": "b0f57f9507a27c20a05781ca1b4cc74ee9ec1bf712a30785c19cba348efff36f",
+      "bytes": 4281
     },
     {
       "path": "playbooks/department-system-source-release.md",
@@ -1001,9 +1001,9 @@
     },
     {
       "path": "tools/department_autonomy.py",
-      "source_sha256": "bb8155ee5ab0f4ce1f54ace3240e84e3101c7052543150173c3fc6b90df69e53",
-      "release_sha256": "c636e66837523859cef8d4b8f5286b352c914fc1a78abff09e4c023787cfad26",
-      "bytes": 116073
+      "source_sha256": "4ff73a2e813d841031c700bbb5d74be98f14fc424367f975a55ead404251fc8f",
+      "release_sha256": "07fc46075906933609550b20c3daadf7320137c164005ef52900f61eb6e99a88",
+      "bytes": 120791
     },
     {
       "path": "tools/department_event_dispatcher.py",
@@ -1739,5 +1739,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "a5edd3c971092736723ead904f63653aad76a9e219e54272198941931b35a06f"
+  "fingerprint": "b4269ff9e338cf8efb983376f927dd2a19ffc24f3967fbe295560095375d1b33"
 }

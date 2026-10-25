@@ -14,6 +14,8 @@
 
 正常完整outbox/READY与官方result queue；notification_queued仅运输待办，controller_received要求真实接收原生及SQL/native一致。
 
+闭目标的完整最终结果仍由原owner使用原冻结输入执行`python3 tools/flashcast_ops.py result-handoff-record --input <同一final request>`。先读原identity/幂等键的实际效果；已有记录不重收，未写才唯一登记。此路径须真实原生READY、原完整scope/成果SHA和全部正常完成证明，只有HQ知悉归档，不恢复业务执行或签发许可。
+
 ## acceptance
 
 普通目标由专业owner自检与实际效果读回，无助理QA。历史qa_verdict仅按原冻结来源读取。

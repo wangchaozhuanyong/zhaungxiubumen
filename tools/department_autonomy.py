@@ -817,7 +817,11 @@ def _legacy_parent_owner_report(root,snapshot,identity,queued):
 
 def _autonomous_result_current_owner(root,snapshot,identity):
  """A new professional subtask retains its own frozen owner and ancestry."""
- role=identity['sender_department'];goal=participant(root,snapshot,role)
+ role=identity['sender_department']
+ # A read-only route is not admission of a new business action. Actual closed
+ # result registration must additionally pass completed_result_archive below.
+ completed_owner=(snapshot.get('current_state')=='closed'and role==snapshot.get('goal_delivery',{}).get('primary_owner'))
+ goal=participant(root,snapshot,role,allow_completed_report=completed_owner)
  frozen=document(root,snapshot['goal_contract'])
  require(autonomous_goal(goal)and autonomous_goal(frozen)and frozen.get('task_id')==snapshot['task_id']==identity['task_id']
   and all(goal.get(k)==frozen.get(k)for k in ('primary_owner','parent_task_id','producer_departments','authorized_scope','human_authorization','collaboration_scopes')),
@@ -1047,6 +1051,45 @@ def recovered_report_delivery(root,source):
   'actual_sender_call_id':calls[0]['id'],'actual_recipient_effect_id':effects[0]['id'],
   'actual_native_delivery_proven':True,'HQ_intake_proven':False,'notification_sent_backfilled':False}
 
+def completed_result_archive(root,request,route):
+ """Authenticate final owner-result metadata after real scope completion.
+
+ No caller flag, new participant or permission can turn a closed task into an
+ executable one. Native READY, exact bytes and every original completion proof
+ are read by the same normal validators used for the open task.
+ """
+ import goal_delivery_runtime as g
+ snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,request['task_id'])))
+ if snapshot.get('current_state')not in w.TERMINAL_STATES:return {}
+ goal=snapshot.get('goal_delivery',{});role=request.get('sender_department')
+ require(snapshot.get('current_state')=='closed'and autonomous_goal(goal)
+  and request.get('event')=='notification_queued'and role==goal.get('primary_owner')and professional(root,role)
+  and route.get('lane')=='HQ_knowledge'and route.get('target_department')=='operations'
+  and route.get('source_mode')==MODE,'only the original completed professional-owner result to HQ may be archived')
+ frozen=document(root,snapshot.get('goal_contract'))
+ require(all(goal.get(k)==frozen.get(k)for k in ('primary_owner','parent_task_id','producer_departments','authorized_scope','human_authorization'))
+  and goal.get('source_mode')==frozen.get('source_mode','approved_dispatch')
+  and request.get('scope')in frozen.get('authorized_scope',[])and request.get('action_class')in {None,'thread_message'}
+  and not any(request.get(k)for k in ('approval_id','consume_approval','execution_request','authorization_changes')),'archive retains the frozen task/scope/source; no execution or expanded authority')
+ fixed=w.department_registry(root)[role]['chat_binding']['task_id']
+ source=native_result(root,request,fixed)  # Actual business validator, never a supplied READY boolean.
+ pin=request.get('outbox')or w.file_digest(root,request.get('outbox_path',''));box=document(root,pin)
+ require(box.get('status')=='completed'and box.get('scope')==request['scope']and box.get('primary_owner',role)==role
+  and not box.get('collaboration_return')and not box.get('remaining_this_completed_scope')
+  and not box.get('business_parent_closed',False),'one complete original owner report, not partial work or a new parent/business action')
+ proof=completion(root,snapshot)
+ require(proof.get('state')=='PROVEN'and proof.get('requirements')and not proof.get('missing')and not proof.get('blockers')
+  and all(x.get('state')=='PROVEN'for x in proof['requirements']),'every actual frozen completion proof must remain PROVEN before final archival')
+ events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==snapshot['task_id']and e.get('details',{}).get('autonomous_completion_proof')]
+ expected={x['requirement_id']for x in requirement_rows(goal)}
+ require(len(events)==len(expected)and {e['details']['autonomous_completion_proof']['requirement_id']for e in events}==expected,'one actual proof per original criterion; no hard-coded count or substitute')
+ observed=w._parse_observed_at(request.get('reply_observed_at'))
+ require(observed is not None and all(w._parse_observed_at(e.get('created_at'))is not None and w._parse_observed_at(e['created_at'])<=observed for e in events),'final source observation must follow actual completion registration')
+ pins=[e['details']['autonomous_completion_proof']for e in events]
+ return {'schema':'completed-original-owner-result-archive/v1','goal_contract':snapshot['goal_contract'],'scope':request['scope'],
+  'original_owner':role,'outbox':pin,'actual_completion_proofs':pins,'source_fingerprint':w.sha256_value([snapshot['goal_contract'],pin,source,pins]),
+  'business_reopened':False,'external_permission_issued':False}
+
 def record_autonomous_result(root,request):
  import result_coordination as rc,uuid
  task=w.validate_task_id(request['task_id']);identity=rc.exact_identity(request);event=request['event']
@@ -1056,6 +1099,10 @@ def record_autonomous_result(root,request):
  existing=[x for x in same if x.get('event')==event]
  if existing:
   require(len(existing)==1 and existing[0].get('idempotency_key')==request.get('idempotency_key'),'one exact original result event only')
+  if existing[0].get('completed_result_archive'):
+   prior=existing[0];pin=request.get('outbox')or w.file_digest(root,request.get('outbox_path',''))
+   require(pin==prior.get('outbox')and all(request.get(k)==prior.get(k)for k in ('scope','source_thread_id','source_turn_id','source_message_id','result_source_phase','actual_native_completion','visible_reply','source_reply_sha256','reply_observed_at'))
+    and [w.file_digest(root,p)for p in request.get('evidence_paths',[])]==prior.get('evidence',[]),'duplicate archive must retain its original complete identity, source and evidence')
   return {**existing[0],'result':'duplicate_ignored'},[w.result_handoff_path(root,task)]
  source=native_result(root,request,fixed)if event=='notification_queued'else None
  if event=='notification_queued':
@@ -1064,6 +1111,7 @@ def record_autonomous_result(root,request):
  queued=[x for x in same if x.get('event')=='notification_queued']
  if event!='notification_queued':require(len(queued)==1,'one original queued source before intake/transport')
  route=autonomous_result_route(root,identity);require(route and route.get('automatic_wakeup_allowed'),'current professional result route required')
+ archive=completed_result_archive(root,request,route)if event=='notification_queued'else{}
  pin=w.file_digest(root,request['outbox_path'])if request.get('outbox_path')else request.get('outbox')or queued[0]['outbox']
  require(pin['sha256']==identity['result_sha256'],'exact original result pin')
  if queued:require(pin==queued[0]['outbox'],'result intake must retain original queued bytes')
@@ -1072,6 +1120,7 @@ def record_autonomous_result(root,request):
   'outbox':pin,'evidence':[w.file_digest(root,p)for p in request.get('evidence_paths',[])],
   'target_department':route['target_department'],'coordinator_role':request.get('coordinator_role','operations'),
   'mode_authorization':OWNER,'business_goal_closed':False,'assistant_approval_required':False}
+ if archive:row['completed_result_archive']=archive
  row.pop('outbox_path',None);row.pop('evidence_paths',None)
  require(isinstance(row.get('idempotency_key'),str)and row['idempotency_key'],'normal stable effect idempotency key')
  if event=='controller_received':
