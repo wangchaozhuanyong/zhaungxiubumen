@@ -263,6 +263,9 @@ def authorization_precheck(root, task_id, request):
         return outcome("original_source_binding_required", ["recover_real_original_authority_without_new_dispatch"])
     snapshot = restore_goal(root, snapshot)
     goal = snapshot["goal_delivery"]
+    from professional_web_execution import applies as original_external_WEB, authorization_precheck as original_external_authorization
+    if original_external_WEB(root, task_id, request.get("action_class")):
+        return original_external_authorization(root, request)
     from tools.shop_office_web_execution import applies as exact_WEB_applies, authorization_precheck as exact_WEB_authorization
     if exact_WEB_applies(task_id, request.get("action_class")):
         return exact_WEB_authorization(root, request)
@@ -968,6 +971,9 @@ def execution_preflight(root, snapshot, action_id, action_class, scope, departme
                     "action_class":action_class, "scope":scope, "department":department})
         if context is not None:
             return context["preflight"]
+    from professional_web_execution import applies as original_external_WEB, preflight as original_external_preflight
+    if original_external_WEB(root, snapshot["task_id"], action_class):
+        return original_external_preflight(root, snapshot["task_id"], action_id, action_class, scope, department)[0]
     from tools.shop_office_web_execution import applies as exact_WEB_applies, preflight as exact_WEB_preflight
     if exact_WEB_applies(snapshot.get("task_id"), action_class):
         return exact_WEB_preflight(root, action_id, action_class, scope, department)[0]
@@ -1376,6 +1382,9 @@ def _condo_faq_v7_post_candidate_preflight(root, task_id, input_path, action):
 def record_approved_action(root, task_id, input_path):
     """Freeze a precise routine decision, or owner action in an original declared collaboration scope."""
     action = w.read_json(w.safe_path(root, input_path))
+    if action.get("schema") == "professional-external-WEB-production-source/v1":
+        from professional_web_execution import record_source
+        return record_source(root, task_id, input_path)
     if action.get("schema") == "professional-cms-issuer-contract/v1":
         from professional_cms_issuer import record_contract
         return record_contract(root, task_id, input_path)

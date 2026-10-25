@@ -2476,6 +2476,11 @@ def record_approval(
     revoke: bool = False, source_evidence: str = "",
 ) -> tuple[dict[str, Any], list[Path]]:
     """For the exact condo action, preserve one read baseline through commit."""
+    from professional_web_execution import applies as original_WEB, record_approval as original_WEB_approval
+    if original_WEB(root, task_id, action_class) and action_class == "site_publish":
+        return original_WEB_approval(root, task_id=task_id, action_id=action_id, action_class=action_class,
+            scope=scope, approval_id=approval_id, source_thread_id=source_thread_id,
+            source_message_ref=source_message_ref, revoke=revoke, source_evidence=source_evidence)
     from tools.shop_office_web_execution import applies as exact_WEB_applies, record_approval as exact_WEB_approval
     if exact_WEB_applies(task_id, action_class) and action_class == "site_publish":
         return exact_WEB_approval(root, task_id=task_id, action_id=action_id, action_class=action_class,

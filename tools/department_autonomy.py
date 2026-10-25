@@ -588,6 +588,11 @@ def sensitive_state(root,snapshot,request):
  return {'state':'within_original_authorization','actual_action_allowed':False,'owner':goal['primary_owner']}
 
 def action_authority(root,snapshot,requested):
+ from professional_web_execution import applies as original_WEB,preflight as original_preflight
+ if original_WEB(root,snapshot.get('task_id'),requested.get('action_class')):
+  item,req,pin,ctx=original_preflight(root,snapshot['task_id'],requested['action_id'],requested['action_class'],requested['scope'],requested['department'])
+  require(requested.get('payload_sha256')==item['request']['sha256'],'exact original external WEB request bytes')
+  return {'action':{k:req[k]for k in ['task_id','department','action_id','action_class','scope']},'request':req,'pin':item['request'],'authorization':ctx['authorization'],'department':ctx['role']}
  if requested.get('action_class')=='cms_write':
   from professional_cms_execution import execution_context
   registered=execution_context(root,snapshot,requested)
@@ -1157,6 +1162,9 @@ def autonomous_result_route(root,identity):
 def register_preflight(root,task,input_path):
  from tools.shop_office_web_execution import applies as web_applies, record_preflight as web_record
  incoming=w.read_json(w.safe_path(root,input_path))
+ if incoming.get('schema')=='professional-external-WEB-fresh-preflight/v1':
+  from professional_web_execution import record_preflight as original_WEB_preflight
+  return original_WEB_preflight(root,task,input_path)
  if incoming.get('schema')=='professional-cms-fresh-preflight/v1':
   from professional_cms_execution import record_preflight
   return record_preflight(root,task,input_path)
@@ -1184,6 +1192,8 @@ def register_preflight(root,task,input_path):
  return {'result':'recorded','input':pin,'assistant_approval_required':False,'external_permission_issued':False}
 
 def policy(root,requested):
+ from professional_web_execution import applies as original_WEB,policy as original_WEB_policy
+ if original_WEB(root,requested.get('task_id'),requested.get('action_class')):return original_WEB_policy(root,requested)
  from tools.shop_office_web_execution import applies as web_applies, policy as web_policy
  if web_applies(requested.get("task_id"),requested.get("action_class")):return web_policy(root,requested)
  snapshot=w.read_json(w.snapshot_path(root,requested['task_id']))
