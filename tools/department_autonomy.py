@@ -566,20 +566,27 @@ def autonomous_result_route(root,identity):
  if identity['sender_department']not in snapshot['goal_delivery']['producer_departments']:return None
  rows=w._result_handoff_rows(root,identity['task_id']);same=[r for r in rows if all(r.get(k)==identity[k]for k in ('task_id','sender_department','candidate_version','result_sha256'))]
  queued=[r for r in same if r.get('event')=='notification_queued']
+ require(len(queued)<=1,'one immutable original queued result recipient required')
  # Never reinterpret a committed old recipient. Suppress its new activation;
  # actual original SQL/native intake remains readable before this classification.
  if queued and (queued[0].get('target_department')or queued[0].get('responsible_assistant'))in ASSISTANTS:
   return {'lane':'historical_read_only','target_department':None,'automatic_wakeup_allowed':False,'reason':'original assistant transport retained without new wakeup'}
+ if queued:
+  # The hash-chained exact queue has already frozen this delivery's receiver.
+  # Parent/producer routing is only for a result that has not been queued yet.
+  target=queued[0].get('target_department')or queued[0].get('responsible_assistant')
+  require(queued[0].get('outbox',{}).get('sha256')==identity['result_sha256']
+   and(target=='operations'or professional(root,target)), 'exact frozen original professional result recipient required')
+  return {'lane':'HQ_knowledge'if target=='operations'else'professional_acceptance','target_department':target,'source_mode':MODE,
+   'acceptance_proven':False,'notification_proven':False,'HQ_second_review_required':False,'automatic_wakeup_allowed':True,'knowledge_only':target=='operations'}
  target='operations';source={}
  parent_id=snapshot['goal_delivery'].get('parent_task_id')
  if parent_id:
   parent=w.read_json(w.snapshot_path(root,w.validate_task_id(parent_id)));owner=parent.get('goal_delivery',{}).get('primary_owner')
   target=owner if parent and owner and professional(root,owner)else _legacy_parent_owner_report(root,snapshot,identity,queued)
- if queued:source=document(root,queued[0]['outbox'])
- else:
-  producer=[r for r in w.read_jsonl(w.receipts_path(root,identity['task_id']))if r.get('receipt_type')=='outbox_received'and r.get('department')==identity['sender_department']and any(p.get('sha256')==identity['result_sha256']for p in r.get('evidence',[]))]
-  if producer:
-   pins=[p for p in producer[-1]['evidence']if p.get('sha256')==identity['result_sha256']];require(len(pins)==1,'exact original producer outbox');source=document(root,pins[0])
+ producer=[r for r in w.read_jsonl(w.receipts_path(root,identity['task_id']))if r.get('receipt_type')=='outbox_received'and r.get('department')==identity['sender_department']and any(p.get('sha256')==identity['result_sha256']for p in r.get('evidence',[]))]
+ if producer:
+  pins=[p for p in producer[-1]['evidence']if p.get('sha256')==identity['result_sha256']];require(len(pins)==1,'exact original producer outbox');source=document(root,pins[0])
  collab=source.get('collaboration_return')
  if isinstance(collab,dict):
   parent=w.read_json(w.snapshot_path(root,collab.get('parent_task_id','')));owner=parent.get('goal_delivery',{}).get('primary_owner')
@@ -587,8 +594,8 @@ def autonomous_result_route(root,identity):
   target=owner
  # A full business owner reporting inside its own parent business is not a
  # child specialist returning work to another owner. Never retarget an
- # already frozen transport, including a historical self-recipient.
- if not queued and target==identity['sender_department']==snapshot['goal_delivery']['primary_owner']:
+ # already frozen transport, which was returned above.
+ if target==identity['sender_department']==snapshot['goal_delivery']['primary_owner']:
   target='operations'
  return {'lane':'HQ_knowledge'if target=='operations'else'professional_acceptance','target_department':target,'source_mode':MODE,
   'acceptance_proven':False,'notification_proven':False,'HQ_second_review_required':False,'automatic_wakeup_allowed':True,'knowledge_only':target=='operations'}
