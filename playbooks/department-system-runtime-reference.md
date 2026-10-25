@@ -30,6 +30,14 @@
 
 源内新增PUB/WEB协作消息仍由原owner正常approved-action-record及prepare-message办理；消息必须带professional_execution_source注册pin、原execution_tuple和准确payload，保留业务scope，物理CMS scope另映射。原PUB实际收到该精确协作后，fresh preflight使用schema=professional-cms-fresh-preflight/v1（request为完整当前请求pin）沿既有preflight-record进入；全行/CAS、真实查效、零写预演、自检/备份和自身新单次许可仍须满足。源登记不是远端target/CLI/runtime已加载，也不代替实际Save。
 
+## R3 normal binding transport
+
+已登记的外部WEB完整发布源使用`python3 tools/r3_platform_binding_transport.py describe --task-id <原task>`读取现行入口。原WEB先在原worktree用`inspect --task-id <原task> --run-id <真实既有pending run>`核同账号、实际main/run/attempt1和原环境保护；这只是只读运输前提，未探测写权限、未签发或审核环境。即时可执行后才沿原fresh preflight/approval-record真实签发短期引用，再用`install --task-id <原task> --approval-id <真实已签发引用>`承运并读回；`status`只核原键。SYS不代操作平台；不得以预期apr、fixture或旧source构造真实绑定。
+
+入口只追加一个原真实issuer绑定，保留有效既有条目和原变量层级，不改guard/reviewer/保护，不发起或重派run、不审核环境、不自动消费本地许可。写意图先持久化，未知效果只能读回，不清attempt或盲重发。过期、冲突、容量满、其他旧条目不符合原guard时准确阻断该运输，不擅删其他issuer条目。
+
+GitHub变量API不支持条件写CAS；本地按同仓库变量串行锁、两次原生值/时间戳比较及完整写后读回，不将本地SHA称服务端CAS。原WEB是唯一正常承运执行者；并发远端编辑无法被本地锁原子隔离，需保留此限制并在冲突/未知时停止该写，不覆盖或回滚他人更新。平台403等仅记录脱敏HTTP类别及原键，不输出Token或请求凭证，不自动扩权限。自然登录、其他任务及共享socket不是本入口前置。
+
 ## recovery
 
 先核已发生效果和原幂等键；中断不伪造completed。保留原当前/暂停位置，普通恢复不换生产者。

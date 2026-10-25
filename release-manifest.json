@@ -701,9 +701,9 @@
     },
     {
       "path": "playbooks/department-system-runtime-reference.md",
-      "source_sha256": "943b72b24c3c130bf85449df400df4685f7ce9a93fcaa51ad7e676806a76ff14",
-      "release_sha256": "943b72b24c3c130bf85449df400df4685f7ce9a93fcaa51ad7e676806a76ff14",
-      "bytes": 6354
+      "source_sha256": "a15e17a3ce038edee253810217b3724bc205b3594bfa5d30920f05d7587e3a97",
+      "release_sha256": "a15e17a3ce038edee253810217b3724bc205b3594bfa5d30920f05d7587e3a97",
+      "bytes": 7942
     },
     {
       "path": "playbooks/department-system-source-release.md",
@@ -1252,6 +1252,12 @@
       "bytes": 694257
     },
     {
+      "path": "tools/r3_platform_binding_transport.py",
+      "source_sha256": "a36fe9669c022f96bd3b9ef2b144344f9fb99895621083177670ffe50fd1c3e4",
+      "release_sha256": "6b7b4f87646340bbc6067b706c8294303670dca989e889843e38ef2dd027de92",
+      "bytes": 19390
+    },
+    {
       "path": "tools/readonly_work_view_cache.py",
       "source_sha256": "2759dfcbf43f8661e548526785f8da6dd6ec6353a488380bb1a55160e4c2e726",
       "release_sha256": "2759dfcbf43f8661e548526785f8da6dd6ec6353a488380bb1a55160e4c2e726",
@@ -1757,5 +1763,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "de592e0b9343e13bdf6aa2d0e6500e21eca640b3a3545b6443ed915a8a481df2"
+  "fingerprint": "305d50d698a042d930a8a41350161e4debbd06881c42324cfe146afd0297af6f"
 }
