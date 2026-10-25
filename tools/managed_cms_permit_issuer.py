@@ -565,6 +565,10 @@ def validate_candidate_binding(candidate: dict, target: dict, *, root: Path | No
     """Bind newly added targets to one approved row and its exact field set."""
     evidence_root = Path(root) if root is not None else ROOT
     shape = target.get("candidate_shape")
+    if shape == 'professional_cms_source_selfcheck_v1':
+        from professional_cms_issuer import candidate as validate_professional
+        validate_professional(evidence_root, candidate, target)
+        return
     if shape == 'owner_authorized_shop_office_six_field_v4':
         from tools.shop_office_six_field_execution import validate_candidate
         validate_candidate(evidence_root, candidate, target)
@@ -802,6 +806,11 @@ def structured_qa_outbox_matches(row: dict, target: dict) -> bool:
 def _current_registered_targets(root: Path) -> dict:
     """Read current registrations; an import-time cache cannot prove a new tuple."""
     targets = dict(TARGETS)
+    from professional_cms_issuer import targets as professional_targets
+    for name in PROFESSIONAL_CMS_TARGETS:targets.pop(name,None)
+    for name,target in professional_targets(root).items():
+        require(name not in targets, "Professional target collision")
+        targets[name]=target
     loaders = (load_native_issuer_targets, load_repair_faq_registration,
                load_wave234_body_registration, load_remaining186_blog_registration,
                load_shop_children_body_registration, load_five_source_projection_registration,
@@ -1068,6 +1077,9 @@ def validate_goal_cms_acceptance(root: Path, target: dict, operation: str,
     account access, approval, permit, or production write.
     """
     from goal_delivery_runtime import enabled, restore_goal, validate_goal
+    if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
+        from professional_cms_issuer import acceptance
+        return acceptance(root,target,operation)
     import qa_review_plan as review
     from paid_three_page_bounded_cms import TASK as bounded_task, MODEL as bounded_model
     if target.get("task_id") == bounded_task:
@@ -1169,6 +1181,14 @@ def validate_goal_cms_policy(root: Path, task_id: str, action_id: str, scope: st
     """Exact registered namespace for the actual policy consumer; no fallback."""
     from goal_delivery_runtime import restore_goal, execution_preflight
     require(department == "publishing", "CMS goal policy executor must be publishing")
+    from professional_cms_issuer import MODEL as professional_model, policy_context
+    matching=[x for x in _current_registered_targets(root).values() if x.get('candidate_shape')==professional_model
+              and x['task_id']==task_id and x['scope']==scope
+              and action_id in {x['action_id'],'rollback-'+x['candidate_version']}]
+    if matching:
+        require(len(matching)==1, "One exact professional namespace")
+        op='publish' if action_id==matching[0]['action_id'] else 'rollback'
+        return policy_context(root,matching[0],op,payload_sha256)
     require(wc.SHA256_PATTERN.fullmatch(str(payload_sha256 or "")) is not None,
             "Exact CMS payload digest required")
     matches = []
@@ -1237,6 +1257,9 @@ def validate_goal_cms_decision(root: Path, decision: dict, target: dict, operati
             and operation == "rollback" and acceptance.get("acceptance_model") == SELF_CHECK_EXECUTION_MODEL):
         from tools.shop_office_six_field_execution import reverse_decision
         return reverse_decision(root, decision, target, payload_sha256, acceptance, now)
+    if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
+        from professional_cms_issuer import decision as professional_decision
+        return professional_decision(root,decision,target,operation,payload_sha256,acceptance,now)
     if acceptance.get("acceptance_model") == SELF_CHECK_EXECUTION_MODEL:
         require(operation=="publish" and payload_sha256==target["payload_sha256"],
                 "Selfcheck cannot grant a different operation or payload")
@@ -1430,6 +1453,9 @@ def validate_operations(decision: dict, target: dict, operation: str, payload_sh
 
 
 def validate_policy(row: dict, target: dict, operation: str, payload_sha256: str, operations: dict, now: datetime) -> dict:
+    if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
+        from professional_cms_issuer import consumed
+        return consumed(ROOT,row,target,operation,payload_sha256,operations,now)
     if target.get('candidate_shape') == 'owner_authorized_shop_office_six_field_v4':
         from tools.shop_office_six_field_execution import consumed_policy
         return consumed_policy(ROOT, row, target, operation, payload_sha256, operations, now)
@@ -1467,6 +1493,11 @@ def validate_policy(row: dict, target: dict, operation: str, payload_sha256: str
 
 
 def validate_retry_state(root: Path, target: dict, operation: str, policy: dict) -> None:
+    if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
+        snapshot=wc.read_json(wc.snapshot_path(root,target['task_id']))
+        require(snapshot.get('current_state') not in {'blocked','closed','blocked_evidence_invalid'},
+                "Read original effect; no automatic professional retry or closed-scope reopen")
+        return
     """Bind a blocked execution to its one permitted policy retry before issuing."""
     snapshot = json.loads((root / "data/workflows" / f"{target['task_id']}.json").read_text())
     if (operation == "publish" and target.get("candidate_shape") == "native_publisher_sparse_admission"
@@ -1630,6 +1661,11 @@ def endpoint_request(control: dict, secret: str, base_url: str) -> dict:
 def validate_new_permit_target(target: dict, *, assistant_acceptance: dict | None = None) -> None:
     """Keep historical evidence readable without reissuing a colliding action."""
     from paid_three_page_bounded_cms import MODEL as bounded_model
+    if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
+        from professional_cms_issuer import acceptance
+        require(isinstance(assistant_acceptance,dict) and assistant_acceptance==acceptance(ROOT,target,assistant_acceptance.get('operation')),
+                "Actual current professional selfcheck, not registration, is required")
+        return
     if target.get('candidate_shape') == 'owner_authorized_shop_office_six_field_v4':
         require(isinstance(assistant_acceptance, dict), 'Exact original publisher selfcheck required; registration is not a permit')
         from tools.shop_office_six_field_execution import acceptance
@@ -1726,6 +1762,9 @@ def validate_new_permit_target(target: dict, *, assistant_acceptance: dict | Non
 
 def exact_execution_scope(root: Path, target: dict) -> str:
     """Physical transport only; ordinary policy/contract scope is unchanged."""
+    if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
+        from professional_cms_issuer import exact
+        return exact(root,target)['execution_scope']
     if target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4":
         from tools.shop_office_six_field_execution import physical_scope
         return physical_scope(root, target)
@@ -1744,7 +1783,7 @@ def _main(validation) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     from paid_three_page_bounded_cms import ROWS as bounded_rows, MODEL as bounded_model, targets as bounded_targets
     bounded_names = {f"paid-three-page-{slug}-exact-fields-v1" for slug, _, _ in bounded_rows}
-    parser.add_argument("--target", choices=sorted(set(TARGETS) | bounded_names), required=True)
+    parser.add_argument("--target", choices=sorted(set(_current_registered_targets(ROOT)) | bounded_names), required=True)
     parser.add_argument("--operation", choices=["publish", "rollback"], required=True)
     parser.add_argument("--dry-run-run-id", type=int, required=True)
     parser.add_argument("--operations-decision", required=True)
@@ -1754,7 +1793,7 @@ def _main(validation) -> None:
     parser.add_argument("--parent-run-id", type=int)
     parser.add_argument("--issue-and-dispatch", action="store_true")
     args = parser.parse_args()
-    target = bounded_targets(ROOT)[args.target] if args.target in bounded_names else TARGETS[args.target]
+    target = bounded_targets(ROOT)[args.target] if args.target in bounded_names else _current_registered_targets(ROOT)[args.target]
     if target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4":
         from tools.shop_office_six_field_execution import target_for
         target = target_for(ROOT, target["action_id"])
@@ -1781,9 +1820,9 @@ def _main(validation) -> None:
         require(now - timedelta(minutes=30) <= timestamp(run["updated_at"]) <= now,
                 "Protected dry-run is stale or future-dated")
         expected_action = target["action_id"] if args.operation == "publish" else f"rollback-{target['candidate_version']}"
-        receipt_version = qa["candidate_version"] if (qa.get("acceptance_model") == bounded_model or target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4") else target["candidate_version"]
+        receipt_version = qa["candidate_version"] if (qa.get("acceptance_model") == bounded_model or target.get("candidate_shape") in {"owner_authorized_shop_office_six_field_v4","professional_cms_source_selfcheck_v1"}) else target["candidate_version"]
         receipt_versions = {receipt_version}
-        if target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4" and args.operation == "rollback":
+        if target.get("candidate_shape") in {"owner_authorized_shop_office_six_field_v4","professional_cms_source_selfcheck_v1"} and args.operation == "rollback":
             receipt_versions.add(target["candidate_version"])  # Existing CLI artifacts retain the base candidate; permit identity is still inverse.
         require(receipt.get("task_id") == target["task_id"] and receipt.get("candidate_version") in receipt_versions
                 and receipt.get("action_id") == expected_action and receipt.get("operation") == args.operation
@@ -1804,6 +1843,9 @@ def _main(validation) -> None:
                     "Rollback readback does not contain the target record")
 
         exact_reverse_binding = None
+        if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
+            from professional_cms_issuer import artifacts
+            artifacts(ROOT,target,args.operation,qa,receipt,digest,json.loads(backup_path.read_text()),args.parent_permit_id,args.parent_run_id)
         if target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4" and args.operation == "rollback":
             from tools.shop_office_six_field_execution import reverse_artifacts
             exact_reverse_binding = reverse_artifacts(ROOT, target, qa, run, receipt, digest,
@@ -1828,7 +1870,7 @@ def _main(validation) -> None:
         require(decision_path.is_relative_to(ROOT) and decision_path.is_file(), "Operations decision file is missing")
         decision = json.loads(decision_path.read_text())
         if qa.get("acceptance_model") in {"goal_delivery_assistant_v1", SELF_CHECK_EXECUTION_MODEL, bounded_model,
-                                          CONDO_FAQ_CANDIDATE_ACCEPTANCE_MODEL}:
+                                          CONDO_FAQ_CANDIDATE_ACCEPTANCE_MODEL, "professional_cms_source_selfcheck_v1"}:
             validate_goal_cms_policy(ROOT, target["task_id"], expected_action, target["scope"],
                                      target.get("execution_owner", ""), payload_sha256)
             operations = validate_goal_cms_decision(ROOT, decision, target, args.operation,
@@ -1857,6 +1899,9 @@ def _main(validation) -> None:
             evidence["physical_scope_carrier"] = scope_carrier(ROOT)
             evidence["business_scope"] = target["scope"]
             evidence["execution_scope"] = exact_execution_scope(ROOT, target)
+        if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
+            evidence.update(physical_scope_carrier=target['issuer_contract'],business_scope=target['scope'],
+                            execution_scope=exact_execution_scope(ROOT,target))
         if exact_reverse_binding is not None:
             evidence["exact_original_reverse_binding"] = exact_reverse_binding
         evidence_sha256 = hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -1918,6 +1963,13 @@ def _main(validation) -> None:
                           "permit_id_sha256": hashlib.sha256(request["permitId"].encode()).hexdigest(),
                           "evidence_sha256": evidence_sha256, "production_write": "pending-run-result"}))
 
+
+from professional_cms_issuer import targets as _professional_cms_targets
+PROFESSIONAL_CMS_TARGETS = {}
+if set(PROFESSIONAL_CMS_TARGETS)&set(TARGETS):
+    raise ValueError('Professional CMS target collides with existing identity')
+TARGETS.update(PROFESSIONAL_CMS_TARGETS)
+PARENT_RUN_TARGETS = frozenset()
 
 if __name__ == "__main__":
     try:

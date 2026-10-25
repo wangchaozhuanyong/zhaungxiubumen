@@ -1264,7 +1264,9 @@ def prepare_message(root, request):
         existing = _prepare_adoption_notice(root, request)
         if existing is not None:
             return {**existing, 'authorization_precheck':checked,'external_permission_issued':False}
-    if external_target:
+    registered_collaboration = any(a.get('action_id') == request['action_id']
+        and a.get('professional_execution_source') for a in ordinary_snapshot['goal_delivery'].get('approved_actions', []))
+    if external_target or registered_collaboration:
         from goal_delivery_runtime import restore_goal, approved_action
         snapshot=restore_goal(root,w.read_json(w.snapshot_path(root,request['task_id'])))
         action_keys=('task_id','sender_department','action_id','action_class','scope','source_project_id',
@@ -1381,6 +1383,9 @@ def actual_target_turn_status(root, live, inventory_row, binding):
     if any(page.get('thread',{}).get(k)!=binding.get(v) for k,v in
            {'id':'task_id','title':'title','cwd':'cwd'}.items()):
         raise w.WorkflowError('exact native notification target turn identity required')
+    native_status=page.get('thread',{}).get('status',{})
+    native_status=native_status.get('type') if isinstance(native_status,dict) else native_status
+    if status=='notLoaded' and native_status=='notLoaded':return 'notLoaded'
     turns=page.get('turns',[])
     if not turns:return 'unknown_target'
     turn=turns[0]
@@ -1633,12 +1638,23 @@ def collaboration_queue_source(root, snapshot, record):
     if len(calls)!=1:raise w.WorkflowError('one real original owner queue command required')
     turn,call=calls[0];parts=shlex.split(call.get('command',''))
     if len(parts)==3 and parts[:2]in (['/bin/zsh','-lc'],['zsh','-lc']):parts=shlex.split(parts[2])
-    allowed_environment={'PYTHONDONTWRITEBYTECODE=1', 'PYTHONPATH='+str(Path(root))+':'+str(Path(root)/'tools')}
-    while parts and parts[0] in allowed_environment:parts.pop(0)
+    if parts and parts[0] in {'env','/usr/bin/env'}:parts.pop(0)
+    allowed_environment={'PYTHONDONTWRITEBYTECODE=1', 'PYTHONPATH=.:tools',
+                         'PYTHONPATH='+str(Path(root))+':'+str(Path(root)/'tools')}
+    seen_environment=set()
+    while parts and parts[0] in allowed_environment:
+        key=parts[0].split('=',1)[0]
+        if key in seen_environment:raise w.WorkflowError('ambiguous duplicate queue environment')
+        seen_environment.add(key);parts.pop(0)
+    if parts and len(parts)>1 and parts[1]=='-B':parts.pop(1)
     # Parse only the documented CLI; environment values and command strings are never executed.
-    argv=['-B','tools/goal_source_recovery.py','queue-collaboration','--request',record['original_prepare_request']['path'],
+    argv=['tools/goal_source_recovery.py','queue-collaboration','--request',record['original_prepare_request']['path'],
           '--prepared',record['original_prepare_result']['path'],'--directory',qdir]
-    if (len(parts)!=10 or Path(parts[0]).name not in {'python3','python3.11','python3.12'} or parts[1:]!=argv
+    approved_python={Path(__import__('sys').executable).resolve(),Path('/usr/bin/python3').resolve(),
+                     (Path.home()/'.local/bin/python3.11').resolve()}
+    interpreter=parts[0] if parts else ''
+    if (len(parts)!=9 or Path(interpreter).name not in {'python3','python3.11','python3.12'}
+            or (('/' in interpreter) and Path(interpreter).resolve() not in approved_python) or parts[1:]!=argv
             or call.get('type')!='commandExecution' or not _selected_native_valid(call,statuses=('completed',))
             or call.get('exitCode')!=0 or type(call.get('exitCode'))is not int
             or not _selected_native_valid(turn,statuses=('inProgress','completed'))

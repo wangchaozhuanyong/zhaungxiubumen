@@ -850,7 +850,7 @@ def collaboration_route(root, snapshot, requested):
                     or len(targets) != 1 or len(sources) != 1
                     or any(targets[0].get(k) != v for k, v in {"projectId": binding["project_id"],
                            "title": binding["title"], "cwd": binding["cwd"]}.items())
-                    or target_state not in ({'idle', 'active'} if queue_mode else {'idle'})
+                    or target_state not in ({'idle', 'active', *({'notLoaded'} if action.get('professional_execution_source') else set())} if queue_mode else {'idle'})
                     or any(sources[0].get(k) != v for k, v in {"projectId": source.get("project_id"),
                            "title": source.get("title"), "cwd": source.get("cwd")}.items())
                     or live.get("target_sidebar_section_id") != requested.get("target_sidebar_section_id")
@@ -1376,6 +1376,9 @@ def _condo_faq_v7_post_candidate_preflight(root, task_id, input_path, action):
 def record_approved_action(root, task_id, input_path):
     """Freeze a precise routine decision, or owner action in an original declared collaboration scope."""
     action = w.read_json(w.safe_path(root, input_path))
+    if action.get("schema") == "professional-cms-issuer-contract/v1":
+        from professional_cms_issuer import record_contract
+        return record_contract(root, task_id, input_path)
     if action.get("schema") == "professional-cms-execution-source-registration/v1":
         from professional_cms_execution import record
         return record(root, task_id, input_path)

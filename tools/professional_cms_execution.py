@@ -162,7 +162,7 @@ def record(root, task, input_path):
     return {'result':'recorded','registration':pin,**context,'external_permission_issued':False,'production_READY':False}
 
 def match(root,snapshot,request):
-    found=[x for x in records(root,snapshot) if x['action']['action_id']==request.get('action_id')]
+    found=[x for x in records(root,snapshot) if request.get('action_id') in {x['action']['action_id'],'rollback-'+x['action']['candidate_version']}]
     if not found:return None
     import department_autonomy as a
     a.require(len(found)==1,'one exact registered execution source required');x=found[0];action=x['action']
@@ -170,7 +170,10 @@ def match(root,snapshot,request):
               and request.get('sender_department',x['executor'])==x['executor']
               and request.get('action_class')=='cms_write' and request.get('scope') in {x['business_scope'],action['scope']}
               and request.get('authorization_changes',[])==[], 'registered exact task/executor/action/scope; no expansion')
-    return x
+    if request['action_id'] != action['action_id']:
+        return {**x,'operation':'rollback','action':{**action,'action_id':request['action_id'],
+                    'candidate_version':action['candidate_version']+'-rollback-v1'},'before':x['desired'],'desired':x['before']}
+    return {**x,'operation':'publish'}
 
 def collaboration_scopes(root,snapshot):
     result=list(snapshot.get('goal_delivery',{}).get('collaboration_scopes',[]))
@@ -207,7 +210,7 @@ def _request(root,snapshot,pin):
     action=x['action'];fields=action['changed_fields']
     a.require(req.get('professional_execution_source')==x['registration']
               and req.get('source_project_id')==a.PROJECT
-              and req.get('operation')=='field_patch' and req.get('object_ids')==[action['record_id']]
+              and req.get('operation')==('field_patch_rollback'if x['operation']=='rollback'else'field_patch') and req.get('object_ids')==[action['record_id']]
               and req.get('table')==action['table'] and req.get('slug')==action['slug']
               and req.get('business_scope')==x['business_scope'] and req.get('physical_scope')==action['scope']
               and req.get('changed_fields')==fields and req.get('desired')==x['desired'],
@@ -237,7 +240,7 @@ def _request(root,snapshot,pin):
     actions=[v for v in snapshot['goal_delivery'].get('approved_actions',[])if v.get('target_department')==x['executor']
              and v.get('professional_execution_source')==x['registration']]
     received={s.get('action_id')for s in g._collaboration_wait_states(root,snapshot)
-              if s.get('status') in {'message_received','result_received'} and s.get('proof_state')=='PROVEN'}
+              if (s.get('status'),s.get('proof_state')) in {('message_received','RECEIVED'),('result_received','PROVEN')}}
     a.require(any(v['action_id']in received for v in actions), 'original PUB must actually receive this precise execution collaboration; old readonly receipt is insufficient')
     a.require(a.sensitive_state(root,snapshot,req)['state']=='within_original_authorization','sensitive expansion is not this source')
     return {**x,'request':req,'pin':pin,'authorization':snapshot['goal_delivery']['authorization_pin'],
