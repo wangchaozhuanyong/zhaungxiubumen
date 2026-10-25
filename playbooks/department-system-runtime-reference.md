@@ -16,6 +16,8 @@
 
 闭目标的完整最终结果仍由原owner使用原冻结输入执行`python3 tools/flashcast_ops.py result-handoff-record --input <同一final request>`。先读原identity/幂等键的实际效果；已有记录不重收，未写才唯一登记。此路径须真实原生READY、原完整scope/成果SHA和全部正常完成证明，只有HQ知悉归档，不恢复业务执行或签发许可。
 
+已登记只读协作的原专业接收者归回原owner，可在原prepare-message输入附readonly_result_return的真实原动作、正常prepare/policy、原官方队列/成功命令、原生实收/非空ACK/完成结果及准确源pin。此分支不增加业务producer或写许可。原owner的真实原生消息已逐SHA读到同一结果时，返回already_read_by_original_owner，保留旧拒绝且不重复运输或代写正式实收；否则仍须正常唯一发送与效果读回。
+
 ## acceptance
 
 普通目标由专业owner自检与实际效果读回，无助理QA。历史qa_verdict仅按原冻结来源读取。

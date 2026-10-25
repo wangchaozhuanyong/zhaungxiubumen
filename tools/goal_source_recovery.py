@@ -1204,6 +1204,12 @@ def prepare_message(root, request):
     from qa_review_plan import original_result_continuation_intent
     from department_autonomy import message_route
     autonomous_route=message_route(root,restore_goal(root,w.read_json(w.snapshot_path(root,request['task_id']))),request)
+    if autonomous_route and autonomous_route.get('readonly_collaboration_return') and autonomous_route.get('actual_owner_knowledge_proven'):
+        return {'status':'already_read_by_original_owner','authorization_precheck':checked,
+                'readonly_result_source':autonomous_route,'message_sent':False,'queue_accepted':False,
+                'formal_result_received_proven':False,'repeat_transport_required':False,
+                'next_action':'original owner continues with the already read immutable source; no duplicate intake or readonly request',
+                'external_permission_issued':False}
     ordinary_snapshot = restore_goal(root, w.read_json(w.snapshot_path(root, request['task_id'])))
     ordinary_continuation = None if autonomous_route else original_result_continuation_intent(root, ordinary_snapshot, request)
     native_queue = request.get('delivery_mode') == 'official_native_queue'

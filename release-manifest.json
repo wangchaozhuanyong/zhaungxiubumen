@@ -701,9 +701,9 @@
     },
     {
       "path": "playbooks/department-system-runtime-reference.md",
-      "source_sha256": "95b711107fa3a971ded7357cb9400a7868f921525b77fe68177636a1e76dffed",
-      "release_sha256": "95b711107fa3a971ded7357cb9400a7868f921525b77fe68177636a1e76dffed",
-      "bytes": 4708
+      "source_sha256": "b448334c85b3ea5f779a18fb5b663bbe6c8a330f988fd9a2cc9624d2d407a2ea",
+      "release_sha256": "b448334c85b3ea5f779a18fb5b663bbe6c8a330f988fd9a2cc9624d2d407a2ea",
+      "bytes": 5205
     },
     {
       "path": "playbooks/department-system-source-release.md",
@@ -1001,9 +1001,9 @@
     },
     {
       "path": "tools/department_autonomy.py",
-      "source_sha256": "733c28b848b1d0ca671eaa343adbee97049a1e4149d135e3c547655c977c2b6c",
-      "release_sha256": "187ce740d41967007de872686637876314accf158b59fdb61c986b8abf3abf53",
-      "bytes": 130908
+      "source_sha256": "bf42fa57a3798c0b9d58f72c046f45dfd255ea4af0e73a3277bbe828150329bd",
+      "release_sha256": "6050660ae33bcdbba491c403171b8ff1fc822360dbcb7b6d5b8e137abdb311e5",
+      "bytes": 139955
     },
     {
       "path": "tools/department_event_dispatcher.py",
@@ -1067,15 +1067,15 @@
     },
     {
       "path": "tools/goal_delivery_runtime.py",
-      "source_sha256": "1f0552e4c78698a288bf1d7d9d94ff5063cf4023b75a8ef9608e4e9abc82883a",
-      "release_sha256": "049cd8d0f284070796214fccd9a94674eb7f6d7989693a479a457b5047955fd9",
-      "bytes": 192818
+      "source_sha256": "22e22090e3b8e5a9aa3c1d9365325c6896d30555a2629799883533b4d0b8c29a",
+      "release_sha256": "168f91c19e306ed76bf037147ae0af099ce281c3227e400869073cb28b27ddfc",
+      "bytes": 192969
     },
     {
       "path": "tools/goal_source_recovery.py",
-      "source_sha256": "d06f5b63795c51893573aa22b5197b320cafed932bbe0ac47314a128830c83ce",
-      "release_sha256": "0f6e72c5f268548813aa4b1a7bf46dd64edfa27745cc2384f5597ff26e41141d",
-      "bytes": 130226
+      "source_sha256": "2bf41f82478b8e465132f8e93d67d9fbdd5373d0777017895bc9e573d8d42587",
+      "release_sha256": "81ea145bb4128fcedbf7912af7e49f7f6b714b1385b93fc02d9031a531b49f1a",
+      "bytes": 130841
     },
     {
       "path": "tools/managed_cms_permit_issuer.py",
@@ -1739,5 +1739,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "e04a18204acfb18663b5c5e76187df4f21e771cd665c2af07d1c516861ba9479"
+  "fingerprint": "0f04793f27004371b0f4d7a00b2c2686cada13af008f3030b37e0cdd832da86e"
 }

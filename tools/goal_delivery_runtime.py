@@ -282,10 +282,11 @@ def authorization_precheck(root, task_id, request):
     from brand_v4_issuer_executor import action_context as brand_action_context
     brand_executor = (brand_action_context(root, snapshot, request.get('action_id'), request.get('action_class'),
                       request.get('scope'), sender) if request.get('action_class') in w.EXTERNAL_ACTION_CLASSES else None)
-    if sender not in {"operations", goal.get("responsible_assistant"), *producers} and not brand_executor:
+    from department_autonomy import message_route, readonly_result_return_route
+    readonly_return = readonly_result_return_route(root,snapshot,request)
+    if sender not in {"operations", goal.get("responsible_assistant"), *producers} and not brand_executor and readonly_return is None:
         raise w.WorkflowError("original goal participant required; no authority delegation by metadata")
-    from department_autonomy import message_route
-    autonomous_route=message_route(root,snapshot,request)
+    autonomous_route=readonly_return or message_route(root,snapshot,request)
     if autonomous_route is not None:
         if changes:
             return outcome('authorization_change_required',changes,confirmation=True)

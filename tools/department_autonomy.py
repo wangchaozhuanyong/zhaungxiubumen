@@ -268,6 +268,93 @@ def runtime_health_route(root,snapshot,request,packet,payload):
  return route
 
 
+def readonly_result_return_route(root,snapshot,request):
+ """Authenticate a return of the original readonly collaboration, never a producer."""
+ source=request.get('readonly_result_return')
+ if source is None:return None
+ import re
+ import goal_delivery_runtime as g
+ require(isinstance(source,dict)and current_mode(root)and autonomous_goal(snapshot.get('goal_delivery'))
+  and snapshot.get('current_state')not in w.TERMINAL_STATES and request.get('action_class')=='thread_message'
+  and request.get('assignment_record_required')is False and not request.get('authorization_changes')
+  and not any(request.get(k)for k in ('execution_request','approval_id','consume_approval')),
+  'only an original open readonly collaboration result may return; no execution or delegated authority')
+ goal=snapshot['goal_delivery'];owner=goal['primary_owner'];sender=request.get('sender_department')
+ require(sender!=owner and professional(root,sender)and request.get('target_department')==owner
+  and request.get('task_id')==snapshot['task_id']and request.get('scope')in goal['authorized_scope'],
+  'exact original professional collaborator, owner and task/scope required')
+ actions=[a for a in goal.get('approved_actions',[])if a.get('action_id')==source.get('original_action_id')
+  and a.get('sender_department')==owner and a.get('target_department')==sender and a.get('scope')==request['scope']]
+ require(len(actions)==1,'one actual registered original readonly invitation required');action=actions[0]
+ require(_registered_professional_readonly_route(root,snapshot,action)is not None,'normal original readonly source registration required')
+ registry=w.department_registry(root);fixed=registry[sender]['chat_binding'];dest=registry[owner]['chat_binding']
+ require(all(b.get('project_id')==PROJECT and Path(b.get('cwd','')).resolve()==Path(root).resolve()for b in (fixed,dest))
+  and request.get('source_project_id')==request.get('target_project_id')==PROJECT
+  and all(request.get(k)==dest.get(v)for k,v in {'target_thread_id':'task_id','target_thread_title':'title','target_cwd':'cwd','target_sidebar_section_id':'sidebar_section_id'}.items()),
+  'same original project and frozen original result receiver required')
+ old=document(root,source.get('original_prepare_request'));prepared=document(root,source.get('original_prepare_result'))
+ keys=('task_id','scope','action_id','action_class','sender_department','target_department','payload','payload_sha256','target_thread_id')
+ require(all(old.get(k)==action.get(k)for k in keys)and old.get('delivery_mode')=='official_native_queue'
+  and prepared.get('status')=='ready_to_queue'and prepared.get('payload')==action['payload'],'exact original prepared readonly request required')
+ policy=prepared.get('policy_decision',{});actual=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('decision_id')==policy.get('decision_id')]
+ require(len(actual)==1 and actual[0]==policy and policy.get('status')=='allow'
+  and all(policy.get(k)==old.get(k)for k in keys if k not in {'payload','sender_department'})and policy.get('department')==owner
+  and policy.get('external_permission_issued')is False,'real original normal readonly policy, not caller metadata')
+ from goal_source_recovery import _strict_queue_document
+ intent=_strict_queue_document(root,source.get('queue_intent'));effect=_strict_queue_document(root,source.get('queue_result'))
+ match=re.fullmatch(r'Queued message ([0-9a-f-]{36}) for thread ([0-9a-f-]{36})\.\s*',effect.get('stdout',''))
+ require(effect.get('exit_code')==0 and match and match[2]==fixed['task_id']
+  and all(intent.get(k)==effect.get(k)==v for k,v in {'thread_id':fixed['task_id'],'payload_sha256':action['payload_sha256'],'policy_decision_id':policy['decision_id'],'transport':'official_codex_queue'}.items()),
+  'one actual original successful readonly queue effect required')
+ invocation=g._native_document(root,source.get('actual_queue_invocation'))
+ require(all(invocation.get('thread',{}).get(k)==dest[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()),'real original owner queue caller required')
+ if set(invocation)=={'thread','turn','actual_command'}:
+  turn,command=invocation['turn'],invocation['actual_command']
+ else:
+  pairs=[(t,m)for t in invocation.get('turns',[])for m in t.get('items',[])if m.get('id')==source.get('queue_command_id')]
+  require(len(pairs)==1,'one original readonly queue command required');turn,command=pairs[0]
+ require(not turn.get('error')and command.get('id')==source.get('queue_command_id')and command.get('type')=='commandExecution'
+  and command.get('status')=='completed'and command.get('exitCode')==0 and Path(command.get('cwd','')).resolve()==Path(root).resolve(),
+  'successful actual same-project readonly queue invocation required')
+ output=json.loads(w._source_continuation_execution_output(command))
+ require(output.get('state')=='accepted'and output.get('message_id')==match[1]and output.get('target_thread_id')==fixed['task_id']
+  and output.get('payload_sha256')==action['payload_sha256']and output.get('policy')==policy['decision_id'],
+  'actual original command output must bind the same queue/policy/payload; never execute supplied commands')
+ page=g._native_document(root,source.get('actual_completed_result'))
+ require(all(page.get('thread',{}).get(k)==fixed[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()),'actual original readonly executor source required')
+ turns=[t for t in page.get('turns',[])if t.get('id')==source.get('source_turn_id')]
+ require(len(turns)==1 and turns[0].get('status')=='completed'and not turns[0].get('error'),'actual successfully completed collaborator turn required')
+ turn=turns[0];items=turn.get('items',[]);body=(Path(root)/action['payload']['path']).read_text()
+ users=[(i,m)for i,m in enumerate(items)if m.get('type')=='userMessage'and m.get('content')==[{'type':'text','text':body}]]
+ finals=[(i,m)for i,m in enumerate(items)if m.get('id')==source.get('source_message_id')and m.get('type')=='agentMessage'and m.get('phase')=='final_answer']
+ at=w._parse_observed_at(effect.get('finished_at'))
+ require(len(users)==len(finals)==1 and users[0][0]<finals[0][0]and any(m.get('type')=='agentMessage'and m.get('text','').strip()for m in items[users[0][0]+1:finals[0][0]])
+  and at is not None and type(turn.get('startedAt'))in {int,float}and type(turn.get('completedAt'))in {int,float}
+  and at.timestamp()<=turn['startedAt']<=turn['completedAt']<=dt.datetime.now(dt.timezone.utc).timestamp(),
+  'actual exact invitation, nonempty ACK and ordered completed readonly result required')
+ pin=source.get('result');report=document(root,pin);payload=request.get('payload');require(w.file_digest(root,payload.get('path',''))==payload
+  and payload['sha256']==request.get('payload_sha256'),'exact return payload bytes required')
+ returned=(Path(root)/payload['path']).read_text()
+ require(all(re.search(r'(?m)^'+k+'='+re.escape(str(request[k]))+r'\s*$',returned)for k in ('task_id','scope','action_id','sender_department','target_department'))
+  and pin['path']in finals[0][1]['text']and pin['path']in returned and pin['sha256']in returned
+  and all(report.get(k)==v for k,v in {'task_id':snapshot['task_id'],'scope':request['scope'],'primary_owner':owner,'actual_executor':sender,'received_action_id':action['action_id']}.items())
+  and not any(report.get(k)for k in ('new_CMS_Save','new_preview','new_permit','new_policy_consumption','new_account_or_fee_or_deploy','business_parent_closed')),
+  'native readonly result and its exact return hash/task/scope/action required; no production effects')
+ knowledge=source.get('owner_knowledge');known=False
+ if knowledge is not None:
+  native=g._native_document(root,knowledge.get('native'))
+  require(all(native.get('thread',{}).get(k)==dest[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()),'real original result owner knowledge source required')
+  pairs=[(t,m)for t in native.get('turns',[])for m in t.get('items',[])if m.get('id')==knowledge.get('message_id')]
+  require(len(pairs)==1 and not pairs[0][0].get('error')and pairs[0][1].get('type')=='agentMessage'
+   and pin['sha256']in pairs[0][1].get('text','')and type(pairs[0][0].get('startedAt'))in {int,float}
+   and turn['completedAt']<=pairs[0][0]['startedAt']<=dt.datetime.now(dt.timezone.utc).timestamp(),'actual owner read of this exact source after completion required')
+  known=True
+ else:require(pin['sha256']in finals[0][1]['text'],'completed source must itself identify full result SHA when no actual owner knowledge exists')
+ return {**authority(root),'source':payload,'report':pin,'scope':request['scope'],'sender_department':sender,'target_department':owner,
+  'readonly_collaboration_return':True,'original_action_id':action['action_id'],'original_queue_message_id':match[1],
+  'actual_owner_knowledge_proven':known,'formal_result_received_proven':False,'business_producer_added':False,'external_permission_issued':False}
+
+
 def message_route(root,snapshot,request):
  if not isinstance(request,dict)or request.get('action_class')!='thread_message':return None
  # External collaborators retain the original complete-goal path. It checks
@@ -277,6 +364,8 @@ def message_route(root,snapshot,request):
  payload=request.get('payload')
  if not isinstance(payload,dict):return None
  require(w.file_digest(root,payload.get('path',''))==payload,'exact payload bytes required')
+ returned=readonly_result_return_route(root,snapshot,request)
+ if returned is not None:return returned
  readonly=_registered_professional_readonly_route(root,snapshot,request)
  if readonly is not None:return readonly
  text=(Path(root)/payload['path']).read_text()
