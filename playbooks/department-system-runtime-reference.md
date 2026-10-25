@@ -32,7 +32,7 @@
 
 ## finish
 
-dispatch-plan --goal；receipt-record实际派送/ACK；`python3 tools/goal_delivery_runtime.py completion-evidence-record`登记真实证明；`python3 tools/goal_delivery_runtime.py status --task-id <原task>`读回。证明schema为department-autonomous-actual-effect/v1。
+dispatch-plan --goal；receipt-record实际派送/ACK；`python3 tools/goal_delivery_runtime.py completion-evidence-record`登记真实证明；`python3 tools/goal_delivery_runtime.py status --task-id <原task>`读回。新自主合同证明schema为department-autonomous-actual-effect/v1。旧开放的内部交付合同若仅含accepted_delivery标准，原专业owner可沿同一completion-evidence-record逐项登记原完整成果、自检、真实固定聊天来源、协作result_received和HQ已提交SQL/native知悉证明；保持原标准与历史QA，不要求退役助理重新验收。此兼容不含生产、typed采用或公开父目标关闭，status只读回准确本地完成范围。
 
 ## daily
 

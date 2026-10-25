@@ -601,6 +601,110 @@ def completion(root,snapshot):
   'missing':missing,'blockers':blocked,'business_goal_closed':False,'closed_scope_only':not missing and not blocked,'HQ_technical_review_required':False}
 
 
+def migrated_local_completion(root, snapshot):
+ """Only open, pre-migration internal accepted-delivery standards change recorder.
+
+ Frozen criteria/authority and actual effects remain mandatory. Production,
+ typed adoptions, closed history and new autonomous contracts keep their readers.
+ """
+ goal=snapshot.get('goal_delivery',{})
+ return bool(not autonomous_goal(goal)and effective_mode(root,snapshot)
+  and professional(root,goal.get('primary_owner'))and goal.get('completion_kind')=='internal_delivery'
+  and not goal.get('required_execution_actions')and goal.get('completion_requirements')
+  and all(r.get('requirement_type')=='accepted_delivery'and r.get('subject',{}).get('producer_department')==goal.get('primary_owner')
+   for r in goal['completion_requirements']))
+
+def professional_local_effect(root,snapshot,requirement,proof_pin):
+ """Reuse authentic owner selfchecks and committed original result, not old QA."""
+ import result_coordination as rc
+ import goal_delivery_runtime as g
+ require(migrated_local_completion(root,snapshot),'open migrated internal accepted-delivery goal required')
+ goal=snapshot['goal_delivery'];role=goal['primary_owner'];proof=document(root,proof_pin)
+ require(all(proof.get(k)==v for k,v in {'task_id':snapshot['task_id'],'scope':requirement['scope'],
+  'department':role,'requirement_id':requirement['requirement_id'],'original_goal_contract':snapshot['goal_contract'],
+  'original_authority':goal.get('authorization_pin')}.items()),'exact original professional criterion/contract/authority required')
+ pin=proof.get('exact_original_owner_result');box=document(root,pin)
+ require(not any(proof.get(k)for k in ('public_business_parent_closed','new_production_permission_or_effect','authorization_changes','approval_id','execution_request')),
+  'local completion cannot add a parent claim, permission or external execution')
+ if 'actual_local_candidate'in proof:
+  require(isinstance(proof['actual_local_candidate'],str)and len(proof['actual_local_candidate'])in {40,64} and all(c in '0123456789abcdef'for c in proof['actual_local_candidate'])
+   and proof['actual_local_candidate']in json.dumps(box,ensure_ascii=False),'original complete local candidate must remain bound in native owner result')
+ identity={'task_id':snapshot['task_id'],'sender_department':role,'candidate_version':box.get('candidate_version'),'result_sha256':pin['sha256']}
+ rows=w._result_handoff_rows(root,snapshot['task_id']);queued=[r for r in rows if r.get('event')=='notification_queued'and r.get('sender_department')==role]
+ require(queued and queued[-1].get('outbox')==pin and queued[-1].get('scope')==requirement['scope'],
+  'latest exact original professional result and scope required; no superseded candidate')
+ source=queued[-1];require(_legacy_parent_owner_report(root,snapshot,identity,[source])=='operations','original frozen professional route required')
+ require(not w.validate_workflow_events(root,snapshot['task_id'])and not w._validate_receipt_chain(root,snapshot['task_id'])[1],
+  'intact original contract and receipt chains required')
+ frozen=document(root,snapshot['goal_contract'])
+ require(all(goal.get(k)==frozen.get(k)for k in ('objective','completion_criteria','completion_kind','completion_requirements','human_authorization','responsible_assistant'))
+  and all(box.get('goal_delivery',{}).get(k)==frozen.get(k)for k in ('objective','completion_criteria','primary_owner','producer_departments','authorized_scope','human_authorization')),
+  'all frozen local standards and source owner/scope must match; history is not rewritten')
+ require(box.get('department')==box.get('sender_department')==box.get('primary_owner')==role
+  and box.get('scope')==requirement['scope']and box.get('frozen_original_goal_contract')==snapshot['goal_contract']
+  and box.get('batch_complete')is True and box.get('status')in {'partial','completed'}
+  and not any(box.get(k)for k in ('business_parent_closed','production_write_allowed','external_permission_issued','approval_required','collaboration_return')),
+  'complete original internal-scope owner report only; parent/production effects are separate')
+ native=native_result(root,source,w.department_registry(root)[role]['chat_binding']['task_id'])
+ received=rc._received_delivery(root,identity,{'target_department':'operations'})
+ require(received and received.get('record_id')==proof.get('HQ_actual_received_record')and received.get('outbox')==pin,
+  'original exact SQL/native committed HQ knowledge required, not a supplied receipt label')
+ observed=w._parse_observed_at(proof.get('at_UTC'));intake=w._parse_observed_at(received.get('created_at'))
+ require(observed is not None and intake is not None and intake<=observed<=dt.datetime.now(dt.timezone.utc),
+  'actual original knowledge then professional completion observation required')
+ check_pin=proof.get('professional_existing_selfcheck');check=document(root,check_pin)
+ require(check_pin==box.get('professional_self_check')and check_pin in box.get('evidence',[])
+  and check.get('task_id')==snapshot['task_id']and check.get('scope')==requirement['scope']
+  and check.get('department',check.get('primary_owner'))==role
+  and not any(str(check.get(k,'')).upper()in {'FAIL','FAILED','BLOCKED','MISSING','ERROR'}for k in ('status','result')),
+  'unaltered native-bound professional selfcheck required; no new technical PASS is inferred')
+ for item in box.get('evidence',[]):document(root,item)if item['path'].endswith('.json')else require(w.file_digest(root,item['path'])==item,'source evidence bytes changed')
+ collaborations=g._collaboration_wait_states(root,snapshot)
+ require(all(x.get('proof_state')=='PROVEN'and x.get('status')=='result_received'for x in collaborations),
+  'every original collaboration must have real normal returned-result proof')
+ for value in proof.values():
+  if isinstance(value,dict)and {'path','sha256','size'}<=set(value):require(w.file_digest(root,value['path'])==value,'original completion evidence bytes changed')
+ return {'state':'PROVEN','evidence':[proof_pin,pin,check_pin,*box.get('evidence',[])],
+  'identity':identity,'source_turn_id':native['source_turn_id'],'source_fingerprint':w.sha256_value([snapshot['goal_contract'],pin,native,received['record_id']]),
+  'scope':requirement['scope'],'actual_received_record_id':received['record_id'],'next_owner':role,
+  'closed_scope_only':True,'business_goal_closed':False,'external_permission_issued':False,'assistant_approval_required':False}
+
+def record_professional_local_completion(root,task,input_path,role,rid):
+ import goal_delivery_runtime as g
+ pin=w.file_digest(root,input_path)
+ with w.workflow_lock(root):
+  snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)));goal=snapshot.get('goal_delivery',{})
+  require(migrated_local_completion(root,snapshot)and role==goal.get('primary_owner'),'original professional records its own local completion only')
+  requirements=requirement_rows(goal);matched=[r for r in requirements if r['requirement_id']==rid]
+  require(len(matched)==1,'one unchanged local criterion required')
+  effect=professional_local_effect(root,snapshot,matched[0],pin)
+  prior=[e['details']['professional_completion_evidence']for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)
+   if e.get('task_id')==task and e.get('details',{}).get('professional_completion_evidence',{}).get('requirement_id')==rid]
+  if prior:
+   require(len(prior)==1 and prior[0].get('proof')==pin and prior[0].get('recorder')==role,'existing actual completion cannot be replaced')
+   return {'result':'duplicate_ignored','proof':pin,'requirement_id':rid}
+  w.append_workflow_event(root,task,snapshot['current_state'],{'professional_completion_evidence':{
+   'requirement_id':rid,'recorder':role,'proof':pin,'goal_contract':snapshot['goal_contract'],'mode_authorization':OWNER}})
+ return {'result':'recorded','proof':pin,'requirement_id':rid,'actual_effect':effect,'contract_rewritten':False,'business_goal_closed':False}
+
+def professional_local_completion_view(root,snapshot):
+ results=[];events=w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)
+ for requirement in requirement_rows(snapshot['goal_delivery']):
+  rid=requirement['requirement_id'];matching=[e['details']['professional_completion_evidence']for e in events
+   if e.get('task_id')==snapshot['task_id']and e.get('details',{}).get('professional_completion_evidence',{}).get('requirement_id')==rid]
+  result={**requirement,'state':'MISSING','next_owner':requirement['producer_department']}
+  if matching:
+   try:
+    require(len(matching)==1 and matching[0].get('recorder')==requirement['producer_department']
+     and matching[0].get('goal_contract')==snapshot['goal_contract']and matching[0].get('mode_authorization')==OWNER,'one original professional completion registration required')
+    result.update(professional_local_effect(root,snapshot,requirement,matching[0]['proof']))
+   except (w.WorkflowError,ValueError,KeyError,OSError,TypeError)as error:result.update(state='BLOCKED',reason=str(error))
+  results.append(result)
+ missing=[x['requirement_id']for x in results if x['state']=='MISSING'];blocked=[x['requirement_id']for x in results if x['state']=='BLOCKED']
+ return {'contract_state':'declared','completion_kind':'internal_delivery','state':'BLOCKED'if blocked else'MISSING'if missing else'PROVEN',
+  'requirements':results,'missing':missing,'blockers':blocked,'business_goal_closed':False,'closed_scope_only':not missing and not blocked,'assistant_approval_required':False}
+
+
 def historical_professional_workflow_reviewer(root, snapshot):
  """Frozen history identity only; never qualifies a new reviewer or verdict."""
  goal=snapshot.get('goal_delivery',{})
@@ -1314,6 +1418,14 @@ def historical_registry_view(registry):
 
 
 def legacy_status(root,snapshot):
+ import goal_delivery_runtime as g
+ snapshot=g.restore_goal(root,snapshot)
+ if migrated_local_completion(root,snapshot):
+  proof=professional_local_completion_view(root,snapshot)
+  return {'task_id':snapshot['task_id'],'state':'completed_scope'if proof['state']=='PROVEN'else'executing',
+   'primary_owner':snapshot['goal_delivery']['primary_owner'],'native_workflow_state':snapshot['current_state'],
+   'completion_obligations':proof,'responsible_assistant':None,'historical_responsible_assistant':snapshot['goal_delivery'].get('responsible_assistant'),
+   'delivery_model':MODE,'business_goal_closed':False,'HQ_second_review_required':False}
  """Read frozen history without requiring a retired assistant to qualify anew.
 
  Stored QA remains a historical fact, never a new permission or a current

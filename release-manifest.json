@@ -701,9 +701,9 @@
     },
     {
       "path": "playbooks/department-system-runtime-reference.md",
-      "source_sha256": "b0f57f9507a27c20a05781ca1b4cc74ee9ec1bf712a30785c19cba348efff36f",
-      "release_sha256": "b0f57f9507a27c20a05781ca1b4cc74ee9ec1bf712a30785c19cba348efff36f",
-      "bytes": 4281
+      "source_sha256": "95b711107fa3a971ded7357cb9400a7868f921525b77fe68177636a1e76dffed",
+      "release_sha256": "95b711107fa3a971ded7357cb9400a7868f921525b77fe68177636a1e76dffed",
+      "bytes": 4708
     },
     {
       "path": "playbooks/department-system-source-release.md",
@@ -1001,9 +1001,9 @@
     },
     {
       "path": "tools/department_autonomy.py",
-      "source_sha256": "4ff73a2e813d841031c700bbb5d74be98f14fc424367f975a55ead404251fc8f",
-      "release_sha256": "07fc46075906933609550b20c3daadf7320137c164005ef52900f61eb6e99a88",
-      "bytes": 120791
+      "source_sha256": "733c28b848b1d0ca671eaa343adbee97049a1e4149d135e3c547655c977c2b6c",
+      "release_sha256": "187ce740d41967007de872686637876314accf158b59fdb61c986b8abf3abf53",
+      "bytes": 130908
     },
     {
       "path": "tools/department_event_dispatcher.py",
@@ -1067,9 +1067,9 @@
     },
     {
       "path": "tools/goal_delivery_runtime.py",
-      "source_sha256": "2f9f38020de0077321c56937b3cd8091eabf41c38d2a422a8a92da7e16a6ecc2",
-      "release_sha256": "1cad0360da39ba106afa9e7832c5b5bb2bcb01791aa15c55917a893160898494",
-      "bytes": 192326
+      "source_sha256": "1f0552e4c78698a288bf1d7d9d94ff5063cf4023b75a8ef9608e4e9abc82883a",
+      "release_sha256": "049cd8d0f284070796214fccd9a94674eb7f6d7989693a479a457b5047955fd9",
+      "bytes": 192818
     },
     {
       "path": "tools/goal_source_recovery.py",
@@ -1739,5 +1739,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "b4269ff9e338cf8efb983376f927dd2a19ffc24f3967fbe295560095375d1b33"
+  "fingerprint": "e04a18204acfb18663b5c5e76187df4f21e771cd665c2af07d1c516861ba9479"
 }

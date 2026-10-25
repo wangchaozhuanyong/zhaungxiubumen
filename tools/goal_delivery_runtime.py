@@ -1543,6 +1543,8 @@ def completion_obligations(root, snapshot, receipts=None, accepted=None):
     task_id = snapshot["task_id"]
     from department_autonomy import autonomous_goal,completion as autonomous_completion
     if autonomous_goal(snapshot.get('goal_delivery')):return autonomous_completion(root,snapshot)
+    from department_autonomy import migrated_local_completion,professional_local_completion_view
+    if migrated_local_completion(root,snapshot):return professional_local_completion_view(root,snapshot)
     from direct_system_repair import completion_view
     direct = completion_view(root, snapshot)
     if direct is not None:
@@ -1679,9 +1681,13 @@ def completion_proof_selector(requirement):
 
 def record_completion_evidence(root, task_id, input_path, role, requirement_id):
     """Append a verified new actual proof; the frozen standard remains unchanged."""
-    from department_autonomy import autonomous_goal,record_completion
-    if autonomous_goal(w.read_json(w.snapshot_path(root,task_id)).get('goal_delivery')):
+    from department_autonomy import (autonomous_goal,record_completion,migrated_local_completion,
+                                     record_professional_local_completion)
+    current = restore_goal(root, w.read_json(w.snapshot_path(root,task_id)))
+    if autonomous_goal(current.get('goal_delivery')):
         return record_completion(root,task_id,input_path,role,requirement_id)
+    if migrated_local_completion(root,current):
+        return record_professional_local_completion(root,task_id,input_path,role,requirement_id)
     task_id = w.validate_task_id(task_id)
     pin = w.file_digest(root, input_path)
     with w.workflow_lock(root):
