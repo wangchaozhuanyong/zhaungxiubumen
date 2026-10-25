@@ -2101,6 +2101,20 @@ def _committed_intake_actor(root, record):
         _INTAKE_ACTOR_MEMO[stamp] = actors
     token = (_key(exact_identity(record)), _sha([record['event'], record['idempotency_key']]), record['record_id'])
     actors = _INTAKE_ACTOR_MEMO[stamp].get(token, set())
+    from department_autonomy import OWNER
+    if not actors and record.get('event') == 'controller_received' and record.get('mode_authorization') == OWNER:
+        # Autonomous intakes have no legacy claim reservation/actor audit.
+        # The exact committed SQL/native effect and its real receiver message
+        # authenticate the actor; neither a caller label nor a receipt alone does.
+        _committed_result(root, record)
+        from goal_delivery_runtime import _native_document
+        page = _native_document(root, record.get('actual_receiver_native'))
+        role, owner = record.get('coordinator_role'), page.get('thread', {}).get('id')
+        supplied = record.get('coordinator_owner')
+        if (not role or not owner or role != record.get('target_department')
+                or (supplied is not None and (not isinstance(supplied, str) or supplied.split(':', 1)[0] != owner))):
+            _fail('actual autonomous committed receiver/owner differs')
+        return role, supplied or owner
     if len(actors) != 1:
         _fail('one original committed intake actor required')
     return next(iter(actors))

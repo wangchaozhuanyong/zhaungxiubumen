@@ -1241,9 +1241,9 @@
     },
     {
       "path": "tools/result_coordination.py",
-      "source_sha256": "a56b9f542e69c69dd2d63a57bc8b71a341821f177bdf7547a5aabfc3f4cfcb53",
-      "release_sha256": "7ec1b461fd1c12bc204b02b72bcc9c7caa32dde8d86364d266bb53cdea9bc2c6",
-      "bytes": 198494
+      "source_sha256": "9e85c198d1ce3fbcf0d958d6d811ee02b27db809ac6e601d5cada007761da931",
+      "release_sha256": "2169f55486a44c2bdeaf3eca8fd927eb9b39c9d2508d870302a9cf627e79a29e",
+      "bytes": 199505
     },
     {
       "path": "tools/result_handoff_key.py",
@@ -1727,5 +1727,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "e8e57ced11ac3576be5bdd004a88d71af3915f0fcc1862ecdebd0acb855785be"
+  "fingerprint": "39a43d0cea0cc3b751168f8ada60b4529bd32f33b50bc497fe6f17b98c4aba85"
 }
