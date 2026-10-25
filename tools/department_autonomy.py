@@ -703,6 +703,73 @@ def migrated_local_completion(root, snapshot):
   and all(r.get('requirement_type')=='accepted_delivery'and r.get('subject',{}).get('producer_department')==goal.get('primary_owner')
    for r in goal['completion_requirements']))
 
+def professional_local_business_source(root,snapshot,pin):
+ """Only authenticated completion archival can follow a still-current business source.
+
+ Later unknown or substantive results still supersede it. No receipt is deleted,
+ reordered, re-received or promoted to business authority by a caller label.
+ """
+ role=snapshot['goal_delivery']['primary_owner'];task=snapshot['task_id']
+ queued=[r for r in w._result_handoff_rows(root,task)if r.get('event')=='notification_queued'and r.get('sender_department')==role]
+ originals=[r for r in queued if r.get('outbox')==pin]
+ require(len(originals)==1,'one exact original professional result source required')
+ source=originals[0];base=document(root,pin);scope=base.get('scope');identity={
+  'task_id':task,'sender_department':role,'candidate_version':base.get('candidate_version'),'result_sha256':pin['sha256']}
+ later=queued[queued.index(source)+1:]
+ for row in later:
+  box=document(root,row.get('outbox'))
+  require(box.get('archive_only')is True and box.get('metadata_transport_only')is True,
+   'latest exact original professional result and scope required; no superseded candidate')
+  metadata={'candidate_version','reported_at_MYT','status','state','risk_level','current_execution_route','conclusion',
+   'primary_deliverable','deliveries','evidence','professional_self_check','next_actions','risks','handoff','chat_reply','effects','recheck'}
+  archival={'closed_scope_only','archive_only','metadata_transport_only','original_owner_result_identity',
+   'original_owner_result_HQ_received_record_id','completion_kind'}
+  require(set(box)==set(base)|archival and all(box[k]==base[k]for k in set(base)-metadata)
+   and row.get('task_id')==task and row.get('scope')==scope and row.get('target_department')=='operations'
+   and box.get('original_owner_result_identity')==identity and box.get('status')=='completed'
+   and box.get('state')=='completed_scope'and box.get('closed_scope_only')is True
+   and box.get('completion_kind')=='internal_delivery'and box.get('goal_delivery')==base.get('goal_delivery'),
+   'archive must retain every original business field/contract/owner/scope; unknown archive or new content is not exempt')
+  native_result(root,row,w.department_registry(root)[role]['chat_binding']['task_id'])
+  events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==task and e.get('details',{}).get('professional_completion_evidence')]
+  expected={r['requirement_id']for r in requirement_rows(snapshot['goal_delivery'])};details=[e['details']['professional_completion_evidence']for e in events]
+  evidence=box.get('evidence',[]);require(isinstance(evidence,list)and pin in evidence,'archive must embed the unchanged original business source pin')
+  require(len(events)==len(expected)and {d.get('requirement_id')for d in details}==expected,
+   'one real original completed proof per frozen criterion before archive required')
+  received=box.get('original_owner_result_HQ_received_record_id');observed=w._parse_observed_at(row.get('reply_observed_at'))
+  require(isinstance(received,str)and received and observed is not None and all(
+   w._parse_observed_at(e.get('created_at'))is not None and w._parse_observed_at(e['created_at'])<=observed for e in events),
+   'archive observation must follow every actual original completion event')
+  for d in details:
+   proof=document(root,d.get('proof'))
+   require(d.get('recorder')==role and d.get('goal_contract')==snapshot['goal_contract']and d.get('mode_authorization')==OWNER
+    and d['proof']in evidence and proof.get('exact_original_owner_result')==pin
+    and proof.get('requirement_id')==d['requirement_id']and proof.get('task_id')==task and proof.get('scope')==scope
+    and proof.get('department')==role and proof.get('original_goal_contract')==snapshot['goal_contract']
+    and proof.get('original_authority')==snapshot['goal_delivery']['authorization_pin']and proof.get('HQ_actual_received_record')==received
+    and ('exact_version_input'not in proof or proof['exact_version_input']in evidence),
+    'archive cannot replace the original criterion, proof, receipt or business version pin')
+  # The archive contains the actual hash-chained event readback and the prior
+  # normal completed view. Compare them to live facts, without recursively
+  # invoking this same effect reader through completion/status.
+  documents=[document(root,p)for p in evidence if p.get('path','').endswith('.json')]
+  audits=[x for x in documents if x.get('task_id')==task and x.get('scope')==scope and x.get('events')==events]
+  statuses=[x for x in documents if x.get('task_id')==task and x.get('state')=='completed_scope'and isinstance(x.get('completion_obligations'),dict)]
+  require(len(audits)==len(statuses)==1,'one exact original completion-event audit and normal completed status required')
+  requirements=statuses[0]['completion_obligations'].get('requirements',[])
+  require(statuses[0]['completion_obligations'].get('state')=='PROVEN'and statuses[0].get('business_goal_closed')is False
+   and len(requirements)==len(expected)and {r.get('requirement_id')for r in requirements}==expected
+   and all(r.get('state')=='PROVEN'and r.get('identity')==identity and r.get('scope')==scope
+    and r.get('actual_received_record_id')==received and pin in r.get('evidence',[])
+    and next(d['proof']for d in details if d['requirement_id']==r['requirement_id'])in r.get('evidence',[])for r in requirements),
+   'pure archive must preserve the actual completed view of the same business result, not manufacture a replacement PASS')
+  effects=box.get('effects',{})
+  require(isinstance(effects,dict)and effects.get('new_professional_completion_evidence_events')==len(events)
+   and all(type(v)is int and v==0 for k,v in effects.items()if k!='new_professional_completion_evidence_events'),
+   'only original completion-registration effects may be reported by this archive; new business changes supersede old proof')
+ return source
+
+
 def professional_local_effect(root,snapshot,requirement,proof_pin):
  """Reuse authentic owner selfchecks and committed original result, not old QA."""
  import result_coordination as rc
@@ -719,10 +786,9 @@ def professional_local_effect(root,snapshot,requirement,proof_pin):
   require(isinstance(proof['actual_local_candidate'],str)and len(proof['actual_local_candidate'])in {40,64} and all(c in '0123456789abcdef'for c in proof['actual_local_candidate'])
    and proof['actual_local_candidate']in json.dumps(box,ensure_ascii=False),'original complete local candidate must remain bound in native owner result')
  identity={'task_id':snapshot['task_id'],'sender_department':role,'candidate_version':box.get('candidate_version'),'result_sha256':pin['sha256']}
- rows=w._result_handoff_rows(root,snapshot['task_id']);queued=[r for r in rows if r.get('event')=='notification_queued'and r.get('sender_department')==role]
- require(queued and queued[-1].get('outbox')==pin and queued[-1].get('scope')==requirement['scope'],
-  'latest exact original professional result and scope required; no superseded candidate')
- source=queued[-1];require(_legacy_parent_owner_report(root,snapshot,identity,[source])=='operations','original frozen professional route required')
+ source=professional_local_business_source(root,snapshot,pin)
+ require(source.get('scope')==requirement['scope'],'exact original professional business scope required')
+ require(_legacy_parent_owner_report(root,snapshot,identity,[source])=='operations','original frozen professional route required')
  require(not w.validate_workflow_events(root,snapshot['task_id'])and not w._validate_receipt_chain(root,snapshot['task_id'])[1],
   'intact original contract and receipt chains required')
  frozen=document(root,snapshot['goal_contract'])
