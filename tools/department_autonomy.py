@@ -588,6 +588,10 @@ def sensitive_state(root,snapshot,request):
  return {'state':'within_original_authorization','actual_action_allowed':False,'owner':goal['primary_owner']}
 
 def action_authority(root,snapshot,requested):
+ if requested.get('action_class')=='cms_write':
+  from professional_cms_execution import execution_context
+  registered=execution_context(root,snapshot,requested)
+  if registered is not None:return registered
  from tools.shop_office_web_execution import applies as web_applies, preflight as web_preflight, AUTH as web_auth
  if web_applies(snapshot.get("task_id"),requested.get("action_class")):
   item,req,_=web_preflight(root,requested.get("action_id"),requested.get("action_class"),requested.get("scope"),requested.get("department"))
@@ -1153,6 +1157,9 @@ def autonomous_result_route(root,identity):
 def register_preflight(root,task,input_path):
  from tools.shop_office_web_execution import applies as web_applies, record_preflight as web_record
  incoming=w.read_json(w.safe_path(root,input_path))
+ if incoming.get('schema')=='professional-cms-fresh-preflight/v1':
+  from professional_cms_execution import record_preflight
+  return record_preflight(root,task,input_path)
  if web_applies(task,incoming.get("action_class")):return web_record(root,input_path)
  if task=='fc-20261025-shop-office-existing-six-and-five-implementation-release-v1'and incoming.get('action_class')=='cms_write':
   from tools.shop_office_six_field_execution import record_preflight as exact_cms_preflight

@@ -26,6 +26,10 @@
 
 原有权执行者即时鲜读、准确任务请求、自检、版本/CAS、备份/回滚、幂等和真实结果。敏感新增事项单独报HQ。
 
+冻结自主合同原执行动作为空、原专业owner已在真实完整成果中选定准确CMS差异时，用既有approved-action-record登记schema=professional-cms-execution-source-registration/v1。入口核原criterion/人类授权、原owner真实completed命令与READY、SQL/native已提交知悉、完整before/desired/carrier及准确PUB/WEB身份，仅追加professional_cms_execution_source事件，不修改冻结producer/动作/只读记录，不签发许可。读回：python3 tools/professional_cms_execution.py status --task-id <原task>。
+
+源内新增PUB/WEB协作消息仍由原owner正常approved-action-record及prepare-message办理；消息必须带professional_execution_source注册pin、原execution_tuple和准确payload，保留业务scope，物理CMS scope另映射。原PUB实际收到该精确协作后，fresh preflight使用schema=professional-cms-fresh-preflight/v1（request为完整当前请求pin）沿既有preflight-record进入；全行/CAS、真实查效、零写预演、自检/备份和自身新单次许可仍须满足。源登记不是远端target/CLI/runtime已加载，也不代替实际Save。
+
 ## recovery
 
 先核已发生效果和原幂等键；中断不伪造completed。保留原当前/暂停位置，普通恢复不换生产者。

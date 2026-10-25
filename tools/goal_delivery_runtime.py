@@ -276,6 +276,17 @@ def authorization_precheck(root, task_id, request):
                        for c in message.get("content", []) if isinstance(c, dict))):
         raise w.WorkflowError("unchanged original real human source required")
     result["original_authorization"] = pin
+    if request.get("action_class") == "cms_write":
+        from professional_cms_execution import match
+        registered = match(root, snapshot, request)
+        if registered is not None:
+            if changes:
+                return outcome("authorization_change_required", changes, confirmation=True)
+            return {**outcome("within_original_authorization", ["authenticated_append_only_professional_CMS_source"]),
+                    "source_registration": registered["registration"],
+                    "business_scope": registered["business_scope"],
+                    "physical_scope": registered["action"]["scope"],
+                    "platform_permission_still_required": True}
     registry = w.department_registry(root)
     sender = request["sender_department"]
     producers = goal.get("producer_departments", [])
@@ -319,7 +330,7 @@ def authorization_precheck(root, task_id, request):
         changes = changes + ["new_scope"]
     if request["action_class"] == "thread_message":
         target = request.get("target_department")
-        declarations = [x for x in goal.get("collaboration_scopes", [])
+        declarations = [x for x in execution_collaboration_scopes(root, snapshot)
                         if x.get("target_department") == target and x.get("scope") == request["scope"]
                         and x.get("sender_department") == goal["primary_owner"]
                         and sender in {goal['primary_owner'],goal.get('responsible_assistant')}]
@@ -735,10 +746,19 @@ def approved_action(root, snapshot, requested):
 
 
 def _readonly_coordination_action(root, snapshot, action, phase):
+    if action.get('professional_execution_source') is not None:
+        from professional_cms_execution import validate_message
+        validate_message(root, snapshot, action)
     if (snapshot.get("task_id") == "fc-20261021-brand-corrected-v4-site-production-stage-v1"
             and action.get("target_department") == "publishing"):
         from owner_nonpayment_coordination import validate_action
         validate_action(root, snapshot, action, phase=phase)
+
+
+def execution_collaboration_scopes(root, snapshot):
+    """Frozen declarations plus verified append-only execution-source collaboration."""
+    from professional_cms_execution import collaboration_scopes
+    return collaboration_scopes(root, snapshot)
 
 
 def _collaboration_binding(root, snapshot, role):
@@ -746,6 +766,13 @@ def _collaboration_binding(root, snapshot, role):
     if not binding and snapshot.get("task_id") == "fc-20261021-brand-corrected-v4-site-production-stage-v1" and role == "publishing":
         from owner_nonpayment_coordination import binding as readonly_binding
         binding = readonly_binding(root, snapshot, role)
+    if not binding:
+        appended = [d for d in execution_collaboration_scopes(root, snapshot)
+                    if d.get('target_department') == role
+                    and d not in snapshot['goal_delivery'].get('collaboration_scopes', [])]
+        fixed = w.department_registry(root).get(role, {}).get('chat_binding')
+        if appended and fixed:
+            binding = {**fixed, 'thread_id': fixed['task_id']}
     return binding
 
 
@@ -935,6 +962,12 @@ def execution_preflight(root, snapshot, action_id, action_class, scope, departme
     if not enabled(root, snapshot):
         return None
     goal = snapshot["goal_delivery"]
+    if action_class == "cms_write":
+        from professional_cms_execution import execution_context
+        context = execution_context(root, snapshot, {"task_id":snapshot["task_id"], "action_id":action_id,
+                    "action_class":action_class, "scope":scope, "department":department})
+        if context is not None:
+            return context["preflight"]
     from tools.shop_office_web_execution import applies as exact_WEB_applies, preflight as exact_WEB_preflight
     if exact_WEB_applies(snapshot.get("task_id"), action_class):
         return exact_WEB_preflight(root, action_id, action_class, scope, department)[0]
@@ -1343,6 +1376,9 @@ def _condo_faq_v7_post_candidate_preflight(root, task_id, input_path, action):
 def record_approved_action(root, task_id, input_path):
     """Freeze a precise routine decision, or owner action in an original declared collaboration scope."""
     action = w.read_json(w.safe_path(root, input_path))
+    if action.get("schema") == "professional-cms-execution-source-registration/v1":
+        from professional_cms_execution import record
+        return record(root, task_id, input_path)
     if action.get("schema") == "current-autonomous-readonly-coordination-action/v1":
         from department_autonomy import record_readonly_coordination
         return record_readonly_coordination(root, task_id, input_path)
@@ -1370,7 +1406,7 @@ def record_approved_action(root, task_id, input_path):
             validate_action(root, snapshot, action, phase="prepare")
         assistant = goal.get('responsible_assistant')
         authorized_senders = {goal['primary_owner']} | ({assistant} if assistant else set())
-        declarations = [d for d in goal.get('collaboration_scopes', []) if isinstance(d, dict)
+        declarations = [d for d in execution_collaboration_scopes(root, snapshot) if isinstance(d, dict)
                         and d.get('target_department') == action.get('target_department')
                         and d.get('scope') == action.get('scope')
                         and d.get('sender_department') == goal['primary_owner']
@@ -1380,6 +1416,10 @@ def record_approved_action(root, task_id, input_path):
         batch_authorized=(len(preauthorized)==1 and action.get('sender_department') in
                           authorized_senders)
         declared = len(declarations) == 1 or batch_authorized
+        original_declarations = snapshot['goal_delivery'].get('collaboration_scopes', [])
+        if len(declarations) == 1 and declarations[0] not in original_declarations:
+            from professional_cms_execution import validate_message
+            validate_message(root, snapshot, action)
         decisions = ([] if special else [row for row in w._result_handoff_rows(root, task_id)
                      if row.get("event") == "controller_decision" and row.get("record_id") == action.get("decision_record_id")])
         if not special and not declared and not parent_linked_initial and not responsibility_initial and (not assistant or len(decisions) != 1 or decisions[0].get("decision") not in {"rework", "continue", "accept"}

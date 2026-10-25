@@ -1233,7 +1233,8 @@ def prepare_message(root, request):
         if not isinstance(contract,dict) or w.file_digest(root,contract.get('path','')) != contract:
             raise w.WorkflowError('unchanged original external collaboration contract required')
         original=w.read_json(w.safe_path(root,contract['path']))
-        declared=[x for x in original.get('collaboration_scopes',[]) if all(
+        from goal_delivery_runtime import execution_collaboration_scopes
+        declared=[x for x in execution_collaboration_scopes(root,snapshot) if all(
             x.get(k)==request.get(k) for k in ('sender_department','target_department','scope'))]
         if (len(declared)!=1 or original.get('primary_owner')!=goal.get('primary_owner')
                 or request['sender_department']!=original.get('primary_owner')
@@ -1243,8 +1244,7 @@ def prepare_message(root, request):
     if binding is None:
         external=w.read_json(Path(root)/'data/department-registry.json').get('collaboration_bindings',{}).get(request['target_department'])
         if not external or request['target_department'] not in {
-                d.get('target_department') for d in w.read_json(w.snapshot_path(root,request['task_id']))
-                .get('goal_delivery',{}).get('collaboration_scopes',[])}:
+                d.get('target_department') for d in execution_collaboration_scopes(root,snapshot)}:
             raise w.WorkflowError('original explicitly declared collaboration target required')
         binding={**external,'task_id':external['thread_id']}
     if any(page.get('thread',{}).get(k) != binding.get(v) for k,v in
@@ -1509,7 +1509,8 @@ def collaboration_queue_binding(root, snapshot, action):
     expected={k:action.get(k)for k in keys}
     binding=_collaboration_binding(root,snapshot,action.get('target_department'))
     source=w.department_registry(root).get(action.get('sender_department'),{}).get('chat_binding',{})
-    declared=[d for d in contract.get('collaboration_scopes',[])if all(d.get(k)==action.get(k)
+    from goal_delivery_runtime import execution_collaboration_scopes
+    declared=[d for d in execution_collaboration_scopes(root,snapshot)if all(d.get(k)==action.get(k)
               for k in ('sender_department','target_department','scope'))]
     if (len(declared)!=1
             or contract.get('primary_owner')!=goal.get('primary_owner')
