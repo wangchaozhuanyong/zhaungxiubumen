@@ -1466,7 +1466,9 @@ def policy(root,requested):
  snapshot=w.read_json(w.snapshot_path(root,requested['task_id']))
  if not autonomous_goal(snapshot.get('goal_delivery')):
   from professional_ads_execution import match
-  if match(root,snapshot,requested)is None:return None
+  if match(root,snapshot,requested)is None:
+   from professional_cms_execution import match as registered_CMS
+   if requested.get('action_class')!='cms_write' or registered_CMS(root,snapshot,requested)is None:return None
  if requested['action_class']not in w.EXTERNAL_ACTION_CLASSES:return None
  require(not requested.get('approval_id')and not requested.get('target_project_id')and not requested.get('target_department'), 'ordinary exact task execution, not a borrowed permit or cross-project route')
  context=action_authority(root,snapshot,requested);role=context['department']

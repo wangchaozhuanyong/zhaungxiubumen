@@ -1260,6 +1260,9 @@ def pending(root, role):
 
 
 def record_preflight(root, task_id, input_path):
+    if w.read_json(w.safe_path(root,input_path)).get('schema')=='professional-cms-fresh-preflight/v1':
+        from professional_cms_execution import record_preflight as original_CMS_preflight
+        return original_CMS_preflight(root,task_id,input_path)
     if w.read_json(w.safe_path(root,input_path)).get("schema")=="professional-external-WEB-fresh-preflight/v1":
         from professional_web_execution import record_preflight as original_WEB_preflight
         return original_WEB_preflight(root,task_id,input_path)
