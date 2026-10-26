@@ -171,9 +171,9 @@
     },
     {
       "path": "departments/operations/SKILL.md",
-      "source_sha256": "c22a11927d0a82ae9092e57c92b3fa92761b9b834f37af6d29f22e1ccc47f055",
-      "release_sha256": "c22a11927d0a82ae9092e57c92b3fa92761b9b834f37af6d29f22e1ccc47f055",
-      "bytes": 804
+      "source_sha256": "25b17ec83c8b8d4dd95f7e2c84b9dc9940caa1dabdc0042e7269bdd4800ec979",
+      "release_sha256": "25b17ec83c8b8d4dd95f7e2c84b9dc9940caa1dabdc0042e7269bdd4800ec979",
+      "bytes": 815
     },
     {
       "path": "departments/operations/agents/openai.yaml",
@@ -689,9 +689,9 @@
     },
     {
       "path": "playbooks/department-system-current.md",
-      "source_sha256": "ef663db509187c75394023ca0960227da9474a5dfdcb93db6451cc50a259cfb7",
-      "release_sha256": "ef663db509187c75394023ca0960227da9474a5dfdcb93db6451cc50a259cfb7",
-      "bytes": 10955
+      "source_sha256": "3485fbca1d652bcba37b79498adff299cc4df12f6489a9c105155f3fbe0c1034",
+      "release_sha256": "3485fbca1d652bcba37b79498adff299cc4df12f6489a9c105155f3fbe0c1034",
+      "bytes": 11824
     },
     {
       "path": "playbooks/department-system-release-inventory.md",
@@ -1241,9 +1241,9 @@
     },
     {
       "path": "tools/professional_web_increment.py",
-      "source_sha256": "5c5c5d26e31161b8ca3fa46839a73a58317b88695b79d4b8d6dac7542d03e40a",
-      "release_sha256": "5c5c5d26e31161b8ca3fa46839a73a58317b88695b79d4b8d6dac7542d03e40a",
-      "bytes": 53107
+      "source_sha256": "29959234c9e4fef0fab50929b098d8bdccad6f4034c11d8e8dd0d21dc4af8f5b",
+      "release_sha256": "29959234c9e4fef0fab50929b098d8bdccad6f4034c11d8e8dd0d21dc4af8f5b",
+      "bytes": 76047
     },
     {
       "path": "tools/publisher_designated_successor_qa.py",
@@ -1781,5 +1781,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "de8486c05d55fc28fc5ac845a11a206f0a774678a76cca07f44c8ade7c5e8e97"
+  "fingerprint": "ed57a380a7870d306a85209349866e5b6a5f6781cc9b19f658a5be1d0b41d6c9"
 }
