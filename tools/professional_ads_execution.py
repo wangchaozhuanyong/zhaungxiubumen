@@ -14,6 +14,7 @@ import workflow_control as w
 SCHEMA = 'professional-ads-object-source-registration/v1'
 PREFLIGHT = 'professional-ads-object-preflight/v1'
 PLAN_SCHEMA = 'professional-ads-plan-object-source-registration/v2'
+SUPPLEMENT_SCHEMA = 'professional-ads-plan-supplement-source-registration/v3'
 OBJECT_PREFLIGHT = 'professional-ads-planned-object-preflight/v2'
 EVENT = 'professional_ads_object_source'
 IDENTITY = ('task_id', 'department', 'action_id', 'action_class', 'scope')
@@ -46,6 +47,8 @@ def native_identity(root, pin, role):
 
 
 def source(root, item):
+    if item.get('schema') == SUPPLEMENT_SCHEMA:
+        return supplement_source(root, item)
     if item.get('schema') == PLAN_SCHEMA:
         return plan_source(root, item)
     import department_autonomy as a
@@ -151,15 +154,15 @@ def match(root, snapshot, requested):
     events = [e for e in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS)
               if e.get('task_id') == snapshot.get('task_id') and e.get('details', {}).get(EVENT)]
     rows = [(e, doc(root, e['details'][EVENT])) for e in events]
-    exact_old = [(e,x) for e,x in rows if x.get('schema') != PLAN_SCHEMA and same(x,requested)]
+    exact_old = [(e,x) for e,x in rows if x.get('schema') not in {PLAN_SCHEMA,SUPPLEMENT_SCHEMA} and same(x,requested)]
     if exact_old:
         need(len(exact_old)==1,'one immutable original object source')
         event,item=exact_old[0]
         return {**source(root,item),'registration':event['details'][EVENT],'source_event_id':event['event_id']}
     selected = []
     for event, item in rows:
-        if item.get('schema') == PLAN_SCHEMA:
-            context = plan_source(root, item)
+        if item.get('schema') in {PLAN_SCHEMA,SUPPLEMENT_SCHEMA}:
+            context = source(root, item)
             specs = operation_specs(root, context)
             spec = specs.get(requested.get('action_id'))
             if spec and same(spec, requested):
@@ -403,6 +406,75 @@ def plan_source(root, item):
             'known_groups': {selected[0]['key']: result['new_group_id']}, 'next_ad': next_ad}
 
 
+def supplement_source(root, item):
+    """Authenticate a new professional supplement; keep every prior map/action intact."""
+    parent_item = doc(root, item['original_plan_source'])
+    need(parent_item.get('schema') == PLAN_SCHEMA, 'one original authenticated plan source')
+    base = plan_source(root, parent_item)
+    need(same(item,parent_item,('task_id','department','action_class','scope','source_project_id','original_goal_contract')),
+         'same original professional task/scope/project/contract')
+    events = [e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)
+              if e.get('task_id') == item['task_id'] and e.get('details',{}).get(EVENT) == item['original_plan_source']]
+    need(len(events) == 1 and events[0]['event_id'] == item.get('original_plan_source_event_id'), 'actual immutable parent source event')
+    plan = doc(root,item['supplement_plan']); original = base['plan']
+    need(same(plan,item,('task_id','department','action_class','scope','source_project_id'))
+         and plan.get('account_id') == original['account_id'] and plan.get('campaign_id') == original['campaign_id']
+         and plan.get('original_plan_unchanged') == base['coordination']['exact_professional_plan']
+         and plan.get('budget_shared_average_MYR_day') == base['budget_limit']
+         and all(plan.get(k) == original[k] for k in ('end_MYT','geo','bid','creative_enhancement'))
+         and item.get('action_id') == plan.get('action_id','')+'-object-sources-v3'
+         and plan.get('actual_action_allowed') is False, 'same paid bounds and original plan; source is never a permit')
+    page = native_identity(root,item['professional_native'],item['department'])
+    def human(message_id):
+        rows=[(t,m)for t in page.get('turns',[])for m in t.get('items',[])if m.get('id')==message_id]
+        need(len(rows)==1 and rows[0][1].get('type')=='userMessage','one real original human, not an assistant assertion')
+        turn,message=rows[0];text=''.join(c.get('text','')for c in message.get('content',[])if c.get('type')=='text')
+        need(text.strip() and type(turn.get('startedAt'))in {int,float} and turn['startedAt']<=dt.datetime.now(dt.timezone.utc).timestamp(),'actual human words/time')
+        return turn,message,text
+    ht,hm,words=human(item['actual_human_message_id']);st,sm,services=human(item['specific_service_human_message_id'])
+    declared=doc(root,plan['human_source'])
+    need(plan.get('human_message_id')==hm['id']and declared.get('message')==hm
+         and declared.get('turn',{}).get('id')==ht['id']and declared['turn'].get('status')==ht.get('status')
+         and all(declared.get('thread',{}).get(k)==page['thread'].get(k)for k in ('id','title','cwd'))
+         and st['startedAt']<=ht['startedAt'],'same frozen human observation; interrupted original is retained')
+    pairs=[(t,m)for t in page.get('turns',[])for m in t.get('items',[])if m.get('id')==item.get('professional_plan_command_id')]
+    need(len(pairs)==1,'one original professional plan production command')
+    turn,command=pairs[0]
+    need(turn.get('status')=='completed'and not turn.get('error')and turn.get('startedAt',0)>=ht['startedAt']
+         and any(m.get('type')=='agentMessage'and m.get('phase')=='final_answer'and m.get('text','').strip()for m in turn.get('items',[]))
+         and command.get('type')=='commandExecution'and command.get('status')=='completed'and command.get('exitCode')==0
+         and command.get('cwd')==str(Path(root).resolve()),'actual completed professional result after human source')
+    native=json.loads(w._completion_execution_output(command))
+    need(native.get('supplement')==item['supplement_plan'],'real untruncated command binds exact complete plan bytes')
+    rows=plan.get('items');terms=item.get('service_source_terms');assets=doc(root,item['asset_manifest'])
+    need(isinstance(rows,list)and rows and isinstance(terms,dict)and len(terms)==len(rows)
+         and set(terms)=={r.get('key')for r in rows}and len({r.get('group_name')for r in rows})==len(rows)
+         and not(set(terms)&{r['key']for r in original['items']})
+         and not({r.get('group_name')for r in rows}&{r['group_name']for r in original['items']}),'unique genuinely additional items, never overwrite or recreate original objects')
+    need(plan.get('additions')=={'new_groups':len(rows),'new_ads':len(rows),'context_hints':4*len(rows),'new_reference_images':len(rows)},'complete exact supplement counts')
+    landing=doc(root,plan['landing_readback']);original_host=urlsplit(original['items'][0]['url']).netloc
+    for row in rows:
+        term=terms[row['key']];image=row.get('image',{});url=urlsplit(row.get('url',''))
+        need(isinstance(term,str)and len(term)>=2 and term in services and term in row.get('service','')
+             and row.get('group_new')is True and row.get('actual_platform_id')is None
+             and isinstance(row.get('title'),str)and 0<len(row['title'])<=32
+             and isinstance(row.get('body'),str)and 0<len(row['body'])<=54
+             and isinstance(row.get('context_hints'),list)and len(row['context_hints'])==4
+             and all(isinstance(h,str)and h.strip()for h in row['context_hints'])
+             and url.scheme=='https'and url.netloc==original_host and not url.username and not url.password,
+             'actual requested service and finite original fields; no invented platform ID or substitute account/site')
+        if url.path.endswith('/quote'):
+            need(row['url'] in json.dumps(landing,ensure_ascii=False),'actual readback of the unchanged quote entry')
+        image_path=Path(image.get('local_path',''));need(image_path.resolve().is_relative_to(Path(root).resolve()),'same project image')
+        matches=[x for x in assets.get('assets',[])if x.get('key')==row['key']and x.get('path')==str(image_path.relative_to(root))]
+        need(len(matches)==1 and matches[0].get('sha256')==image.get('sha256')and matches[0].get('bytes')==image.get('size'), 'real exact asset provenance; no upload claim')
+    result={**base,'plan':plan,'source_item':item,'known_groups':{},'supplement_only':True,
+            'supplement_human_native':item['professional_native'],'unchanged_parent_source':item['original_plan_source']}
+    new_specs=operation_specs(root,result)
+    need(not(set(new_specs)&set(operation_specs(root,base))),'new actions cannot collide with original policy/attempt keys')
+    return result
+
+
 def operation_specs(root, context):
     """Derive only the unchanged approved map; never accept caller desire labels."""
     plan = context['plan']; fields = {k:plan[k] for k in ('task_id','department','action_class','scope','source_project_id')}
@@ -435,6 +507,8 @@ def operation_specs(root, context):
                            'Tracking parameters':item['tracking'],'Image':image},
                 'upload_key':image_keys[image['sha256']] if image else None}
         result[spec['action_id']] = spec
+    if context.get('supplement_only'):
+        return result
     spec = {**fields,'account_id':plan['account_id'],'parent_campaign_id':plan['campaign_id'],
             'object_key':'shared_budget','action_id':context['budget_request']['action_id'],
             'operation':'set_shared_daily_budget','desired':{'currency':'MYR','budget_kind':'average_daily',
@@ -547,8 +621,8 @@ def planned_preflight(root, item, context, *, fresh=True):
 
 
 def derive(root, registration, key, kind):
-    item=doc(root,registration);need(item.get('schema')==PLAN_SCHEMA,'one registered original plan source')
-    snapshot=w.read_json(w.snapshot_path(root,item['task_id']));context=plan_source(root,item)
+    item=doc(root,registration);need(item.get('schema')in {PLAN_SCHEMA,SUPPLEMENT_SCHEMA},'one registered original plan source')
+    snapshot=w.read_json(w.snapshot_path(root,item['task_id']));context=source(root,item)
     events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('details',{}).get(EVENT)==registration]
     need(len(events)==1,'actual plan source registration before deriving actions')
     names={'group':'create_ad_group_only','upload':'upload_reference_image','ad':'create_ad_only','budget':'set_shared_daily_budget'}
@@ -630,8 +704,8 @@ def record_effect(root, proof):
 
 
 def source_status(root, item, pin):
-    if item.get('schema')==PLAN_SCHEMA:
-        context=plan_source(root,item)
+    if item.get('schema')in {PLAN_SCHEMA,SUPPLEMENT_SCHEMA}:
+        context=source(root,item)
         events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('details',{}).get(EVENT)==pin]
         return {'state':'PLAN_SOURCE_REGISTERED_NOT_A_PERMIT'if len(events)==1 else'PLAN_SOURCE_NOT_REGISTERED',
                 'source_registration':pin,'planned_actions':[{'action_id':x['action_id'],'object_key':x['object_key'],'operation':x['operation']}for x in operation_specs(root,context).values()],
@@ -705,9 +779,9 @@ def main():
         out=w.policy_check(root,**q,payload_sha256=item['request']['sha256'],consume_approval=args.command=='issue')[0]
     elif args.command == 'source-check':
         c = source(root, item)
-        out = ({'state':'PLAN_SOURCE_VALID_NOT_A_PERMIT','plan':c['coordination']['exact_professional_plan'],
+        out = ({'state':'PLAN_SOURCE_VALID_NOT_A_PERMIT','plan':item['supplement_plan']if item.get('schema')==SUPPLEMENT_SCHEMA else c['coordination']['exact_professional_plan'],
                 'planned_actions':list(operation_specs(root,c)),'budget_limit':c['budget_limit'],'actual_action_allowed':False}
-               if item.get('schema')==PLAN_SCHEMA else
+               if item.get('schema')in {PLAN_SCHEMA,SUPPLEMENT_SCHEMA} else
                {'state': 'SOURCE_VALID_NOT_A_PERMIT', 'request': c['packet']['request'], 'actual_action_allowed': False})
     elif args.command == 'reserve':
         out = reserve(root, item, args.decision_id)

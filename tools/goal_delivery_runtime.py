@@ -1402,7 +1402,7 @@ def _condo_faq_v7_post_candidate_preflight(root, task_id, input_path, action):
 def record_approved_action(root, task_id, input_path):
     """Freeze a precise routine decision, or owner action in an original declared collaboration scope."""
     action = w.read_json(w.safe_path(root, input_path))
-    if action.get("schema") in {"professional-ads-object-source-registration/v1", "professional-ads-plan-object-source-registration/v2"}:
+    if action.get("schema") in {"professional-ads-object-source-registration/v1", "professional-ads-plan-object-source-registration/v2", "professional-ads-plan-supplement-source-registration/v3"}:
         from professional_ads_execution import record
         return record(root, task_id, input_path)[0]
     if action.get("schema") in {"professional-external-WEB-production-source/v1", "professional-external-WEB-owner-followon-source/v2"}:
