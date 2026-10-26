@@ -7973,12 +7973,18 @@ def _validate_scheduled_result(root: Path, request: dict[str, Any], outbox: dict
             or outbox.get("chat_reply", {}).get("in_current_fixed_department_chat") is not True):
         raise WorkflowError("daily intake requires the exact admitted automation, fixed completed turn and same-day V2 result")
     if not source.get("legacy_contract"):
-        receiver = source.get("responsible_assistant")
+        from department_autonomy import MODE, current_mode, professional
+        autonomous_daily = source.get("delivery_model") == MODE
+        if autonomous_daily and (not current_mode(root) or source.get("result_receiver") != "operations"
+                                 or not professional(root, request["sender_department"])):
+            raise WorkflowError("declared autonomous daily professional and HQ receiver required")
+        receiver = source.get("result_receiver") if autonomous_daily else source.get("responsible_assistant")
         authority = department_registry(root).get(receiver, {}).get("coordination_authority", {})
-        if authority.get("routine_decisions") is not True or outbox.get("handoff", {}).get("receiver") != receiver:
+        if ((not autonomous_daily and authority.get("routine_decisions") is not True)
+                or outbox.get("handoff", {}).get("receiver") != receiver):
             raise WorkflowError("daily result must target its unique current responsible assistant")
         capability = source.get("acceptance_capability")
-        if capability and capability not in authority.get("review_capabilities", []):
+        if not autonomous_daily and capability and capability not in authority.get("review_capabilities", []):
             raise WorkflowError("daily receiver lacks the exact source acceptance capability")
         if request.get('result_source_phase')=='delivery_ready':
             from goal_continuity import ready_source
@@ -7986,7 +7992,12 @@ def _validate_scheduled_result(root: Path, request: dict[str, Any], outbox: dict
             return {**source,'frozen_delivery_source':proof}
         from goal_delivery_runtime import _native_document, _collaboration_final_message
         completion = _native_document(root, request.get("actual_native_completion"))
-        message = _collaboration_final_message(completion, fixed_id)
+        if autonomous_daily:
+            turn, final = _completion_actual_final(root, completion, request["sender_department"],
+                turn_id=request.get("source_turn_id"), message_id=request.get("source_message_id"))
+            message = {**final, "turnId": turn["id"]}
+        else:
+            message = _collaboration_final_message(completion, fixed_id)
         reply_pin = request.get("visible_reply")
         if not isinstance(reply_pin, dict) or file_digest(root, reply_pin.get("path", "")) != reply_pin:
             raise WorkflowError("original frozen daily final reply pin required")

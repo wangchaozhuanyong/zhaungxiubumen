@@ -279,6 +279,14 @@ def authorization_precheck(root, task_id, request):
                        for c in message.get("content", []) if isinstance(c, dict))):
         raise w.WorkflowError("unchanged original real human source required")
     result["original_authorization"] = pin
+    if request.get("action_class") == "ads_write":
+        from professional_ads_execution import match
+        registered = match(root, snapshot, {**request, "department": request.get("department", request["sender_department"])})
+        if registered is not None:
+            if changes:
+                return outcome("authorization_change_required", changes, confirmation=True)
+            return {**outcome("within_original_authorization", ["authenticated_append_only_professional_Ads_object_source"]),
+                    "source_registration": registered["registration"], "platform_permission_still_required": True}
     if request.get("action_class") == "cms_write":
         from professional_cms_execution import match
         registered = match(root, snapshot, request)
@@ -965,6 +973,12 @@ def execution_preflight(root, snapshot, action_id, action_class, scope, departme
     if not enabled(root, snapshot):
         return None
     goal = snapshot["goal_delivery"]
+    if action_class == "ads_write":
+        from professional_ads_execution import execution_context
+        context = execution_context(root, snapshot, {"task_id": snapshot["task_id"], "action_id": action_id,
+                    "action_class": action_class, "scope": scope, "department": department})
+        if context is not None:
+            return context["preflight"]
     if action_class == "cms_write":
         from professional_cms_execution import execution_context
         context = execution_context(root, snapshot, {"task_id":snapshot["task_id"], "action_id":action_id,
@@ -1238,6 +1252,9 @@ def pending(root, role):
 
 
 def record_preflight(root, task_id, input_path):
+    if w.read_json(w.safe_path(root, input_path)).get('schema') == 'professional-ads-object-preflight/v1':
+        from professional_ads_execution import record_preflight as original_ads_preflight
+        return original_ads_preflight(root, task_id, input_path)[0]
     from department_autonomy import autonomous_goal,register_preflight
     if autonomous_goal(w.read_json(w.snapshot_path(root,task_id)).get('goal_delivery')):
         return register_preflight(root,task_id,input_path)
@@ -1382,6 +1399,9 @@ def _condo_faq_v7_post_candidate_preflight(root, task_id, input_path, action):
 def record_approved_action(root, task_id, input_path):
     """Freeze a precise routine decision, or owner action in an original declared collaboration scope."""
     action = w.read_json(w.safe_path(root, input_path))
+    if action.get("schema") == "professional-ads-object-source-registration/v1":
+        from professional_ads_execution import record
+        return record(root, task_id, input_path)[0]
     if action.get("schema") == "professional-external-WEB-production-source/v1":
         from professional_web_execution import record_source
         return record_source(root, task_id, input_path)

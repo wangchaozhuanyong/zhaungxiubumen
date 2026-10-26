@@ -94,3 +94,9 @@ professional 动态 `target | dry-run` 名称仅沿真实登记目标和 active 
 原`professional_web_execution.py request-base/build-preflight`保持入口；已登记元数据增量仅支持准确新head的push/PR/所需官方CI/merge，未生成的PR/main/run不预填，不重放CMS/preview/issuer/R3/Edge或手动Pages。WEB先鲜读状态，再由自己的真实原生自检绑定当前intent与原授权SHA；SYS不代签。源代码15项等未变证据按相同字节复用。实际merge自然触发的正常流程分别记实。
 
 同一原WEB已登记版本的CI触发路径后继沿同一`record`入口追加`professional-external-WEB-CI-path-successor/v1`，绑定原来源和已登记parent来源、原owner真实决定及WEB正常运输/completed结果。仅允许向原PR的`on.pull_request.paths`加入已采用源路径，去掉新增行后整个workflow必须与parent逐字节一致；旧target/test、jobs、Node22、permissions及严格检查保持。真实Git parent与累计integration base分别验证：state以`candidate_parent`提供前者，`candidate_base`及真实remote main提供后者，不能互相冒充。原branch、worktree、actor和既有PR身份保持；状态中的`pull_request`须有真实number/base_branch/head_branch/head_sha。push仅在原branch仍为parent或该准确head时接续；PR入口只读同一个已存在PR，不另造PR。所有必要官方CI须来自新head，旧head绿灯不得复用；没有当前WEB自检/备份/正常单次policy仍不能执行。
+
+## 专业逐对象执行源与声明日任务成果
+
+广告逐对象来源使用既有`goal_delivery_runtime.py approved-action-record`的`professional-ads-object-source-registration/v1`，准确关联原合同、原人类/协调源、已完成专业请求与有界逻辑对象；登记不签发许可。`professional-ads-object-preflight/v1`沿原`preflight-record`进入当次真实观察、自检和可见备份，再走正常`policy-check`与执行前一次占用。`professional_ads_execution.py source-check/status/reserve`只读本地来源或登记一次占用，不访问广告平台；当前消费者仅支持已准确计划的单个新广告组，不取得其他对象/账号/预算/启停/条款权限。原观察不改时，执行前才鲜读同一授权通道和实际支持字段；临时浏览器编号不作稳定身份，未提供的服务端CAS或新对象ID不编造。
+
+已在`task-contract.result_handoff_contract.scheduled_daily_sources`声明自主模式/专业来源/日期模式及`result_receiver=operations`的日任务，沿原V2/真实固定聊天READY或已完成final及正常结果交接入口运输和实收，不创建人工goal、派工ACK或助理批准。实收仍须准确原结果身份、完整证据SHA、真实HQ读取及SQL/native一致；声明日任务不产生业务发布或账户权限。已有goal或goal_contract的损坏快照不能冒作无goal日任务，历史旧模式继续原来源读取。

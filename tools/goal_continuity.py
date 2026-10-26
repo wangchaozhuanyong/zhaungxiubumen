@@ -608,11 +608,12 @@ def ready_source(root, request, fixed_id, *, scheduled=False, through_receipt_id
         source=w.scheduled_result_source(root,task,sender)
         if (not source or source.get('legacy_contract') or request.get('source_automation_id')!=source['automation_id']):
             raise w.WorkflowError('exact admitted current daily source required')
-        goal={'producer_departments':[sender],'responsible_assistant':source['responsible_assistant']}
+        allowed_senders={sender}
     else:
         snapshot=_task(root,task)
         goal=snapshot['goal_delivery']
-    if sender not in {*goal['producer_departments'],goal['responsible_assistant']}:
+        allowed_senders={*goal['producer_departments'],goal.get('responsible_assistant')}
+    if sender not in allowed_senders:
         raise w.WorkflowError('ready source outside original goal')
     page=native(root,request['actual_native_completion'])
     binding=w.department_registry(root)[sender]['chat_binding']

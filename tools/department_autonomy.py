@@ -588,6 +588,10 @@ def sensitive_state(root,snapshot,request):
  return {'state':'within_original_authorization','actual_action_allowed':False,'owner':goal['primary_owner']}
 
 def action_authority(root,snapshot,requested):
+ if requested.get('action_class')=='ads_write':
+  from professional_ads_execution import execution_context
+  registered=execution_context(root,snapshot,requested)
+  if registered is not None:return registered
  from professional_web_execution import applies as original_WEB,preflight as original_preflight
  if original_WEB(root,snapshot.get('task_id'),requested.get('action_class')):
   item,req,pin,ctx=original_preflight(root,snapshot['task_id'],requested['action_id'],requested['action_class'],requested['scope'],requested['department'])
@@ -1020,12 +1024,32 @@ def reconcile(root,snapshot):
  w.atomic_write_json(w.snapshot_path(root,task),snapshot)
  return snapshot,[w.snapshot_path(root,task),Path(root)/w.WORKFLOW_EVENTS]
 
+def scheduled_delivery_source(root,identity):
+ """A declared autonomous daily report is transport, never a synthetic goal."""
+ if w.snapshot_path(root,identity['task_id']).exists():return None
+ source=w.scheduled_result_source(root,identity['task_id'],identity['sender_department'])
+ if not source or source.get('delivery_model')!=MODE:return None
+ require(current_mode(root)and source.get('result_receiver')=='operations'
+  and professional(root,identity['sender_department']),'declared current professional daily source and HQ receiver required')
+ for role in (identity['sender_department'],'operations'):
+  binding=w.department_registry(root)[role]['chat_binding']
+  require(binding.get('project_id')==PROJECT and Path(binding.get('cwd','')).resolve()==Path(root).resolve(),
+   'same fixed daily professional/HQ project and directory required')
+ return source
+
 def native_result(root,request,fixed_id):
  import goal_delivery_runtime as g
  role=request['sender_department'];snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,request['task_id'])))
- require(role in snapshot['goal_delivery']['producer_departments']and role not in ASSISTANTS,'actual original professional result required')
- original_assignment_ready(root,snapshot,role)
- if autonomous_goal(snapshot['goal_delivery'])and 'scope'in request:require(request['scope']in snapshot['goal_delivery']['authorized_scope'],'exact original result scope required')
+ daily=scheduled_delivery_source(root,request)
+ if daily is None:
+  require(role in snapshot['goal_delivery']['producer_departments']and role not in ASSISTANTS,'actual original professional result required')
+  original_assignment_ready(root,snapshot,role)
+  if autonomous_goal(snapshot['goal_delivery'])and 'scope'in request:require(request['scope']in snapshot['goal_delivery']['authorized_scope'],'exact original result scope required')
+ else:
+  require(request.get('source_mode')=='scheduled_run'and request.get('source_automation_id')==daily['automation_id']
+   and request.get('coordinator_role','operations')=='operations'and request.get('action_class')in {None,'thread_message'}
+   and not any(request.get(k)for k in ('approval_id','consume_approval','execution_request','authorization_changes')),
+   'exact declared daily transport only; no execution or changed receiver')
  require(request.get('source_thread_id')==fixed_id,'exact actual result source thread')
  page=g._native_document(root,request.get('actual_native_completion'))
  fixed=w.department_registry(root)[role]['chat_binding']
@@ -1048,7 +1072,19 @@ def native_result(root,request,fixed_id):
  require(type(native_time)in {int,float}and native_time<=observed.timestamp(),'native source event must precede observation')
  w.validate_outbox(root,[pin],role,request['task_id']);box=document(root,pin)
  require(box.get('candidate_version')==request['candidate_version'],'exact candidate version required')
- return {'actual_native_completion':request['actual_native_completion'],'visible_reply':raw,'source_turn_id':turn['id'],
+ daily_proof={}
+ if daily is not None:
+  require(box.get('delivery_model')==MODE and box.get('fixed_chat_task_id')==fixed_id
+   and box.get('source_automation_id')==daily['automation_id']
+   and box.get('status')not in {None,'','active','in_progress','pending'},'same original declared daily V2 result identity and finite scope required')
+  require(isinstance(box.get('evidence'),list)and box['evidence']
+   and all(isinstance(p,dict)and w.file_digest(root,p.get('path',''))==p for p in box['evidence']),
+   'complete original daily result evidence pins required')
+  require(page.get('thread',{}).get('projectId',PROJECT)==PROJECT
+   and page.get('thread',{}).get('hostId',fixed.get('host_id'))==fixed.get('host_id'),
+   'actual daily native project/host must match the original fixed identity')
+  daily_proof=w._validate_scheduled_result(root,request,box,fixed_id).get('frozen_delivery_source',{})
+ return {**daily_proof,'actual_native_completion':request['actual_native_completion'],'visible_reply':raw,'source_turn_id':turn['id'],
   'source_message_id':message['id'],'source_reply_sha256':raw['sha256'],'result_source_phase':request.get('result_source_phase','completed_final'),
   'mode_authorization':OWNER,'assistant_approval_required':False}
 
@@ -1113,6 +1149,16 @@ def _autonomous_result_current_owner(root,snapshot,identity):
 
 def autonomous_result_route(root,identity):
  snapshot=w.read_json(w.snapshot_path(root,identity['task_id']))
+ daily=scheduled_delivery_source(root,identity)
+ if daily is not None:
+  queued=[r for r in w._result_handoff_rows(root,identity['task_id'])if r.get('event')=='notification_queued'
+   and all(r.get(k)==identity[k]for k in ('task_id','sender_department','candidate_version','result_sha256'))]
+  require(len(queued)<=1 and all(r.get('target_department')=='operations'and r.get('mode_authorization')==OWNER
+   and r.get('source_mode')=='scheduled_run'and r.get('source_automation_id')==daily['automation_id']for r in queued),
+   'one immutable declared daily receiver and original source required')
+  return {'lane':'HQ_knowledge','target_department':'operations','source_mode':MODE,'scheduled_report_only':True,
+   'acceptance_proven':False,'notification_proven':False,'HQ_second_review_required':False,
+   'automatic_wakeup_allowed':True,'knowledge_only':True}
  if not current_mode(root)or not snapshot.get('goal_delivery'):return None
  if identity['sender_department']in ASSISTANTS:return {'lane':'historical_read_only','target_department':None,'automatic_wakeup_allowed':False,'reason':'retired assistant history only'}
  if identity['sender_department']not in snapshot['goal_delivery']['producer_departments']:return None
@@ -1197,7 +1243,9 @@ def policy(root,requested):
  from tools.shop_office_web_execution import applies as web_applies, policy as web_policy
  if web_applies(requested.get("task_id"),requested.get("action_class")):return web_policy(root,requested)
  snapshot=w.read_json(w.snapshot_path(root,requested['task_id']))
- if not autonomous_goal(snapshot.get('goal_delivery')):return None
+ if not autonomous_goal(snapshot.get('goal_delivery')):
+  from professional_ads_execution import match
+  if match(root,snapshot,requested)is None:return None
  if requested['action_class']not in w.EXTERNAL_ACTION_CLASSES:return None
  require(not requested.get('approval_id')and not requested.get('target_project_id')and not requested.get('target_department'), 'ordinary exact task execution, not a borrowed permit or cross-project route')
  context=action_authority(root,snapshot,requested);role=context['department']
@@ -1438,6 +1486,8 @@ def knowledge_source(root,identity,require_transport=False):
 
 def autonomy_record_applies(root,request):
  snapshot=w.read_json(w.snapshot_path(root,request.get('task_id','')))
+ if (request.get('event')in {'notification_queued','controller_received'}
+  and scheduled_delivery_source(root,request)is not None):return True
  return bool(current_mode(root)and isinstance(snapshot.get('goal_delivery'),dict)
   and request.get('sender_department')in snapshot.get('goal_delivery',{}).get('producer_departments',[])
   and request.get('event')in {'notification_queued','controller_received'})
