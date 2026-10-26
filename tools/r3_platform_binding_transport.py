@@ -1,8 +1,9 @@
 """Original WEB's bounded R3 binding carrier. No token handling or environment review.
 
 GitHub variables have no conditional-write API. The original sole WEB executor is
-serialized locally, reads both effective levels twice, appends one binding without
-discarding entries, and verifies the complete result. This is NOT server CAS.
+serialized locally, reads both effective levels twice, preserves all live entries,
+records exact unrelated expired-row retirement in its existing audit intent,
+and verifies the complete result. This is NOT server CAS.
 Uncontrolled concurrent remote editors remain outside that local serialization.
 """
 from pathlib import Path
@@ -37,6 +38,37 @@ def validate_binding(b,now=None,current=True,own=False):
  if current:need(start<=now<end,'binding not currently valid; original issuer must not reuse/extend expired reference')
  need(b['payloadSha256']==digest({k:b[k]for k in FIELDS}),'original canonical platform digest')
  return b
+
+def existing_lifecycle(entries, current, now=None):
+ """Classify exact original rows, never waive current-request validity.
+
+ Only structurally authentic expired rows of another run in this same protected
+ repository may leave the executable allowlist. Their complete original fields and raw-value hash
+ remain in the existing carrier intent/readback journal, not a revived grant.
+ """
+ now=now or timestamp();need(isinstance(entries,list)and len(entries)<=20,'bounded original binding array')
+ kept=[];expired=[];seen_refs=set();seen_actions=set()
+ for b in entries:
+  validate_binding(b,now,current=False)
+  need(b['repository']==current['repository']and str(b['repositoryId'])==str(current['repositoryId'])
+   and b['environment']==current['environment'],'same original protected repository/environment for lifecycle')
+  action=(b['taskId'],b['actionId'],str(b['runId']))
+  need(b['approvalId']not in seen_refs and action not in seen_actions,'ambiguous original reference or run/action; preserve it')
+  seen_refs.add(b['approvalId']);seen_actions.add(action)
+  start=w._parse_observed_at(b['issuedAt']);end=w._parse_observed_at(b['expiresAt'])
+  need(start<=now,'future-issued binding is not expired history')
+  if end<=now:
+   need(str(b['runId'])!=str(current['runId'])and b['approvalId']!=current.get('approvalId')
+    and action!=(current.get('taskId'),current.get('actionId'),str(current['runId'])),
+    'expired current run/reference cannot be reused, replaced, extended or revived')
+   expired.append(b)
+  else:kept.append(b)
+ return kept,expired
+
+def lifecycle_summary(expired):
+ return [{'task_id':b['taskId'],'action_id':b['actionId'],'approval_id':b['approvalId'],
+   'run_id':str(b['runId']),'expires_at':b['expiresAt'],'original_payload_sha256':b['payloadSha256'],
+   'state':'HISTORICAL_EXPIRED_UNUSABLE'}for b in expired]
 
 def context(root,task,approval=None,effect=False):
  sources=web.records(root,task);need(len(sources)==1,'one real registered original external WEB source');ctx=sources[0]
@@ -136,14 +168,14 @@ def platform_facts(api,ctx,run_id,req=None,pending=True):
 def proposal(before,binding,now=None):
  validate_binding(binding,now,own=True)
  level='environment'if before['environment']['exists']or not before['repository']['exists']else'repository';row=before[level];entries=row['entries']
- for b in entries:validate_binding(b,now)
- exact=[b for b in entries if b['approvalId']==binding['approvalId']]
+ kept,expired=existing_lifecycle(entries,binding,now)
+ exact=[b for b in kept if b['approvalId']==binding['approvalId']]
  if exact:
   need(len(exact)==1 and exact[0]==binding,'same reference differs; never overwrite/refresh it')
-  return level,entries,True
- need(not any((b['taskId'],b['actionId'],str(b['runId']))==(binding['taskId'],binding['actionId'],str(binding['runId']))for b in entries),'conflicting original run/action binding, preserve existing entry')
- need(len(entries)<20,'existing guard capacity reached; no pruning other issuers')
- return level,[*entries,binding],False
+  return level,kept,not expired
+ need(not any((b['taskId'],b['actionId'],str(b['runId']))==(binding['taskId'],binding['actionId'],str(binding['runId']))for b in kept),'conflicting original run/action binding, preserve existing entry')
+ need(len(kept)<20,'existing live guard capacity reached; no pruning live issuers')
+ return level,[*kept,binding],False
 
 @contextlib.contextmanager
 def serialized(root,ctx):
@@ -158,13 +190,26 @@ def transfer(api,ctx,binding,directory):
  directory=Path(directory);attempt=directory/'attempt.json';before=levels(api,ctx);level,after,duplicate=proposal(before,binding)
  if duplicate:
   if attempt.exists():
-   original=w.read_json(directory/'intent.json');need(original['binding']==binding and original['target_level']==level
-    and all(b in before[level]['entries']for b in original['before'][level]['entries']),
-    'own echo exists but original other entries differ; unknown concurrent effect, no replay')
+   original=w.read_json(directory/'intent.json');at=w._parse_observed_at(original.get('at'))
+   need(at and at<=timestamp(),'real original lifecycle intent time required')
+   validate_binding(original['binding'],at,own=True)
+   _,retired_at_intent=existing_lifecycle(original['before'][level]['entries'],original['binding'],at)
+   need(original.get('retired_expired_bindings',[])==retired_at_intent,
+    'recorded retirement must prove exact expiry and unrelated original run, never caller flags')
+   need(original['binding']==binding and original['target_level']==level
+    and all(b in before[level]['entries']for b in original['before'][level]['entries']
+            if b not in original.get('retired_expired_bindings',[]))
+    and all(b not in before[level]['entries']for b in original.get('retired_expired_bindings',[])),
+    'own echo exists but protected original entries or explicit retirement differ; unknown concurrent effect, no replay')
   return {'state':'EXACT_BINDING_ALREADY_PRESENT','new_write':False,'approval_id':binding['approvalId'],'effective_level':level}
  if attempt.exists():return {'state':'UNKNOWN_PRIOR_WRITE_EFFECT_NO_RETRY','new_write':False,'approval_id':binding['approvalId'],'next':'read original variable/run/source; never reissue from missing echo'}
- again=levels(api,ctx);need(again==before,'fresh native variable bytes/timestamps changed; no write');validate_binding(binding,own=True)
- directory.mkdir(parents=True,exist_ok=True);intent={'binding':binding,'before':before,'target_level':level,'after_sha256':digest(after),'server_CAS_available':False,'local_serialization_only':True,'at':timestamp().isoformat()}
+ again=levels(api,ctx);need(again==before,'fresh native variable bytes/timestamps changed; no write')
+ plan_at=timestamp();fresh_level,fresh_after,fresh_duplicate=proposal(again,binding,plan_at)
+ need((fresh_level,fresh_after,fresh_duplicate)==(level,after,False),'binding lifecycle changed before write; fresh original read required')
+ _,retired=existing_lifecycle(before[level]['entries'],binding,plan_at)
+ directory.mkdir(parents=True,exist_ok=True);intent={'binding':binding,'before':before,'target_level':level,'after_sha256':digest(after),
+   'retired_expired_bindings':retired,'retirement_reason':'exact structurally verified unrelated expired run only; never reusable',
+   'server_CAS_available':False,'local_serialization_only':True,'at':plan_at.isoformat()}
  if (directory/'intent.json').exists():
   old=w.read_json(directory/'intent.json');need(all(old[k]==intent[k]for k in ('binding','before','target_level','after_sha256')),'unattempted original intent drifted; preserve it')
  else:w.atomic_write_json(directory/'intent.json',intent)
@@ -176,7 +221,7 @@ def transfer(api,ctx,binding,directory):
   need(effective==level and actual[level]['entries']==after,'write readback differs/unknown; no restore, overwrite or retry')
   other='repository'if level=='environment'else'environment';need(actual[other]==before[other],'other variable level changed; preserve unknown concurrent effect')
   proposal(actual,binding)
-  result={'state':'TRANSPORTED_AND_READ_BACK','approval_id':binding['approvalId'],'new_write':True,'effective_level':level,'preserved_other_entries':len(after)-1,'server_CAS_available':False,'external_edit_race_not_atomic':True,'environment_review_performed':False}
+  result={'state':'TRANSPORTED_AND_READ_BACK','approval_id':binding['approvalId'],'new_write':True,'effective_level':level,'preserved_other_entries':len(after)-1,'retired_expired_binding_count':len(retired),'retired_expired_bindings':lifecycle_summary(retired),'original_retired_rows_and_raw_value_hash_retained_in_intent':True,'server_CAS_available':False,'external_edit_race_not_atomic':True,'environment_review_performed':False}
  except (GitHubError,w.WorkflowError,OSError)as e:
   result={'state':'UNKNOWN_WRITE_EFFECT_NO_RETRY','approval_id':binding['approvalId'],'new_write':'UNKNOWN','error_class':type(e).__name__,'safe_error':str(e)if isinstance(e,GitHubError)else'original guard/readback or local evidence error; inspect original state','next':'status original key first; never resend or reset attempt'}
  w.append_jsonl_locked(directory/'readback.jsonl',{**result,'at':timestamp().isoformat()});return result
@@ -184,9 +229,13 @@ def transfer(api,ctx,binding,directory):
 def inspect(root,task,run_id):
  ctx,_,_=context(root,task);api=GitHub(ctx);facts=platform_facts(api,ctx,run_id);before=levels(api,ctx)
  active=before['environment']if before['environment']['exists']else before['repository']
- for b in active['entries']:validate_binding(b)
- need(len(active['entries'])<20,'original variable capacity; no short token until capacity is real')
- return {'state':'READONLY_CHANNEL_AND_REVIEW_PRECONDITIONS_VERIFIED','facts':facts,'effective_binding_count':len(active['entries']),'variable_exists':active['exists'],'write_permission_not_probed':True,'approval_issued':False,'next':'only original WEB now refreshes facts/normal preflight and issues one short reference, then install; SYS never performs platform mutation','server_CAS_available':False}
+ kept,expired=existing_lifecycle(active['entries'],{'taskId':task,'repository':ctx['repository'],
+   'repositoryId':ctx['repository_id'],'environment':ENV,'runId':str(run_id)})
+ need(len(kept)<20,'original live variable capacity; no short token until capacity is real')
+ return {'state':'READONLY_CHANNEL_AND_REVIEW_PRECONDITIONS_VERIFIED','facts':facts,'effective_binding_count':len(active['entries']),
+   'currently_valid_other_bindings':len(kept),'historical_expired_bindings':lifecycle_summary(expired),
+   'normal_install_retirement_plan_count':len(expired),'retirement_performed':False,'variable_exists':active['exists'],
+   'write_permission_not_probed':True,'approval_issued':False,'next':'only original WEB refreshes actual same-run facts/normal preflight and issues its own short reference; normal install preserves live entries and records exact unrelated expired-row retirement in its original intent. No raw variable edit, new run, extension or SYS platform mutation.','server_CAS_available':False}
 
 def install(root,task,approval):
  ctx,row,req=context(root,task,approval,effect=True);binding=row['platform_binding']
@@ -212,7 +261,7 @@ def describe(root,task):
   'commands':['inspect --task-id ORIGINAL --run-id ACTUAL_EXISTING_PENDING_RUN','install --task-id ORIGINAL --approval-id ACTUAL_NORMALLY_ISSUED_REFERENCE','status --task-id ORIGINAL --approval-id SAME_ORIGINAL_REFERENCE'],
   'issuer':'unchanged normal preflight/approval-record; expected apr is not an issued record','SYS_platform_calls_performed':0,
   'server_CAS_available':False,'concurrency':'one original WEB writer, local repository-wide serialization, fresh whole-value/timestamp comparison and append/readback; uncontrolled external editors are not atomically fenced',
-  'never':['raw arbitrary variable writes','environment/reviewer protection changes','credential capture','approval reissue/expiry extension','workflow dispatch/cancel/review','overwrite/prune other bindings','unknown-effect replay']}
+  'never':['raw arbitrary variable writes','environment/reviewer protection changes','credential capture','approval reissue/expiry extension','workflow dispatch/cancel/review','overwrite/prune live or malformed bindings; expired current-run use or revival','unknown-effect replay']}
 
 if __name__=='__main__':
  parser=argparse.ArgumentParser();parser.add_argument('command',choices=['describe','inspect','install','status']);parser.add_argument('--task-id',required=True);parser.add_argument('--run-id',type=int);parser.add_argument('--approval-id');args=parser.parse_args();root=Path(__file__).resolve().parents[1]
