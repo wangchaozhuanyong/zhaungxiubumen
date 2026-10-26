@@ -40,6 +40,17 @@ def validate(root, snapshot, item):
          'unchanged original owner/producer/contract and actual professional integrator required')
     source_pin = item.get('integration_source'); source = a.document(root, source_pin)
     carrier_pin = item.get('target_input'); carrier = a.document(root, carrier_pin)
+    owner_source = source.get('schema')=='C1-standing-original-next12-five-record-CMS-integration-carrier/v1'
+    if owner_source:
+        need(role==owner and source.get('primary_owner')==owner, 'own complete-result codec cannot delegate another role')
+        source={**source,'original_business_owner':source['primary_owner'],'publication_integration_owner':source['department'],
+                'Save_or_permit_or_code_deploy':not source['no_new_CMS_Save_preview_permit_policy_consumption_deploy_account_or_fee'],
+                'original_PUB_complete_result':source['original_PUB_completed_source'],
+                'actual_PUB_completed_turn':{'thread_id':w.department_registry(root)['publishing']['chat_binding']['task_id'],
+                  'turn_id':source['actual_completed_PUB_turn'],'final_message_id':item.get('executor_final_message_id')}}
+        carrier={**carrier,'original_business_owner':carrier['professional_owner'],
+                 'publication_integration_authority':carrier['standing_authority_department'],
+                 'execution_source':carrier['source'],'issuer':'publishing','channel_executor':'designated-development'}
     scope = item.get('business_scope')
     need(scope in frozen['authorized_scope'] and source.get('task_id') == snapshot['task_id']
          and source.get('scope') == scope and source.get('department') == role
@@ -62,39 +73,42 @@ def validate(root, snapshot, item):
          and Path(command.get('cwd', '')).resolve() == Path(root).resolve(),
          'real completed successful source creation, not a caught inner rejection')
     output = json.loads(w._source_continuation_execution_output(command))
-    need(output.get('exact_source') == source_pin and output.get('exact_target_input') == carrier_pin,
+    target_outputs=[output[k] for k in ('exact_target_input','exact_target_carrier') if k in output]
+    need(output.get('exact_source') == source_pin and target_outputs and all(p==carrier_pin for p in target_outputs),
          'actual complete native command must bind exact source and target bytes')
     decided = w._parse_observed_at(source.get('decided_at_UTC'))
     need(decided and type(turn.get('startedAt')) in {int, float}
          and type(turn.get('completedAt')) in {int, float}
          and turn['startedAt'] <= decided.timestamp() <= turn['completedAt'] <= dt.datetime.now(dt.timezone.utc).timestamp(),
          'real ordered decision and completed source time required')
-    invite = g._native_document(root, item.get('coordination_native')); _fixed(invite, hq, root)
-    selected = [(t, c) for t in invite.get('turns', []) for c in t.get('items', [])
-                if c.get('id') == item.get('coordination_call_id')]
-    need(len(selected) == 1, 'one actual HQ coordination invocation required')
-    original, call = selected[0]; body = call.get('arguments', {}).get('prompt', '')
-    need(original.get('status') == 'completed' and not original.get('error')
-         and call.get('type') == 'mcpToolCall' and call.get('server') == 'codex_app'
-         and call.get('tool') == 'send_message_to_thread' and call.get('status') == 'completed'
-         and not call.get('error') and not call.get('truncated', False)
-         and call.get('arguments', {}).get('threadId') == fixed['task_id']
-         and all(re.search(r'(?m)^' + k + '=' + re.escape(str(v)) + r'\s*$', body)
-                 for k, v in {'task_id': snapshot['task_id'], 'scope': scope,
-                              'sender_department': 'operations', 'target_department': role,
-                              'action_id': source.get('latest_HQ_coordination')}.items()),
-         'real same-task HQ coordination to this original professional, not metadata')
-    expected = '<codex_delegation>\n  <source_thread_id>' + hq['task_id'] + '</source_thread_id>\n  <input>' + body + '</input>\n</codex_delegation>'
-    items = turn.get('items', [])
-    received = [i for i, m in enumerate(items) if
-                (m.get('type') == 'userMessage' and m.get('content') == [{'type': 'text', 'text': body}]) or
-                (m.get('type') == 'functionCallOutput' and m.get('namespace') == 'codex_app'
-                 and m.get('name') == 'send_message_to_thread' and m.get('output') == {'text': expected, 'truncated': False})]
-    need(len(received) == 1 and received[0] < items.index(command)
-         and any(m.get('type') == 'agentMessage' and m.get('text', '').strip()
-                 for m in items[received[0]+1:items.index(command)])
-         and original.get('startedAt', float('inf')) <= decided.timestamp(),
-         'actual exact delivered coordination and nonempty professional ACK before source creation required')
+    body=''
+    if not owner_source:
+        invite = g._native_document(root, item.get('coordination_native')); _fixed(invite, hq, root)
+        selected = [(t, c) for t in invite.get('turns', []) for c in t.get('items', [])
+                    if c.get('id') == item.get('coordination_call_id')]
+        need(len(selected) == 1, 'one actual HQ coordination invocation required')
+        original, call = selected[0]; body = call.get('arguments', {}).get('prompt', '')
+        need(original.get('status') == 'completed' and not original.get('error')
+             and call.get('type') == 'mcpToolCall' and call.get('server') == 'codex_app'
+             and call.get('tool') == 'send_message_to_thread' and call.get('status') == 'completed'
+             and not call.get('error') and not call.get('truncated', False)
+             and call.get('arguments', {}).get('threadId') == fixed['task_id']
+             and all(re.search(r'(?m)^' + k + '=' + re.escape(str(v)) + r'\s*$', body)
+                     for k, v in {'task_id': snapshot['task_id'], 'scope': scope,
+                                  'sender_department': 'operations', 'target_department': role,
+                                  'action_id': source.get('latest_HQ_coordination')}.items()),
+             'real same-task HQ coordination to this original professional, not metadata')
+        expected = '<codex_delegation>\n  <source_thread_id>' + hq['task_id'] + '</source_thread_id>\n  <input>' + body + '</input>\n</codex_delegation>'
+        items = turn.get('items', [])
+        received = [i for i, m in enumerate(items) if
+                    (m.get('type') == 'userMessage' and m.get('content') == [{'type': 'text', 'text': body}]) or
+                    (m.get('type') == 'functionCallOutput' and m.get('namespace') == 'codex_app'
+                     and m.get('name') == 'send_message_to_thread' and m.get('output') == {'text': expected, 'truncated': False})]
+        need(len(received) == 1 and received[0] < items.index(command)
+             and any(m.get('type') == 'agentMessage' and m.get('text', '').strip()
+                     for m in items[received[0]+1:items.index(command)])
+             and original.get('startedAt', float('inf')) <= decided.timestamp(),
+             'actual exact delivered coordination and nonempty professional ACK before source creation required')
     standing = source.get('current_C1_standing', {}).get('authorization', {})
     policy = w.read_json(Path(root) / 'data/action-policy.json')
     live = [x for x in policy.get('standing_authorizations', []) if x.get('authorization_id') == item.get('standing_authorization_id')]
@@ -102,7 +116,7 @@ def validate(root, snapshot, item):
          and standing.get('site') == 'company.example' and standing.get('status') == 'active'
          and standing.get('granted_by') == 'owner' and standing.get('valid_until_revoked') is True
          and 'cms_write' in standing.get('action_classes', [])
-         and standing['authorization_id'] in body,
+         and (owner_source or standing['authorization_id'] in body),
          'current own standing must remain active for the exact role/site/action; never transfer it')
     # The completed business source can predate this append. Never rewrite its report.
     identity = rc.exact_identity(item.get('business_result_identity', {}))
@@ -115,12 +129,16 @@ def validate(root, snapshot, item):
     q = queued[0]; a.native_result(root, q, registry[owner]['chat_binding']['task_id'])
     intake = rc._received_delivery(root, identity, {'target_department': 'operations'})
     need(intake and intake['record_id'] == item.get('business_result_received_record_id'), 'real committed SQL/native original business result required')
-    report = a.document(root, q['outbox']); content_pin = source.get('original_SEO2_inputs')
-    a.document(root, content_pin)
+    report = a.document(root, q['outbox'])
+    content_pins = source['original_C1_content_input'] if owner_source else [source.get('original_SEO2_inputs')]
+    for content_pin in content_pins:a.document(root,content_pin)
     evidence = report.get('evidence', [])
     evidence = list(evidence.values()) if isinstance(evidence, dict) else evidence
-    need(content_pin in evidence and content_pin['path'] in body and content_pin['sha256'] in body,
-         'real business result and HQ coordination must bind the same unchanged content input')
+    if owner_source:
+        need(source_pin in evidence and carrier_pin in evidence, 'actual committed own complete result must bind this exact source and carrier')
+    else:
+        need(all(p in evidence and p['path']in body and p['sha256']in body for p in content_pins),
+             'real business result and HQ coordination must bind the same unchanged content input')
     pub_pin = source.get('original_PUB_complete_result'); pub = a.document(root, pub_pin)
     pub_native = g._native_document(root, item.get('executor_completed_native'))
     details = source.get('actual_PUB_completed_turn', {}); executor = pub.get('actual_executor')
@@ -158,15 +176,20 @@ def validate(root, snapshot, item):
         need(original in originals, 'each row must be an unchanged original executor result')
         row = a.document(root, record['baseline_only']['complete_row']); before = {f: row[f] for f in fields}; desired = record['desired']
         forward = a.document(root, original['forward_values']); inverse = a.document(root, original['conditional_inverse_values'])
-        need(row == a.document(root, original['authenticated_full41'])
-             and a.document(root, original['backup_full41']) == row
+        need(row == a.document(root, original.get('authenticated_full41',original.get('before')))
+             and a.document(root, original.get('backup_full41',original.get('backup'))) == row
              and row['id'] == action['record_id'] and row['slug'] == action['slug']
              and before == record['baseline_only']['before'] and set(desired) == set(fields)
              and desired == forward and before == inverse
              and record['baseline_only']['before_fields_sha256'] == w.sha256_value(before)
              and record['desired_fields_sha256'] == w.sha256_value(desired),
              'unchanged complete baseline, precise before/desired field bytes and inverse required')
-        protected = record['protected_fields']; rest = set(row) - set(fields)
+        protected = record['protected_fields'] if not owner_source else {
+          'non_write39':record['protection']['nonwrite_payload_fields'],
+          'protected37':record['protection']['stable_business_fields'],
+          'MS11':record['protection']['MS_fields'],
+          'updated_at_version_sent_as_values':original.get('updated_at_version_sent_as_values')}
+        rest = set(row) - set(fields)
         need(set(protected['non_write39']) == rest
              and set(protected['protected37']) == rest - {'updated_at', 'version'}
              and all(f.endswith('_ms') for f in protected['MS11']) and set(protected['MS11']) <= rest
@@ -177,9 +200,13 @@ def validate(root, snapshot, item):
              and reverse.get('scope') == physical and reverse.get('action_id') == 'rollback-' + action['candidate_version']
              and reverse.get('candidate_version') == action['candidate_version'] + '-rollback-v1'
              and all(reverse.get(k) is None for k in ('parentPermitId', 'parentRunId', 'saved_updated_at', 'current_post_Save_complete_row'))
-             and target == {'name': record['exact_target_name'], 'action': action, 'inverse': reverse,
+             and target == ({'name':record['exact_target_name'],'task_id':snapshot['task_id'],
+                             'exact_action':action,'conditional_inverse':reverse,'forward_values':original['forward_values'],
+                             'inverse_values':original['conditional_inverse_values'],'forward_fields_sha256':w.sha256_value(desired),
+                             'before_fields_sha256':w.sha256_value(before)} if owner_source else
+                           {'name': record['exact_target_name'], 'action': action, 'inverse': reverse,
                            'forward_values': original['forward_values'], 'inverse_values': original['conditional_inverse_values'],
-                           'desired_fields_sha256': w.sha256_value(desired), 'before_fields_sha256': w.sha256_value(before)},
+                           'desired_fields_sha256': w.sha256_value(desired), 'before_fields_sha256': w.sha256_value(before)}),
              'same exact target carrier and conditional own-parent inverse; no invented execution facts')
         contexts.append({'action': action, 'source': source_pin, 'owner': owner, 'message_owner': role,
                          'authority_department': role, 'standing_authorization_id': standing['authorization_id'],
@@ -188,6 +215,8 @@ def validate(root, snapshot, item):
                          'protected_fields': {'not_written_fields': sorted(rest), 'server_CAS_metadata': ['updated_at', 'version'],
                           'stable_business_readback_fields': sorted(rest-{'updated_at','version'})},
                          'owner_result': q['outbox'], 'actual_HQ_intake': intake['record_id']})
+    if owner_source and item.get('original_message_action') is None:
+        return contexts, None
     action = a.document(root, item.get('original_message_action')); payload = action.get('payload', {})
     need(action.get('task_id') == snapshot['task_id'] and action.get('scope') == scope
          and action.get('sender_department') == role and action.get('target_department') == 'designated-development'
@@ -212,7 +241,17 @@ def record(root, task, path):
     with w.workflow_lock(root):
         snapshot = g.restore_goal(root, w.read_json(w.snapshot_path(root, task)))
         contexts, original = validate(root, snapshot, item)
-        action = {**original, 'professional_execution_source': pin, 'execution_tuples': [x['action'] for x in contexts]}
+        action = ({**original, 'professional_execution_source': pin, 'execution_tuples': [x['action'] for x in contexts]} if original else None)
+        if action is None:
+            from professional_cms_execution import records, EVENT
+            existing=records(root,snapshot)
+            bound=[x for x in existing if x['action']['action_id']in {c['action']['action_id']for c in contexts}]
+            if bound:
+                a.require(len(bound)==len(contexts)and all(x['registration']==pin for x in bound),'immutable own source action conflict')
+                return {'result':'duplicate_ignored','registration':pin,'actual_message_sent':False}
+            w.append_workflow_event(root,task,snapshot['current_state'],{EVENT:pin,'original_business_owner_unchanged':True,'external_permission_issued':False})
+            return {'result':'recorded','registration':pin,'exact_CMS_actions':[x['action']for x in contexts],
+                    'actual_message_sent':False,'production_READY':False,'external_permission_issued':False}
         old = [x for x in snapshot['goal_delivery'].get('approved_actions', []) if x.get('action_id') == action['action_id']]
         if old:
             a.require(old == [action], 'original integration action already bound to different source')
