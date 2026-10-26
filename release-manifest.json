@@ -1067,9 +1067,9 @@
     },
     {
       "path": "tools/goal_delivery_runtime.py",
-      "source_sha256": "2b3050643fa7392371eea8a1b58fa90c0737f75604b2ee8c1a4301e2ef5fcde5",
-      "release_sha256": "218fff619897aa30d436bf2c761ee0630daa83c06a50b39d0a101bf52deda746",
-      "bytes": 199981
+      "source_sha256": "a2118be93c9fdfbde0d2d516d4ee354eff9395e2f29f5bc4fe07d15bee1e7856",
+      "release_sha256": "f619743b259d6362abe5a3847ff1e052e731c0845277b730ad8d0ca279b0745e",
+      "bytes": 200536
     },
     {
       "path": "tools/goal_source_recovery.py",
@@ -1217,9 +1217,9 @@
     },
     {
       "path": "tools/professional_cms_channel.py",
-      "source_sha256": "7eac388c813d21448ef25ca23d532ff46a1d8d5d5da27ebe7ce35358c139fb57",
-      "release_sha256": "6c9b130ca582c441786de76c1d8024a7cf2ef7f9d01efaa67a757e4569dd3f38",
-      "bytes": 22949
+      "source_sha256": "9cc0d3ca8a33c32a6fba73902b7286feeb736f7b553b8500167c420bed82c0f0",
+      "release_sha256": "8b095c6e007a59be717ab395a4031ba9102b1d94048daa47de7d1a7b581debb7",
+      "bytes": 33635
     },
     {
       "path": "tools/professional_cms_execution.py",
@@ -1793,5 +1793,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "c32b9f6f9e4d733d2da0ae7c390ae4614dc9ecde2e47554177318fecdaf6fce1"
+  "fingerprint": "a748d048059504b25771c9c373c308db57703c7c2fdb5314b5c479e427266bc6"
 }

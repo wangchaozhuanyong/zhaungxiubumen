@@ -75,7 +75,7 @@ returned from this memo. Any changed local source dependency invalidates it.
         binding = w.read_json(Path(root)/'data/department-registry.json')['collaboration_bindings'].get(role)
         need(binding and binding['project_id'] != a.PROJECT and role not in snapshot['goal_delivery']['producer_departments'],
              'original fixed external source executor, never a business producer')
-        states = [x for x in g._collaboration_wait_states(root, snapshot)
+        states = [x for x in g._collaboration_wait_states(root, snapshot, only_action_id=entry.get('original_action_id'))
                   if x.get('action_id') == entry.get('original_action_id')
                   and x.get('department') == role and x.get('status') == 'result_received'
                   and x.get('proof_state') == 'PROVEN' and x.get('result') == entry.get('actual_WEB_result')]
@@ -280,12 +280,161 @@ def issuer_context(root,snapshot,item):
     return x, {'original_source_baseline_only':{'complete_row':baseline(root,x)}}, ctx['CMS_targets'][name]
 
 
+def _edit_pattern(base, own, peer, tokens=False):
+    """An exact union of authenticated source edits, not arbitrary conflict text.
+
+    Independent edits keep their complete original bytes. Overlapping changes
+    must reduce to insertions at the same original tokens; both original orders
+    are allowed, never new tokens, deletion, or a changed common statement.
+    """
+    import difflib
+    split = (lambda s: re.findall(r'\w+|\s+|[^\w\s]',s)) if tokens else (lambda s:s.splitlines(keepends=True))
+    b,o,p = map(split,(base,own,peer)); edits=[]
+    for side,version in enumerate((o,p)):
+        for tag,i,j,k,l in difflib.SequenceMatcher(None,b,version,autojunk=False).get_opcodes():
+            if tag=='equal':continue
+            need(not tokens or tag=='insert','overlapping source replacement/deletion is not an additive integration')
+            edits.append((i,j,side,version[k:l]))
+    groups=[]
+    for e in sorted(edits,key=lambda e:(e[0],e[1],e[2])):
+        if groups and e[0]<=groups[-1][1]:
+            groups[-1][1]=max(groups[-1][1],e[1]);groups[-1][2].append(e)
+        else:groups.append([e[0],e[1],[e]])
+    parts=[];cursor=0
+    def segment(start,end,rows,side):
+        out=[];at=start
+        for i,j,s,add in rows:
+            if s!=side:continue
+            out+=b[at:i]+add;at=j
+        return ''.join(out+b[at:end])
+    for start,end,rows in groups:
+        parts.append(re.escape(''.join(b[cursor:start])));left=segment(start,end,rows,0);right=segment(start,end,rows,1);original=''.join(b[start:end])
+        if left==right:parts.append(re.escape(left))
+        elif left==original:parts.append(re.escape(right))
+        elif right==original:parts.append(re.escape(left))
+        elif start==end:parts.append('(?:'+re.escape(left+right)+'|'+re.escape(right+left)+')')
+        else:
+            need(not tokens,'unexpected overlapping insertion intervals')
+            parts.append(_edit_pattern(original,left,right,tokens=True))
+        cursor=end
+    parts.append(re.escape(''.join(b[cursor:])))
+    return ''.join(parts)
+
+
+def _managed_count_normalization(path, texts, own_count, peer_count):
+    """Only existing test registry-count assertions may combine two row deltas.
+
+    A whole-line grammar excludes executable suffixes. Exact authorized row
+    counts determine the arithmetic; trailing comments have no execution effect.
+    Production paths and all other source bytes stay in the exact edit proof.
+    """
+    if not path.endswith('.test.ts'):return texts
+    pattern=re.compile(r'^([ \t]*(?:expect\([A-Za-z_][A-Za-z0-9_.]*\)\.toHaveLength\([0-9]+\);[ \t]*)?)expect\(historicalTargets\)\.toHaveLength\(([0-9]+)\);[ \t]*(?://[^\r\n]*)?(\r?\n|$)',re.M)
+    found=[list(pattern.finditer(s))for s in texts]
+    need(len({len(v)for v in found})==1,'same original registry-count assertions only')
+    for rows in zip(*found):
+        b,o,p,m=[int(x[2])for x in rows]
+        need(o-b in {0,own_count}and p-b in {0,peer_count}and m==o+p-b,
+             'test count must equal the exact two registered target additions')
+        need(len({x[1]for x in rows})==1,'unchanged original count assertion prefix')
+    return [pattern.sub(lambda m:m[1]+'expect(historicalTargets).toHaveLength(EXACT_REGISTERED_COUNT);'+m[3],s)for s in texts]
+
+
+def _bounded_shared_candidate(ctx, state, head, base):
+    import goal_delivery_runtime as g
+    import professional_web_execution as web
+    from professional_cms_issuer import external
+    root=Path(ctx['root']);pin=state.get('bounded_shared_source');item=a.document(root,pin)
+    need(item.get('schema')=='C1-original-normal-bounded-shared-source-compatibility-input/v2'
+         and item.get('task_id')==ctx['task']and item.get('scope')==ctx['scope']
+         and item.get('source_owner')==ctx['authority_department']and item.get('executor')==ctx['role']
+         and item.get('original_normal_source')=={'path':ctx['registration']['path'],'sha256':ctx['registration']['sha256'],'event':ctx['event_id']}
+         and item.get('original_business_source_registration_sha256')==ctx['decision']['sha256'],
+         'same original registered task/scope/professional source; no caller waiver')
+    snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,ctx['task'])))
+    need(snapshot.get('current_state')not in w.TERMINAL_STATES,'closed original task cannot adopt a bounded source')
+    rows=[v for v in g._collaboration_wait_states(root,snapshot,only_action_id=item.get('original_WEB_action_id'))if v.get('action_id')==item.get('original_WEB_action_id')
+          and v.get('department')==ctx['role']and v.get('status')=='result_received'and v.get('proof_state')=='PROVEN'
+          and v.get('result')==item.get('producer_result')]
+    need(len(rows)==1,'normally received real independently completed WEB integration source required')
+    report=a.document(root,item['producer_result']);custody=a.document(root,item.get('C1_custody'))
+    receiver=w.department_registry(root)[ctx['authority_department']]['chat_binding']
+    need(custody.get('task_id')==ctx['task']and custody.get('scope')==ctx['scope']
+         and custody.get('owner')==ctx['authority_department']and custody.get('producer')==ctx['role']
+         and receiver.get('project_id')==a.PROJECT and Path(receiver.get('cwd','')).resolve()==root.resolve()
+         and report.get('recipient_thread')==receiver['task_id'],'same exact original professional receiver/project/custody')
+    need(custody.get('typed_exact_bytes')==item['producer_result']
+         and external(root,custody.get('typed_original'),ctx['binding'])==report
+         and report.get('task_id')==ctx['task']and report.get('scope')==ctx['scope']
+         and report.get('producer')==ctx['role']and report.get('producer_thread')==ctx['binding']['thread_id']
+         and report.get('recipient')==ctx['authority_department']
+         and report.get('action_id')==item['original_WEB_action_id']
+         and report.get('source_registration')==item['original_normal_source'],
+         'exact original typed bytes/custody/receiver and source relation required')
+    meta=report.get('actual_causal_integration_version',{});obj=item.get('actual_new_object',{})
+    need(meta.get('head')==obj.get('head')==head and meta.get('integration_base')==obj.get('integration_base')==base
+         and all(meta.get(k)==obj.get(k)for k in ('parents','tree','branch','worktree','forward','inverse'))
+         and meta.get('branch')==ctx['branch']and meta.get('worktree')==ctx['worktree']
+         and set(meta.get('parents',[]))=={ctx['commit'],base}and len(meta['parents'])==2,
+         'actual same-source merge head/parents/base/tree/branch/worktree, never a named exception')
+    need(web.git(ctx,'show','-s','--format=%H %P %T',head).decode().strip()==' '.join([head,*meta['parents'],meta['tree']])
+         and web.git(ctx,'merge-base',ctx['base'],base).decode().strip()==ctx['base'],
+         'real immutable Git lineage required')
+    paths=meta.get('paths',[]);pathmap={p['path']:p for p in paths}
+    need(len(pathmap)==len(paths)==obj.get('paths')and set(pathmap)==set(ctx['paths'])
+         and set(web.git(ctx,'diff','--name-only',base,head).decode().splitlines())<=set(ctx['paths']),
+         'complete original declared paths; no additional source change')
+    for path,row in pathmap.items():
+        raw=web.git(ctx,'show',head+':'+path)
+        need(hashlib.sha256(raw).hexdigest()==row.get('sha256')and len(raw)==row.get('size')
+             and web.git(ctx,'rev-parse',head+':'+path).decode().strip()==row.get('blob'),
+             'actual full candidate source bytes/blob/size')
+    delta=web._patch_effect(web._delta(ctx,base,head))
+    need(web._patch_effect(web._patch_delta(web._external_bytes(meta['forward'],ctx['binding'])))==delta
+         and web._patch_effect(web._patch_delta(web._external_bytes(meta['inverse'],ctx['binding'])))=={p:(added,removed)for p,(removed,added)in delta.items()},
+         'exact original forward and inverse source effect')
+    proofpin=obj.get('semantic_proof');need(proofpin in list(_pins(report)),'actual reported immutable bounded proof pin required')
+    proof=external(root,proofpin,ctx['binding'])
+    need(proof.get('task_id')==ctx['task']and proof==report.get('exact_semantic_integration')and proof.get('head')==head
+         and proof.get('base')==base and proof.get('original')==ctx['commit'],
+         'actual reported proof source, not caller true flags')
+    peers=[]
+    for v in callbacks(root,ctx['channel_input']):
+        if v['entry']['task_id']==ctx['task']:continue
+        for peer in web.records(root,v['entry']['task_id']):
+            if peer.get('standing_CMS_channel')and peer['binding']==ctx['binding']and peer['base']==ctx['base']:
+                if web.git(ctx,'merge-base',peer['commit'],base).decode().strip()==peer['commit']:peers.append(peer)
+    need(len(peers)==1,'one real already-registered original same-channel peer integrated in this base')
+    peer=peers[0];shared=set(ctx['paths'])&set(peer['paths']);need(shared,'actual shared source paths required')
+    def blob(commit,path):
+        p=subprocess.run(['git','show',commit+':'+path],cwd=ctx['worktree'],capture_output=True)
+        return p.stdout if p.returncode==0 else None
+    for path in ctx['paths']:
+        mode=web.git(ctx,'ls-tree',ctx['commit'],'--',path).split()[:1]
+        need(mode in ([b'100644'],[b'100755'])and web.git(ctx,'ls-tree',head,'--',path).split()[:1]==mode,
+             'original source modes, never a symlink/submodule')
+        merged=blob(head,path);own=blob(ctx['commit'],path)
+        if path not in shared:need(merged==own,'own exclusive targets/frozen source/test bytes unchanged');continue
+        previous=blob(ctx['base'],path);other=blob(base,path)
+        need(previous is not None and other==blob(peer['commit'],path)
+             and web.git(ctx,'ls-tree',base,'--',path).split()[:1]==web.git(ctx,'ls-tree',peer['commit'],'--',path).split()[:1],
+             'same authentic peer contribution; unrelated current source cannot be replaced')
+        texts=[s.decode('utf-8')for s in (previous,own,other,merged)]
+        texts=_managed_count_normalization(path,texts,len(ctx['CMS_targets']),len(peer['CMS_targets']))
+        need(re.fullmatch(_edit_pattern(*texts[:3]),texts[3])is not None,
+             'shared source must be exactly the original two contributions; new logic/content is not a proof')
+    return head,base
+
+
 def candidate(ctx,state):
-    """Exact clean three-way own patch on a real later base; no approval reset."""
+    """Own source on a real later base; clean merge or authenticated additive proof."""
     import professional_web_execution as web
     head = state.get('candidate_commit'); base = state.get('candidate_base',ctx['base'])
     need(re.fullmatch('[0-9a-f]{40}',str(head)) and re.fullmatch('[0-9a-f]{40}',str(base)), 'real current candidate/base required')
     mode = state.get('source_mode','forward'); need(mode in {'forward','remove_own_delta'},'known own source mode')
+    if state.get('bounded_shared_source') is not None:
+        need(mode=='forward','bounded additive proof does not authorize inverse or unknown modes')
+        return _bounded_shared_candidate(ctx,state,head,base)
     if head == ctx['commit'] and mode == 'forward':
         need(base == ctx['base'],'exact original base'); return head,base
     need(web.git(ctx,'merge-base',ctx['base'],base).decode().strip() == ctx['base']

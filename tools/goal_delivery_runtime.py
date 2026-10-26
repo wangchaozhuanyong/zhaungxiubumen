@@ -2178,8 +2178,10 @@ def _validate_collaboration_native(root, action, record):
     return native_pin
 
 
-def _collaboration_wait_states(root, snapshot):
-    """Strict proofs by action; historical gaps cannot swallow other goals."""
+def _collaboration_wait_states(root, snapshot, *, only_action_id=None):
+    """Strict proofs by action; an exact read still verifies its complete chain."""
+    if only_action_id is not None and (not isinstance(only_action_id, str) or not only_action_id.strip()):
+        raise w.WorkflowError("one exact collaboration action query required")
     goal = snapshot["goal_delivery"]
     actions = goal.get("approved_actions", [])
     states = {}
@@ -2189,6 +2191,11 @@ def _collaboration_wait_states(root, snapshot):
             if not isinstance(pin, dict) or w.file_digest(root, pin.get("path", "")) != pin:
                 raise CollaborationProofError("collaboration_receipt_changed_or_missing", "frozen collaboration receipt changed")
             record = w.read_json(w.safe_path(root, pin["path"]))
+            # A query by an authenticated exact action retains every receipt of
+            # that action and the unchanged full goal/actions/authority. Only
+            # unrelated native proofs are outside this result read.
+            if only_action_id is not None and record.get("action_id") != only_action_id:
+                continue
             if record.get('source_kind') == 'official_native_queue':
                 from goal_source_recovery import collaboration_queue_source
                 current = collaboration_queue_source(root, snapshot, record)
