@@ -415,7 +415,8 @@ def _owned_service_status(root):
 def service_source_hashes(root):
     names = ("department_event_dispatcher", "result_coordination", "workflow_control",
              "readonly_work_view_cache", "department_autonomy", "goal_continuity", "goal_source_recovery",
-             "flashcast_ops", "goal_delivery_runtime", "department_rotation")
+             "flashcast_ops", "goal_delivery_runtime", "department_rotation",
+             "professional_web_execution", "professional_web_increment")
     values = {"tools/" + name + ".py": hashlib.sha256((root / "tools" / (name + ".py")).read_bytes()).hexdigest()
               for name in names}
     if (root / CONFIG).is_file():

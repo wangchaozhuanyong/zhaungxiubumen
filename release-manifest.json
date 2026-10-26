@@ -1001,15 +1001,15 @@
     },
     {
       "path": "tools/department_autonomy.py",
-      "source_sha256": "a98b02b68f19cfe0fea970344736d3bf1ab2c78f4fad631f4d89dad18966286c",
-      "release_sha256": "7389a951a1e31e81a103a177a238f46cd877020afcc56505b418b2e6b5cfb25b",
-      "bytes": 151174
+      "source_sha256": "7a603e0cda6fbfd054924ec463ab281b22d65569d666c58f20dbec3501bae290",
+      "release_sha256": "4108ebc1249d961e821ad64f9f6b037715184594af5e24b84e76415a8473c8c4",
+      "bytes": 155501
     },
     {
       "path": "tools/department_event_dispatcher.py",
-      "source_sha256": "bb3b946bf9b967ee50a26b53278ae0b5c2853758727f00c2993bb997505393b0",
-      "release_sha256": "bb3b946bf9b967ee50a26b53278ae0b5c2853758727f00c2993bb997505393b0",
-      "bytes": 119385
+      "source_sha256": "f663faee576e6e9b904b66ccba78d65db1928282bff4025cd1619518de06632c",
+      "release_sha256": "f663faee576e6e9b904b66ccba78d65db1928282bff4025cd1619518de06632c",
+      "bytes": 119458
     },
     {
       "path": "tools/department_next_work.py",
@@ -1235,15 +1235,15 @@
     },
     {
       "path": "tools/professional_web_execution.py",
-      "source_sha256": "00bb1ae1c6e033539c3418f995144408a4d33de3d046bbf21c8e955d3b62831d",
-      "release_sha256": "56056aa5e5df438026e25b13a472a020be55e7adb2fbb6e6007397c97c7d36c2",
-      "bytes": 61795
+      "source_sha256": "c2cabb383e20ce96de4d8ee5d1f8dd9ae60b8094b154cc2f12344975b61e4f78",
+      "release_sha256": "29bbcf94493b7f0c29eebe7864a6858b9e4bf849427dea47b19a0707492512ed",
+      "bytes": 62552
     },
     {
       "path": "tools/professional_web_increment.py",
-      "source_sha256": "afe77847774122058bfa7a2f4c7e6b9e18092c12b1491002d4dbfd32e1007eb9",
-      "release_sha256": "afe77847774122058bfa7a2f4c7e6b9e18092c12b1491002d4dbfd32e1007eb9",
-      "bytes": 23589
+      "source_sha256": "976994c9cdb8d50e3347c1d4995a2583fd8d3a83bfb13ef5029d6705fc78d7bf",
+      "release_sha256": "976994c9cdb8d50e3347c1d4995a2583fd8d3a83bfb13ef5029d6705fc78d7bf",
+      "bytes": 34130
     },
     {
       "path": "tools/publisher_designated_successor_qa.py",
@@ -1781,5 +1781,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "38d09a48825de33324ead5f113d1ce6834cbd329f1e0c7b3c6e07a4fa5817ea3"
+  "fingerprint": "29428959a397690c54e96274bfdb6ca538c525f40d99e7279d01ce48e2d9b441"
 }

@@ -313,7 +313,13 @@ def validate_code_recovery(ctx,state):
 def candidate(ctx,state):
     head=state.get('candidate_commit');base=state.get('candidate_base',ctx['base']);need(re.fullmatch('[0-9a-f]{40}',str(head)),'real full candidate head')
     need(state.get('source_mode','forward')in {'forward','remove_own_delta'},'known exact source mode only')
-    if ctx.get('increment_registration'):
+    if ctx.get('ordinary_increment'):
+        parents=git(ctx,'show','-s','--format=%P',head).decode().split()
+        need(parents and state.get('candidate_parent')==parents[0],'actual ordinary successor parent, separate from cumulative base')
+        if state.get('source_mode','forward')=='forward':
+            for path in ctx['paths']:
+                need(git(ctx,'ls-tree',head,'--',path).split()[:1]==git(ctx,'ls-tree',ctx['commit'],'--',path).split()[:1], 'ordinary source file modes remain exact')
+    if ctx.get('increment_registration')and not ctx.get('ordinary_increment'):
         if ctx.get('git_parent'):need(state.get('candidate_parent')==ctx['git_parent'],'actual Git parent is required separately from cumulative integration base')
         need(head==ctx['commit']and base==ctx['base']and state.get('source_mode','forward')=='forward','exact actually adopted metadata increment only');return head,base
     if head==ctx['commit']:
@@ -321,7 +327,7 @@ def candidate(ctx,state):
     need(re.fullmatch('[0-9a-f]{40}',str(base))and set(git(ctx,'diff','--name-only',base,head).decode().splitlines())<=set(ctx['paths']), 'same original paths only in causal successor')
     need(git(ctx,'merge-base',ctx['base'],base).decode().strip()==ctx['base'],'real later base ancestry')
     actual=_delta(ctx,base,head);original=_delta(ctx,ctx['base'],ctx['commit'])
-    tests={p for p in ctx['paths']if '.test.'in p or p=='.github/workflows/r3-managed-cms-pr-ci.yml'}
+    tests=set()if ctx.get('ordinary_increment')else {p for p in ctx['paths']if '.test.'in p or p=='.github/workflows/r3-managed-cms-pr-ci.yml'}
     recovery=state.get('source_mode')=='remove_own_delta'
     expected={p:[(added,removed)for removed,added in hunks]if recovery else hunks for p,hunks in original.items()}
     need(all(actual[p]==expected[p]for p in ctx['paths']if p not in tests),
@@ -376,10 +382,12 @@ def intent(root,req,check_desired=True):
         need(state.get('worktree',ctx['worktree'])==ctx['worktree'],'current native/source worktree, never caller old-context fill')
         need(state.get('actor',{}).get('id')==ctx['increment_actor_id'],'exact authenticated original actor')
     if ctx.get('existing_pull_number'):
+        need(not ctx.get('ordinary_increment')or op!='pull_request','existing original PR is reused; never create a duplicate PR')
         pr=state.get('pull_request',{})
+        allowed_heads={ctx['git_parent'],head,ctx['commit']}
         need(pr.get('number')==ctx['existing_pull_number']and pr.get('base_branch')=='main'and pr.get('head_branch')==ctx['branch']
-             and pr.get('head_sha')in {ctx['git_parent'],head},'same actual existing PR only; no creation or replacement')
-        if op=='git_push':need(state.get('remote_branch_sha')in {ctx['git_parent'],head},'fresh original branch effect/CAS; unknown head must be read back')
+             and pr.get('head_sha')in allowed_heads,'same actual existing PR only; no creation or replacement')
+        if op=='git_push':need(state.get('remote_branch_sha')in allowed_heads,'fresh original branch effect/CAS; unknown head must be read back')
     actor=state.get('actor',{});need(not ctx.get('code_only_release')or actor.get('id')==ctx['actor_id'],'original exact source actor ID')
     need(actor.get('login')==ctx['repository'].split('/')[0]and type(actor.get('id'))is int and actor['id']>0,'original authenticated repository account, no substituted actor')
     desired={'repository':ctx['repository'],'branch':ctx['branch'],'head':head,'force':False,'admin_bypass':False}

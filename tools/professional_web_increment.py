@@ -8,6 +8,8 @@ EVENT='professional_WEB_adopted_metadata_increment'
 SCHEMA='professional-external-WEB-adopted-metadata-increment/v1'
 CI_EVENT='professional_WEB_CI_path_successor'
 CI_SCHEMA='professional-external-WEB-CI-path-successor/v1'
+ORD_EVENT='professional_WEB_ordinary_code_successor'
+ORD_SCHEMA='professional-external-WEB-ordinary-code-successor/v1'
 OPS={'git_push','pull_request','official_ci','merge'}
 def need(ok,msg):a.require(ok,'adopted WEB increment: '+msg)
 def same(root,p,q):
@@ -157,21 +159,130 @@ def validate_ci(root,base,parent,item):
     need(at and observed_at and adopted_at and at.timestamp()<=turn['startedAt']<=observed_at.timestamp()<=turn['completedAt']<=adopted_at.timestamp(),'real owner selection -> WEB execution/completion -> exact version adoption')
     return {**ctx,'paths':{p:f['sha256']for p,f in files.items()},'adopted_increment':item,'increment_source_mode':'CI_paths_only','increment_allowed_operations':sorted(OPS),
             'existing_pull_number':pr['number'],'increment_forward_patch':list(patches.values())[2],'increment_inverse_patch':list(patches.values())[3]}
+def optional_string_only(before,after):
+    """An indexed optional string passed to includes gets an empty fallback only."""
+    left=before.splitlines(keepends=True);right=after.splitlines(keepends=True)
+    need(len(left)==len(right),'one line type compatibility, no structural change')
+    changed=[i for i,(x,y)in enumerate(zip(left,right))if x!=y]
+    need(len(changed)==1,'one exact optional-string line')
+    index=changed[0];old=left[index];new=right[index]
+    matches=list(re.finditer(r"\.includes\((?P<value>[A-Za-z_$][\w$]*\[(?:0|[1-9]\d*)\])\)",old))
+    accepted=[m for m in matches for empty in ("''",'""')if old[:m.end('value')]+" ?? "+empty+old[m.end('value'):]==new]
+    need(len(accepted)==1,'only empty-string fallback in existing includes; no behavior/permission replacement')
+    return index+1
+
+def ordinary_native(root,base,item,command):
+    import professional_web_execution as web,goal_delivery_runtime as g
+    old=g._native_document(root,item['original_native_custody']);fresh=g._native_document(root,item['actual_completed_native'])
+    for page in (old,fresh):
+        need(all(page.get('thread',{}).get(k)==base['binding'][v]for k,v in {'id':'thread_id','title':'title','cwd':'cwd'}.items()),'actual fixed original WEB native identity')
+    left=[(t,m)for t in old.get('turns',[])for m in t.get('items',[])if m.get('id')==command]
+    right=[(t,m)for t in fresh.get('turns',[])for m in t.get('items',[])if m.get('id')==command]
+    need(len(left)==len(right)==1,'one actual original command and later completion')
+    t,m=left[0];ct,cm=right[0]
+    need(t.get('id')==ct.get('id')and not t.get('error')and ct.get('status')=='completed'and not ct.get('error')
+         and all(m.get(k)==cm.get(k)for k in ('id','type','status','exitCode','cwd','command'))
+         and m.get('type')=='commandExecution'and m.get('status')=='completed'and m.get('exitCode')==0
+         and Path(m.get('cwd','')).resolve().is_relative_to(Path(base['binding']['cwd']).resolve())
+         and any(x.get('type')=='agentMessage'and x.get('phase')=='final_answer'and x.get('text','').strip()for x in ct.get('items',[])),
+         'real successful WEB command and completed final, never rewrite old native')
+    need(type(ct.get('startedAt'))in {int,float}and type(ct.get('completedAt'))in {int,float}
+         and ct['startedAt']<=ct['completedAt']<=dt.datetime.now(dt.timezone.utc).timestamp(),'real native completion chronology')
+    return w._completion_execution_output(m)
+
+def validate_ordinary(root,base,item):
+    import professional_web_execution as web
+    need(base.get('code_only_release')and item.get('schema')==ORD_SCHEMA and item.get('task_id')==base['task']
+         and item.get('scope')==base['scope']and item.get('original_source_registration')==base['registration'],
+         'original authenticated code-release task/scope/source only')
+    data=web.code_document(root,item['source_bundle']);typed=web.external(root,item['typed_candidate'],base['binding'])
+    versions=data.get('versions',[]);reported=json.loads(ordinary_native(root,base,item,item['source_command']))
+    need(reported==versions and isinstance(reported,list),'actual original WEB output binds whole immutable version source')
+    rows=[x for x in versions if web._external_bytes(x['typed'],base['binding'])==web._external_bytes(item['typed_candidate'],base['binding'])]
+    need(len(rows)==1 and typed.get('task_id')==base['task']and typed.get('original_selected_source_commit')==base['commit']
+         and typed.get('worktree')==base['worktree']and typed.get('branch')==base['branch'],'one exact typed candidate, original task/worktree/branch')
+    row=rows[0];ctx={**base,'commit':typed['head'],'git_parent':typed['parent'],'base':typed['base'],'tree':typed['tree']}
+    need(all(row.get(k)==typed.get(k)for k in ('head','base','tree','forward','inverse'))
+         and web.git(ctx,'show','-s','--format=%H %P %T',ctx['commit']).decode().strip()==' '.join([ctx['commit'],ctx['git_parent'],ctx['tree']])
+         and ctx['commit']!=ctx['git_parent'],'actual linear successor Git head/parent/tree')
+    # The parent must still be the already authorized source on its real later base.
+    web.candidate(base,{'candidate_commit':ctx['git_parent'],'candidate_base':ctx['base']})
+    files=typed.get('files',[]);paths={x['path']:x['sha256']for x in files}
+    actual=set(web.git(ctx,'diff','--name-only',ctx['base'],ctx['commit']).decode().splitlines())
+    delta=set(web.git(ctx,'diff','--name-only',ctx['git_parent'],ctx['commit']).decode().splitlines())
+    need(len(paths)==len(files)==row.get('files')and actual==set(paths)and len(delta)==1,'complete exact cumulative files and single compatibility path')
+    for x in files:
+        raw=web.git(ctx,'show',ctx['commit']+':'+x['path'])
+        present=bool(web.git(ctx,'ls-tree',ctx['base'],'--',x['path']).strip())
+        before_ok=web._external_bytes(x['before'],base['binding'])==web.git(ctx,'show',ctx['base']+':'+x['path'])if present else x.get('before')is None
+        need(hashlib.sha256(raw).hexdigest()==x['sha256']and len(raw)==x['size']and web.git(ctx,'rev-parse',ctx['commit']+':'+x['path']).decode().strip()==x['blob']
+             and web._external_bytes(x['candidate'],base['binding'])==raw
+             and before_ok,'actual whole Git blob SHA/size/identity and source backup')
+    for key,left,right in [('forward',ctx['base'],ctx['commit']),('inverse',ctx['commit'],ctx['base'])]:
+        need(web._external_bytes(typed[key],base['binding'])==web.git(ctx,'diff','--no-ext-diff','--binary','--full-index',left,right),'exact source-only forward/reverse bytes')
+    path=next(iter(delta));before=web.git(ctx,'show',ctx['git_parent']+':'+path).decode();after=web.git(ctx,'show',ctx['commit']+':'+path).decode()
+    need(web.git(ctx,'ls-tree',ctx['git_parent'],'--',path).split()[0]==web.git(ctx,'ls-tree',ctx['commit'],'--',path).split()[0],'existing source mode preserved')
+    kind=item.get('kind')
+    if kind=='optional_string_type_compatibility':
+        need(path in base['paths']and set(paths)==set(base['paths']),'only original owned source path')
+        line=optional_string_only(before,after)
+        facts=web.code_document(root,item['actual_failed_CI']);observed=json.loads(ordinary_native(root,base,item,item['CI_facts_command']))
+        need(observed==facts and facts.get('PR',{}).get('head')==ctx['git_parent']and facts['PR'].get('base')==ctx['base']
+             and facts['PR'].get('state')=='open'and facts['PR'].get('merged')is False,'actual existing original failed-CI PR, not proposed or merged')
+        runs=[x for x in facts.get('runs',[])if x.get('path')==web.CODE_CI_PATHS['interaction-standards']and x.get('head_sha')==ctx['git_parent']and x.get('status')=='completed'and x.get('conclusion')=='failure'and x.get('event')=='pull_request']
+        need(len(runs)==1,'real exact original official strict CI failure')
+        error=web.code_document(root,item['failure_excerpt']);checks=web.code_document(root,item['successful_checks'])
+        need(error.get('head')==checks.get('failure_head')==ctx['git_parent']and error.get('run_id')==checks.get('failed_run')==runs[0]['id']
+             and error.get('job_id')==checks.get('failed_check')and error.get('PR')==facts['PR']['number']
+             and any(re.search(re.escape(path)+r'\('+str(line)+r',\d+\): error TS2345:',s)and "'string | undefined'"in s and "'string'"in s for s in error.get('lines',[])), 'real failure path/line/type and run/job association')
+        check_rows=checks.get('checks',[]);out=ordinary_native(root,base,item,item['checks_command']).decode()
+        actual_checks=[json.loads(s)for s in out.splitlines()if s.startswith('{')]
+        need(actual_checks==check_rows and len(check_rows)>=2 and all(x.get('exit')==0 for x in check_rows)
+             and any(x.get('argv')==['npm','run','typecheck:strict-core']for x in check_rows)
+             and any(x.get('argv')==['npm','test','--',str(Path(path).with_suffix('.test.ts'))]for x in check_rows), 'actual successful strict-core and affected test commands')
+        ctx['existing_pull_number']=facts['PR']['number']
+    elif kind=='original_PR_trigger_paths':
+        need(path==web.CODE_CI_PATHS['r3-managed-cms-pr-checks']and path not in base['paths']and set(paths)==set(base['paths'])|{path},'existing required workflow and original production paths only')
+        ci_paths_only(before,after,sorted(base['paths']))
+        import fnmatch
+        entries=[s.strip()[2:].strip("'\"")for s in before.split('    paths:\n',1)[1].splitlines()if s.startswith('      - ')]
+        need(all(not any(fnmatch.fnmatchcase(p,x)for x in entries)for p in base['paths']),'real preexisting PR path coverage gap')
+        gap=web.code_document(root,item['actual_trigger_gap']);out=json.loads(ordinary_native(root,base,item,item['gap_command']))
+        rows=[{'path':p,'matches':[]}for p in base['paths']]
+        need(gap.get('head')==ctx['git_parent']and gap.get('workflow')==path and gap.get('actual_original3_paths')==rows
+             and gap.get('proposed_exact3_additions')==list(base['paths'])and out.get('result')=='PASS_CONFIG_GAP_PROOF'and out.get('rows')==rows,'actual config-derived gap proof, no invented failed run')
+    else:need(False,'known narrowly validated ordinary code difference required')
+    for p,sha in base['paths'].items():
+        if p!=path:need(paths[p]==sha,'all unchanged original production/test blobs preserved')
+        need(web.git(ctx,'ls-tree',ctx['commit'],'--',p).split()[0]==web.git(ctx,'ls-tree',base['commit'],'--',p).split()[0],'original owned source file modes preserved')
+    return {**ctx,'paths':paths,'ordinary_increment':True,'increment_actor_id':base['actor_id'],
+            'increment_allowed_operations':base['allowed_operations'],'increment_source_mode':kind,
+            'increment_forward_patch':typed['forward'],'increment_inverse_patch':typed['inverse']}
+
 def _validate_item(root,base,item,values):
+    if item.get('schema')==ORD_SCHEMA:return validate_ordinary(root,base,item),ORD_EVENT
     if item.get('schema')==SCHEMA:return validate(root,base,item),EVENT
     need(item.get('schema')==CI_SCHEMA,'known original adopted source schema')
     parents=[v for v in values if same(root,v.get('increment_registration'),item.get('parent_increment_source'))]
     need(len(parents)==1,'one previously registered immutable parent increment')
     return validate_ci(root,base,parents[0],item),CI_EVENT
 def sources(root,base):
-    rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==base['task']and any(e.get('details',{}).get(k)for k in (EVENT,CI_EVENT))]
+    keys=(EVENT,CI_EVENT,ORD_EVENT)
+    rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==base['task']and any(e.get('details',{}).get(k)for k in keys)]
     values=[];seen=set()
     for e in rows:
-        pins=[e['details'][k]for k in (EVENT,CI_EVENT)if e['details'].get(k)];need(len(pins)==1,'one source per event');pin=pins[0]
+        pins=[e['details'][k]for k in keys if e['details'].get(k)];need(len(pins)==1,'one source per event');pin=pins[0]
         value,event=_validate_item(root,base,a.document(root,pin),values);need(e['details'].get(event)==pin and value['commit']not in seen,'ambiguous adopted increment');seen.add(value['commit']);values.append({**value,'increment_registration':pin,'increment_event_id':e['event_id']})
     return values
 def select(root,base,state):
-    matches=[x for x in sources(root,base)if x['commit']==state.get('candidate_commit')]
+    import professional_web_execution as web
+    values=sources(root,base);matches=[x for x in values if x['commit']==state.get('candidate_commit')]
+    if not matches:
+        for ctx in values:
+            if not ctx.get('ordinary_increment'):continue
+            try:web.candidate(ctx,state)
+            except w.WorkflowError:continue
+            matches.append(ctx)
     need(len(matches)<=1,'one exact adopted source context');return matches[0]if matches else base
 def record(root,task,path):
     import professional_web_execution as web,goal_delivery_runtime as g
@@ -179,7 +290,7 @@ def record(root,task,path):
     with w.workflow_lock(root):
         values=sources(root,base);ctx,event_key=_validate_item(root,base,item,values);prior=[x for x in values if x['commit']==ctx['commit']]
         if prior:need(prior[0]['increment_registration']==pin,'immutable increment already recorded');return {'result':'duplicate_ignored','source':pin,'event_id':prior[0]['increment_event_id'],'permission_issued':False}
-        s=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)));need(s['current_state']not in w.TERMINAL_STATES,'closed task cannot add a new execution source');event=w.append_workflow_event(root,task,s['current_state'],{event_key:pin})
+        s=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)));need(s['current_state']not in w.TERMINAL_STATES or event_key==ORD_EVENT and s['current_state']=='closed'and base.get('code_only_release'),'closed task needs its existing real owner-authorized code follow-on source');event=w.append_workflow_event(root,task,s['current_state'],{event_key:pin})
     return {'result':'recorded','source':pin,'event_id':event['event_id'],'permission_issued':False,'old_source_or_producers_changed':False}
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('command',choices=['record']);p.add_argument('--task-id',required=True);p.add_argument('--input',required=True);args=p.parse_args();root=Path(__file__).resolve().parents[1]

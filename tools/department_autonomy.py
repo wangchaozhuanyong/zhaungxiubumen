@@ -716,6 +716,54 @@ def migrated_local_completion(root, snapshot):
   and all(r.get('requirement_type')=='accepted_delivery'and r.get('subject',{}).get('producer_department')==goal.get('primary_owner')
    for r in goal['completion_requirements']))
 
+def professional_local_public_continuation(root,snapshot,pin,base,row,box,anchors):
+ """An authenticated public follow-on does not replace its completed local source.
+
+ This checks the actual registered owner/code authority and original version
+ proofs. Labels such as source_only or ordinary_progress never grant an exception.
+ """
+ import professional_web_execution as web
+ role=snapshot['goal_delivery']['primary_owner'];task=snapshot['task_id'];goal=snapshot['goal_delivery'];frame=box.get('goal_delivery',{})
+ fields={'objective','primary_owner','producer_departments','authorized_scope','frozen_original_completion_contract',
+  'authorization_pin','current_additive_followon_decision','original_local_completion','dependencies','existing_results','code_executor'}
+ require(set(frame)==fields and all(frame.get(k)==goal.get(k)for k in ('primary_owner','producer_departments','authorized_scope','authorization_pin'))
+  and frame.get('frozen_original_completion_contract')==snapshot['goal_contract']
+  and all(box.get(k)==v for k,v in {'task_id':task,'scope':base['scope'],'primary_owner':role,'sender_department':role,'department':role}.items())
+  and row.get('scope')==base['scope']and row.get('target_department')=='operations',
+  'public continuation retains the exact frozen local contract, owner/producers and scope')
+ contexts=web.records(root,task)
+ require(len(contexts)==1 and contexts[0].get('code_only_release')and contexts[0]['contract']==snapshot['goal_contract']
+  and contexts[0]['owner']==role and contexts[0]['scope']==base['scope']
+  and contexts[0]['decision']==frame['current_additive_followon_decision'],
+  'actual independently authenticated owner-authorized public source, not a replacement local candidate')
+ ctx=contexts[0];links=frame.get('existing_results')
+ require(isinstance(links,list)and any(x in anchors for x in links), 'actual chronological link to original business result or preceding authenticated follow-on')
+ events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==task and e.get('details',{}).get('professional_completion_evidence')]
+ expected={r['requirement_id']for r in requirement_rows(goal)};details=[e['details']['professional_completion_evidence']for e in events]
+ observed=w._parse_observed_at(row.get('reply_observed_at'))
+ require(len(events)==len(expected)and {d.get('requirement_id')for d in details}==expected and observed is not None
+  and all(w._parse_observed_at(e.get('created_at'))is not None and w._parse_observed_at(e['created_at'])<=observed for e in events),
+  'real complete local evidence set must precede the public transport')
+ versions=[]
+ for d in details:
+  proof=document(root,d.get('proof'))
+  require(d.get('recorder')==role and d.get('goal_contract')==snapshot['goal_contract']and d.get('mode_authorization')==OWNER
+   and proof.get('exact_original_owner_result')==pin and proof.get('requirement_id')==d['requirement_id']
+   and proof.get('task_id')==task and proof.get('scope')==base['scope']and proof.get('department')==role
+   and proof.get('original_goal_contract')==snapshot['goal_contract']and proof.get('original_authority')==goal['authorization_pin'],
+   'original local proof identity/criterion/authority remains unchanged')
+  if proof.get('exact_version_input'):
+   version=document(root,proof['exact_version_input']).get('candidate',{})
+   require(version.get('task_id')==task and version.get('commit')==proof.get('actual_local_candidate')
+    and version.get('file_sha256')==ctx['paths']and set(version.get('files',[]))==set(ctx['paths']),
+    'original proven local Git version must be the registered public source bytes')
+   versions.append(version)
+ require(versions,'original local version proof required, no caller candidate equality')
+ native_result(root,row,w.department_registry(root)[role]['chat_binding']['task_id'])
+ # Only transport anchors advance. No completion event, candidate, QA or receipt
+ # is manufactured or replaced here; the original effect reader continues below.
+ return [row['outbox'],box['primary_deliverable']]
+
 def professional_local_business_source(root,snapshot,pin):
  """Only authenticated completion archival can follow a still-current business source.
 
@@ -728,9 +776,11 @@ def professional_local_business_source(root,snapshot,pin):
  require(len(originals)==1,'one exact original professional result source required')
  source=originals[0];base=document(root,pin);scope=base.get('scope');identity={
   'task_id':task,'sender_department':role,'candidate_version':base.get('candidate_version'),'result_sha256':pin['sha256']}
- later=queued[queued.index(source)+1:]
+ later=queued[queued.index(source)+1:];anchors=[pin]
  for row in later:
   box=document(root,row.get('outbox'))
+  if not(box.get('archive_only')is True and box.get('metadata_transport_only')is True):
+   anchors.extend(professional_local_public_continuation(root,snapshot,pin,base,row,box,anchors));continue
   require(box.get('archive_only')is True and box.get('metadata_transport_only')is True,
    'latest exact original professional result and scope required; no superseded candidate')
   metadata={'candidate_version','reported_at_MYT','status','state','risk_level','current_execution_route','conclusion',
@@ -780,6 +830,7 @@ def professional_local_business_source(root,snapshot,pin):
   require(isinstance(effects,dict)and effects.get('new_professional_completion_evidence_events')==len(events)
    and all(type(v)is int and v==0 for k,v in effects.items()if k!='new_professional_completion_evidence_events'),
    'only original completion-registration effects may be reported by this archive; new business changes supersede old proof')
+  anchors.extend([row['outbox'],box['primary_deliverable']])
  return source
 
 
