@@ -305,6 +305,12 @@ def authorization_precheck(root, task_id, request):
     brand_executor = (brand_action_context(root, snapshot, request.get('action_id'), request.get('action_class'),
                       request.get('scope'), sender) if request.get('action_class') in w.EXTERNAL_ACTION_CLASSES else None)
     from department_autonomy import message_route, readonly_result_return_route
+    from professional_cms_integration import message_context as standing_message
+    integration = standing_message(root,snapshot,request) if request.get('action_class')=='thread_message' else None
+    if integration is not None:
+        if changes:return outcome('authorization_change_required',changes,confirmation=True)
+        return {**outcome('within_original_authorization',['authenticated_original_standing_integration_message']),
+                'source_registration':integration.get('registration'), 'external_permission_issued':False}
     readonly_return = readonly_result_return_route(root,snapshot,request)
     if sender not in {"operations", goal.get("responsible_assistant"), *producers} and not brand_executor and readonly_return is None:
         raise w.WorkflowError("original goal participant required; no authority delegation by metadata")
@@ -793,10 +799,12 @@ def collaboration_route(root, snapshot, requested):
         return None
     reasons = []
     goal = snapshot["goal_delivery"]
+    from professional_cms_integration import message_context as standing_message
+    integration = standing_message(root,snapshot,requested)
     if (requested.get("action_class") != "thread_message"
             or requested.get("scope") not in goal["authorized_scope"]
             or not (assigned_actor(root, snapshot, requested.get("sender_department"), requested.get("scope"))
-                    or requested.get("sender_department") == goal["primary_owner"])):
+                    or requested.get("sender_department") == goal["primary_owner"] or integration is not None)):
         reasons.append("goal_collaboration_exact_authorized_actor_scope_required")
     mapping = {"target_project_id": "project_id", "target_thread_id": "thread_id",
                "target_thread_title": "title", "target_cwd": "cwd"}
@@ -1411,6 +1419,12 @@ def record_approved_action(root, task_id, input_path):
     if action.get("schema") == "professional-cms-issuer-contract/v1":
         from professional_cms_issuer import record_contract
         return record_contract(root, task_id, input_path)
+    if action.get("schema") == "professional-standing-CMS-message/v1":
+        from professional_cms_integration import record_message
+        return record_message(root, task_id, input_path)
+    if action.get("schema") == "professional-standing-CMS-integration-source/v1":
+        from professional_cms_integration import record
+        return record(root, task_id, input_path)
     if action.get("schema") == "professional-cms-execution-source-registration/v1":
         from professional_cms_execution import record
         return record(root, task_id, input_path)

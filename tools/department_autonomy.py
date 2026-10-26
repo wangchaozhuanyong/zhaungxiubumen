@@ -352,6 +352,9 @@ def _hq_readonly_result_return(root,snapshot,request):
  import re
  import goal_delivery_runtime as g
  proof=request.get('hq_readonly_result_return')
+ owner_invited=request.get('original_owner_peer_return')
+ require(not(proof is not None and owner_invited is not None),'one unambiguous original invitation source required')
+ if proof is None:proof=owner_invited
  if proof is None:return None
  authority(root);goal=snapshot.get('goal_delivery',{});frozen=document(root,snapshot['goal_contract'])
  owner=goal.get('primary_owner');sender=request.get('sender_department');registry=w.department_registry(root)
@@ -362,7 +365,8 @@ def _hq_readonly_result_return(root,snapshot,request):
   and request.get('action_class')=='thread_message'and request.get('assignment_record_required')is False
   and not request.get('authorization_changes')and not any(request.get(k)for k in ('execution_request','approval_id','consume_approval')),
   'same original open task readonly peer return only; no participant or execution grant')
- hq=registry['operations']['chat_binding'];peer=registry[sender]['chat_binding'];dest=registry[owner]['chat_binding']
+ inviter=owner if owner_invited is not None else 'operations'
+ hq=registry[inviter]['chat_binding'];peer=registry[sender]['chat_binding'];dest=registry[owner]['chat_binding']
  source=g._native_document(root,proof.get('invitation_native'))
  require(all(source.get('thread',{}).get(k)==hq[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()),'real original fixed HQ collaboration caller required')
  pairs=[(t,m)for t in source.get('turns',[])for m in t.get('items',[])if m.get('id')==proof.get('invitation_call_id')]
@@ -371,8 +375,23 @@ def _hq_readonly_result_return(root,snapshot,request):
   and call.get('tool')=='send_message_to_thread'and call.get('status')=='completed'and not call.get('error')
   and call.get('truncated',False)is False and call.get('arguments',{}).get('threadId')==peer['task_id']
   and all(re.search(r'(?m)^'+k+'='+re.escape(v)+r'\s*$',body)for k,v in {'task_id':snapshot['task_id'],'scope':request['scope'],
-   'sender_department':'operations','target_department':sender,'action_id':proof.get('invitation_action_id','')}.items()),
+   'sender_department':inviter,'target_department':sender,'action_id':proof.get('invitation_action_id','')}.items()),
   'actual successful HQ invitation with unchanged task/scope/executor required')
+ if owner_invited is not None:
+  actions=[x for x in goal.get('approved_actions',[])if x.get('action_id')==proof.get('invitation_action_id')]
+  require(len(actions)==1,'one normally registered original professional invitation required')
+  action=actions[0];pin=action.get('professional_owner_message_source')
+  original_action,route=owner_result_message_source(root,snapshot,document(root,pin))
+  require(action=={**original_action,'professional_owner_message_source':pin}
+   and body==(Path(root)/action['payload']['path']).read_text()
+   and len([e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==snapshot['task_id']
+    and e.get('details',{}).get('professional_owner_message_source')==pin])==1,
+   'actual normal registered invitation and exact native body required')
+  allowed=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('decision_id')==proof.get('invitation_policy_id')]
+  require(len(allowed)==1 and allowed[0].get('status')=='allow'and allowed[0].get('department')==owner
+   and allowed[0].get('external_permission_issued')is False
+   and all(allowed[0].get(k)==action.get(k)for k in ('task_id','scope','action_id','target_department','target_thread_id','payload_sha256')),
+   'actual original normal owner invitation allow required; not a caller marker')
  page=g._native_document(root,proof.get('completed_native'));turn,message=w._completion_actual_final(root,page,sender,
   turn_id=proof.get('source_turn_id'),message_id=proof.get('source_message_id'))
  require(all(page.get('thread',{}).get(k)==peer[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()),'actual fixed peer completion identity required')

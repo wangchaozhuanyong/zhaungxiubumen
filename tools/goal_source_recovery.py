@@ -1236,8 +1236,10 @@ def prepare_message(root, request):
         from goal_delivery_runtime import execution_collaboration_scopes
         declared=[x for x in execution_collaboration_scopes(root,snapshot) if all(
             x.get(k)==request.get(k) for k in ('sender_department','target_department','scope'))]
+        from professional_cms_integration import message_context as standing_message
+        integration=standing_message(root,snapshot,request)
         if (len(declared)!=1 or original.get('primary_owner')!=goal.get('primary_owner')
-                or request['sender_department']!=original.get('primary_owner')
+                or (request['sender_department']!=original.get('primary_owner') and integration is None)
                 or request['scope'] not in original.get('authorized_scope',[])
                 or original.get('human_authorization')!=goal.get('human_authorization')):
             raise w.WorkflowError('exact original owner, human source and declared external collaboration required')
@@ -1517,9 +1519,11 @@ def collaboration_queue_binding(root, snapshot, action):
     from goal_delivery_runtime import execution_collaboration_scopes
     declared=[d for d in execution_collaboration_scopes(root,snapshot)if all(d.get(k)==action.get(k)
               for k in ('sender_department','target_department','scope'))]
+    from professional_cms_integration import message_context as standing_message
+    integration=standing_message(root,snapshot,action)
     if (len(declared)!=1
             or contract.get('primary_owner')!=goal.get('primary_owner')
-            or action.get('sender_department')!=contract.get('primary_owner')
+            or (action.get('sender_department')!=contract.get('primary_owner') and integration is None)
             or contract.get('human_authorization')!=goal.get('human_authorization')
             or w.file_digest(root,contract.get('human_authorization',{}).get('evidence_path',''))!=goal.get('authorization_pin')
             or action.get('task_id')!=snapshot.get('task_id') or action.get('action_class')!='thread_message'
@@ -1540,12 +1544,13 @@ def _collaboration_queue_preparation(root, snapshot, request_pin, prepared_pin):
           if p.get('decision_id')==prepared.get('policy_decision',{}).get('decision_id')]
     fields=('task_id','action_id','action_class','scope','source_project_id','target_project_id',
             'target_department','target_thread_id','target_thread_title','target_cwd',
-            'target_sidebar_section_id','payload_sha256','delivery_mode')
+            'target_sidebar_section_id','payload_sha256')
     auth=prepared.get('authorization_precheck',{})
     if (len(rows)!=1 or rows[0]!=prepared.get('policy_decision') or rows[0].get('status')!='allow'
             or rows[0].get('routing_status')!='routing_allowed'
             or rows[0].get('department')!=request.get('sender_department')
             or any(rows[0].get(k)!=request.get(k)for k in fields)
+            or rows[0].get('delivery_mode',request.get('delivery_mode'))!=request.get('delivery_mode')
             or request.get('delivery_mode')!='official_native_queue' or request.get('authorization_changes',[])!=[]
             or prepared.get('status')!='ready_to_queue' or prepared.get('delivery_mode')!='official_native_queue'
             or prepared.get('ordinary_send_allowed') is not False or prepared.get('message_sent') is not False

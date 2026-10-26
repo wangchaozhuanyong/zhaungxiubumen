@@ -161,9 +161,13 @@ def _records_uncached(root, snapshot):
             if e.get('task_id') == snapshot['task_id'] and EVENT in e.get('details',{})]
     result=[]; seen=set()
     for row in rows:
-        pin=row['details'][EVENT]; item=a.document(root,pin); context=validate(root,snapshot,item)
-        key=context['action']['action_id'];a.require(key not in seen,'ambiguous execution source registration')
-        seen.add(key);result.append({**context,'registration':pin,'event_id':row['event_id']})
+        pin=row['details'][EVENT]; item=a.document(root,pin)
+        from professional_cms_integration import SCHEMA as standing_schema, validate as standing_validate
+        contexts=(standing_validate(root,snapshot,item)[0] if item.get('schema')==standing_schema
+                  else [validate(root,snapshot,item)])
+        for context in contexts:
+            key=context['action']['action_id'];a.require(key not in seen,'ambiguous execution source registration')
+            seen.add(key);result.append({**context,'registration':pin,'event_id':row['event_id']})
     return result
 
 def record(root, task, input_path):
@@ -197,7 +201,7 @@ def collaboration_scopes(root,snapshot):
     result=list(snapshot.get('goal_delivery',{}).get('collaboration_scopes',[]))
     for x in records(root,snapshot):
         for role in (x['executor'],x['channel']):
-            declaration={'sender_department':x['owner'],'target_department':role,'scope':x['business_scope']}
+            declaration={'sender_department':x.get('message_owner',x['owner']),'target_department':role,'scope':x['business_scope']}
             if declaration not in result:result.append(declaration)
     return result
 
@@ -205,6 +209,11 @@ def validate_message(root,snapshot,action):
     """An appended collaborator receives this exact binding, not general authority."""
     import department_autonomy as a
     pin=action.get('professional_execution_source')
+    if action.get('execution_tuples'):
+        from professional_cms_integration import message_context
+        context=message_context(root,snapshot,action)
+        a.require(context is not None,'normal exact standing integration message required')
+        return context
     found=[x for x in records(root,snapshot) if x['registration']==pin]
     a.require(len(found)==1, 'exact appended execution source required for this collaborator')
     x=found[0]
