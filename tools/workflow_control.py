@@ -7949,6 +7949,100 @@ def scheduled_result_source(root: Path, task_id: str, department: str) -> dict[s
     return matches[0] if matches else None
 
 
+def _scheduled_series_local_delivery(root, request, outbox, source):
+    """A declared local series keeps its creation date and actual run evidence."""
+    if not source.get('owner_direct_authorization') or not source.get('owner_native_source'):
+        return None
+    def need(ok, text):
+        if not ok: raise WorkflowError('declared local series: '+text)
+    def doc(pin):
+        need(isinstance(pin,dict)and file_digest(root,pin.get('path',''))==pin,'exact original source pin')
+        return read_json(safe_path(root,pin['path']))
+    from department_autonomy import MODE, PROJECT
+    need(source.get('delivery_model')==MODE and source.get('local_delivery_only')is True
+         and source.get('external_upload_authorized')is False and source.get('fees_authorized')is False,
+         'existing local-only series declaration; no public or paid permission')
+    authority=doc(source['owner_direct_authorization']);native=doc(source['owner_native_source']);role=request['sender_department'];task=request['task_id']
+    need(authority.get('executor')==role==source.get('department')and authority.get('project_id')==PROJECT
+         and Path(authority.get('cwd','')).resolve()==root.resolve()
+         and {'plan_100_distinct_episodes','produce_one_local_video_each_day_starting_at_19_BJT'}<=set(authority.get('authorized_scope',[])), 'original owner-authorized local series/role/project')
+    message=authority.get('message',{});text=''.join(c.get('text','')for c in message.get('content',[])if c.get('type')=='text')
+    hits=[]
+    for hit in native.get('hits',[]):
+        row=hit.get('original_row',{});payload=row.get('payload',{});metadata=payload.get('internal_chat_message_metadata_passthrough',{})
+        raw=''.join(c.get('text','')for c in payload.get('content',[])if c.get('type')=='input_text')
+        if (payload.get('role')=='user'and metadata.get('turn_id')==authority.get('source_turn_id')and raw==text
+                and authority.get('source_thread_id','?')in hit.get('session','')):hits.append(row)
+    need(message.get('type')=='userMessage'and text and len(hits)==1,'real retained original human text/turn/thread, not assistant summary')
+    tz=dt.timezone(dt.timedelta(hours=8));origin=_parse_observed_at(hits[0].get('timestamp'));match=re.fullmatch(source['task_id_pattern'],task)
+    need(origin is not None and match is not None and match.groupdict().get('date')==origin.astimezone(tz).strftime('%Y%m%d'), 'stable task date remains its actual original series date')
+    need(outbox.get('task_id')==task and outbox.get('department')==outbox.get('sender_department')==role
+         and outbox.get('delivery_model')==MODE and outbox.get('source_automation_id')in {None,source['automation_id']}, 'same declared result identity; conflicting automation is never derived')
+    evidence=outbox.get('evidence',[]);need(isinstance(evidence,list)and evidence,'original complete finite local evidence')
+    documents=[(p,doc(p))for p in evidence if isinstance(p,dict)and p.get('path','').endswith('.json')]
+    closeouts=[(p,x)for p,x in documents if x.get('schema')=='original-video-local-delivery-closeout/v1']
+    metadata=bool(closeouts)
+    if metadata:
+        need(len(closeouts)==1,'one exact unchanged delivery manifest');manifest_pin,manifest=closeouts[0]
+        need(manifest.get('task_id')==task and manifest.get('professional_owner')==role and manifest.get('delivery_model')==MODE
+             and manifest.get('candidate_version')==outbox.get('candidate_version')and manifest.get('run_id')==outbox.get('run_id')
+             and manifest.get('new_render_performed')is False and manifest.get('public_copy_changed')is False
+             and manifest.get('full_goal_complete')is False and all(manifest.get(k)is False for k in ('public_release_allowed','wechat_sent','uploaded','published')),
+             'same task/run/candidate and local delivery only; no new production or public effect')
+        current=outbox.get('current_closeout_authority');need(current==manifest.get('current_authority')and current in evidence,'original delegated closeout pin')
+        decision=doc(current);human=doc(decision.get('owner_native'));hq=department_registry(root)['operations']['chat_binding'];h=decision.get('source_human',{})
+        if 'content'in human:
+            texts=[x['text']for x in human['content']if x.get('type')=='text'];need(not human.get('isError')and len(texts)==1,'real original HQ read');human=json.loads(texts[0])
+        selected=[m for t in human.get('turns',[])if t.get('id')==h.get('turn_id')for m in t.get('items',[])if m.get('id')==h.get('message_id')and m.get('type')=='userMessage']
+        need(decision.get('schema')=='HQ-owner-complete-open-goals-bounded-recovery-decision/v1'and decision.get('project_root')==str(root.resolve())
+             and all(human.get('thread',{}).get(k)==hq[v]for k,v in {'id':'task_id','cwd':'cwd'}.items())and h.get('thread_id')==hq['task_id']
+             and len(selected)==1 and ''.join(c.get('text','')for c in selected[0].get('content',[])if c.get('type')=='text').rstrip('\r\n')==h.get('exact_text')
+             and any(x.get('owner')==x.get('executor')==role for x in decision.get('work',[])), 'actual bounded HQ human/owner closeout, not caller metadata authority')
+        originals=[]
+        for path in safe_path(root,'logs/department-outbox').glob(task+'-*.json'):
+            old=read_json(path);auth=old.get('owner_authorization',{})
+            if (old.get('task_id')!=task or old.get('department')!=role or old.get('candidate_version')==outbox.get('candidate_version')
+                    or auth.get('original_authority_path')!=source['owner_direct_authorization']['path']or auth.get('automation_id')!=source['automation_id']):continue
+            for pin in old.get('evidence',[]):
+                if not pin.get('path','').endswith('/candidate-manifest.json'):continue
+                value=doc(pin);video=value.get('candidate_video',{})
+                if (value.get('task_id')==task and value.get('run_id')==manifest['run_id']and video.get('sha256')==outbox.get('original_video_sha256')
+                        and value.get('candidate_version')==old.get('candidate_version')):originals.append((file_digest(root,str(path.relative_to(root))),old,pin,value))
+        need(len(originals)==1,'one immutable original V2/video run; new content is not delivery metadata')
+        old_pin,old,original_manifest_pin,original_manifest=originals[0];video=original_manifest['candidate_video'];need(file_digest(root,video['path'])==video,'original video still exact')
+        chat=old.get('chat_reply',{});proofs=[p for p in old.get('evidence',[])if p.get('path')==chat.get('evidence_path')];need(len(proofs)==1,'original owner video proof')
+        proof=doc(proofs[0]);msg=proof.get('message',{});fixed=department_registry(root)[role]['chat_binding']
+        need(proof.get('thread',{}).get('id')==fixed['task_id']and proof.get('thread',{}).get('cwd')==str(root.resolve())
+             and msg.get('id')==chat.get('message_id')and msg.get('type')=='agentMessage'and msg.get('phase')in {'commentary','final_answer'}
+             and proof.get('turn_id')==chat.get('turn_id')and hashlib.sha256(msg.get('text','').encode()).hexdigest()==chat.get('sha256')
+             and video['sha256']in msg.get('text','')and task in msg.get('text',''), 'real original fixed owner video SHA/UTF8/turn; no fabricated completion')
+        delivered=manifest.get('video',{});need(delivered in evidence and delivered.get('sha256')==video['sha256']==outbox.get('original_video_sha256')and delivered.get('size')==video['size'],'same original delivered video')
+        frozen={p['path']:p for p in original_manifest.get('core_files',[])};frozen[video['path']]=video
+        pairs=manifest.get('files',[]);need(isinstance(pairs,list)and pairs,'actual source/delivery copy relation');folder=safe_path(root,manifest_pin['path']).parent
+        for pair in pairs:
+            src,dst=pair['source'],pair['delivery'];need(src.get('sha256')==dst.get('sha256')and src.get('size')==dst.get('size')
+                 and file_digest(root,src['path'])==src and file_digest(root,dst['path'])==dst and safe_path(root,dst['path']).is_relative_to(folder)
+                 and (src['path']not in frozen or src==frozen[src['path']]), 'all copies match actual source and original frozen content')
+        need(any(p['source']==video and p['delivery']==delivered for p in pairs),'actual unchanged video copy')
+        at=_parse_observed_at(manifest.get('at'));decided=_parse_observed_at(decision.get('at_UTC'));old_report=_parse_observed_at(old.get('reported_at_myt'))
+        need(at is not None and decided is not None and old_report is not None and old_report<=decided<=at,'original production -> owner closeout -> actual delivery chronology')
+        extra={'original_outbox':old_pin,'original_candidate_manifest':original_manifest_pin,'current_closeout_authority':current}
+    else:
+        need(outbox.get('source_automation_id')==source['automation_id'],'new series run explicitly retains admitted automation')
+        manifests=[(p,x)for p,x in documents if x.get('task_id')==task and x.get('owner')==role and isinstance(x.get('video'),dict)and isinstance(x.get('files'),list)and x.get('created_at')]
+        need(len(manifests)==1,'one actual pinned series run manifest');manifest_pin,manifest=manifests[0];run=manifest.get('run_id');video=manifest['video'];at=_parse_observed_at(manifest.get('created_at'))
+        need(isinstance(run,str)and re.fullmatch(r'production-\d{8}-v[1-9]\d*',run)and outbox.get('candidate_version','').split('-render-',1)[0]==run
+             and video in evidence and file_digest(root,video['path'])==video and ('/'+task+'/'+run+'/')in video['path']
+             and at is not None and at.astimezone(tz).strftime('%Y%m%d')==run.split('-')[1], 'actual same run date/video/manifest, not stable task date or caller flag')
+        extra={}
+    report=_parse_observed_at(outbox.get('reported_at_myt'));need(report is not None and at<=report,'actual package precedes reported delivery')
+    return {'automation_id':source['automation_id'],'transport_day':at.astimezone(tz).strftime('%Y%m%d'),
+            'source_kind':'unchanged_local_delivery_metadata'if metadata else'original_series_run',
+            'owner_authority':source['owner_direct_authorization'],'owner_native':source['owner_native_source'],
+            'manifest':manifest_pin,'original_run_id':manifest['run_id'],'video':manifest.get('video'),**extra,
+            'transport_only':True,'external_permission_issued':False}
+
+
 def _validate_scheduled_result(root: Path, request: dict[str, Any], outbox: dict[str, Any],
                                fixed_id: str) -> dict[str, Any]:
     source = scheduled_result_source(root, request["task_id"], request["sender_department"])
@@ -7959,6 +8053,8 @@ def _validate_scheduled_result(root: Path, request: dict[str, Any], outbox: dict
     match = re.fullmatch(source["task_id_pattern"], request["task_id"])
     local_tz = dt.timezone(dt.timedelta(hours=8))
     day = (match.groupdict().get("date") if match else None)
+    series=_scheduled_series_local_delivery(root,request,outbox,source)
+    if series is not None:day=series['transport_day']
     if day is None and match and report_at is not None:
         day = report_at.astimezone(local_tz).strftime("%Y%m%d")
     if (not day or request.get("source_automation_id") != source.get("automation_id")
@@ -7989,7 +8085,7 @@ def _validate_scheduled_result(root: Path, request: dict[str, Any], outbox: dict
         if request.get('result_source_phase')=='delivery_ready':
             from goal_continuity import ready_source
             proof=ready_source(root,request,fixed_id,scheduled=True)
-            return {**source,'frozen_delivery_source':proof}
+            return {**source,'frozen_delivery_source':proof,**({'declared_series_delivery':series}if series else {})}
         from goal_delivery_runtime import _native_document, _collaboration_final_message
         completion = _native_document(root, request.get("actual_native_completion"))
         if autonomous_daily:
@@ -8008,7 +8104,7 @@ def _validate_scheduled_result(root: Path, request: dict[str, Any], outbox: dict
                 or raw != message["text"].encode("utf-8")
                 or hashlib.sha256(raw).hexdigest() != request["source_reply_sha256"]):
             raise WorkflowError("actual daily final thread/turn/message and exact UTF-8 reply required; commentary is not completion")
-    return source
+    return {**source,**({'declared_series_delivery':series}if series else {})}
 
 
 def _original_a3_partial_final(root: Path, request: dict[str, Any], native: dict[str, Any],

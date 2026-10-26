@@ -332,7 +332,76 @@ def validate_related_tests(root,base,parent,item):
            and hashlib.sha256(web.git(ctx,'show',ctx['commit']+':'+path)).hexdigest()==parent['paths'][path],'original production/source bytes unchanged')
     return {**ctx,'paths':{**parent['paths'],**{x:hashlib.sha256(web.git(ctx,'show',ctx['commit']+':'+x)).hexdigest()for x in paths}},'increment_source_mode':'related_test_assertions','related_assertion_line_count':changed}
 
+def fixture_isolation_only(before,after):
+    """Keep every scenario byte; align one SUT import with reset and cleanup."""
+    marker='\ndescribe(';need(before.count(marker)==after.count(marker)==1,'one complete original scenario suite')
+    prefix,scenarios=before.split(marker,1);new_prefix,new_scenarios=after.split(marker,1)
+    count=len(re.findall(r'(?m)^\s*it\(',scenarios));need(scenarios==new_scenarios and count>0,'every original test body/assertion/timeout remains byte-identical')
+    imports=list(re.finditer(r'(?m)^import ([A-Za-z_$][\w$]*) from "(\./[\w/-]+)";\n',prefix))
+    need(len(imports)==1,'one original relative SUT import');match=imports[0];name,module=match[1],match[2]
+    roots=list(re.finditer(r'(?m)^let ([A-Za-z_$][\w$]*): Root;\n',prefix));need(len(roots)==1,'one original React test root');root=roots[0][1]
+    mocks=[line for line in prefix.splitlines(True)if 'vi.doMock('in line];need(len(mocks)==1 and prefix.count('beforeEach(() => {')==1,'original mock and module-reset fixture')
+    teardown=re.search(r'(?m)^afterEach\(async \(\) => \{ await act\(async \(\) => '+re.escape(root)+r'\.unmount\(\)\); (.+) \}\);\n',prefix)
+    need(teardown is not None and 'vi.resetModules();'in prefix,'original per-case module reset and teardown')
+    replacement=('afterEach(async () => {\n  await act(async () => { '+root+'.unmount(); await vi.dynamicImportSettled(); });\n  '+teardown[1]+'\n});\n')
+    expected=prefix.replace(match[0],'',1).replace(roots[0][0],'let '+name+': typeof import("'+module+'").default;\n'+roots[0][0],1)
+    expected=expected.replace('beforeEach(() => {','beforeEach(async () => {',1).replace(mocks[0],mocks[0]+'  '+name+' = (await import("'+module+'")).default;\n',1).replace(teardown[0],replacement,1)
+    need(expected==new_prefix,'only reset-aligned SUT import and awaited unmount/import settling; all other fixture bytes exact')
+    return count
+
+def validate_fixture_successor(root,base,parent,item):
+    import professional_web_execution as web,goal_delivery_runtime as g,shlex
+    need(base.get('code_only_release')and parent.get('ordinary_increment')and item.get('task_id')==base['task']and item.get('scope')==base['scope']
+         and item.get('original_source_registration')==base['registration']and same(root,item.get('parent_increment_source'),parent['increment_registration']),'same original source/task/scope and actual registered parent')
+    page=g._native_document(root,item['actual_completed_native'])
+    for command in (item['source_command'],item['CI_facts_command'],item['full_test_readback_command']):
+        current=[m for turn in page.get('turns',[])for m in turn.get('items',[])if m.get('id')==command]
+        need(len(current)==1 and w._completion_execution_output(current[0])==ordinary_native(root,base,item,command),'both original and actual completed native outputs must be complete and byte-identical')
+    data=web.code_document(root,item['source_bundle']);typed=web.external(root,data['candidate'],base['binding']);output=json.loads(ordinary_native(root,base,item,item['source_command']))
+    need(output.get('candidate')==data['candidate']and output.get('checks')==typed.get('local_checks')and data.get('task_id')==typed.get('task_id')==base['task']
+         and data.get('scope')==typed.get('scope')==base['scope']and data.get('business_owner')==base['owner']and data.get('executor')==base['role']
+         and data.get('original_HQ_decision_sha256')==base['decision']['sha256'],'real completed WEB binds the exact typed fixture source and original authority')
+    ctx={**parent,'commit':typed['head'],'git_parent':typed['candidate_parent'],'base':typed['candidate_base'],'tree':typed['tree']}
+    need(ctx['git_parent']==parent['commit']and ctx['base']==parent['base']and typed['branch']==base['branch']and typed['worktree']==base['worktree']
+         and all(data.get(k)==ctx[v]and output.get('base'if k=='integration_base'else k)==ctx[v]for k,v in {'head':'commit','parent':'git_parent','integration_base':'base','tree':'tree'}.items())
+         and web.git(ctx,'show','-s','--format=%H %P %T',ctx['commit']).decode().strip()==' '.join([ctx['commit'],ctx['git_parent'],ctx['tree']]),'actual linear head/parent/tree and original worktree/branch/base')
+    path=data.get('increment_path');need(path==typed.get('increment_path')and re.fullmatch(r'src/[\w/.-]+\.test\.tsx?',str(path))
+         and path not in parent['paths']and set(web.git(ctx,'diff','--name-only',ctx['git_parent'],ctx['commit']).decode().splitlines())=={path},'one exact existing related test only')
+    before=web.git(ctx,'show',ctx['git_parent']+':'+path);after=web.git(ctx,'show',ctx['commit']+':'+path);count=fixture_isolation_only(before.decode(),after.decode())
+    blob=data['test_blob'];need(blob==typed['test_blob']and blob['before_sha256']==hashlib.sha256(before).hexdigest()and blob['after_sha256']==hashlib.sha256(after).hexdigest()
+         and blob['before']==web.git(ctx,'rev-parse',ctx['git_parent']+':'+path).decode().strip()and blob['after']==web.git(ctx,'rev-parse',ctx['commit']+':'+path).decode().strip()
+         and web.git(ctx,'ls-tree',ctx['git_parent'],'--',path).split()[0]==web.git(ctx,'ls-tree',ctx['commit'],'--',path).split()[0],'actual exact before/after blob, mode and content hashes')
+    unchanged=data['unchanged_18_blobs'];need(unchanged==typed['original18_blobs']and {x['path']for x in unchanged}==set(parent['paths']),'complete original parent source set')
+    for x in unchanged:
+        need(x['parent_blob']==x['head_blob']==web.git(ctx,'rev-parse',ctx['commit']+':'+x['path']).decode().strip()
+             and hashlib.sha256(web.git(ctx,'show',ctx['commit']+':'+x['path'])).hexdigest()==parent['paths'][x['path']],'all prior production and source/test bytes unchanged')
+    artifacts=data['source_patches'];need(artifacts==typed['source_patches']and output['increment_source_patches']==artifacts[:2]and len(artifacts)==4,'exact original incremental/cumulative recovery sources')
+    for pin,(left,right)in zip(artifacts,[(ctx['git_parent'],ctx['commit']),(ctx['commit'],ctx['git_parent']),(ctx['base'],ctx['commit']),(ctx['commit'],ctx['base'])]):
+        need(web._external_bytes(pin,base['binding'])==web.git(ctx,'diff','--no-ext-diff','--binary','--full-index',left,right),'exact Git forward/reverse bytes')
+    facts=json.loads(ordinary_native(root,base,item,item['CI_facts_command']));runs=[x for x in facts.get('runs',[])if x.get('path')==web.CODE_CI_PATHS['interaction-standards']and x.get('head_sha')==parent['commit']and x.get('status')=='completed'and x.get('conclusion')=='failure']
+    failure=web.code_document(root,item['actual_failure'])
+    need(len(runs)==1 and failure.get('head')==facts['PR']['head']==parent['commit']and failure.get('run')==runs[0]['id']
+         and facts['PR']['number']==parent['existing_pull_number']and path in failure.get('filtered_error_and_surrounding_lines','')
+         and any(x.get('id')==failure.get('job')and x.get('head_sha')==parent['commit']and x.get('conclusion')=='failure'for x in facts.get('checks',[])),'actual official parent failure for this test and existing PR')
+    scenario=web.external(root,data['all_four_scenarios_unchanged'],base['binding'])
+    need(scenario.get('path')==path and scenario.get('before_sha256')==blob['before_sha256']and scenario.get('candidate_sha256')==blob['after_sha256']and scenario.get('scenario_count')==count,'independently recomputed complete scenario relation')
+    logs=typed['local_checks']['evidence'];page=g._native_document(root,item['actual_completed_native'])
+    for log in logs:web._external_bytes(log,base['binding'])
+    full=next(x for x in logs if 'FULL-SUITE'in x['path']);lint=next(x for x in logs if 'LINT'in x['path'])
+    for command,expected in [(item['full_test_command'],['npm','test','>',full['path'],'2>&1']),(item['lint_command'],['npx','eslint',path,'>',lint['path'],'2>&1'])]:
+        pairs=[(t,m)for t in page['turns']for m in t['items']if m.get('id')==command];need(len(pairs)==1,'one actual test/lint execution');turn,cmd=pairs[0];shell=shlex.split(cmd.get('command',''))
+        need(turn.get('status')=='completed'and not turn.get('error')and cmd.get('type')=='commandExecution'and cmd.get('status')=='completed'and cmd.get('exitCode')==0
+             and shell[:2]==['/bin/zsh','-lc']and len(shell)==3 and shlex.split(shell[2])==expected and Path(cmd.get('cwd','')).resolve()==Path(ctx['worktree']).resolve(),'real successful check with no ignored failure; local Node version never proves official new-head CI')
+    readback=ordinary_native(root,base,item,item['full_test_readback_command']);total=typed['local_checks']['full_tests_passed']
+    need(re.search(rb'Tests\s+'+str(total).encode()+rb' passed',readback)and re.search(rb'Tests\s+'+str(total).encode()+rb' passed',web._external_bytes(full,base['binding'])),'real complete local passing log/readback')
+    need(set(typed['cumulative_paths'])==set(parent['paths'])|{path}==set(web.git(ctx,'diff','--name-only',ctx['base'],ctx['commit']).decode().splitlines()),'original full source plus exact fixture path only')
+    return {**ctx,'paths':{**parent['paths'],path:hashlib.sha256(after).hexdigest()},'increment_source_mode':'related_test_fixture_isolation','unchanged_scenario_count':count}
+
 def _validate_item(root,base,item,values):
+    if item.get('schema')==ORD_SCHEMA and item.get('kind')=='related_test_fixture_isolation':
+        parents=[v for v in values if same(root,v.get('increment_registration'),item.get('parent_increment_source'))]
+        need(len(parents)==1,'one existing exact ordinary parent')
+        return validate_fixture_successor(root,base,parents[0],item),ORD_EVENT
     if item.get('schema')==ORD_SCHEMA and item.get('kind')=='related_test_assertions':
         parents=[v for v in values if same(root,v.get('increment_registration'),item.get('parent_increment_source'))]
         need(len(parents)==1,'one real previously registered ordinary successor')

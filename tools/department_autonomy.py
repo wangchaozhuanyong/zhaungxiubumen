@@ -1125,8 +1125,9 @@ def native_result(root,request,fixed_id):
  require(box.get('candidate_version')==request['candidate_version'],'exact candidate version required')
  daily_proof={}
  if daily is not None:
+  series=w._scheduled_series_local_delivery(root,request,box,daily)if box.get('source_automation_id')is None else None
   require(box.get('delivery_model')==MODE and box.get('fixed_chat_task_id')==fixed_id
-   and box.get('source_automation_id')==daily['automation_id']
+   and (box.get('source_automation_id')==daily['automation_id']or series is not None and series.get('source_kind')=='unchanged_local_delivery_metadata')
    and box.get('status')not in {None,'','active','in_progress','pending'},'same original declared daily V2 result identity and finite scope required')
   require(isinstance(box.get('evidence'),list)and box['evidence']
    and all(isinstance(p,dict)and w.file_digest(root,p.get('path',''))==p for p in box['evidence']),
