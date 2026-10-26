@@ -492,7 +492,180 @@ def validate_cold_boundary(root,base,parent,item):
     need(cumulative==set(data['cumulative_paths'])==set(typed['cumulative_paths'])and cumulative<=set(parent['paths'])|paths,'exact complete cumulative scope; no unrelated new path')
     return {**ctx,'paths':{path:hashlib.sha256(web.git(ctx,'show',ctx['commit']+':'+path)).hexdigest()for path in cumulative},'increment_source_mode':'cold_module_boundary_relocation','cold_semantics':relation,'local_budget_headroom_bytes':budget-relation['initial_js_gzip_bytes']}
 
+DEFERRED_COMPONENT_READER = r'''
+const fs=require('node:fs'),path=require('node:path'),zlib=require('node:zlib');
+const ts=require(process.argv[1]),v=JSON.parse(fs.readFileSync(0,'utf8'));
+const need=(b,s)=>{if(!b)throw Error(s)};
+const parse=(s,n)=>{const f=ts.createSourceFile(n,s,ts.ScriptTarget.Latest,true,n.endsWith('.tsx')?ts.ScriptKind.TSX:ts.ScriptKind.JS);need(f.parseDiagnostics.length===0,'complete valid static source');return f};
+const tokens=s=>{const x=ts.createScanner(ts.ScriptTarget.Latest,true,ts.LanguageVariant.JSX,s);let out=[],k;while((k=x.scan())!==ts.SyntaxKind.EndOfFileToken)out.push([k,x.getTokenText()]);return JSON.stringify(out)};
+const b=parse(v.before,'before.tsx'),a=parse(v.after,'after.tsx');
+const imports=b.statements.filter(x=>ts.isImportDeclaration(x)&&x.importClause?.name);
+let matches=[];
+for(const x of imports){const name=x.importClause.name.text,p=x.moduleSpecifier.text;
+ const decls=a.statements.filter(s=>ts.isVariableStatement(s)&&s.declarationList.declarations.length===1&&s.declarationList.declarations[0].name.getText(a)===name);
+ if(decls.length!==1)continue;const decl=decls[0],init=decl.declarationList.declarations[0].initializer;
+ if(!ts.isCallExpression(init)||init.expression.getText(a)!=='lazy'||init.arguments.length!==1)continue;
+ const arrow=init.arguments[0];if(!ts.isArrowFunction(arrow)||arrow.parameters.length!==0||!ts.isCallExpression(arrow.body)||arrow.body.expression.kind!==ts.SyntaxKind.ImportKeyword||arrow.body.arguments.length!==1||!ts.isStringLiteral(arrow.body.arguments[0])||arrow.body.arguments[0].text!==p)continue;
+ let old=[],wrap=[];function walk(n,arr,pred){if(pred(n))arr.push(n);ts.forEachChild(n,c=>walk(c,arr,pred))}
+ walk(b,old,n=>ts.isJsxSelfClosingElement(n)&&n.tagName.getText(b)===name);
+ walk(a,wrap,n=>ts.isJsxElement(n)&&n.openingElement.tagName.getText(a)==='Suspense'&&n.closingElement.tagName.getText(a)==='Suspense'&&n.openingElement.attributes.getText(a)==='fallback={null}'&&n.children.filter(c=>!ts.isJsxText(c)||c.getText(a).trim()).length===1&&n.children.some(c=>ts.isJsxSelfClosingElement(c)&&c.tagName.getText(a)===name));
+ if(old.length!==1||wrap.length!==1)continue;const child=wrap[0].children.find(c=>ts.isJsxSelfClosingElement(c));
+ need(old[0].getText(b)===child.getText(a),'all original component props/expression byte-identical');
+ const without=s=>s.slice(0,x.getStart(b))+s.slice(x.end);
+ let rebuilt=v.after.slice(0,wrap[0].getStart(a))+old[0].getText(b)+v.after.slice(wrap[0].end);
+ // The declaration is before the mount, so its original offsets still apply.
+ rebuilt=rebuilt.slice(0,decl.getStart(a))+rebuilt.slice(decl.end);
+ need(tokens(without(v.before))===tokens(rebuilt),'only existing default import to lazy/Suspense; preserve every other token');
+ need(b.statements.some(s=>ts.isImportDeclaration(s)&&s.moduleSpecifier.text==='react'&&s.importClause?.namedBindings?.elements?.some(e=>e.name.text==='lazy'))&&b.statements.some(s=>ts.isImportDeclaration(s)&&s.moduleSpecifier.text==='react'&&s.importClause?.namedBindings?.elements?.some(e=>e.name.text==='Suspense')),'reuse original React lazy and Suspense');
+ matches.push({component:name,module:p});}
+need(matches.length===1,'one existing component deferred mount relation');
+const tb=parse(v.test_before,'before.test.tsx'),ta=parse(v.test_after,'after.test.tsx');
+const suite=f=>f.statements.filter(s=>ts.isExpressionStatement(s)&&ts.isCallExpression(s.expression)&&s.expression.expression.getText(f)==='describe');
+const sb=suite(tb),sa=suite(ta);need(sb.length===sa.length&&sb.length===1,'same one existing regression suite');
+const ob=sb[0].expression.arguments.at(-1).body,oa=sa[0].expression.arguments.at(-1).body;
+need(ts.isBlock(ob)&&ts.isBlock(oa)&&oa.statements.length===ob.statements.length+1,'append one parameterized regression only');
+let current=[...oa.statements],added=current.filter(n=>!ob.statements.some(o=>o.getText(tb)===n.getText(ta)));
+need(added.length===1&&ob.statements.every((o,i)=>current.filter(n=>n!==added[0])[i].getText(ta)===o.getText(tb)),'all original tests and assertions byte-identical');
+const n=added[0];need(ts.isExpressionStatement(n)&&ts.isCallExpression(n.expression)&&ts.isCallExpression(n.expression.expression)&&n.expression.expression.expression.getText(ta)==='it.each','new regression cannot skip/todo/replace old tests');
+const values=n.expression.expression.arguments[0];need(ts.isAsExpression(values)&&ts.isArrayLiteralExpression(values.expression)&&values.expression.elements.length===2&&values.expression.elements.every(ts.isStringLiteral),'two concrete read-feedback surfaces');
+need(n.getText(ta).includes('lazy(')&&n.getText(ta).includes('<Suspense fallback={null}>')&&n.getText(ta).includes('vi.dynamicImportSettled()')&&n.getText(ta).includes('expect('),'actual late-mount/recovery regression');
+let withoutTest=v.test_after.slice(0,n.getStart(ta))+v.test_after.slice(n.end);
+// Reuse only the old React import plus lazy/Suspense. Other imports remain exact.
+const ri=f=>f.statements.filter(s=>ts.isImportDeclaration(s)&&s.moduleSpecifier.text==='react');const rb=ri(tb),ra=ri(ta);
+need(rb.length===ra.length&&rb.length===1,'same existing React test import');
+const names=x=>x.importClause.namedBindings.elements.map(e=>e.getText());
+need(JSON.stringify(names(ra[0]).filter(x=>!['lazy','Suspense'].includes(x)))===JSON.stringify(names(rb[0]))&&names(ra[0]).filter(x=>x==='lazy').length===1&&names(ra[0]).filter(x=>x==='Suspense').length===1,'only two required React test import additions');
+withoutTest=withoutTest.slice(0,ra[0].getStart(ta))+rb[0].getText(tb)+withoutTest.slice(ra[0].end);
+need(tokens(v.test_before)===tokens(withoutTest),'test scaffold/imports/assertions unchanged');
+const graph=dir=>{const html=fs.readFileSync(path.join(dir,'index.html'),'utf8');const refs=[...new Set([...html.matchAll(/(?:src|href)=["'](\/assets\/[^"']+\.js)["']/g)].map(x=>x[1]))],seen=new Set(),queue=[...refs],rows=[];
+ while(queue.length){const ref=queue.shift();if(seen.has(ref))continue;seen.add(ref);need(/^\/assets\/[A-Za-z0-9_.-]+\.js$/.test(ref),'bounded original static JS asset');const raw=fs.readFileSync(path.join(dir,ref.slice(1))),f=parse(raw.toString(),ref);
+  for(const s of f.statements)if((ts.isImportDeclaration(s)||ts.isExportDeclaration(s))&&s.moduleSpecifier&&ts.isStringLiteral(s.moduleSpecifier)){const p=s.moduleSpecifier.text;need(p.startsWith('./'),'local static import only');queue.push(path.posix.join(path.posix.dirname(ref),p))}
+  rows.push({ref,bytes:raw.length,gzip:zlib.gzipSync(raw).length});}
+ return {gzip:rows.reduce((n,x)=>n+x.gzip,0),rows};};
+const before=graph(v.build_before),after=graph(v.build_after);process.stdout.write(JSON.stringify({...matches[0],new_cases:2,old_assertions:'BYTE_IDENTICAL',before,after,saving:before.gzip-after.gzip}));
+'''
+
+def deferred_component_semantics(before,after,test_before,test_after,compiler,build_before,build_after):
+    """Read syntax/build bytes only; never execute website/verifier source."""
+    import subprocess,shutil
+    node=shutil.which('node')
+    need(node,'existing Node runtime required; no dependency installation')
+    value={'before':before,'after':after,'test_before':test_before,'test_after':test_after,
+           'build_before':str(build_before),'build_after':str(build_after)}
+    result=subprocess.run([node,'-e',DEFERRED_COMPONENT_READER,str(compiler)],input=json.dumps(value),capture_output=True,text=True,timeout=30)
+    need(result.returncode==0,'existing-component deferred boundary rejected: '+result.stderr[-1800:])
+    return json.loads(result.stdout)
+
+def validate_published_deferred_component(root,base,parent,item):
+    """Same authorized WEB may repair an existing mount on its real published base.
+
+    This is an append-only source relation, not a Git/network operation or permit.
+    Component names, source IDs and commits derive from authenticated original data.
+    """
+    import professional_web_execution as web,goal_delivery_runtime as g
+    need(base.get('code_only_release')and parent.get('ordinary_increment')and item.get('schema')==ORD_SCHEMA
+         and item.get('task_id')==base['task']and item.get('scope')==base['scope']
+         and item.get('original_source_registration')==base['registration']
+         and same(root,item.get('parent_increment_source'),parent.get('increment_registration')),'same original owner/task/scope and actual adopted predecessor')
+    typed=web.external(root,item['typed_candidate'],base['binding']);report=web.external(root,item['source_bundle'],base['binding'])
+    frozen=web.external(root,item['frozen_manifest'],base['binding'])
+    need(frozen.get('report')==item['source_bundle']and item['typed_candidate']in frozen.get('pins',[])
+         and report.get('task_id')==typed.get('task_id')==base['task']and report.get('scope')==typed.get('scope')==base['scope']
+         and report.get('primary_business_owner')==base['owner']and report.get('department')==base['role']
+         and report.get('original_authority',{}).get('sha256')==base['decision']['sha256'],'complete real original professional frozen source, not caller labels')
+    actual=ordinary_native(root,base,item,item['source_command']).decode();offset=actual.find('{')
+    need(offset>=0,'actual typed source command output required')
+    value,end=json.JSONDecoder().raw_decode(actual[offset:]);need(value==typed and not actual[offset+end:].strip(),'real complete native output binds unchanged candidate')
+    page=g._native_document(root,item['actual_completed_native'])
+    def completed_output(command):
+        pairs=[(t,m)for t in page.get('turns',[])for m in t.get('items',[])if m.get('id')==command]
+        need(len(pairs)==1,'one actual complete original professional command');turn,cmd=pairs[0]
+        need(turn.get('status')=='completed'and not turn.get('error')and cmd.get('type')=='commandExecution'
+             and cmd.get('status')=='completed'and cmd.get('exitCode')==0
+             and Path(cmd.get('cwd','')).resolve().is_relative_to(Path(base['binding']['cwd']).resolve()),'actual successful original-project report/readback command')
+        return w._completion_execution_output(cmd)
+    output=json.loads(completed_output(item['report_command']))
+    need(output.get('report')==item['source_bundle']and output.get('freeze')==item['frozen_manifest']and output.get('head')==typed.get('head'),'real completed professional report/source pin relation')
+    ctx={**parent,'commit':typed['head'],'git_parent':typed['parent'],'base':typed['candidate_base'],'tree':typed['tree']}
+    need(ctx['base']==ctx['git_parent']and typed.get('worktree')==base['worktree']and typed.get('branch')==base['branch']
+         and web.git(ctx,'show','-s','--format=%H %P %T',ctx['commit']).decode().strip()==' '.join([ctx['commit'],ctx['git_parent'],ctx['tree']])
+         and web.git(ctx,'merge-base',parent['commit'],ctx['base']).decode().strip()==parent['commit']
+         and not web.git(ctx,'diff','--name-only',parent['commit'],ctx['base']).strip(),'actual parent equals own published source tree; no unrelated integration')
+    policies=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('decision_id')==item.get('published_merge_policy')]
+    need(len(policies)==1,'one real original merge policy');policy=policies[0];req=a.document(root,policy.get('exact_request'))
+    need(policy.get('status')=='allow'and policy.get('department')==base['role']and policy.get('delegated_HQ_decision')==base['decision']
+         and req.get('task_id')==base['task']and req.get('operation')=='merge'and req.get('state',{}).get('candidate_commit')==parent['commit'],
+         'real own exact authorized predecessor merge required')
+    calls=[m for t in page.get('turns',[])for m in t.get('items',[])if m.get('id')==item.get('merge_invocation_id')]
+    need(len(calls)==1,'one actual original merge invocation');call=calls[0]
+    args=call.get('arguments',{});pr=req['state']['pull_request']
+    need(call.get('type')=='mcpToolCall'and call.get('tool')=='github.merge_pull_request'and call.get('status')=='completed'and not call.get('error')
+         and args.get('repository_full_name')==base['repository']and args.get('expected_head_sha')==parent['commit']
+         and args.get('pr_number')==pr['number']and args.get('merge_method')=='merge'and policy['decision_id']in args.get('commit_message',''),
+         'original successful merge call/actor/source, no bypass or invented effect')
+    merged=web.external(root,item['merge_result'],base['binding'])
+    need(item['merge_result']in frozen['pins']and merged.get('arguments')==args and merged.get('policy')==policy['decision_id']
+         and merged.get('merge_main_sha')==ctx['base']and merged.get('actual_result',{}).get('structuredContent',{}).get('sha')==ctx['base']
+         and merged['actual_result']['structuredContent'].get('merged')is True and not merged['actual_result'].get('isError'),
+         'exact original successful merge response and own published main')
+    published=[json.loads(line)for line in completed_output(item['published_readback_command']).decode().splitlines()if line.startswith('{')]
+    need(len(published)==2,'original production run/version and measured byte output required');release,measurement=published
+    runs=[x for x in release.get('runs',[])if x.get('path')==web.PAGES and x.get('head_sha')==ctx['base']and x.get('status')=='completed'and x.get('conclusion')=='success'and x.get('event')=='push']
+    need(len(runs)==1 and release.get('main')==release.get('expected')==ctx['base']and release.get('public_version',{}).get('status')==200
+         and release['public_version']['body'].get('deploymentVersion')==ctx['base']and measurement.get('version_stable')is True
+         and all(measurement.get(k,{}).get('deploymentVersion')==ctx['base']for k in ('version_before','version_after')),'real own already-published base, not proposed main/run')
+    proof_pin=item['semantic_proof'];proof=web.external(root,proof_pin,base['binding']);need(proof_pin in frozen['pins']and proof.get('base')==ctx['base'],'exact frozen original semantic/build source')
+    files=typed.get('files',[]);paths={f['path']for f in files};workflow=web.CODE_CI_PATHS['r3-managed-cms-pr-checks']
+    production=[p for p in paths if p.endswith('.tsx')and'.test.'not in p];tests=[p for p in paths if p.endswith('.test.tsx')]
+    need(len(paths)==len(files)==3 and len(production)==len(tests)==1 and paths=={workflow,*production,*tests}
+         and production[0]in parent['paths']and paths==set(typed.get('delta_paths_from_actual_main',[]))==set(web.git(ctx,'diff','--name-only',ctx['base'],ctx['commit']).decode().splitlines()),'one existing production mount, its regression and original PR path coverage only')
+    before_source=web.external(root,item['before_source'],base['binding']);need(item['before_source']in frozen['pins']and before_source.get('base')==ctx['base'],'exact original source backups')
+    for f in files:
+        path=f['path'];old=web.git(ctx,'ls-tree',ctx['base'],'--',path).split();new=web.git(ctx,'ls-tree',ctx['commit'],'--',path).split();raw=web.git(ctx,'show',ctx['commit']+':'+path)
+        need(old and new and old[0]==new[0]==b'100644'and new[2].decode()==f['blob']and hashlib.sha256(raw).hexdigest()==f['sha256']and len(raw)==f['size'],'real exact existing Git source mode/blob/SHA')
+        backups=[p for p in before_source.get('before',[])if p['path'].endswith('/before/'+path)]
+        need(len(backups)==1 and web._external_bytes(backups[0],base['binding'])==web.git(ctx,'show',ctx['base']+':'+path)
+             and web._external_bytes({'path':f['backup'],'sha256':f['sha256'],'size':f['size']},base['binding'])==raw,'complete exact before/candidate backup bytes')
+    for key,left,right in [('forward',ctx['base'],ctx['commit']),('inverse',ctx['commit'],ctx['base'])]:
+        options=['-R',right,left]if key=='inverse'else[left,right]
+        need(web._external_bytes(typed[key],base['binding'])==web.git(ctx,'diff','--no-ext-diff','--binary','--full-index',*options),'exact own source-only forward/inverse; no platform rollback permission')
+    def text(commit,path):return web.git(ctx,'show',commit+':'+path).decode()
+    ci_paths_only(text(ctx['base'],workflow),text(ctx['commit'],workflow),sorted(production+tests))
+    protected=proof.get('protected_source_sha256',[]);need(protected and len({p['path']for p in protected})==len(protected)and not(paths&{p['path']for p in protected}),'exact unchanged protected implementation, source and controls')
+    for p in protected:
+        prior=web.git(ctx,'show',ctx['base']+':'+p['path']);raw=web.git(ctx,'show',ctx['commit']+':'+p['path']);need(prior==raw and hashlib.sha256(raw).hexdigest()==p['sha256'],'protected bytes cannot change for a budget repair')
+    required={'package.json','package-lock.json','vite.config.ts','scripts/verify-performance-budget.mjs','scripts/lib/performance-budget.mjs'}
+    need(required<={p['path']for p in protected},'original dependency/build/budget controls required')
+    code=text(ctx['commit'],'scripts/verify-performance-budget.mjs');unit=re.search(r'const\s+kib\s*=\s*(\d+)',code);limit=re.search(r'initialJsGzip:\s*(\d+)\s*\*\s*kib',code)
+    need(unit and limit,'original literal byte limit required');budget=int(unit[1])*int(limit[1])
+    need(measurement.get('initial_js_gzip_bytes',0)>measurement.get('budget')==budget and typed['actual_production_budget_before']=={'main':ctx['base'],'gzip':measurement['initial_js_gzip_bytes'],'budget':budget,'excess':measurement['initial_js_gzip_bytes']-budget},'real same-base production budget failure remains open')
+    compiler=Path(item['parser_source']['path']);canonical=Path(base['worktree'])/'node_modules/typescript/lib/typescript.js'
+    need(compiler.resolve()==canonical.resolve()and canonical.is_file(),'original fixed worktree installed parser only');web._external_bytes(item['parser_source'],base['binding'])
+    installed=json.loads((canonical.parent.parent/'package.json').read_text());locked=json.loads(text(ctx['commit'],'package-lock.json'))
+    need(installed.get('name')=='typescript'and installed.get('version')==locked['packages']['node_modules/typescript']['version'],'original locked parser identity')
+    dirs=[Path(item[k]).resolve()for k in ('build_before','build_after')];need(all(p.is_relative_to(Path(base['site']).resolve()/'reports')for p in dirs),'existing bounded build evidence only')
+    relation=deferred_component_semantics(text(ctx['base'],production[0]),text(ctx['commit'],production[0]),text(ctx['base'],tests[0]),text(ctx['commit'],tests[0]),compiler,*dirs)
+    component='src/'+relation['module'].removeprefix('@/')+'.tsx';need(component in {p['path']for p in protected},'actual deferred implementation retained byte-for-byte')
+    proof_build=proof['controlled_CI_fixture_build'];expected=typed['controlled_initial_JS'];semantic=json.loads(ordinary_native(root,base,item,item['semantic_command']))
+    need(all(relation[k]['gzip']==proof_build[k]['gzip']and sorted(relation[k]['rows'],key=lambda r:r['ref'])==sorted([{z:r[z]for z in ('ref','bytes','gzip')}for r in proof_build[k]['rows']],key=lambda r:r['ref'])for k in ('before','after'))
+         and expected=={'before':relation['before']['gzip'],'after':relation['after']['gzip'],'saving':relation['saving'],'budget':budget,'same_synthetic_CI_fixture':True}
+         and 0<relation['after']['gzip']<=budget and relation['saving']>=typed['actual_production_budget_before']['excess']
+         and semantic=={'status':'PASS','before':expected['before'],'after':expected['after'],'saving':expected['saving'],'existing_tests':'BYTE_IDENTICAL','actual_production_candidate':'NOT_DEPLOYED'},'recomputed exact build graph and original native semantic PASS; production still needs a fresh measurement')
+    out=ordinary_native(root,base,item,item['checks_readback_command']);need(re.search(rb'Tests\s+'+str(typed['targeted_tests']['passed']).encode()+rb' passed',out)and b'[performance-budget] PASS'in out,'real original affected tests/build checks')
+    # Old closed PR is a completed predecessor, not the new execution target.
+    ctx.pop('existing_pull_number',None)
+    return {**ctx,'paths':{f['path']:f['sha256']for f in files},'ordinary_increment':True,'increment_actor_id':base['actor_id'],
+            'increment_allowed_operations':base['allowed_operations'],'increment_source_mode':'existing_component_deferred_mount',
+            'increment_forward_patch':typed['forward'],'increment_inverse_patch':typed['inverse'],
+            'published_predecessor':{'commit':parent['commit'],'main':ctx['base'],'merge_policy':policy['decision_id'],'closed_PR':pr['number']},
+            'deferred_component':relation['component'],'local_budget_headroom_bytes':budget-relation['after']['gzip'],'actual_new_production_budget':'NOT_DEPLOYED'}
+
+
 def _validate_item(root,base,item,values):
+    if item.get('schema')==ORD_SCHEMA and item.get('kind')=='existing_component_deferred_mount':
+        parents=[v for v in values if same(root,v.get('increment_registration'),item.get('parent_increment_source'))]
+        need(len(parents)==1,'one original adopted published predecessor')
+        return validate_published_deferred_component(root,base,parents[0],item),ORD_EVENT
     if item.get('schema')==ORD_SCHEMA and item.get('kind')=='cold_module_boundary_relocation':
         parents=[v for v in values if same(root,v.get('increment_registration'),item.get('parent_increment_source'))]
         need(len(parents)==1,'one exact existing ordinary causal parent')
