@@ -6,6 +6,8 @@ import workflow_control as w
 import department_autonomy as a
 EVENT='professional_WEB_adopted_metadata_increment'
 SCHEMA='professional-external-WEB-adopted-metadata-increment/v1'
+CI_EVENT='professional_WEB_CI_path_successor'
+CI_SCHEMA='professional-external-WEB-CI-path-successor/v1'
 OPS={'git_push','pull_request','official_ci','merge'}
 def need(ok,msg):a.require(ok,'adopted WEB increment: '+msg)
 def same(root,p,q):
@@ -76,11 +78,97 @@ def validate(root,base,item):
     need(all(str(version[k]).encode()in output['local_commit']for k in ('commit','parent','tree'))and all(x['sha256'].encode()in output['local_commit']for x in files.values()),'real command binds actual source objects')
     when=w._parse_observed_at(adopt['decided_at_MYT']);observed=w._parse_observed_at(facts['observed_at']);need(when and observed and when.timestamp()<=last_turn['startedAt']<=observed.timestamp()<=last_turn['completedAt'],'real adoption -> WEB command -> completed chronology')
     return {**ctx,'paths':{p:files[p]['sha256']for p in paths},'adopted_increment':item,'increment_actor_id':facts['actor']['id'],'increment_source_mode':'metadata_expectations_only','increment_allowed_operations':sorted(OPS),'increment_forward_patch':version['forward_patch'],'increment_inverse_patch':version['inverse_patch']}
+def ci_paths_only(before,after,paths):
+    """Accept list entries in the PR paths block, preserving every other byte."""
+    need(paths and len(paths)==len(set(paths)),'unique adopted PR trigger paths')
+    lines=after.splitlines(keepends=True);start=lines.index('    paths:\n') if lines.count('    paths:\n')==1 else -1
+    need(start>=0 and 'on:\n' in lines[:start] and '  pull_request:\n' in lines[:start],'unambiguous original PR paths section')
+    stop=start+1
+    while stop<len(lines) and lines[stop].startswith('      '):stop+=1
+    additions={'      - '+p+'\n' for p in paths}
+    need(all(lines[start+1:stop].count(line)==1 for line in additions),'each adopted path occurs once in original PR paths')
+    prior=''.join(line for i,line in enumerate(lines)if not(start<i<stop and line in additions))
+    need(prior==before,'only adopted PR trigger entries change; jobs/Node/permissions/CMS bytes preserved')
+def patch_hunks(raw):
+    return b'\n'.join(re.sub(rb'^(@@.*?@@).*',rb'\1',line)for line in raw.splitlines()if not line.startswith((b'diff --git ',b'index ')))
+def validate_ci(root,base,parent,item):
+    import professional_web_execution as web,goal_delivery_runtime as g,goal_source_recovery as recovery
+    need(item.get('schema')==CI_SCHEMA and item.get('task_id')==base['task']and item.get('original_source_registration')==base['registration']
+         and same(root,item.get('parent_increment_source'),parent.get('increment_registration')),'actual immutable parent source and original task')
+    data=a.document(root,item.get('owner_input'));adopt_pin=data.get('business_adoption');adopt=a.document(root,adopt_pin)
+    early_pin=adopt.get('original_exact_CI_adoption');early=a.document(root,early_pin);result_pin=data.get('actual_local_successor_result');result=a.document(root,result_pin);version=result.get('actual_local_version',{})
+    need(all(d.get('task_id')==base['task']and d.get('scope')==base['scope']for d in (data,adopt,early,result))
+         and data.get('primary_owner')==adopt.get('department')==early.get('department')==base['owner']and result.get('department')==base['role']
+         and same(root,adopt.get('actual_complete_WEB_result'),result_pin)and same(root,result.get('C1_adoption'),early_pin)
+         and same(root,adopt.get('actual_WEB_completed_native'),data.get('actual_local_successor_native'))
+         and version==adopt.get('selected_local_version')==data.get('real_version_and_patches'),'original owner selection, exact same result/native/version and scope')
+    snap=g.restore_goal(root,w.read_json(w.snapshot_path(root,base['task'])));records=[a.document(root,p)for p in snap['goal_delivery'].get('collaboration_records',[])]
+    matched=[r for r in records if r.get('action_id')==result.get('received_action_id')and r.get('status')=='result_received'and same(root,r.get('result'),result_pin)]
+    states=[s for s in g._collaboration_wait_states(root,snap)if s.get('action_id')==result.get('received_action_id')and s.get('department')==base['role']and s.get('status')=='result_received'and s.get('proof_state')=='PROVEN']
+    need(len(matched)==len(states)==1,'actual original owner-to-WEB receive/ACK/completed result')
+    recovery.collaboration_queue_source(root,snap,matched[0]);req=a.document(root,matched[0]['original_prepare_request']);body=w.safe_path(root,req['payload']['path']).read_text()
+    need(req.get('sender_department')==base['owner']and req.get('target_department')==base['role']and early_pin['path']in body and early_pin['sha256']in body,'real prepared/policy/queue source for selected change')
+    original=web._external_bytes(result['first_party_native']['document'],base['binding']);custody=item.get('original_WEB_native_custody')
+    need(w.file_digest(root,custody['path'])==custody and w.validation_bytes(w.safe_path(root,custody['path']))==original,'unaltered original output; no rewritten native completion')
+    old=g._native_document(root,custody);completed=g._native_document(root,data['actual_local_successor_native']);out={};turn=None
+    for page in (old,completed):need(all(page.get('thread',{}).get(k)==base['binding'][v]for k,v in {'id':'thread_id','title':'title','cwd':'cwd'}.items()),'original external WEB fixed native identity')
+    for name,command in result['first_party_native']['commands'].items():
+        p=[(t,m)for t in old.get('turns',[])for m in t.get('items',[])if m.get('id')==command];q=[(t,m)for t in completed.get('turns',[])for m in t.get('items',[])if m.get('id')==command]
+        need(len(p)==len(q)==1,'one real original command and completed observation');t,m=p[0];turn,cm=q[0]
+        need(turn.get('status')=='completed'and not turn.get('error')and not t.get('error')and t.get('id')==turn.get('id')
+             and all(m.get(k)==cm.get(k)for k in ('id','type','status','exitCode','cwd','command'))
+             and m.get('type')=='commandExecution'and m.get('status')=='completed'and m.get('exitCode')==0
+             and Path(m.get('cwd','')).resolve()==Path(parent['worktree']).resolve(),'real successful original worktree commands, not fabricated status')
+        out[name]=w._completion_execution_output(m)
+    need({'local_commit','post_commit_remote_facts'}<=set(out),'actual commit and remote facts commands')
+    committed=[json.loads(line)for line in out['local_commit'].decode().splitlines()if line.startswith('{')]
+    need(len(committed)==1 and all(version.get(k)==v for k,v in committed[0].items()),'real command binds full selected version and patch pins')
+    ctx={**parent,'commit':version['commit'],'git_parent':version['parent'],'base':version['cumulative_base'],'tree':version['tree']}
+    need(version.get('head')==ctx['commit']and version.get('branch')==parent['branch']and version.get('worktree')==parent['worktree']
+         and ctx['git_parent']==parent['commit']and ctx['base']==parent['base']and ctx['commit']!=ctx['git_parent']
+         and web.git(ctx,'show','-s','--format=%H %P %T',ctx['commit']).decode().strip()==' '.join([ctx['commit'],ctx['git_parent'],ctx['tree']])
+         and web.git(ctx,'merge-base',ctx['base'],ctx['git_parent']).decode().strip()==ctx['base'],'real linear parent distinct from cumulative integration base; original branch/worktree')
+    selected=early['only_selected_change'];delta=adopt['adopted_only_delta'];path=selected['path'];paths=selected['add_exact_paths']
+    need(path.startswith('.github/workflows/')and path.endswith('.yml')and selected['section']==delta.get('section')=='on.pull_request.paths'
+         and delta.get('file')==path and paths==delta.get('added_exact_paths')and set(paths)==set(parent['paths'])
+         and set(web.git(ctx,'diff','--name-only',ctx['git_parent'],ctx['commit']).decode().splitlines())=={path}
+         and set(web.git(ctx,'diff','--name-only',ctx['base'],ctx['commit']).decode().splitlines())==set(parent['paths'])|{path},'exact adopted CI trigger increment and cumulative source set')
+    before=web.git(ctx,'show',ctx['git_parent']+':'+path);after=web.git(ctx,'show',ctx['commit']+':'+path)
+    need(hashlib.sha256(before).hexdigest()==selected['base_sha256']and hashlib.sha256(after).hexdigest()==selected['candidate_sha256']
+         and web._external_bytes(delta['backup_original_workflow'],base['binding'])==before
+         and web._external_bytes(delta['backup_successor_workflow'],base['binding'])==after,'actual selected workflow before/after bytes')
+    ci_paths_only(before.decode(),after.decode(),paths)
+    files={r['path']:r for r in version['files']};need(set(files)==set(parent['paths'])|{path},'exact cumulative blob manifest')
+    for p,f in files.items():
+        raw=web.git(ctx,'show',ctx['commit']+':'+p)
+        need(hashlib.sha256(raw).hexdigest()==f['sha256']and len(raw)==f['size']and web.git(ctx,'rev-parse',ctx['commit']+':'+p).decode().strip()==f['git_blob'],'actual full Git blobs and hashes')
+        if p in parent['paths']:need(f['sha256']==parent['paths'][p],'adopted target/test bytes preserved')
+    patches=version['patches'];pairs=[(ctx['git_parent'],ctx['commit']),(ctx['commit'],ctx['git_parent']),(ctx['base'],ctx['commit']),(ctx['commit'],ctx['base'])]
+    need(len(patches)==len(pairs),'exact incremental/cumulative forward/reverse patches')
+    for pin,(left,right)in zip(patches.values(),pairs):need(web._external_bytes(pin,base['binding'])==web.git(ctx,'diff','--no-ext-diff',left,right),'real forward/reverse Git patch bytes')
+    for key,sha,canonical in [('applied_original592_patch','forward_sha256',list(patches.values())[0]),('original592_inverse','inverse_sha256',list(patches.values())[1])]:
+        pin=delta[key];need(pin['sha256']==selected[sha]and patch_hunks(web._external_bytes(pin,base['binding']))==patch_hunks(web._external_bytes(canonical,base['binding'])),'adopted patch hunks equal canonical patch; original representations retained')
+    facts=json.loads(out['post_commit_remote_facts']);observed=result['current_remote_observation'];pr=facts['PR']
+    need(pr==observed.get('PR')and facts['actual_local_head']==ctx['commit']and facts['actual_remote_branch_head']==pr['headRefOid']==ctx['git_parent']
+         and facts['actual_remote_main']==pr['baseRefOid']==ctx['base']and pr['headRefName']==ctx['branch']and pr['baseRefName']=='main'
+         and type(pr.get('number'))is int and pr['number']>0 and pr['state']=='OPEN'and pr.get('mergedAt')is None
+         and pr['url']=='https://github.com/'+ctx['repository']+'/pull/'+str(pr['number']),'actual existing original PR, remote main and branch; no future platform facts')
+    at=w._parse_observed_at(early['decided_at_MYT']);observed_at=w._parse_observed_at(facts['observed_at']);adopted_at=w._parse_observed_at(adopt['decided_at_MYT'])
+    need(at and observed_at and adopted_at and at.timestamp()<=turn['startedAt']<=observed_at.timestamp()<=turn['completedAt']<=adopted_at.timestamp(),'real owner selection -> WEB execution/completion -> exact version adoption')
+    return {**ctx,'paths':{p:f['sha256']for p,f in files.items()},'adopted_increment':item,'increment_source_mode':'CI_paths_only','increment_allowed_operations':sorted(OPS),
+            'existing_pull_number':pr['number'],'increment_forward_patch':list(patches.values())[2],'increment_inverse_patch':list(patches.values())[3]}
+def _validate_item(root,base,item,values):
+    if item.get('schema')==SCHEMA:return validate(root,base,item),EVENT
+    need(item.get('schema')==CI_SCHEMA,'known original adopted source schema')
+    parents=[v for v in values if same(root,v.get('increment_registration'),item.get('parent_increment_source'))]
+    need(len(parents)==1,'one previously registered immutable parent increment')
+    return validate_ci(root,base,parents[0],item),CI_EVENT
 def sources(root,base):
-    rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==base['task']and e.get('details',{}).get(EVENT)]
+    rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==base['task']and any(e.get('details',{}).get(k)for k in (EVENT,CI_EVENT))]
     values=[];seen=set()
     for e in rows:
-        pin=e['details'][EVENT];value=validate(root,base,a.document(root,pin));need(value['commit']not in seen,'ambiguous adopted increment');seen.add(value['commit']);values.append({**value,'increment_registration':pin,'increment_event_id':e['event_id']})
+        pins=[e['details'][k]for k in (EVENT,CI_EVENT)if e['details'].get(k)];need(len(pins)==1,'one source per event');pin=pins[0]
+        value,event=_validate_item(root,base,a.document(root,pin),values);need(e['details'].get(event)==pin and value['commit']not in seen,'ambiguous adopted increment');seen.add(value['commit']);values.append({**value,'increment_registration':pin,'increment_event_id':e['event_id']})
     return values
 def select(root,base,state):
     matches=[x for x in sources(root,base)if x['commit']==state.get('candidate_commit')]
@@ -89,9 +177,9 @@ def record(root,task,path):
     import professional_web_execution as web,goal_delivery_runtime as g
     pin=w.file_digest(root,path);base=web.records(root,task)[0];item=a.document(root,pin)
     with w.workflow_lock(root):
-        ctx=validate(root,base,item);prior=[x for x in sources(root,base)if x['commit']==ctx['commit']]
+        values=sources(root,base);ctx,event_key=_validate_item(root,base,item,values);prior=[x for x in values if x['commit']==ctx['commit']]
         if prior:need(prior[0]['increment_registration']==pin,'immutable increment already recorded');return {'result':'duplicate_ignored','source':pin,'event_id':prior[0]['increment_event_id'],'permission_issued':False}
-        s=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)));need(s['current_state']not in w.TERMINAL_STATES,'closed task cannot add a new execution source');event=w.append_workflow_event(root,task,s['current_state'],{EVENT:pin})
+        s=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)));need(s['current_state']not in w.TERMINAL_STATES,'closed task cannot add a new execution source');event=w.append_workflow_event(root,task,s['current_state'],{event_key:pin})
     return {'result':'recorded','source':pin,'event_id':event['event_id'],'permission_issued':False,'old_source_or_producers_changed':False}
 if __name__=='__main__':
     p=argparse.ArgumentParser();p.add_argument('command',choices=['record']);p.add_argument('--task-id',required=True);p.add_argument('--input',required=True);args=p.parse_args();root=Path(__file__).resolve().parents[1]

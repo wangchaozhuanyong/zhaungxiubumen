@@ -168,6 +168,7 @@ def candidate(ctx,state):
     head=state.get('candidate_commit');base=state.get('candidate_base',ctx['base']);need(re.fullmatch('[0-9a-f]{40}',str(head)),'real full candidate head')
     need(state.get('source_mode','forward')in {'forward','remove_own_delta'},'known exact source mode only')
     if ctx.get('increment_registration'):
+        if ctx.get('git_parent'):need(state.get('candidate_parent')==ctx['git_parent'],'actual Git parent is required separately from cumulative integration base')
         need(head==ctx['commit']and base==ctx['base']and state.get('source_mode','forward')=='forward','exact actually adopted metadata increment only');return head,base
     if head==ctx['commit']:
         need(base==ctx['base']and state.get('source_mode','forward')=='forward','original candidate base; recovery needs a real inverse commit');return head,base
@@ -225,6 +226,11 @@ def intent(root,req,check_desired=True):
     if ctx.get('increment_registration'):
         need(state.get('worktree',ctx['worktree'])==ctx['worktree'],'current native/source worktree, never caller old-context fill')
         need(state.get('actor',{}).get('id')==ctx['increment_actor_id'],'exact authenticated original actor')
+    if ctx.get('existing_pull_number'):
+        pr=state.get('pull_request',{})
+        need(pr.get('number')==ctx['existing_pull_number']and pr.get('base_branch')=='main'and pr.get('head_branch')==ctx['branch']
+             and pr.get('head_sha')in {ctx['git_parent'],head},'same actual existing PR only; no creation or replacement')
+        if op=='git_push':need(state.get('remote_branch_sha')in {ctx['git_parent'],head},'fresh original branch effect/CAS; unknown head must be read back')
     actor=state.get('actor',{});need(actor.get('login')==ctx['repository'].split('/')[0]and type(actor.get('id'))is int and actor['id']>0,'original authenticated repository account, no substituted actor')
     desired={'repository':ctx['repository'],'branch':ctx['branch'],'head':head,'force':False,'admin_bypass':False}
     if op=='git_push':need(state.get('remote_main_sha')==base,'fresh main advanced; same-semantic source rebase required before first push')
@@ -313,6 +319,8 @@ def policy(root,requested):
     need(requested.get('source_project_id')==a.PROJECT and requested.get('payload_sha256')==item['request']['sha256']and not requested.get('target_department')and not requested.get('approval_id'),'exact request hash and original action, no borrowed approval/role')
     state=req['state'];op=req['operation'];observed=w._parse_observed_at(req.get('observed_at'))
     need(observed and 0<=(dt.datetime.now(dt.timezone.utc)-observed).total_seconds()<=300,'fresh real execution facts; stored authority does not expire')
+    if op=='pull_request'and ctx.get('existing_pull_number'):
+        return {'status':'existing_original_PR_readback_no_new_create','pull_number':ctx['existing_pull_number'],'actual_action_allowed':False,'source_request':item['request']},[]
     if op=='official_ci' or op=='git_push'and state.get('remote_branch_sha')==state['candidate_commit'] or op=='pull_request'and state.get('pull_request',{}).get('head_sha')==state['candidate_commit']:
         return {'status':'actual_same_effect_readback_no_new_write','actual_action_allowed':False,'task_id':ctx['task'],'source_request':item['request']},[]
     if op in {'r3_dispatch','pages_deploy'}:
@@ -390,7 +398,8 @@ def describe(root,task):
       'decision':ctx['decision'],'original_real_head':ctx['commit'],'branch':ctx['branch'],'source_paths':ctx['paths'],
       'operations':{op:{'action_class':kind,'scope':scopes(ctx,op),'facts_required_at_actual_stage':True}for op,kind in OPS.items()},
       'minimum_platform_guards':{'all_exact_head_required_CI':sorted(CHECKS),'R3_workflow':R3,'Pages_workflow':PAGES,'R3_run_attempt':1,'environment':'production-supabase','approval_TTL_minutes':15,'single_use':True},
-      'adopted_increments':[{'commit':x['commit'],'base':x['base'],'tree':x['tree'],'branch':x['branch'],'worktree':x['worktree'],'source':x['increment_registration'],'operations':x['increment_allowed_operations']}for x in __import__('professional_web_increment').sources(root,ctx)],
+      'adopted_increments':[{'commit':x['commit'],'base':x['base'],'tree':x['tree'],'branch':x['branch'],'worktree':x['worktree'],'source':x['increment_registration'],'operations':x['increment_allowed_operations'],
+                            **{k:x[k]for k in ('git_parent','existing_pull_number','increment_source_mode')if k in x}}for x in __import__('professional_web_increment').sources(root,ctx)],
       'future_PR_merge_SHA_run_or_version_provided':False,'actual_external_action_performed':False}
 
 if __name__=='__main__':
