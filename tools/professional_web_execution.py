@@ -7,6 +7,12 @@ import professional_cms_execution as cms
 from professional_cms_issuer import external
 EVENT='professional_WEB_production_source'
 SCHEMA='professional-external-WEB-production-source/v1'
+CODE_SCHEMA='professional-external-WEB-owner-followon-source/v2'
+CODE_OPS=('git_push','pull_request','official_ci','merge','pages_deploy')
+CODE_CI_PATHS={
+ 'furniture-page-pr-checks':'.github/workflows/furniture-page-pr-ci.yml',
+ 'interaction-standards':'.github/workflows/interaction-standards-ci.yml',
+ 'r3-managed-cms-pr-checks':'.github/workflows/r3-managed-cms-pr-ci.yml'}
 R3='.github/workflows/supabase-content-publish-r3.yml'
 PAGES='.github/workflows/cloudflare-pages-deploy.yml'
 OPS={'git_push':'site_ci_prepare','pull_request':'site_ci_prepare','official_ci':'site_ci_prepare',
@@ -23,10 +29,134 @@ def _pins(value):
     elif isinstance(value,list):
         for child in value:yield from _pins(child)
 
+def _patch_delta(raw):
+    """Compare text patch effects, ignoring only Git context/index formatting."""
+    result={};path=None;removed=[];added=[]
+    def finish():
+        if path is not None and (removed or added):result[path].append((list(removed),list(added)))
+    for line in raw.decode('utf-8').splitlines():
+        if line.startswith('diff --git '):
+            finish();removed=[];added=[]
+            pair=re.fullmatch(r'diff --git ([ab])/(.+) ([ab])/(.+)',line);need(pair and pair[1]!=pair[3]and pair[2]==pair[4],'ordinary same-path text patch only')
+            path=pair[2];result[path]=[]
+        elif line.startswith('@@'):
+            finish();removed=[];added=[]
+        elif line.startswith('-')and not line.startswith('---'):removed.append(line[1:])
+        elif line.startswith('+')and not line.startswith('+++'):added.append(line[1:])
+        elif line.startswith(('GIT binary patch','Binary files','rename ','copy ')):need(False,'binary/rename/copy requires its own exact source review')
+    finish();return result
+
+
+def _patch_effect(value):return {p:([line for removed,_ in hunks for line in removed],[line for _,added in hunks for line in added])for p,hunks in value.items()}
+
+def code_pin(root,pin):
+    need(isinstance(pin,dict)and set(pin)=={'path','sha256','size'},'exact local source pin')
+    path=Path(pin['path']);base=Path(root).resolve();target=(base/path).resolve()
+    need(target.is_relative_to(base)and not path.is_symlink()and '..'not in path.parts,'same-project source path only')
+    normalized={**pin,'path':str(target.relative_to(base))}
+    need(w.file_digest(root,normalized['path'])==normalized,'exact original local source bytes')
+    return normalized
+
+def code_document(root,pin):return a.document(root,code_pin(root,pin))
+def code_same_pin(root,left,right):return code_pin(root,left)==code_pin(root,right)
+
+def validate_code_source(root,snapshot,item):
+    """New real owner/HQ follow-on authority; never rewrite a closed local goal."""
+    import goal_delivery_runtime as g
+    import xml.etree.ElementTree as ET
+    a.authority(root)
+    frozen=a.document(root,snapshot.get('goal_contract'));goal=snapshot['goal_delivery']
+    need(item.get('schema')==CODE_SCHEMA and item.get('task_id')==snapshot['task_id']
+         and item.get('original_goal_contract')==snapshot['goal_contract']
+         and snapshot.get('current_state')not in {'failed','cancelled','canceled'}
+         and all(goal.get(k)==frozen.get(k)for k in ('primary_owner','producer_departments','authorized_scope','human_authorization')),
+         'unchanged original contract/owner/producers; no failed or cancelled goal revival')
+    owner=goal['primary_owner'];scope=item.get('scope')
+    need(a.professional(root,owner)and scope in goal['authorized_scope']and owner in goal['producer_departments'], 'original professional business owner and frozen scope')
+    bundle=a.document(root,item['source_bundle']);decision=code_document(root,bundle['source_decision']);human=g._native_document(root,code_pin(root,bundle['human_source']))
+    need(bundle.get('schema')=='WEB-exact-two-original-production-source-consumer-dependency/v1'
+         and decision.get('schema')=='HQ-owner-complete-open-goals-bounded-recovery-decision/v1'
+         and code_same_pin(root,decision.get('owner_native'),bundle['human_source'])and decision.get('project_root')==str(Path(root).resolve()), 'real bounded HQ follow-on and original human source')
+    hq=w.department_registry(root)['operations']['chat_binding'];h=decision['source_human']
+    need(all(human.get('thread',{}).get(k)==hq[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items())
+         and h.get('thread_id')==hq['task_id'], 'actual fixed HQ human source identity')
+    pairs=[(t,m)for t in human.get('turns',[])if t.get('id')==h.get('turn_id')for m in t.get('items',[])if m.get('id')==h.get('message_id')]
+    need(len(pairs)==1 and pairs[0][1].get('type')=='userMessage'
+         and ''.join(c.get('text','')for c in pairs[0][1].get('content',[])if c.get('type')=='text').strip()==h.get('exact_text')
+         and type(pairs[0][0].get('startedAt'))in {int,float},'real human words/message/chronology, not an assistant approval')
+    rows=[x for x in decision.get('work',[])if x.get('key')==item.get('decision_work_key')]
+    need(len(rows)==1 and rows[0].get('owner')==owner and rows[0].get('executor')==bundle['WEB_identity']['department']
+         and all(token in rows[0].get('scope','')for token in ('commit/push/PR/CI/merge/deploy','回滚')),
+         'same original owner, exact HQ code-release work and allowed sequence')
+    selected=[x for x in bundle['selected_versions']if x.get('task_id')==snapshot['task_id']]
+    need(len(selected)==1 and selected[0].get('business_scope')==scope,'unique exact source task/scope; never another batch item')
+    binding=g._collaboration_binding(root,snapshot,bundle['WEB_identity']['department']);b=bundle['WEB_identity']
+    need(binding and all(binding.get(k)==b[v]for k,v in {'thread_id':'thread_id','title':'title','cwd':'cwd','project_id':'project_id'}.items())
+         and binding['project_id']!=a.PROJECT and b['department']not in goal['producer_departments']
+         and any(x.get('scope')==scope and x.get('target_department')==b['department']for x in goal.get('collaboration_scopes',[])),
+         'real declared external WEB; never replace a professional producer or project')
+    native_page=g._native_document(root,item['actual_WEB_native'])
+    need(all(native_page.get('thread',{}).get(k)==binding[v]for k,v in {'id':'thread_id','title':'title','cwd':'cwd'}.items()),'original WEB completed source identity')
+    completed=[]
+    for turn in native_page.get('turns',[]):
+        if turn.get('status')!='completed' or turn.get('error'):continue
+        echoes=[];reports=[]
+        for msg in turn.get('items',[]):
+            output=msg.get('output',{});text=output.get('text','')if isinstance(output,dict)else ''
+            if msg.get('type')=='functionCallOutput'and '<codex_delegation>'in text:
+                try:xml=ET.fromstring(text)
+                except ET.ParseError:continue
+                body=xml.findtext('input')or''
+                if xml.findtext('source_thread_id')==hq['task_id']and bundle['source_decision']['sha256']in body and snapshot['task_id']in body and scope.split(':')[0]=='project':echoes.append(msg)
+            if msg.get('type')=='commandExecution'and msg.get('status')=='completed'and msg.get('exitCode')==0:
+                try:raw=w._completion_execution_output(msg)
+                except (ValueError,w.WorkflowError):continue
+                if item['source_bundle']['sha256'].encode()in raw and Path(msg.get('cwd','')).resolve().is_relative_to(Path(binding['cwd']).resolve()):reports.append(msg)
+        if len(echoes)==len(reports)==1 and any(m.get('type')=='agentMessage'and m.get('phase')=='final_answer'and m.get('text','').strip()for m in turn.get('items',[])):completed.append(turn)
+    need(len(completed)==1 and pairs[0][0]['startedAt']<=completed[0]['startedAt']<=completed[0]['completedAt']<=dt.datetime.now(dt.timezone.utc).timestamp(),
+         'actual HQ delivery then original WEB completed exact version-source report')
+    row=selected[0];typed=external(root,row['typed_candidate'],binding);initial=code_document(root,row['request']);denied=code_document(root,row['normal_actual_result'])
+    need(initial.get('task_id')==typed.get('task_id')==snapshot['task_id']and initial.get('scope')==scope
+         and initial.get('sender_department')==initial.get('department')==b['department']
+         and initial.get('action_class')=='git_push'and code_same_pin(root,initial.get('actual_HQ_followon_decision'),bundle['source_decision'])
+         and not initial.get('authorization_changes')and denied.get('exit')==1
+         and json.loads(denied.get('stdout','{}')).get('reason')=='original goal participant required; no authority delegation by metadata'
+         and json.loads(denied.get('stdout','{}')).get('external_permission_issued')is False,'one real exact initial source request/refusal; no permission inferred')
+    meta=initial['state'];files=typed.get('files',[]);paths={x['path']:x['sha256']for x in files}
+    need(files and len(paths)==len(files)and all(not Path(p).is_absolute()and '..'not in Path(p).parts for p in paths),'complete unique original selected source map')
+    ctx={'root':str(Path(root).resolve()),'task':snapshot['task_id'],'scope':scope,'owner':owner,'role':b['department'],'binding':binding,
+         'decision':code_pin(root,bundle['source_decision']),'authorization':code_pin(root,bundle['human_source']),'contract':snapshot['goal_contract'],
+         'worktree':typed['worktree'],'site':b['website_git_root'],'branch':typed['branch'],'commit':typed['head'],'base':typed['parent'],'tree':typed['tree'],'paths':paths,
+         'source_bundle':item['source_bundle'],'initial_request':code_pin(root,row['request']),'code_only_release':True,'allowed_operations':CODE_OPS,
+         'repository':bundle['account']['repo'],'repository_id':bundle['account']['repo_id'],'actor_id':bundle['account']['id'],
+         'backup':item['source_backup'],'rollback':item['rollback_runbook'],'pages_scope':'company.example:pages:production'}
+    need(Path(ctx['worktree']).resolve().is_relative_to(Path(binding['cwd']).resolve())and Path(ctx['site']).resolve().is_relative_to(Path(binding['cwd']).resolve())
+         and all(meta.get(k)==ctx[v]for k,v in {'candidate_commit':'commit','candidate_parent':'base','candidate_base':'base','candidate_tree':'tree','branch':'branch','worktree':'worktree'}.items()),'real initial worktree/head/parent/tree/branch')
+    need(git(ctx,'show','-s','--format=%H %P %T',ctx['commit']).decode().strip()==' '.join([ctx['commit'],ctx['base'],ctx['tree']])
+         and set(git(ctx,'diff','--name-only',ctx['base'],ctx['commit']).decode().splitlines())==set(paths),'actual exact Git objects and changed paths')
+    repo=git(ctx,'config','--get','remote.origin.url').decode().strip();need(repo in {'https://github.com/'+ctx['repository']+'.git','https://github.com/'+ctx['repository'],'user-3de132cd98be@example.invalid:'+ctx['repository']+'.git'},'actual original repository only')
+    need(bundle['account']['login']==ctx['repository'].split('/')[0]and type(ctx['actor_id'])is int and ctx['actor_id']>0,'original exact account/repository identity')
+    for path,sha in paths.items():need(hashlib.sha256(git(ctx,'show',ctx['commit']+':'+path)).hexdigest()==sha,'exact actual typed candidate bytes')
+    forward=_external_bytes(typed['forward'],binding);inverse=_external_bytes(typed['inverse'],binding);delta=_delta(ctx,ctx['base'],ctx['commit'])
+    need(_patch_effect(_patch_delta(forward))==_patch_effect(delta)and _patch_effect(_patch_delta(inverse))=={p:(added,removed)for p,(removed,added)in _patch_effect(delta).items()},'exact original forward/inverse source effects')
+    backup=a.document(root,ctx['backup']);need(backup.get('task_id')==ctx['task']and backup.get('source_commit')==ctx['commit']
+         and backup.get('source_base')==ctx['base']and backup.get('source_tree')==ctx['tree']and backup.get('forward')==typed['forward']and backup.get('inverse')==typed['inverse'], 'real original code source backup, never a CMS function backup')
+    need(w.file_digest(root,ctx['rollback']['path'])==ctx['rollback'],'immutable exact source recovery runbook')
+    suffix='-'+ctx['commit'][:12]+'-git-push-v1';need(initial['action_id'].endswith(suffix),'source-derived original action prefix');ctx['prefix']=initial['action_id'][:-len(suffix)]
+    need(not w.validate_workflow_events(root,ctx['task']),'intact original workflow history')
+    return ctx
+
+
+def head_value(request):return request['state']['candidate_commit']
+def _backup_bytes(root,pin,ctx):
+    if Path(pin['path']).is_absolute():return _external_bytes(pin,ctx['binding'])
+    need(w.file_digest(root,pin['path'])==pin,'real project-local backup bytes');return w.safe_path(root,pin['path']).read_bytes()
+
 def validate_source(root,snapshot,item):
     import goal_delivery_runtime as g
     import goal_source_recovery as recovery
     import result_coordination as rc
+    if item.get('schema')==CODE_SCHEMA:return validate_code_source(root,snapshot,item)
     goal=a.participant(root,snapshot,snapshot['goal_delivery']['primary_owner']);frozen=a.document(root,snapshot['goal_contract'])
     need(a.autonomous_goal(goal) and all(goal.get(k)==frozen.get(k)for k in
          ('primary_owner','producer_departments','authorized_scope','human_authorization','required_execution_actions','collaboration_scopes')),
@@ -136,7 +266,7 @@ def records(root,task):
     pin=rows[0]['details'][EVENT];item=a.document(root,pin);snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)))
     return [{**validate_source(root,snapshot,item),'registration':pin,'event_id':rows[0]['event_id']}]
 def applies(root,task,action_class):
-    return action_class in {'site_ci_prepare','site_publish'} and any(e.get('task_id')==task and EVENT in e.get('details',{})for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS))
+    return action_class in {'site_ci_prepare','site_publish','git_push'} and any(e.get('task_id')==task and EVENT in e.get('details',{})for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS))
 def record_source(root,task,path):
     import goal_delivery_runtime as g
     pin=w.file_digest(root,path);item=a.document(root,pin)
@@ -164,6 +294,22 @@ def _delta(ctx,base,head):
         if removed or added:hunks.append((removed,added))
         out[path]=hunks
     return out
+def validate_code_recovery(ctx,state):
+    root=Path(ctx['root']);proof=a.document(root,state.get('code_recovery_source'))
+    need(proof.get('schema')=='professional-own-code-release-effect-recovery/v1'and proof.get('task_id')==ctx['task']
+         and proof.get('department')==ctx['role']and proof.get('source_registration')==ctx['registration'], 'same real own code release recovery source')
+    rows=[r for r in w.read_jsonl(root/w.POLICY_DECISIONS)if r.get('decision_id')==proof.get('forward_policy_decision_id')]
+    need(len(rows)==1 and rows[0].get('status')=='allow'and rows[0].get('task_id')==ctx['task']
+         and rows[0].get('department')==ctx['role']and rows[0].get('delegated_HQ_decision')==ctx['decision'], 'real original single-use forward policy, not an unrelated grant')
+    request=a.document(root,rows[0]['exact_request']);need(request.get('operation')in {'merge','pages_deploy'},'real published/merged own source only')
+    output=json.loads(native(root,ctx,proof.get('actual_native'),proof.get('command_id')))
+    observed=w._parse_observed_at(output.get('observed_at'));issued=w._parse_observed_at(rows[0].get('checked_at'))
+    need(output.get('task_id')==ctx['task']and output.get('repository')==ctx['repository']
+         and output.get('policy_decision_id')==rows[0]['decision_id']and output.get('own_candidate_commit')==request['state']['candidate_commit']
+         and output.get('current_main_sha')==state['candidate_base']and observed is not None and issued is not None
+         and issued<=observed<=dt.datetime.now(dt.timezone.utc),'actual ordered original WEB own-release and current-main readback')
+    need(git(ctx,'merge-base',output['own_candidate_commit'],output['current_main_sha']).decode().strip()==output['own_candidate_commit'], 'real own released source ancestry')
+
 def candidate(ctx,state):
     head=state.get('candidate_commit');base=state.get('candidate_base',ctx['base']);need(re.fullmatch('[0-9a-f]{40}',str(head)),'real full candidate head')
     need(state.get('source_mode','forward')in {'forward','remove_own_delta'},'known exact source mode only')
@@ -180,7 +326,9 @@ def candidate(ctx,state):
     expected={p:[(added,removed)for removed,added in hunks]if recovery else hunks for p,hunks in original.items()}
     need(all(actual[p]==expected[p]for p in ctx['paths']if p not in tests),
          'same exact production patch, or its own inverse; only related CI/test compatibility may differ')
-    if recovery:
+    if recovery and ctx.get('code_only_release'):
+        validate_code_recovery(ctx,state)
+    if recovery and not ctx.get('code_only_release'):
         import goal_delivery_runtime as g
         snapshot=g.restore_goal(Path(ctx['root']),w.read_json(w.snapshot_path(Path(ctx['root']),ctx['task'])))
         proof=state.get('CMS_recovery_source');doc=a.document(Path(ctx['root']),proof)
@@ -214,6 +362,7 @@ def working_source(ctx,head):
          'fresh real clean worktree/head/branch CAS; preserve parallel WIP and never push another HEAD')
 def intent(root,req,check_desired=True):
     ctx=static_intent(root,req);op=req.get('operation');need(op in OPS,'only registered complete-stage operations')
+    if ctx.get('code_only_release'):need(op in ctx['allowed_operations'],'code-only source excludes CMS/R3/Edge/DB/account operations')
     if ctx.get('increment_registration'):need(op in ctx['increment_allowed_operations'],'metadata increment needs no CMS/Edge/R3/manual Pages action')
     state=req.get('state',{});head,base=candidate(ctx,state);main=state.get('main_sha')if op in {'edge_deploy','r3_dispatch','pages_deploy'}else None
     working_source(ctx,head)
@@ -221,7 +370,7 @@ def intent(root,req,check_desired=True):
         need(re.fullmatch('[0-9a-f]{40}',str(main))is not None,'actual final main is required at this stage, never future or missing SHA')
     need(req.get('action_class')==OPS[op]and req.get('scope')==scopes(ctx,op)
       and req.get('action_id')==action_id(ctx,op,head,main),'exact source-derived operation/action/business or physical scope')
-    need(state.get('repository')==ctx['repository'] and state.get('repository_id')==1248188229
+    need(state.get('repository')==ctx['repository'] and state.get('repository_id')==ctx.get('repository_id',1248188229)
       and state.get('branch')==ctx['branch'],'actual original repository/branch')
     if ctx.get('increment_registration'):
         need(state.get('worktree',ctx['worktree'])==ctx['worktree'],'current native/source worktree, never caller old-context fill')
@@ -231,13 +380,17 @@ def intent(root,req,check_desired=True):
         need(pr.get('number')==ctx['existing_pull_number']and pr.get('base_branch')=='main'and pr.get('head_branch')==ctx['branch']
              and pr.get('head_sha')in {ctx['git_parent'],head},'same actual existing PR only; no creation or replacement')
         if op=='git_push':need(state.get('remote_branch_sha')in {ctx['git_parent'],head},'fresh original branch effect/CAS; unknown head must be read back')
-    actor=state.get('actor',{});need(actor.get('login')==ctx['repository'].split('/')[0]and type(actor.get('id'))is int and actor['id']>0,'original authenticated repository account, no substituted actor')
+    actor=state.get('actor',{});need(not ctx.get('code_only_release')or actor.get('id')==ctx['actor_id'],'original exact source actor ID')
+    need(actor.get('login')==ctx['repository'].split('/')[0]and type(actor.get('id'))is int and actor['id']>0,'original authenticated repository account, no substituted actor')
     desired={'repository':ctx['repository'],'branch':ctx['branch'],'head':head,'force':False,'admin_bypass':False}
     if op=='git_push':need(state.get('remote_main_sha')==base,'fresh main advanced; same-semantic source rebase required before first push')
     if op in {'pull_request','merge'}:desired['base_branch']='main'
     if op in {'official_ci','merge'}:
         checks=state.get('checks',[]);need({x.get('name')for x in checks}>=CHECKS
           and all(x.get('head_sha')==head and x.get('status')=='completed'and x.get('conclusion')=='success'and x.get('id')for x in checks), 'all real required exact-head official checks must succeed')
+    if ctx.get('code_only_release')and op in {'official_ci','merge'}:
+        for path in CODE_CI_PATHS.values():
+            config=git(ctx,'show',head+':'+path).decode();need(re.search(r"(?m)^\s*node-version:\s*['\"]?22['\"]?\s*(?:#.*)?$",config),'actual same-head official CI must retain Node22')
     if op=='merge':
         pr=state.get('pull_request',{});need(type(pr.get('number'))is int and pr['number']>0 and pr.get('head_sha')==head and pr.get('base_branch')=='main'
           and pr.get('mergeable')=='MERGEABLE'and pr.get('merge_state')=='CLEAN','actual exact clean PR; no CI bypass')
@@ -276,7 +429,11 @@ def validate_request(root,req):
         if name=='facts':need(json.loads(native(root,ctx,value.get('actual_native'),value.get('command_id'))).get('state')==state and state.get('observed_at')==req.get('observed_at'),'actual native complete Git/GitHub/runtime facts, no caller observation label')
         if name=='self_check':
             out=native(root,ctx,value.get('actual_native'),value.get('command_id'));need(value.get('status')=='PASS'and digest.encode()in out and ctx['decision']['sha256'].encode()in out,'real professional selfcheck binds intent/source; reuse unaffected tests')
-        if name=='backup':
+        if name=='backup'and ctx.get('code_only_release'):
+            backup=a.document(root,value.get('source_backup'));need(backup.get('task_id')==ctx['task']and backup.get('source_commit')==head_value(req)and backup.get('source_base')==state.get('candidate_base',ctx['base']), 'actual current code-only source backup/head/base')
+            need(_patch_effect(_patch_delta(_backup_bytes(root,backup['forward'],ctx)))==_patch_effect(_delta(ctx,backup['source_base'],backup['source_commit'])),'actual current source forward backup')
+            expected=_delta(ctx,backup['source_base'],backup['source_commit']);need(_patch_effect(_patch_delta(_backup_bytes(root,backup['inverse'],ctx)))=={p:(added,removed)for p,(removed,added)in _patch_effect(expected).items()},'actual current source inverse backup')
+        if name=='backup'and not ctx.get('code_only_release'):
             pin=value.get('source_backup');need(isinstance(pin,dict),'actual production backup pin');backup=external(root,pin,ctx['binding']) if Path(pin['path']).is_absolute() else a.document(root,pin)
             need(backup.get('task_id')==ctx['task']and backup.get('function')=='content-publish'and backup.get('runtime_files')and backup.get('source_build_archives'),'full actual source/build backup, not local reverse alone')
             for item in backup['runtime_files']+backup['source_build_archives']:_external_bytes(item,ctx['binding'])
@@ -303,9 +460,13 @@ def preflight(root,task,action,action_class,scope,department):
     return {**item,'risk_level':'R3'if op=='edge_deploy'else'R2',**{k:req[k]for k in ('task_id','department','action_id','action_class','scope','facts','self_check','backup','rollback')}},req,rows[-1]['input'],ctx
 
 def authorization_precheck(root,request):
+    ctx0=records(root,request['task_id'])[0]
+    if ctx0.get('code_only_release')and request==a.document(root,ctx0['initial_request']):
+        return {'schema':'goal-authorization-precheck/v1','task_id':ctx0['task'],'status':'within_original_authorization','reasons':['real_owner_HQ_code_only_followon_source'],'source_registration':ctx0['registration'],'original_authorization':ctx0['authorization'],'needs_human_confirmation':False,'actual_action_allowed':False,'external_permission_issued':False,'next_owner':ctx0['role'],'next_action':'use normal request-base with original-executor fresh facts and single-use policy'}
     ctx=static_intent(root,request);op=request.get('operation');need(op in OPS,'known original production operation')
     if request.get('state'):intent(root,request)
     else:
+        need(not ctx.get('code_only_release'),'exact code-only source request, or use normal current-state request-base')
         repair=a.document(root,ctx['repair']);original=a.document(root,repair['actual_failing_request'])
         need(all(request.get(k)==original.get(k)for k in ('action_id','action_class','scope','operation','desired','committed_source')),'exact initial source intent, or use normal current-state request for later stages')
     return {'schema':'goal-authorization-precheck/v1','task_id':ctx['task'],'status':'within_original_authorization',
@@ -366,6 +527,7 @@ def record_approval(root,**kwargs):
 
 def request_base(root,task,op,state):
     ctx=execution_context(root,task,state);need(op in OPS,'registered operation')
+    if ctx.get('code_only_release'):need(op in ctx['allowed_operations'],'code-only release excludes R3/Edge/CMS')
     head=state.get('candidate_commit');main=state.get('main_sha')if op in {'edge_deploy','r3_dispatch','pages_deploy'}else None
     need(re.fullmatch('[0-9a-f]{40}',str(head))is not None,'real full candidate head required, no missing or predicted value')
     req={'task_id':task,'sender_department':ctx['role'],'department':ctx['role'],'action_id':action_id(ctx,op,head,main),
@@ -392,23 +554,39 @@ def build_preflight(root,base_path,facts_native,facts_command,self_native,self_c
     item={'schema':'professional-external-WEB-fresh-preflight/v1','task_id':ctx['task'],'request':w.file_digest(root,str(path.relative_to(root)))}
     w.atomic_write_json(out,item);return {'state':'prepared_actual_preflight_input_not_a_permission','input':w.file_digest(root,out_path),'request':item['request']}
 
+def source_backup(root,task,state,out_path):
+    ctx=execution_context(root,task,state);need(ctx.get('code_only_release'),'code-only source backup entry')
+    head,base=candidate(ctx,state);working_source(ctx,head)
+    directory=w.safe_path(root,out_path);need(not directory.exists(),'preserve original source backups; new actual source directory')
+    directory.mkdir(parents=True)
+    pins={}
+    for name,left,right in [('forward',base,head),('inverse',head,base)]:
+        path=directory/(name+'.patch');path.write_bytes(git(ctx,'diff','--binary',left,right,'--',*ctx['paths']));pins[name]=w.file_digest(root,str(path.relative_to(root)))
+    value={'schema':'professional-code-release-source-backup/v1','task_id':task,'source_commit':head,'source_base':base,
+           'source_tree':git(ctx,'rev-parse',head+'^{tree}').decode().strip(),**pins,'source_registration':ctx['registration'],
+           'coverage':'exact current source Git objects/patch only; actual platform before-version remains in executor facts',
+           'platform_permission_issued':False}
+    path=directory/'SOURCE-BACKUP.json';w.atomic_write_json(path,value)
+    return {'source_backup':w.file_digest(root,str(path.relative_to(root))),'external_permission_issued':False}
+
 def describe(root,task):
     ctx=records(root,task)[0]
     return {'task_id':task,'registered_source':ctx['registration'],'role':ctx['role'],'binding':ctx['binding'],
       'decision':ctx['decision'],'original_real_head':ctx['commit'],'branch':ctx['branch'],'source_paths':ctx['paths'],
-      'operations':{op:{'action_class':kind,'scope':scopes(ctx,op),'facts_required_at_actual_stage':True}for op,kind in OPS.items()},
-      'minimum_platform_guards':{'all_exact_head_required_CI':sorted(CHECKS),'R3_workflow':R3,'Pages_workflow':PAGES,'R3_run_attempt':1,'environment':'production-supabase','approval_TTL_minutes':15,'single_use':True},
+      'operations':{op:{'action_class':kind,'scope':scopes(ctx,op),'facts_required_at_actual_stage':True}for op,kind in OPS.items()if not ctx.get('code_only_release')or op in ctx['allowed_operations']},
+      'minimum_platform_guards':({'all_exact_head_required_CI':sorted(CHECKS),'Pages_workflow':PAGES,'fresh_execution_seconds':300,'single_use':True,'excluded_operations':['CMS','R3','Edge','DB','auth','account','Ads']}if ctx.get('code_only_release')else{'all_exact_head_required_CI':sorted(CHECKS),'R3_workflow':R3,'Pages_workflow':PAGES,'R3_run_attempt':1,'environment':'production-supabase','approval_TTL_minutes':15,'single_use':True}),
       'adopted_increments':[{'commit':x['commit'],'base':x['base'],'tree':x['tree'],'branch':x['branch'],'worktree':x['worktree'],'source':x['increment_registration'],'operations':x['increment_allowed_operations'],
                             **{k:x[k]for k in ('git_parent','existing_pull_number','increment_source_mode')if k in x}}for x in __import__('professional_web_increment').sources(root,ctx)],
       'future_PR_merge_SHA_run_or_version_provided':False,'actual_external_action_performed':False}
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('command',choices=['describe','request-base','build-preflight']);parser.add_argument('--task-id',required=True)
+    parser=argparse.ArgumentParser();parser.add_argument('command',choices=['describe','request-base','build-preflight','source-backup']);parser.add_argument('--task-id',required=True)
     parser.add_argument('--operation',choices=sorted(OPS));parser.add_argument('--state');parser.add_argument('--base');parser.add_argument('--facts-native');parser.add_argument('--facts-command');parser.add_argument('--self-native');parser.add_argument('--self-command');parser.add_argument('--backup');parser.add_argument('--output')
     args=parser.parse_args();root=Path(__file__).resolve().parents[1]
     try:
         with w.request_validation_context():
             if args.command=='describe':result=describe(root,args.task_id)
+            elif args.command=='source-backup':result=source_backup(root,args.task_id,a.document(root,w.file_digest(root,args.state)),args.output)
             elif args.command=='request-base':
                 result=request_base(root,args.task_id,args.operation,a.document(root,w.file_digest(root,args.state)));need(args.output,'new project input output path required');out=w.safe_path(root,args.output);need(not out.exists(),'preserve original request');w.atomic_write_json(out,result);result={'state':'request_base_prepared_no_permission','input':w.file_digest(root,args.output),'intent_sha256':w.sha256_value(result)}
             else:result=build_preflight(root,args.base,args.facts_native,args.facts_command,args.self_native,args.self_command,args.backup,args.output)

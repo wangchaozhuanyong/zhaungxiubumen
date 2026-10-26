@@ -1252,6 +1252,9 @@ def pending(root, role):
 
 
 def record_preflight(root, task_id, input_path):
+    if w.read_json(w.safe_path(root,input_path)).get("schema")=="professional-external-WEB-fresh-preflight/v1":
+        from professional_web_execution import record_preflight as original_WEB_preflight
+        return original_WEB_preflight(root,task_id,input_path)
     if w.read_json(w.safe_path(root, input_path)).get('schema') in {'professional-ads-object-preflight/v1','professional-ads-planned-object-preflight/v2'}:
         from professional_ads_execution import record_preflight as original_ads_preflight
         return original_ads_preflight(root, task_id, input_path)[0]
@@ -1402,7 +1405,7 @@ def record_approved_action(root, task_id, input_path):
     if action.get("schema") in {"professional-ads-object-source-registration/v1", "professional-ads-plan-object-source-registration/v2"}:
         from professional_ads_execution import record
         return record(root, task_id, input_path)[0]
-    if action.get("schema") == "professional-external-WEB-production-source/v1":
+    if action.get("schema") in {"professional-external-WEB-production-source/v1", "professional-external-WEB-owner-followon-source/v2"}:
         from professional_web_execution import record_source
         return record_source(root, task_id, input_path)
     if action.get("schema") == "professional-cms-issuer-contract/v1":

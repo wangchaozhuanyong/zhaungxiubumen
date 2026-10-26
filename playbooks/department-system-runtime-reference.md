@@ -106,3 +106,11 @@ professional 动态 `target | dry-run` 名称仅沿真实登记目标和 active 
 `professional_ads_execution.py derive --input <已登记来源> --key <原plan key> --kind group|upload|ad|budget --output <新请求>`从原计划派生准确窄动作。原已建组不再派生，重复图按原SHA共用上传效果，其他真实group/asset/ad ID由执行者原生读回，不能编造。每动作分别采集本次支持的完整原对象表/稳定profile与extension/实际临时handle/真实日均预算和当前表单，自检绑定同一intent_sha256。`freeze-preflight --input <derived_request/facts/self_check三个准确pin> --output <新目录>`仅冻结可见备份/无重放恢复和`professional-ads-planned-object-preflight/v2`；`preflight`登记后正常`policy-check`，仅原执行者临近外部效果调用`issue`并`reserve --input <该窄请求> --decision-id <本次新policy>`一次。
 
 上传、建广告、预算保存是三个独立效果；广告仅消费已登记真实upload effect/crop/assetID与原图SHA。`effect-record --input <真实原生观察证明>`验证原执行者的第一方实际UI调用、原policy/reservation、即时对象表与支持字段后只追加效果。未知先读原键，不重复外部写；`derive`的existing_issued_policy_ids不为空时不得换新请求重试。同预算已实际Saved为新值时只读回，不再Save。报告/制作来源不因秒级观察过期而重做；只有真正执行事实须临近鲜读，未暴露服务端CAS/ID如实未提供。上传/建广告在实际合法旧值或新值下可独立执行，不等待预算保存；不得据此扩账号、地域、期限、其他预算或条款。
+
+## 原本地阶段之后的代码发布来源
+
+真实老板后继授权与HQ准确范围不回写旧local-only合同；原专业owner和producer保持，外部WEB仍是声明执行者。`professional-external-WEB-owner-followon-source/v2`沿现有`goal_delivery_runtime.py approved-action-record`登记：须原冻结goal、真实human、已送达原WEB并真实completed的准确候选/拒绝来源、原Git对象/所有路径与正逆patch。只追加来源，不重开本地闭合或签发网站许可。
+
+正常`professional_web_execution.py describe/request-base/build-preflight`复用；原WEB临近执行鲜读actor/repo/main/branch/PR/同head官方Node22 CI和未知效果，自身实际原生facts/selfcheck及源备份后沿正常preflight/policy单次办理。代码来源仅支持准确push/PR/CI/merge及必要既有Pages，不取得CMS/R3/Edge/DB/auth/账号/费用权限。已有同head成功自动Pages只读回，不重复手动dispatch。
+
+真实main前进后由原WEB形成同语义patch的必要后继；来源消费者验证原base祖先、准确原路径和语义，禁止用新head夹带业务变化或force旧base。`source-backup --task-id <原task> --state <真实当前state> --output <本项目内新目录>`只冻结当前真实Git正逆patch和source backup，供原build-preflight；不造未来PR/main/run，也不是远端备份或平台回滚效果。已发布后逆向须`state.code_recovery_source`绑定原实际allow policy、原WEB成功原生读回的own_candidate/current_main/完整SHA与时间，才可沿新逆向commit/PR/CI及新窄policy执行，不借别的任务许可或恢复整旧树。

@@ -701,9 +701,9 @@
     },
     {
       "path": "playbooks/department-system-runtime-reference.md",
-      "source_sha256": "1bcd98740754429eef27c16ca9f30ef2c210634ec7842c78d3bb659a42c02127",
-      "release_sha256": "1bcd98740754429eef27c16ca9f30ef2c210634ec7842c78d3bb659a42c02127",
-      "bytes": 16970
+      "source_sha256": "6466b8cc85cb004c0ba220d26a6070a3f116b27a20addc9c2dcabd38783c53ce",
+      "release_sha256": "6466b8cc85cb004c0ba220d26a6070a3f116b27a20addc9c2dcabd38783c53ce",
+      "bytes": 18610
     },
     {
       "path": "playbooks/department-system-source-release.md",
@@ -1067,9 +1067,9 @@
     },
     {
       "path": "tools/goal_delivery_runtime.py",
-      "source_sha256": "cc05523c448e5549681f3dd6fa4d5de70504417183d3590ae852028ff56c80f0",
-      "release_sha256": "7ca051491deacf4710c69da5e819832dc502dfbb299bbdf2f06c4712862d5045",
-      "bytes": 197985
+      "source_sha256": "95521337389f0ac108b4eab99d7c807e322fb235cd2d59ea2d550991c035dc48",
+      "release_sha256": "08790919cf1581fdb6c76c63ab7365b7a902cfd1b15cd11f8ab7ec1a4c2be9b4",
+      "bytes": 198306
     },
     {
       "path": "tools/goal_source_recovery.py",
@@ -1235,9 +1235,9 @@
     },
     {
       "path": "tools/professional_web_execution.py",
-      "source_sha256": "b12c1b4c9b5c9af85ebf5e835f31c041b15ecf53f00a3dedc7a452448f20bdca",
-      "release_sha256": "fe18a700ebffce6b611ab8d1c68bf592540621711039f20203537975e7f55158",
-      "bytes": 43381
+      "source_sha256": "00bb1ae1c6e033539c3418f995144408a4d33de3d046bbf21c8e955d3b62831d",
+      "release_sha256": "56056aa5e5df438026e25b13a472a020be55e7adb2fbb6e6007397c97c7d36c2",
+      "bytes": 61795
     },
     {
       "path": "tools/professional_web_increment.py",
@@ -1781,5 +1781,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "1b692f91162b4878f09510465768fadb3bed06243faad32298c7a12870fb68ef"
+  "fingerprint": "38d09a48825de33324ead5f113d1ce6834cbd329f1e0c7b3c6e07a4fa5817ea3"
 }
