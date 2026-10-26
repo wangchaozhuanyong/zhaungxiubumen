@@ -70,6 +70,10 @@ dispatch-plan --goal；receipt-record实际派送/ACK；`python3 tools/goal_deli
 
 先读运输及实收；未知效果不盲重发，单事件异常隔离。
 
+后台重启核验使用`department_event_dispatcher.py login-status/background-status`，只认当前安装的`com.flashcast.department-event-dispatcher`、真实用户domain、单PID/锁、service-ready和完整scan中的源码读回。实际OS/登录周期另以真实boot、launchd启动时间和同PID的ready/scan证据记录；只读status中的固定测试标记不代替该周期证据。不为核验再次重启、另建daemon或重放运输。官方共享桌面控制端点与已可工作的官方入队是两项能力：端点缺失仍须具名，不以历史读取或第一方人工恢复冒作无人值守完成。
+
+专业CMS issuer的当前可执行target目录排除真实已关闭/取消/失败目标；原注册来源和回执历史仍保留。目录排除不放宽新签发、逆向、角色、字段或单次许可校验；活跃目标的缺失或错误来源继续严格拒绝。测试按当前自主路由断言，历史助理夹具只验证历史分支，完整外协夹具须在冻结时包含原owner/授权/声明及实际host/kind来源。
+
 ## authority-change
 
 真实老板新授权改变模式，原合同/业务权限不扩大。

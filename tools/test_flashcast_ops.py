@@ -938,7 +938,7 @@ class DailySourceContractTests(unittest.TestCase):
         target.parent.mkdir(parents=True)
         target.write_text(json.dumps(self.contract))
 
-    def test_all_admitted_observed_sources_route_to_one_assistant(self):
+    def test_all_admitted_observed_sources_report_directly_without_assistant_gate(self):
         self.seed()
         sources = self.contract["result_handoff_contract"]["scheduled_daily_sources"]
         observed = {"flash-cast-4": "fc-20261010-website-growth-daily", "automation": "fc-20261010-douyin-music-scout",
@@ -953,7 +953,11 @@ class DailySourceContractTests(unittest.TestCase):
             with self.subTest(automation=source["automation_id"]):
                 resolved = ops.workflow.scheduled_result_source(self.root, observed[source["automation_id"]], source["department"])
                 self.assertEqual(resolved, source)
-                self.assertIn(resolved["responsible_assistant"], {"operations-assistant", "operations-assistant-3"})
+                self.assertNotIn("responsible_assistant", resolved)
+                self.assertEqual(resolved["result_receiver"], "operations")
+                self.assertEqual(resolved["delivery_model"], "department_autonomous_delivery_v1")
+                self.assertIn(resolved["historical_responsible_assistant"],
+                              {"operations-assistant", "operations-assistant-3"})
                 self.assertTrue(resolved["acceptance_capability"])
 
     def test_daily_patterns_reject_wrong_role_prefix_suffix_new_paid_goal_and_QA(self):

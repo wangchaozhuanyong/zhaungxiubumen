@@ -62,7 +62,11 @@ def targets(root):
     for event in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS):
         pin=event.get('details',{}).get(EVENT)
         if pin is None:continue
-        snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,event['task_id'])));item=a.document(root,pin)
+        snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,event['task_id'])))
+        # This is the executable catalog, not the historical source reader.
+        # A closed goal retains its evidence but cannot advertise a new action.
+        if snapshot.get('current_state') in w.TERMINAL_STATES:continue
+        item=a.document(root,pin)
         x,original,t=validate_contract(root,snapshot,item);act=x['action'];name=act['candidate_version']
         a.require(name not in result,'ambiguous professional issuer target')
         result[name]={'candidate_shape':MODEL,'task_id':snapshot['task_id'],'action_id':act['action_id'],'candidate_version':name,

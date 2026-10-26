@@ -563,14 +563,35 @@ class RecoveryTests(unittest.TestCase):
         live['actual_native_target_turn']=w.file_digest(self.root,p)
         self.assertEqual(recovery.actual_target_turn_status(self.root,live,row,b),'unknown_target')
 
+    def original_owner_external_collaboration(self):
+        """One complete isolated contract; no mutation of a frozen declaration."""
+        registry=w.read_json(self.root/'data/department-registry.json')
+        source=next(r for r in registry['departments']if r['id']==fixture.PRODUCER)['chat_binding']
+        source['host_id']='local'
+        binding={'thread_id':'synthetic-fixed-development','project_id':'synthetic-development-project',
+                 'title':'Synthetic designated development','cwd':str(self.root/'synthetic-code-project'),
+                 'host_id':'local'}
+        registry['collaboration_bindings']={'designated-development':binding}
+        w.atomic_write_json(self.root/'data/department-registry.json',registry)
+        request=self.requested(sender=fixture.PRODUCER,scope='project:test:designated-development')
+        request.update(target_department='designated-development',target_project_id=binding['project_id'],
+                       target_thread_id=binding['thread_id'],target_thread_title=binding['title'],
+                       target_cwd=binding['cwd'],target_sidebar_section_id='synthetic-development-sidebar',
+                       action_id='bounded-original-external-collaboration')
+        live={'fixture_only':True,'observed_at':w.utc_timestamp(),'native_receipt_ref':'synthetic-live-read',
+              'target_sidebar_section_id':request['target_sidebar_section_id'],
+              'threads':[{'id':binding['thread_id'],'projectId':binding['project_id'],'title':binding['title'],
+                          'cwd':binding['cwd'],'hostId':'local','status':'idle'},
+                         {'id':source['task_id'],'projectId':source['project_id'],'title':source['title'],
+                          'cwd':source['cwd'],'hostId':'local'}]}
+        request['live_identity']=w.file_digest(self.root,self.write('reports/synthetic-original-owner-live.json',live))
+        self.initialize(authorized_scope=[request['scope']],approved_actions=[request],collaboration_scopes=[{
+            'sender_department':fixture.PRODUCER,'target_department':'designated-development','scope':request['scope']}])
+        return request,binding
+
     def test_declared_external_collaborator_uses_binding_without_becoming_a_department(self):
-        request,binding=fixture.GoalRuntimeConsumerTests.collaboration(self)
-        snapshot=self.snapshot();goal=snapshot['goal_delivery']
-        declaration={'sender_department':goal['primary_owner'],'target_department':'designated-development','scope':request['scope']}
-        snapshot['goal_delivery']={**goal,'collaboration_scopes':[declaration]}
-        w.append_workflow_event(self.root,self.task_id,snapshot['current_state'],{'goal_delivery':snapshot['goal_delivery']})
-        w.atomic_write_json(w.snapshot_path(self.root,self.task_id),snapshot)
-        p=self.write('reports/external-current-turn.json',{'thread':{'id':binding['thread_id'],'title':binding['title'],'cwd':binding['cwd']},
+        request,binding=self.original_owner_external_collaboration()
+        p=self.write('reports/external-current-turn.json',{'thread':{'id':binding['thread_id'],'title':binding['title'],'cwd':binding['cwd'],'kind':'codex','hostId':'local'},
                                                        'turns':[{'id':'actual-external-turn','status':'completed'}]})
         request['actual_target_state']=w.file_digest(self.root,p)
         live=w.read_json(self.root/request['live_identity']['path'])
@@ -583,18 +604,12 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(before,w.read_json(self.root/'data/department-registry.json'))
 
     def test_external_notLoaded_consumes_completed_native_turn_without_rewriting_inventory(self):
-        request,binding=fixture.GoalRuntimeConsumerTests.collaboration(self)
-        snapshot=self.snapshot();goal=snapshot['goal_delivery']
-        snapshot['goal_delivery']={**goal,'collaboration_scopes':[{
-            'sender_department':goal['primary_owner'],'target_department':'designated-development',
-            'scope':request['scope']}]}
-        w.append_workflow_event(self.root,self.task_id,snapshot['current_state'],{'goal_delivery':snapshot['goal_delivery']})
-        w.atomic_write_json(w.snapshot_path(self.root,self.task_id),snapshot)
+        request,binding=self.original_owner_external_collaboration()
         live=w.read_json(self.root/request['live_identity']['path'])
         live['threads'][0].update(status='notLoaded',updatedAt=2)
         inventory=self.write('reports/unloaded-external-inventory.json',{'threads':live['threads']})
         native=self.write('reports/completed-external-turn.json',
-            {'thread':{'id':binding['thread_id'],'title':binding['title'],'cwd':binding['cwd'],'updatedAt':3},
+            {'thread':{'id':binding['thread_id'],'title':binding['title'],'cwd':binding['cwd'],'kind':'codex','hostId':'local','updatedAt':3},
              'turns':[{'id':'completed-external','status':'completed','error':None}]})
         request.update(actual_target_state=w.file_digest(self.root,native),
                        actual_live_inventory=w.file_digest(self.root,inventory),
@@ -608,8 +623,30 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(observed['actual_native_target_turns'][binding['thread_id']],request['actual_target_state'])
         self.assertEqual(w.file_digest(self.root,inventory),request['actual_live_inventory'])
 
+    def test_external_prepare_rejects_wrong_owner_host_project_and_payload(self):
+        request,binding=self.original_owner_external_collaboration()
+        page={'thread':{'id':binding['thread_id'],'title':binding['title'],'cwd':binding['cwd'],
+                        'kind':'codex','hostId':'local'},'turns':[{'id':'exact-turn','status':'completed'}]}
+        request['actual_target_state']=w.file_digest(self.root,self.write('reports/external-identity.json',page))
+        live=w.read_json(self.root/request['live_identity']['path'])
+        request.update(actual_live_inventory=w.file_digest(self.root,self.write('reports/external-inventory.json',{'threads':live['threads']})),
+                       live_observed_at=w.utc_timestamp())
+        contract=self.snapshot()['goal_contract']
+        for name,changes in [('owner',{'sender_department':fixture.ASSISTANT}),
+                             ('project',{'target_project_id':'wrong-project'}),
+                             ('payload',{'payload_sha256':'0'*64}),('host',{})]:
+            with self.subTest(name=name):
+                current={**request,**changes}
+                if name=='host':
+                    wrong=copy.deepcopy(page);wrong['thread']['hostId']='wrong-host'
+                    current['actual_target_state']=w.file_digest(self.root,self.write('reports/wrong-host.json',wrong))
+                try:result=recovery.prepare_message(self.root,current)
+                except w.WorkflowError:pass
+                else:self.assertNotIn(result.get('status'),{'ready_to_send','ready_to_queue'})
+                self.assertEqual(w.file_digest(self.root,contract['path']),contract)
+
     def test_external_idle_resolution_rejects_active_stale_wrong_and_missing_turn_proofs(self):
-        request,binding=fixture.GoalRuntimeConsumerTests.collaboration(self)
+        request,binding=self.original_owner_external_collaboration()
         original=w.read_json(self.root/request['live_identity']['path'])
         original['threads'][0].update(status='notLoaded',updatedAt=2)
         for name,changes in [('active',{'turn_status':'inProgress'}),
@@ -617,7 +654,7 @@ class RecoveryTests(unittest.TestCase):
                              ('missing',{'no_native':True}),('tampered',{'tampered':True})]:
             with self.subTest(name=name):
                 page={'thread':{'id':changes.get('id',binding['thread_id']),
-                      'title':binding['title'],'cwd':binding['cwd'],'updatedAt':changes.get('updatedAt',3)},
+                      'title':binding['title'],'cwd':binding['cwd'],'kind':'codex','hostId':'local','updatedAt':changes.get('updatedAt',3)},
                       'turns':[{'id':'exact-turn','status':changes.get('turn_status','completed')}]}
                 path=self.write('reports/'+name+'-native.json',page)
                 pin=w.file_digest(self.root,path)
@@ -880,6 +917,46 @@ class CMSAdmissionTests(unittest.TestCase):
                 cms.validate_goal_cms_decision(None,{**decision,**changes},target,'publish','a'*64,accepted,now)
         with self.assertRaises(cms.PermitEvidenceError):
             cms.validate_goal_cms_decision(None,decision,target,'rollback','a'*64,accepted,now)
+
+
+class ProfessionalCMSCatalogLifecycleTests(unittest.TestCase):
+    setUp=fixture.GoalRuntimeConsumerTests.setUp
+    write=fixture.GoalRuntimeConsumerTests.write
+    make_goal=fixture.GoalRuntimeConsumerTests.make_goal
+    initialize=fixture.GoalRuntimeConsumerTests.initialize
+    snapshot=fixture.GoalRuntimeConsumerTests.snapshot
+
+    def catalog_source(self,state):
+        import professional_cms_issuer as issuer
+        self.initialize()
+        # Synthetic terminal state and source stay entirely in .test-tmp.
+        # An incomplete source may never enter the active execution catalog.
+        pin=w.file_digest(self.root,self.write('reports/synthetic-issuer-source.json',{
+            'fixture_only':True,'schema':'professional-cms-issuer-contract/v1','task_id':self.task_id}))
+        snapshot=self.snapshot();snapshot['current_state']=state
+        w.atomic_write_json(w.snapshot_path(self.root,self.task_id),snapshot)
+        w.append_workflow_event(self.root,self.task_id,state,{issuer.EVENT:pin})
+        return issuer,pin
+
+    def test_terminal_goal_keeps_history_and_refuses_new_forward_or_inverse(self):
+        issuer,pin=self.catalog_source('closed')
+        source_before=(self.root/w.WORKFLOW_EVENTS).read_bytes()
+        for state in sorted(w.TERMINAL_STATES):
+            snapshot=self.snapshot();snapshot['current_state']=state
+            w.atomic_write_json(w.snapshot_path(self.root,self.task_id),snapshot)
+            with self.subTest(state=state):
+                self.assertEqual(issuer.targets(self.root),{})
+                for op in ('publish','rollback'):
+                    with self.assertRaises(w.WorkflowError):
+                        issuer.acceptance(self.root,{'candidate_version':'closed-target'},op)
+                self.assertEqual(w.file_digest(self.root,pin['path']),pin)
+                self.assertEqual((self.root/w.WORKFLOW_EVENTS).read_bytes(),source_before)
+
+    def test_unverified_active_source_is_not_silently_admitted(self):
+        issuer,_=self.catalog_source('producer_working')
+        with self.assertRaises((w.WorkflowError,KeyError)):
+            issuer.targets(self.root)
+
 
 
 if __name__=='__main__':unittest.main()

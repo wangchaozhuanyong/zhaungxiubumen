@@ -701,9 +701,9 @@
     },
     {
       "path": "playbooks/department-system-runtime-reference.md",
-      "source_sha256": "34e0ac7742cbe83af23a53b6b3cc730765877788e2afac50d63ceb6318f59c77",
-      "release_sha256": "34e0ac7742cbe83af23a53b6b3cc730765877788e2afac50d63ceb6318f59c77",
-      "bytes": 12385
+      "source_sha256": "dc5605586853f25ca4184f9123829befe7bb10bf7ecdb8fb4383e46a61d55d39",
+      "release_sha256": "dc5605586853f25ca4184f9123829befe7bb10bf7ecdb8fb4383e46a61d55d39",
+      "bytes": 13453
     },
     {
       "path": "playbooks/department-system-source-release.md",
@@ -1217,9 +1217,9 @@
     },
     {
       "path": "tools/professional_cms_issuer.py",
-      "source_sha256": "a88227bc4967e4139a2866879c478af31fd74c6c9a249d8b2883deab945c7950",
-      "release_sha256": "a88227bc4967e4139a2866879c478af31fd74c6c9a249d8b2883deab945c7950",
-      "bytes": 13090
+      "source_sha256": "cede65d6bee94dc4ddda80e03ad78a95c130a48eb1cb5f0996136b53b2dd1a35",
+      "release_sha256": "cede65d6bee94dc4ddda80e03ad78a95c130a48eb1cb5f0996136b53b2dd1a35",
+      "bytes": 13325
     },
     {
       "path": "tools/professional_cms_pre_main_recovery.py",
@@ -1485,11 +1485,11 @@
     },
     {
       "path": "tools/test_flashcast_ops.py",
-      "source_sha256": "7beed943347c32f5e8e60182fd9c2f13f126bd5ef645a766f51285ed973fe455",
-      "release_sha256": "7beed943347c32f5e8e60182fd9c2f13f126bd5ef645a766f51285ed973fe455",
-      "bytes": 58147,
+      "source_sha256": "7967bd68247ef8d60d6e4957986426ea5001a0decb0cc3d586081682cf97b734",
+      "release_sha256": "7967bd68247ef8d60d6e4957986426ea5001a0decb0cc3d586081682cf97b734",
+      "bytes": 58446,
       "source_selection": "preserve_existing_portable_test",
-      "source_origin": "git:3d2f48cb8e49b55a0e18cac53624a45ac597fc19:tools/test_flashcast_ops.py"
+      "source_origin": "owner-authorized-nonreboot-test-fixture-compatibility-20261026-v1"
     },
     {
       "path": "tools/test_goal_authorization_precheck.py",
@@ -1529,11 +1529,11 @@
     },
     {
       "path": "tools/test_goal_source_recovery.py",
-      "source_sha256": "d010846331ce542d8b19fe65679daa7b2c5a481067e32aae35bda83c80340b9e",
-      "release_sha256": "d010846331ce542d8b19fe65679daa7b2c5a481067e32aae35bda83c80340b9e",
-      "bytes": 67061,
+      "source_sha256": "c184ae9e05469e82c59a7578cf989502374c218896e93e80adda313ceff2854c",
+      "release_sha256": "c184ae9e05469e82c59a7578cf989502374c218896e93e80adda313ceff2854c",
+      "bytes": 72154,
       "source_selection": "preserve_existing_portable_test",
-      "source_origin": "git:3d2f48cb8e49b55a0e18cac53624a45ac597fc19:tools/test_goal_source_recovery.py"
+      "source_origin": "owner-authorized-nonreboot-test-fixture-compatibility-20261026-v1"
     },
     {
       "path": "tools/test_goal_work_boundary.py",
@@ -1775,5 +1775,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "76135335129f932dbc6ca38b3787838b7f8e874d1fd68e913b27ae2a6d5a1772"
+  "fingerprint": "2fed4759fec76c599de37e9ae9b67349981f1b26cfdf077bc2dc07dfc864c680"
 }
