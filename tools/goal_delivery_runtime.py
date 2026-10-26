@@ -1252,7 +1252,7 @@ def pending(root, role):
 
 
 def record_preflight(root, task_id, input_path):
-    if w.read_json(w.safe_path(root, input_path)).get('schema') == 'professional-ads-object-preflight/v1':
+    if w.read_json(w.safe_path(root, input_path)).get('schema') in {'professional-ads-object-preflight/v1','professional-ads-planned-object-preflight/v2'}:
         from professional_ads_execution import record_preflight as original_ads_preflight
         return original_ads_preflight(root, task_id, input_path)[0]
     from department_autonomy import autonomous_goal,register_preflight
@@ -1399,7 +1399,7 @@ def _condo_faq_v7_post_candidate_preflight(root, task_id, input_path, action):
 def record_approved_action(root, task_id, input_path):
     """Freeze a precise routine decision, or owner action in an original declared collaboration scope."""
     action = w.read_json(w.safe_path(root, input_path))
-    if action.get("schema") == "professional-ads-object-source-registration/v1":
+    if action.get("schema") in {"professional-ads-object-source-registration/v1", "professional-ads-plan-object-source-registration/v2"}:
         from professional_ads_execution import record
         return record(root, task_id, input_path)[0]
     if action.get("schema") == "professional-external-WEB-production-source/v1":

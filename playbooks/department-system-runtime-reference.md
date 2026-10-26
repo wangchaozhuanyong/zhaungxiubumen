@@ -56,7 +56,7 @@ dispatch-plan --goal；receipt-record实际派送/ACK；`python3 tools/goal_deli
 
 ## daily
 
-既有专业排程及HQ18:00兜底保持；无变化静默，不新建轮询。
+既有专业排程保持；HQ兜底时刻只读唯一现行正文和真实自动化注册表，本页不复制排程。无变化静默，不新建轮询。
 
 ## maintenance
 
@@ -97,6 +97,12 @@ professional 动态 `target | dry-run` 名称仅沿真实登记目标和 active 
 
 ## 专业逐对象执行源与声明日任务成果
 
-广告逐对象来源使用既有`goal_delivery_runtime.py approved-action-record`的`professional-ads-object-source-registration/v1`，准确关联原合同、原人类/协调源、已完成专业请求与有界逻辑对象；登记不签发许可。`professional-ads-object-preflight/v1`沿原`preflight-record`进入当次真实观察、自检和可见备份，再走正常`policy-check`与执行前一次占用。`professional_ads_execution.py source-check/status/reserve`只读本地来源或登记一次占用，不访问广告平台；当前消费者仅支持已准确计划的单个新广告组，不取得其他对象/账号/预算/启停/条款权限。原观察不改时，执行前才鲜读同一授权通道和实际支持字段；临时浏览器编号不作稳定身份，未提供的服务端CAS或新对象ID不编造。
+广告逐对象来源使用既有`goal_delivery_runtime.py approved-action-record`的`professional-ads-object-source-registration/v1`，准确关联原合同、原人类/协调源、已完成专业请求与有界逻辑对象；登记不签发许可。`professional-ads-object-preflight/v1`沿原`preflight-record`进入当次真实观察、自检和可见备份，再走正常`policy-check`与执行前一次占用。`professional_ads_execution.py source-check/status/reserve`只读本地来源或登记一次占用，不访问广告平台；v1入口仅支持其已准确计划的单个新广告组，不能借给其他对象。原观察不改时，执行前才鲜读同一授权通道和实际支持字段；临时浏览器编号不作稳定身份，未提供的服务端CAS或新对象ID不编造。
 
 已在`task-contract.result_handoff_contract.scheduled_daily_sources`声明自主模式/专业来源/日期模式及`result_receiver=operations`的日任务，沿原V2/真实固定聊天READY或已完成final及正常结果交接入口运输和实收，不创建人工goal、派工ACK或助理批准。实收仍须准确原结果身份、完整证据SHA、真实HQ读取及SQL/native一致；声明日任务不产生业务发布或账户权限。已有goal或goal_contract的损坏快照不能冒作无goal日任务，历史旧模式继续原来源读取。
+
+同一原计划的后续对象沿`professional-ads-plan-object-source-registration/v2`只登记一次真实原计划、原建组实际结果、原图及老板新增预算原生来源；旧合同/原预算和group-only许可原件不改。新预算只约束同系列共享日均及原期限，授权值与实际Saved值分别读取。正常`approved-action-record`只追加source；不签发、不消费账户许可。
+
+`professional_ads_execution.py derive --input <已登记来源> --key <原plan key> --kind group|upload|ad|budget --output <新请求>`从原计划派生准确窄动作。原已建组不再派生，重复图按原SHA共用上传效果，其他真实group/asset/ad ID由执行者原生读回，不能编造。每动作分别采集本次支持的完整原对象表/稳定profile与extension/实际临时handle/真实日均预算和当前表单，自检绑定同一intent_sha256。`freeze-preflight --input <derived_request/facts/self_check三个准确pin> --output <新目录>`仅冻结可见备份/无重放恢复和`professional-ads-planned-object-preflight/v2`；`preflight`登记后正常`policy-check`，仅原执行者临近外部效果调用`issue`并`reserve --input <该窄请求> --decision-id <本次新policy>`一次。
+
+上传、建广告、预算保存是三个独立效果；广告仅消费已登记真实upload effect/crop/assetID与原图SHA。`effect-record --input <真实原生观察证明>`验证原执行者的第一方实际UI调用、原policy/reservation、即时对象表与支持字段后只追加效果。未知先读原键，不重复外部写；`derive`的existing_issued_policy_ids不为空时不得换新请求重试。同预算已实际Saved为新值时只读回，不再Save。报告/制作来源不因秒级观察过期而重做；只有真正执行事实须临近鲜读，未暴露服务端CAS/ID如实未提供。上传/建广告在实际合法旧值或新值下可独立执行，不等待预算保存；不得据此扩账号、地域、期限、其他预算或条款。
