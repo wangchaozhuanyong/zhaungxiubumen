@@ -465,8 +465,10 @@ def validate_cold_boundary(root,base,parent,item):
         path=directory/asset['ref'].lstrip('/');raw=path.read_bytes()
         need(len(raw)==asset['bytes']and hashlib.sha256(raw).hexdigest()==asset['sha256'],'real previously checked local build asset')
         build.append({**asset,'path':str(path)})
-    parser=Path(item['parser_source']['path']);need(parser.name=='typescript.js'and parser.parent.name=='lib'and parser.parent.parent.name=='typescript'
-         and parser.parent.parent.parent.name=='node_modules','reuse the existing TypeScript parser, no new package')
+    parser=Path(item['parser_source']['path']);canonical=Path(ctx['worktree'])/'node_modules/typescript/lib/typescript.js'
+    need(parser.resolve()==canonical.resolve()and canonical.is_file(),'only the original fixed worktree installed TypeScript parser')
+    installed=json.loads((canonical.parent.parent/'package.json').read_text());locked=json.loads(web.git(ctx,'show',ctx['commit']+':package-lock.json'))
+    need('package-lock.json'in {x['path']for x in protected}and installed.get('name')=='typescript'and installed.get('version')==locked.get('packages',{}).get('node_modules/typescript',{}).get('version'),'unchanged original lock and installed parser identity/version')
     web._external_bytes(item['parser_source'],base['binding'])
     relation=cold_source_semantics(before,after,proof,parser,{'files':build,'total':proof['initial_js_gzip_bytes'],'budget':budget})
     semantic=json.loads(actual(item['semantic_command']))
