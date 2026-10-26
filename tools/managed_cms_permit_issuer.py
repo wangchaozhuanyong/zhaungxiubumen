@@ -1546,32 +1546,48 @@ def gh_json(*args: str) -> dict:
     return json.loads(result.stdout)
 
 
-def artifact_for_run(run_id: int, target_name: str, folder: Path) -> tuple[dict, dict, dict, Path]:
-    run = gh_json("api", f"repos/{REPOSITORY}/actions/runs/{run_id}")
+def validate_artifact_run_identity(run_id: int, target_name: str, run: dict, workflow: dict | None = None) -> None:
+    """One freshly registered target and the real original workflow, never a suffix grant."""
+    current = _current_registered_targets(ROOT)
+    target = current.get(target_name)
+    professional = bool(target and target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1')
+    exact_dynamic = bool(target and target.get('candidate_shape') == 'owner_authorized_shop_office_six_field_v4')
     valid_name = run.get("name") == "Approved website content publish"
-    if not valid_name and target_name in {
-            "shop-office-shop-six-v4-ba79401d2ed2-20261025-v1",
-            "shop-office-office-six-v4-eb6eef35d390-20261025-v1"}:
-        from tools.shop_office_six_field_execution import targets as exact_targets
-        actual_target = exact_targets(ROOT).get(target_name)
-        require(actual_target is not None and TARGETS.get(target_name) == actual_target,
-                "Exact original registered shop/office target required")
-        workflow = gh_json("api", f"repos/{REPOSITORY}/actions/workflows/content-publish-approved.yml")
-        require(workflow.get("name") == "Approved website content publish"
+    if professional or (not valid_name and exact_dynamic):
+        require(target_name == target.get('candidate_version'), "Exact freshly registered target version required")
+        if professional:
+            from professional_cms_issuer import exact
+            exact(ROOT, target)
+        require(isinstance(workflow,dict)
+                and workflow.get("name") == "Approved website content publish"
                 and workflow.get("path") == ".github/workflows/content-publish-approved.yml"
                 and workflow.get("id") == run.get("workflow_id")
                 and type(workflow.get("id")) is int and workflow["id"] > 0
                 and workflow.get("state") == "active"
                 and run.get("repository", {}).get("full_name") == REPOSITORY
                 and run.get("repository", {}).get("id") == 1248188229
-                and run.get("status") == "completed" and run.get("run_attempt") == 1,
+                and run.get("status") == "completed" and type(run.get("run_attempt")) is int and run.get("run_attempt") == 1,
                 "Exact active original workflow/repository and first completed preview required")
-        valid_name = run.get("name") == f"{target_name} | dry-run"
+        valid_name = run.get("name") in {"Approved website content publish", f"{target_name} | dry-run"}
     require(run.get("event") == "workflow_dispatch" and run.get("head_branch") == "main"
             and run.get("conclusion") == "success" and valid_name
             and run.get("path") == ".github/workflows/content-publish-approved.yml"
             and run.get("id") == run_id and len(str(run.get("head_sha", ""))) == 40,
             "Dry-run workflow identity or conclusion is invalid")
+    if professional:
+        require(re.fullmatch(r"[0-9a-f]{40}",str(run.get('head_sha',''))) is not None,
+                "Exact professional preview source head required")
+
+
+def artifact_for_run(run_id: int, target_name: str, folder: Path) -> tuple[dict, dict, dict, Path]:
+    run = gh_json("api", f"repos/{REPOSITORY}/actions/runs/{run_id}")
+    workflow = None
+    target = _current_registered_targets(ROOT).get(target_name)
+    if target and (target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1'
+                  or (run.get('name') != 'Approved website content publish'
+                      and target.get('candidate_shape') == 'owner_authorized_shop_office_six_field_v4')):
+        workflow = gh_json("api", f"repos/{REPOSITORY}/actions/workflows/content-publish-approved.yml")
+    validate_artifact_run_identity(run_id, target_name, run, workflow)
     subprocess.run(["gh", "run", "download", str(run_id), "-R", REPOSITORY,
                     "-n", f"approved-content-publish-{run_id}", "-D", str(folder)], check=True, capture_output=True)
     target_dir = folder / target_name
@@ -1591,6 +1607,9 @@ def artifact_for_run(run_id: int, target_name: str, folder: Path) -> tuple[dict,
             and identity.get("actorId") == run.get("actor", {}).get("id")
             and len(str(identity.get("workflowSha", ""))) == 40,
             "Server-verified OIDC identity probe does not match the dry-run run")
+    if target and target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
+        require(identity.get('workflowSha') == run.get('head_sha'),
+                "Professional OIDC workflow head differs from exact preview source")
     return run, receipt, digest, target_dir / "backup.json"
 
 

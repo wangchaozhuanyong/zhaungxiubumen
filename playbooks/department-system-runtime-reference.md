@@ -76,3 +76,9 @@ dispatch-plan --goal；receipt-record实际派送/ACK；`python3 tools/goal_deli
 
 
 维护接线读回：`python3 tools/department_autonomy.py maintenance-preflight`。原flash-cast-20-00由SYS承接本项目检查，平台状态和绑定以准确实际读回为准；该命令不清理文件、不继承A3许可。实际清理仍须准确使用/引用、任务结束事实、精确清单和当前授权，不可恢复范围另向老板确认。
+
+### 已消费实例的artifact身份拒绝接续
+
+`professional_cms_pre_main_recovery.py draft-artifact` 仅消费真实 main 内 artifact 身份拒绝、UUID/CMS issue 前的失败源；与旧 pre-main import 事实分别登记。保存失败时 issuer 字节，绑定原请求、预检、spent policy、前一实例与当时真实新鲜查效、原生失败命令及其后零效果。`record` 只追加来源，不回写旧策略；`status --task-id` 返回准确当前源事件和完整 spent lineage。源必须形成唯一顺序后继，未知/非零效果或新分叉拒绝。原PUB使用当前源事件和新鲜查效重绑准确请求，沿原 preflight/readiness/新单次 policy/issuer 执行；300秒、预演期限、完整行/CAS和原单次约束不变。
+
+professional 动态 `target | dry-run` 名称仅沿真实登记目标和 active 原 workflow 身份消费，repo/id/path/ref/head/attempt、actor/OIDC、制品、字段/备份/父许可校验继续执行。历史 run 只作原失败和连通验证证据，过期不得当当前生产就绪。SYS不代PUB签发或保存。

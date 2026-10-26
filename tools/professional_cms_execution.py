@@ -1,5 +1,6 @@
 """Append-only professional CMS source binding; never a platform permit."""
 from pathlib import Path
+from copy import deepcopy
 import argparse
 import json
 import re
@@ -138,6 +139,23 @@ def validate(root, snapshot, item):
             'protected_fields':protected,'owner_result':q['outbox'],'actual_HQ_intake':intake['record_id']}
 
 def records(root, snapshot):
+    # Authenticated historical source bindings only. The operator request,
+    # current effects/CAS, policy and single-use state are outside this memo.
+    context=w._VALIDATION_CONTEXT.get()
+    if context is None:return _records_uncached(root,snapshot)
+    cache=getattr(context,'_professional_cms_binding_proofs',{})
+    key=(str(Path(root).resolve()),w.sha256_value(snapshot));cached=cache.get(key)
+    if cached is not None:
+        for path,version in cached['dependencies'].items():
+            context.bytes(path)
+            if context.files[path]['version']!=version:cached=None;break
+        if cached is not None:return deepcopy(cached['value'])
+    value=_records_uncached(root,snapshot)
+    cache[key]={'value':deepcopy(value),'dependencies':{p:x['version']for p,x in context.files.items()}}
+    context._professional_cms_binding_proofs=cache
+    return value
+
+def _records_uncached(root, snapshot):
     import department_autonomy as a
     rows = [e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)
             if e.get('task_id') == snapshot['task_id'] and EVENT in e.get('details',{})]
