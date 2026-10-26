@@ -428,6 +428,7 @@ def intent(root,req,check_desired=True):
     if op=='pages_deploy':
         need(state.get('pages_project')=='flashcast-website','exact original Pages project')
         desired.update(workflow=PAGES,manual_only_if_no_successful_same_head_run=True)
+    if state.get('known_zero_push_recovery'):desired=_recovery_intent(root,ctx,req)
     if check_desired:need(req.get('desired')==desired,'only exact registered effects; no hidden force, branch, account, workflow or target')
     return ctx,op,state,desired
 
@@ -457,6 +458,197 @@ def validate_request(root,req):
         if name=='rollback':need(value.get('production_recovery')==ctx['rollback']and value.get('unknown_effect_replay_allowed')is False,'original executable own-delta recovery; unknown effects are not retries')
     return ctx,op,state
 
+# Source text inserted into the existing WEB consumer; no platform write operation.
+RECOVERY_EVENT='professional_WEB_known_zero_push_recovery'
+RECOVERY_SCHEMA='professional-WEB-known-zero-push-recovery/v1'
+
+def _recovery_command(root,ctx,pin,command,failed=False,repository_read=False):
+    import goal_delivery_runtime as g
+    page=g._native_document(root,pin);binding=ctx['binding']
+    need(all(page.get('thread',{}).get(k)==binding[v]for k,v in {'id':'thread_id','title':'title','cwd':'cwd'}.items()),'original WEB completed recovery native identity')
+    matches=[(turn,index,item)for turn in page.get('turns',[])for index,item in enumerate(turn.get('items',[]))if item.get('id')==command]
+    need(len(matches)==1,'one actual original recovery command')
+    turn,index,item=matches[0];allowed_cwds={Path(ctx['worktree']).resolve()}
+    if repository_read:
+        common=Path(git(ctx,'rev-parse','--git-common-dir').decode().strip());common=(Path(ctx['worktree'])/common).resolve()if not common.is_absolute()else common.resolve()
+        need(common.name=='.git','actual original repository common Git directory');allowed_cwds.add(common.parent)
+    need(turn.get('status')=='completed'and not turn.get('error')and type(turn.get('startedAt'))in {int,float}
+         and type(turn.get('completedAt'))in {int,float}and turn['startedAt']<=turn['completedAt']
+         and item.get('type')=='commandExecution'and Path(item.get('cwd','')).resolve()in allowed_cwds, 'real completed WEB turn/original repository cwd and ordered times')
+    if not failed:
+        need(item.get('status')=='completed'and item.get('exitCode')==0,'successful original recovery readback command')
+        raw=w._completion_execution_output(item)
+        need(not any(item.get(k)not in (None,raw.decode('utf-8'))for k in ('aggregatedOutput','stdout'))and not item.get('stderr'),'conflicting successful recovery native outputs')
+        return turn,index,item,raw
+    # A failed command is evidence of failure, never successful execution proof.
+    need(item.get('status')=='failed'and type(item.get('exitCode'))is int and item['exitCode']!=0,'explicit nonzero failed transport command required')
+    out=item.get('output')
+    if isinstance(out,str):raw=out
+    else:
+        need(isinstance(out,dict)and set(out)=={'text','truncated'}and out.get('truncated')is False and isinstance(out.get('text'),str),'complete untruncated failed native output')
+        raw=out['text']
+    need(not any(item.get(k)not in (None,raw)for k in ('aggregatedOutput','stdout'))and not item.get('stderr'),'conflicting failed native output representations')
+    return turn,index,item,raw.encode('utf-8')
+
+def _output_document(raw,expected):
+    text=raw.decode('utf-8');decoder=json.JSONDecoder();found=[];offset=0
+    while offset<len(text):
+        if text[offset]not in '[{':offset+=1;continue
+        try:value,end=decoder.raw_decode(text,offset)
+        except ValueError:offset+=1;continue
+        if value==expected:found.append(value)
+        offset=end
+    need(len(found)==1,'one complete exact original evidence JSON in actual native output')
+
+def recovery_source(root,pin):
+    import result_coordination as rc
+    doc=a.document(root,pin);need(doc.get('schema')==RECOVERY_SCHEMA,'known-zero recovery source schema')
+    packet=a.document(root,doc.get('original_input'));task=packet.get('task_id');prior=packet.get('original_policy',{})
+    old=a.document(root,prior.get('exact_request'));ctx=static_intent(root,old);head,base=candidate(ctx,old['state'])
+    need(task==ctx['task']and packet.get('scope')==ctx['scope']and packet.get('source_owner')==ctx['owner']
+         and packet.get('executor')==ctx['role']and old.get('operation')=='git_push'
+         and old.get('action_id')==action_id(ctx,'git_push',head)and old.get('action_class')==OPS['git_push']
+         and old.get('scope')==scopes(ctx,'git_push')and packet.get('exact_original_execution_action')==old['action_id']
+         and packet.get('exact_head')==head and packet.get('exact_branch')==ctx['branch']and packet.get('repository')==ctx['repository']
+         and packet.get('original_actor')==old['state'].get('actor'),'same original authorized owner/executor/action/head/branch/account')
+    original_desired={'repository':ctx['repository'],'branch':ctx['branch'],'head':head,'force':False,'admin_bypass':False}
+    need(old.get('desired')==original_desired,'original exact non-force push intent')
+    key=w.sha256_value([task,ctx['role'],old['action_id'],old['action_class'],old['scope']])
+    policies=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('decision_id')==prior.get('decision_id')]
+    need(len(policies)==1 and policies[0]==prior and prior.get('status')=='allow'and prior.get('actual_action_allowed')is True
+         and prior.get('consume_approval')is True and prior.get('autonomous_action_key')==key==packet.get('original_autonomous_action_key')
+         and prior.get('payload_sha256')==prior['exact_request']['sha256']and not prior.get('known_zero_push_recovery'),'real original consumed policy/key, never a reset or recovered permission')
+    events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('event_id')==packet.get('previous_preflight_event')]
+    need(len(events)==1 and events[0].get('task_id')==task,'actual original preflight event')
+    pre=events[0].get('details',{}).get('professional_WEB_preflight',{})
+    need(pre.get('input')==prior.get('source_preflight')and pre.get('request')==prior.get('exact_request')and pre.get('action_id')==old['action_id']
+         and a.document(root,prior['source_preflight']).get('request')==prior['exact_request']
+         and packet.get('previous_intent')==w.sha256_value({k:v for k,v in old.items()if k not in {'facts','self_check','backup','rollback'}}),'original immutable request/intent/preflight relation')
+    # The actual committed owner result authenticates the source container. It is not a new production authorization.
+    identity=doc.get('owner_result_identity',{});received=rc._received_delivery(root,identity,{'target_department':'operations'})
+    need(received and received.get('record_id')==doc.get('actual_owner_intake_record_id')and identity.get('task_id')==task
+         and received.get('scope')==ctx['scope']and identity.get('sender_department')==ctx['owner'],'actual same-task owner committed SQL/native source custody')
+    box=a.document(root,received['outbox']);need(doc['original_input']in list(_pins(box)),'actual received complete owner result must pin this exact input')
+    custody=a.document(root,packet.get('C1_custody'));result=a.document(root,packet.get('producer_result'))
+    need(custody.get('task_id')==task and custody.get('scope')==ctx['scope']and custody.get('owner')==ctx['owner']
+         and custody.get('producer')==ctx['role']and custody.get('exact_typed_copy')==packet.get('producer_result')
+         and result.get('task_id')==task and result.get('scope')==ctx['scope']and result.get('producer')==ctx['role']
+         and result.get('producer_thread')==ctx['binding']['thread_id']and result.get('recipient')==ctx['owner'],'real original professional result and owner custody, no actor substitution')
+    send_intents=[]
+    for evidence in result.get('evidence',[]):
+        if isinstance(evidence,dict)and str(evidence.get('path','')).endswith('.json')and type(evidence.get('size'))is int and evidence['size']<=8192 and Path(evidence['path']).is_absolute()and Path(evidence['path']).resolve().is_relative_to(Path(ctx['binding']['cwd']).resolve()):
+            value=external(root,evidence,ctx['binding'])
+            if isinstance(value,dict)and value.get('effect')=='ABOUT_TO_SEND_ONCE':send_intents.append(value)
+    need(len(send_intents)==1,'one frozen actual original send intent, not a caller retry declaration')
+    sent=send_intents[0];sent_at=w._parse_observed_at(sent.get('at'))
+    need(set(sent)=={'at','head','branch','policy','argv','force','effect'}and sent.get('head')==head and sent.get('branch')==ctx['branch']
+         and sent.get('policy')==prior['decision_id']and sent.get('force')is False
+         and sent.get('argv')==['git','-c','credential.helper=','-c','credential.helper=!gh auth git-credential','push','https://github.com/'+ctx['repository']+'.git','HEAD:refs/heads/'+ctx['branch']],
+         'one exact original non-force ref only; no other remote/head/action')
+    failure=external(root,packet.get('actual_failure_evidence'),ctx['binding']);zero=external(root,packet.get('actual_zero_effect_source'),ctx['binding'])
+    need(failure==packet.get('actual_push_attempt')and zero==packet.get('actual_two_stage_zero_effect_readback'),'exact unchanged failed effect files')
+    need(failure.get('exit_code')==1 and failure.get('stdout')==''and failure.get('head')==head and failure.get('policy')==prior['decision_id']
+         and failure.get('push_attempts')==1 and failure.get('force')is False and failure.get('retry_unknown_effect')is False,'single explicit failed original transport only')
+    expected_error=("To https://github.com/"+ctx['repository']+".git\n ! [remote rejected]   HEAD -> "+ctx['branch']+
+        " (refusing to allow an OAuth App to create or update workflow `.github/workflows/content-publish-approved.yml` without `workflow` scope)\nerror: failed to push some refs to 'https://github.com/"+ctx['repository']+".git'\n")
+    need(failure.get('stderr')==expected_error,'explicit remote rejected original ref; unknown/network/partial failure is not zero effect')
+    nativepin=doc.get('actual_completed_native');commands=doc.get('commands',{})
+    admit=_recovery_command(root,ctx,nativepin,commands.get('admission'));failed=_recovery_command(root,ctx,nativepin,commands.get('failure'),True)
+    lookup=_recovery_command(root,ctx,nativepin,commands.get('zero_effect'),repository_read=True);ssh=_recovery_command(root,ctx,nativepin,commands.get('ssh_authentication'))
+    need(len({x[0]['id']for x in (admit,failed,lookup,ssh)})==1 and admit[1]<failed[1]<ssh[1]<lookup[1],'actual completed original admission/failure/SSH/readback chronology')
+    import goal_delivery_runtime as g
+    historical=g._native_document(root,packet.get('actual_WEB_native'))
+    originals=[t for t in historical.get('turns',[])if t.get('id')==admit[0]['id']and t.get('startedAt')==admit[0]['startedAt']]
+    need(historical.get('thread',{}).get('id')==ctx['binding']['thread_id']and len(originals)==1
+         and {commands.get('admission'),commands.get('failure'),commands.get('ssh_authentication')}<={m.get('id')for m in originals[0].get('items',[])},'same frozen original native turn/start/commands; later completed readback cannot substitute a new source round')
+    admission=json.loads(admit[3]);need(admission.get('policy')==prior and admission.get('record_preflight',{}).get('event_id')==events[0]['event_id'],'actual successful original policy command output')
+    _output_document(failed[3],failure);_output_document(lookup[3],zero)
+    query=zero.get('exact_branch_query',{});endpoint='repos/'+ctx['repository']+'/git/ref/heads/'+ctx['branch']
+    need(query.get('argv')==['gh','api',endpoint]and query.get('exit_code')==1
+         and json.loads(query.get('safe_body','null'))=={'message':'Not Found','documentation_url':'https://docs.github.com/rest/git/refs#get-a-reference','status':'404'}
+         and query.get('safe_stderr')=='gh: Not Found (HTTP 404)\n'and endpoint.encode()in failed[3]
+         and zero.get('same_branch_PRs')==[]and zero.get('actual_main')==base and zero.get('new_push_or_PR_attempt_performed')is False,'two actual same-key ref404 observations, empty PRs and original main')
+    # Do not execute command strings. Check that the authenticated completed readback actually queried this original PR key.
+    command=str(lookup[2].get('command',''))
+    need('/pulls?state=all&head='+ctx['repository'].split('/')[0]+':'in command and ctx['branch']in command and 'check_output'in command,'original completed authenticated exact branch PR query')
+    auth=json.loads(ssh[3]);need(auth==packet.get('existing_original_SSH_identity')and auth.get('exit')==1 and auth.get('stdout')==''
+         and auth.get('argv')==['ssh','-T','-o','BatchMode=yes','-o','ConnectTimeout=10','-o','ConnectionAttempts=1','user-3de132cd98be@example.invalid']
+         and auth.get('stderr')=="Hi "+old['state']['actor']['login']+"! You've successfully authenticated, but GitHub does not provide shell access.\n",'existing same-user SSH authentication only; no write capability assertion')
+    issued=w._parse_observed_at(prior.get('checked_at'));at=w._parse_observed_at(zero.get('observed_at'))
+    need(issued and at and sent_at and admit[0]['startedAt']<=issued.timestamp()<=sent_at.timestamp()<=at.timestamp()<=admit[0]['completedAt'],'real original policy/failure/readback times')
+    return {'ctx':ctx,'original_request':old,'original_policy':prior,'key':key,'source':pin}
+
+def record_push_recovery(root,task,path):
+    import goal_delivery_runtime as g
+    pin=w.file_digest(root,path);proof=recovery_source(root,pin);need(proof['ctx']['task']==task,'recovery task')
+    with w.workflow_lock(root):
+        rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==task and e.get('details',{}).get(RECOVERY_EVENT,{}).get('autonomous_action_key')==proof['key']]
+        if rows:
+            need(len(rows)==1 and rows[0]['details'][RECOVERY_EVENT]['source']==pin,'one immutable recovery source per original action; no new retry container')
+            return {'result':'duplicate_ignored','event_id':rows[0]['event_id'],'source':pin,'permission_issued':False}
+        need(len([p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('autonomous_action_key')==proof['key']and p.get('status')=='allow'])==1,'only the one original consumed action may acquire a recovery source')
+        snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)));need(snapshot.get('current_state')not in w.TERMINAL_STATES,'closed goal cannot recover an external action')
+        e=w.append_workflow_event(root,task,snapshot['current_state'],{RECOVERY_EVENT:{'source':pin,'autonomous_action_key':proof['key'],'original_policy':proof['original_policy']['decision_id']}})
+    return {'result':'recorded','event_id':e['event_id'],'source':pin,'permission_issued':False,'SSH_write_capability':'NOT_PROVEN'}
+
+def _registered_push_recovery(root,ctx,state):
+    pin=state.get('known_zero_push_recovery');proof=recovery_source(root,pin)
+    need(proof['ctx']['registration']==ctx['registration']and proof['ctx']['task']==ctx['task'],'same original registered source')
+    rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==ctx['task']and e.get('details',{}).get(RECOVERY_EVENT,{}).get('autonomous_action_key')==proof['key']]
+    need(len(rows)==1 and rows[0]['details'][RECOVERY_EVENT]['source']==pin,'normal append-only recovery registration required')
+    proof['registered_at']=rows[0]['created_at'];return proof
+
+def _validate_recovery_probe(ctx,state,proof):
+    probe=state.get('push_recovery_probe',{});now=dt.datetime.now(dt.timezone.utc)
+    at=w._parse_observed_at(probe.get('observed_at'));start=w._parse_observed_at(state.get('observed_at'));registered=w._parse_observed_at(proof['registered_at'])
+    need(probe.get('schema')=='professional-WEB-known-zero-push-probe/v1'and probe.get('source')==proof['source']and at and start and registered
+         and registered<=start<=at<=now and (now-start).total_seconds()<=300,'fresh actual post-registration execution/probe times')
+    old=proof['original_request'];need(state.get('effect_state')=='FAILED_KNOWN_ZERO'and state.get('remote_branch_sha')is None
+         and state.get('pull_request')is None and state.get('candidate_commit')==old['state']['candidate_commit']
+         and state.get('candidate_base')==old['state']['candidate_base']and state.get('actor')==old['state']['actor'],'same original failed-zero head/base/actor only; unknown or partial effects reject')
+    queries=probe.get('queries',{});repo=ctx['repository'];login=state['actor']['login'];ref='repos/'+repo+'/git/ref/heads/'
+    expected={'actor':('user',{'login':login,'id':state['actor']['id']}),'repository':('repos/'+repo,{'full_name':repo,'id':ctx.get('repository_id',1248188229)}),
+              'main':(ref+'main',{'sha':state['candidate_base']}),'branch':(ref+ctx['branch'],{'message':'Not Found','status':'404'}),
+              'pulls':('repos/'+repo+'/pulls?state=all&head='+login+':'+ctx['branch'],[])}
+    need(set(queries)==set(expected),'complete authenticated recovery observations only')
+    for name,(endpoint,body)in expected.items():
+        q=queries[name];need(q=={'argv':['gh','api','--hostname','github.com',endpoint],'exit_code':1 if name=='branch'else 0,'body':body},'exact authenticated recovery query '+name)
+    need(state.get('remote_main_sha')==state['candidate_base']and probe.get('ssh')=={'argv':['ssh','-T','-o','BatchMode=yes','-o','ConnectTimeout=10','-o','ConnectionAttempts=1','user-3de132cd98be@example.invalid'],'exit_code':1,
+         'authenticated_login':login,'write_capability':'NOT_PROVEN'},'same original main and existing SSH identity; no new key/account permission')
+    return proof
+
+def push_recovery_probe(root,task,state):
+    """Original WEB runs fixed read-only identity/ref queries. No Git push or credential output."""
+    ctx=execution_context(root,task,state);need(Path.cwd().resolve()==Path(ctx['worktree']).resolve(),'probe must run in original WEB worktree, not SYS')
+    proof=_registered_push_recovery(root,ctx,state);candidate(ctx,state);working_source(ctx,state.get('candidate_commit'))
+    repo=ctx['repository'];login=proof['original_request']['state']['actor']['login'];queries={}
+    def query(name,endpoint):
+        argv=['gh','api','--hostname','github.com',endpoint];p=subprocess.run(argv,cwd=ctx['worktree'],capture_output=True,text=True,timeout=30)
+        try:body=json.loads(p.stdout)
+        except ValueError:raise w.WorkflowError('external WEB: unreadable authenticated '+name+' response; effect remains unknown')
+        if name=='actor':body={k:body.get(k)for k in ('login','id')}
+        elif name=='repository':body={k:body.get(k)for k in ('full_name','id')}
+        elif name=='main':body={'sha':body.get('object',{}).get('sha')}
+        elif name=='branch':body={k:body.get(k)for k in ('message','status')}
+        queries[name]={'argv':argv,'exit_code':p.returncode,'body':body}
+    for name,endpoint in [('actor','user'),('repository','repos/'+repo),('main','repos/'+repo+'/git/ref/heads/main'),('branch','repos/'+repo+'/git/ref/heads/'+ctx['branch']),('pulls','repos/'+repo+'/pulls?state=all&head='+login+':'+ctx['branch'])]:query(name,endpoint)
+    argv=['ssh','-T','-o','BatchMode=yes','-o','ConnectTimeout=10','-o','ConnectionAttempts=1','user-3de132cd98be@example.invalid'];p=subprocess.run(argv,cwd=ctx['worktree'],capture_output=True,text=True,timeout=20)
+    need(p.returncode==1 and p.stdout==''and p.stderr=="Hi "+login+"! You've successfully authenticated, but GitHub does not provide shell access.\n",'same existing SSH identity authentication not proven')
+    value={**state,'effect_state':'FAILED_KNOWN_ZERO','remote_branch_sha':None,'pull_request':None,
+           'push_recovery_probe':{'schema':'professional-WEB-known-zero-push-probe/v1','source':proof['source'],'observed_at':w.utc_timestamp(),'queries':queries,
+           'ssh':{'argv':argv,'exit_code':p.returncode,'authenticated_login':login,'write_capability':'NOT_PROVEN'}}}
+    _validate_recovery_probe(ctx,value,proof);return {'state':value}
+
+def _recovery_intent(root,ctx,req):
+    state=req.get('state',{});proof=_validate_recovery_probe(ctx,state,_registered_push_recovery(root,ctx,state));old=proof['original_request']
+    need(req.get('operation')=='git_push'and all(req.get(k)==old.get(k)for k in ('task_id','department','action_id','action_class','scope')),'same original push action only')
+    return {**old['desired'],'transport':'existing_ssh','remote_url':'user-3de132cd98be@example.invalid:'+ctx['repository']+'.git'}
+
+def _recovery_policy_history(root,ctx,req,key):
+    proof=_registered_push_recovery(root,ctx,req['state']);rows=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('status')=='allow'and (p.get('autonomous_action_key')==key or p.get('task_id')==ctx['task']and p.get('action_id')==req['action_id'])]
+    need(proof['key']==key and rows==[proof['original_policy']],'one recovery maximum; consumed or unknown recovery cannot be replayed')
+    return {'known_zero_push_recovery':proof['source'],'recovery_of_policy':proof['original_policy']['decision_id'],'recovery_attempt':1}
+
 def record_preflight(root,task,path):
     import goal_delivery_runtime as g
     pin=w.file_digest(root,path);item=a.document(root,pin);req=a.document(root,item.get('request'));validate_request(root,req)
@@ -464,9 +656,13 @@ def record_preflight(root,task,path):
     with w.workflow_lock(root):
         rows=[e['details']['professional_WEB_preflight']for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==task and e.get('details',{}).get('professional_WEB_preflight',{}).get('action_id')==req['action_id']]
         if rows and rows[-1]['request']==item['request']:return {'result':'duplicate_ignored','permission_issued':False}
-        need(not any(p.get('task_id')==task and p.get('action_id')==req['action_id']and p.get('status')=='allow'for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)),'actual/unknown action already issued; read effect without replay')
+        issued=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('task_id')==task and p.get('action_id')==req['action_id']and p.get('status')=='allow']
+        if req['state'].get('known_zero_push_recovery'):
+            ctx=static_intent(root,req);_recovery_policy_history(root,ctx,req,w.sha256_value([task,ctx['role'],req['action_id'],req['action_class'],req['scope']]))
+        else:need(not issued,'actual/unknown action already issued; read effect without replay')
         if rows:
-            old=a.document(root,rows[-1]['request']);need(all(old.get(k)==req.get(k)for k in ('task_id','department','action_id','action_class','scope','operation','desired')),'refresh exact same action observations only')
+            old=a.document(root,rows[-1]['request']);fields=('task_id','department','action_id','action_class','scope','operation')
+            need(all(old.get(k)==req.get(k)for k in fields)and (old.get('desired')==req.get('desired')or bool(req['state'].get('known_zero_push_recovery'))),'refresh exact same action observations only')
         s=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)));e=w.append_workflow_event(root,task,s['current_state'],{'professional_WEB_preflight':{'action_id':req['action_id'],'request':item['request'],'input':pin}})
     return {'result':'recorded','event_id':e['event_id'],'input':pin,'permission_issued':False}
 def preflight(root,task,action,action_class,scope,department):
@@ -505,11 +701,13 @@ def policy(root,requested):
         run=state.get('r3_run'if op=='r3_dispatch'else'pages_run',{})
         if run.get('head_sha')==state.get('main_sha') and run.get('path')==(R3 if op=='r3_dispatch'else PAGES)and run.get('status')in {'queued','in_progress','waiting','pending','completed'}:
             return {'status':'existing_same_head_run_readback_no_new_dispatch','actual_action_allowed':False,'source_request':item['request']},[]
-    need(state.get('effect_state')=='NOT_STARTED','unknown or issued effect must be read back, never blindly retried')
+    recovery=bool(state.get('known_zero_push_recovery'))
+    need(state.get('effect_state')==('FAILED_KNOWN_ZERO'if recovery else'NOT_STARTED'),'unknown or issued effect must be read back, never blindly retried')
     key=w.sha256_value([ctx['task'],ctx['role'],req['action_id'],req['action_class'],req['scope']])
     with w.workflow_lock(root):
-        need(not any(row.get('autonomous_action_key')==key and row.get('status')=='allow'for row in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)),'single original actual action already issued; read unknown effect')
-        value={**requested,'status':'preflight_ready_not_a_permit','actual_action_allowed':False,'approval_basis':a.MODE,'original_authority':ctx['authorization'],'delegated_HQ_decision':ctx['decision'],'exact_request':item['request'],'source_preflight':pin,'autonomous_action_key':key,'checked_at':w.utc_timestamp(),'external_execution_department':ctx['role'],'assistant_approval_required':False,'platform_permission_issued':False}
+        recovery_fields=_recovery_policy_history(root,ctx,req,key)if recovery else{}
+        if not recovery:need(not any(row.get('autonomous_action_key')==key and row.get('status')=='allow'for row in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)),'single original actual action already issued; read unknown effect')
+        value={**requested,'status':'preflight_ready_not_a_permit','actual_action_allowed':False,'approval_basis':a.MODE,'original_authority':ctx['authorization'],'delegated_HQ_decision':ctx['decision'],'exact_request':item['request'],'source_preflight':pin,'autonomous_action_key':key,'checked_at':w.utc_timestamp(),'external_execution_department':ctx['role'],'assistant_approval_required':False,'platform_permission_issued':False,**recovery_fields}
         if ctx.get('standing_CMS_channel'):
             value.pop('delegated_HQ_decision');value.update(standing_CMS_authority=ctx['decision'],authority_department=ctx['authority_department'],standing_authorization_id=ctx['standing_authorization_id'])
         if requested.get('consume_approval'):
@@ -540,7 +738,7 @@ def record_approval(root,**kwargs):
         if old:need(old.get('status')=='active'and old.get('source_preflight')==pin,'consumed/revoked/unknown reference cannot be reissued');return {**old,'result':'duplicate_ignored'},[Path(root)/w.APPROVAL_LEDGER]
         binding={'version':'r3-release-approval/v1','taskId':ctx['task'],'actionId':req['action_id'],'actionClass':'site_publish','scope':ctx['edge_scope'],'approvalId':apr,'expectedSha':state['main_sha'],'repository':ctx['repository'],'repositoryId':1248188229,'ref':'refs/heads/main','workflowRef':ctx['repository']+'/'+R3+'@refs/heads/main','environment':'production-supabase','eventName':'workflow_dispatch','runId':str(state['r3_run']['id']),'runAttempt':1,'singleUse':True,'status':'active','issuedAt':now.isoformat(),'expiresAt':(now+dt.timedelta(minutes=15)).isoformat()}
         binding['payloadSha256']=hashlib.sha256(json.dumps(binding,ensure_ascii=False,separators=(',',':')).encode()).hexdigest()
-        value={'schema_version':'1.0','approval_id':apr,'task_id':ctx['task'],'action_id':req['action_id'],'action_class':'site_publish','scope':ctx['edge_scope'],'status':'active','single_use':True,'granted_by':'operations','granted_at':w.utc_timestamp(),'source_thread_id':human['source_thread_id'],'source_message_ref':human['message']['id'],'approval_basis':'verified_original_goal_external_WEB_source_v1','original_human_authorization_pin':ctx['authorization'],'delegated_HQ_decision':ctx['decision'],'source_preflight':pin,'execution_department':ctx['role'],'platform_binding':binding,'platform_permission_issued':False}
+        value={'schema_version':'1.0','approval_id':apr,'task_id':ctx['task'],'action_id':req['action_id'],'action_class':'site_publish','scope':ctx['edge_scope'],'status':'active','single_use':True,'granted_by':'operations','granted_at':w.utc_timestamp(),'source_thread_id':human['source_thread_id'],'source_message_ref':human['message']['id'],'approval_basis':'verified_original_goal_external_WEB_source_v1','original_human_authorization_pin':ctx['authorization'],'delegated_HQ_decision':ctx['decision'],'source_preflight':pin,'execution_department':ctx['role'],'platform_binding':binding,'platform_permission_issued':False,**recovery_fields}
         if ctx.get('standing_CMS_channel'):
             value.pop('delegated_HQ_decision');value.update(approval_basis='verified_professional_standing_CMS_WEB_source_v1',granted_by=ctx['authority_department'],standing_CMS_authority=ctx['decision'],authority_department=ctx['authority_department'],standing_authorization_id=ctx['standing_authorization_id'])
         w.append_jsonl_locked(Path(root)/w.APPROVAL_LEDGER,value)
@@ -603,15 +801,19 @@ def describe(root,task):
       'future_PR_merge_SHA_run_or_version_provided':False,'actual_external_action_performed':False}
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('command',choices=['describe','request-base','build-preflight','source-backup']);parser.add_argument('--task-id',required=True)
-    parser.add_argument('--operation',choices=sorted(OPS));parser.add_argument('--state');parser.add_argument('--base');parser.add_argument('--facts-native');parser.add_argument('--facts-command');parser.add_argument('--self-native');parser.add_argument('--self-command');parser.add_argument('--backup');parser.add_argument('--output')
+    parser=argparse.ArgumentParser();parser.add_argument('command',choices=['describe','request-base','build-preflight','source-backup','record-push-recovery','push-recovery-probe']);parser.add_argument('--task-id',required=True)
+    parser.add_argument('--input');parser.add_argument('--operation',choices=sorted(OPS));parser.add_argument('--state');parser.add_argument('--base');parser.add_argument('--facts-native');parser.add_argument('--facts-command');parser.add_argument('--self-native');parser.add_argument('--self-command');parser.add_argument('--backup');parser.add_argument('--output')
     args=parser.parse_args();root=Path(__file__).resolve().parents[1]
     try:
         with w.request_validation_context():
             if args.command=='describe':result=describe(root,args.task_id)
+            elif args.command=='record-push-recovery':result=record_push_recovery(root,args.task_id,args.input)
+            elif args.command=='push-recovery-probe':
+                result=push_recovery_probe(root,args.task_id,a.document(root,w.file_digest(root,args.state)))
+                need(args.output,'new project output path required');out=w.safe_path(root,args.output);need(not out.exists(),'preserve original probe');w.atomic_write_json(out,result['state']);result['state_file']=w.file_digest(root,args.output)
             elif args.command=='source-backup':result=source_backup(root,args.task_id,a.document(root,w.file_digest(root,args.state)),args.output)
             elif args.command=='request-base':
                 result=request_base(root,args.task_id,args.operation,a.document(root,w.file_digest(root,args.state)));need(args.output,'new project input output path required');out=w.safe_path(root,args.output);need(not out.exists(),'preserve original request');w.atomic_write_json(out,result);result={'state':'request_base_prepared_no_permission','input':w.file_digest(root,args.output),'intent_sha256':w.sha256_value(result)}
             else:result=build_preflight(root,args.base,args.facts_native,args.facts_command,args.self_native,args.self_command,args.backup,args.output)
         print(json.dumps(result,ensure_ascii=False,indent=2))
-    except (w.WorkflowError,ValueError,KeyError,OSError)as error:parser.exit(1,str(error)+'\n')
+    except (w.WorkflowError,ValueError,KeyError,OSError,subprocess.TimeoutExpired)as error:parser.exit(1,str(error)+'\n')
