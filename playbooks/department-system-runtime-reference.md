@@ -82,3 +82,9 @@ dispatch-plan --goal；receipt-record实际派送/ACK；`python3 tools/goal_deli
 `professional_cms_pre_main_recovery.py draft-artifact` 仅消费真实 main 内 artifact 身份拒绝、UUID/CMS issue 前的失败源；与旧 pre-main import 事实分别登记。保存失败时 issuer 字节，绑定原请求、预检、spent policy、前一实例与当时真实新鲜查效、原生失败命令及其后零效果。`record` 只追加来源，不回写旧策略；`status --task-id` 返回准确当前源事件和完整 spent lineage。源必须形成唯一顺序后继，未知/非零效果或新分叉拒绝。原PUB使用当前源事件和新鲜查效重绑准确请求，沿原 preflight/readiness/新单次 policy/issuer 执行；300秒、预演期限、完整行/CAS和原单次约束不变。
 
 professional 动态 `target | dry-run` 名称仅沿真实登记目标和 active 原 workflow 身份消费，repo/id/path/ref/head/attempt、actor/OIDC、制品、字段/备份/父许可校验继续执行。历史 run 只作原失败和连通验证证据，过期不得当当前生产就绪。SYS不代PUB签发或保存。
+
+### 已采用WEB元数据增量的正常版本接续
+
+`professional_web_increment.py record --task-id <原任务> --input <准确来源登记>` 验证原专业owner实际采用、原WEB真实运输/ACK/completed结果、Git对象及精确前后patch，仅追加来源，不改原合同、producer和旧生产上下文。注册来源须绑定原`professional_WEB_production_source`。metadata expected值只能沿原严格完整标题及实际源核对改变，CMS tuple、publisher实现和其他字段保持；真实新branch/worktree/native随已验来源选择，不由caller覆盖旧ctx。
+
+原`professional_web_execution.py request-base/build-preflight`保持入口；已登记元数据增量仅支持准确新head的push/PR/所需官方CI/merge，未生成的PR/main/run不预填，不重放CMS/preview/issuer/R3/Edge或手动Pages。WEB先鲜读状态，再由自己的真实原生自检绑定当前intent与原授权SHA；SYS不代签。源代码15项等未变证据按相同字节复用。实际merge自然触发的正常流程分别记实。

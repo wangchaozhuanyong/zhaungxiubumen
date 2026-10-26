@@ -72,12 +72,23 @@ def validate_source(root,snapshot,item):
          and cmssources[0]['channel']==channel,'same original CMS/WEB source graph')
     records=[a.document(root,p)for p in goal.get('collaboration_records',[])];states=g._collaboration_wait_states(root,snapshot)
     completed=[s for s in states if s.get('department')==channel and s.get('status')=='result_received'and s.get('proof_state')=='PROVEN']
+    original_completed=g._native_document(root,repair['actual_completed_safe_stage_native'])
+    original_turns={t['id']for t in original_completed.get('turns',[])if t.get('status')=='completed'and not t.get('error')}
+    need(original_turns and all(original_completed.get('thread',{}).get(k)==binding[v]for k,v in {'id':'thread_id','title':'title','cwd':'cwd'}.items()),'actual original completed WEB source turn')
     selected=[]
     for state in completed:
         recs=[v for v in records if v.get('action_id')==state['action_id']and v.get('status')=='result_received']
         if len(recs)!=1:continue
         request=a.document(root,recs[0]['original_prepare_request']);body=w.safe_path(root,request['payload']['path']).read_text()
-        if decision_pin['path']in body and decision_pin['sha256']in body:selected.append((state,recs[0]))
+        actual_result=a.document(root,recs[0]['result']);pins=list(_pins(actual_result))
+        def same_source(p,q):
+            return p.get('sha256')==q.get('sha256')and p.get('size')==q.get('size')and (Path(root)/p.get('path','')).resolve()==(Path(root)/q.get('path','')).resolve()
+        if (decision_pin['path']in body and decision_pin['sha256']in body
+                and recs[0].get('recipient_turn_id')in original_turns
+                and actual_result.get('task_id')==snapshot['task_id']and actual_result.get('commit')==repair['original_WEB_exact_identity']['commit']
+                and any(same_source(p,repair['actual_failing_request'])for p in pins)
+                and any(same_source(p,repair['actual_failing_request_object']['committed_source'])for p in pins)):
+            selected.append((state,recs[0]))
     need(len(selected)==1,'actual exact full-production message/queue/user/ACK/completed result chain')
     recovery.collaboration_queue_source(root,snapshot,selected[0][1])
     source=a.document(root,repair['real_committed_source_custody']);meta=repair['original_WEB_exact_identity'];local=decision['selected_local_version']
@@ -156,6 +167,8 @@ def _delta(ctx,base,head):
 def candidate(ctx,state):
     head=state.get('candidate_commit');base=state.get('candidate_base',ctx['base']);need(re.fullmatch('[0-9a-f]{40}',str(head)),'real full candidate head')
     need(state.get('source_mode','forward')in {'forward','remove_own_delta'},'known exact source mode only')
+    if ctx.get('increment_registration'):
+        need(head==ctx['commit']and base==ctx['base']and state.get('source_mode','forward')=='forward','exact actually adopted metadata increment only');return head,base
     if head==ctx['commit']:
         need(base==ctx['base']and state.get('source_mode','forward')=='forward','original candidate base; recovery needs a real inverse commit');return head,base
     need(re.fullmatch('[0-9a-f]{40}',str(base))and set(git(ctx,'diff','--name-only',base,head).decode().splitlines())<=set(ctx['paths']), 'same original paths only in causal successor')
@@ -183,8 +196,12 @@ def candidate(ctx,state):
           'unknown Save blocks channel removal; own completed inverse or verified zero effect required')
     return head,base
 
+def execution_context(root,task,state):
+    from professional_web_increment import select
+    return select(root,records(root,task)[0],state)
+
 def static_intent(root,request):
-    ctx=records(root,request['task_id'])[0];role=request.get('sender_department',request.get('department'))
+    ctx=execution_context(root,request['task_id'],request.get('state',{}));role=request.get('sender_department',request.get('department'))
     need(role==request.get('department',role)==ctx['role']and request.get('source_project_id')==a.PROJECT
       and request.get('execution_project_id')==ctx['binding']['project_id']and request.get('authorization_changes',[])==[]
       and request.get('exact_HQ_production_decision')==ctx['decision'],'exact actual external WEB/projects/HQ source; no actor substitution or expansion')
@@ -196,6 +213,7 @@ def working_source(ctx,head):
          'fresh real clean worktree/head/branch CAS; preserve parallel WIP and never push another HEAD')
 def intent(root,req,check_desired=True):
     ctx=static_intent(root,req);op=req.get('operation');need(op in OPS,'only registered complete-stage operations')
+    if ctx.get('increment_registration'):need(op in ctx['increment_allowed_operations'],'metadata increment needs no CMS/Edge/R3/manual Pages action')
     state=req.get('state',{});head,base=candidate(ctx,state);main=state.get('main_sha')if op in {'edge_deploy','r3_dispatch','pages_deploy'}else None
     working_source(ctx,head)
     if op in {'edge_deploy','r3_dispatch','pages_deploy'}:
@@ -204,6 +222,9 @@ def intent(root,req,check_desired=True):
       and req.get('action_id')==action_id(ctx,op,head,main),'exact source-derived operation/action/business or physical scope')
     need(state.get('repository')==ctx['repository'] and state.get('repository_id')==1248188229
       and state.get('branch')==ctx['branch'],'actual original repository/branch')
+    if ctx.get('increment_registration'):
+        need(state.get('worktree',ctx['worktree'])==ctx['worktree'],'current native/source worktree, never caller old-context fill')
+        need(state.get('actor',{}).get('id')==ctx['increment_actor_id'],'exact authenticated original actor')
     actor=state.get('actor',{});need(actor.get('login')==ctx['repository'].split('/')[0]and type(actor.get('id'))is int and actor['id']>0,'original authenticated repository account, no substituted actor')
     desired={'repository':ctx['repository'],'branch':ctx['branch'],'head':head,'force':False,'admin_bypass':False}
     if op=='git_push':need(state.get('remote_main_sha')==base,'fresh main advanced; same-semantic source rebase required before first push')
@@ -336,7 +357,7 @@ def record_approval(root,**kwargs):
     return {**value,'result':'recorded'},[Path(root)/w.APPROVAL_LEDGER]
 
 def request_base(root,task,op,state):
-    ctx=records(root,task)[0];need(op in OPS,'registered operation')
+    ctx=execution_context(root,task,state);need(op in OPS,'registered operation')
     head=state.get('candidate_commit');main=state.get('main_sha')if op in {'edge_deploy','r3_dispatch','pages_deploy'}else None
     need(re.fullmatch('[0-9a-f]{40}',str(head))is not None,'real full candidate head required, no missing or predicted value')
     req={'task_id':task,'sender_department':ctx['role'],'department':ctx['role'],'action_id':action_id(ctx,op,head,main),
@@ -369,6 +390,7 @@ def describe(root,task):
       'decision':ctx['decision'],'original_real_head':ctx['commit'],'branch':ctx['branch'],'source_paths':ctx['paths'],
       'operations':{op:{'action_class':kind,'scope':scopes(ctx,op),'facts_required_at_actual_stage':True}for op,kind in OPS.items()},
       'minimum_platform_guards':{'all_exact_head_required_CI':sorted(CHECKS),'R3_workflow':R3,'Pages_workflow':PAGES,'R3_run_attempt':1,'environment':'production-supabase','approval_TTL_minutes':15,'single_use':True},
+      'adopted_increments':[{'commit':x['commit'],'base':x['base'],'tree':x['tree'],'branch':x['branch'],'worktree':x['worktree'],'source':x['increment_registration'],'operations':x['increment_allowed_operations']}for x in __import__('professional_web_increment').sources(root,ctx)],
       'future_PR_merge_SHA_run_or_version_provided':False,'actual_external_action_performed':False}
 
 if __name__=='__main__':
@@ -376,9 +398,10 @@ if __name__=='__main__':
     parser.add_argument('--operation',choices=sorted(OPS));parser.add_argument('--state');parser.add_argument('--base');parser.add_argument('--facts-native');parser.add_argument('--facts-command');parser.add_argument('--self-native');parser.add_argument('--self-command');parser.add_argument('--backup');parser.add_argument('--output')
     args=parser.parse_args();root=Path(__file__).resolve().parents[1]
     try:
-        if args.command=='describe':result=describe(root,args.task_id)
-        elif args.command=='request-base':
-            result=request_base(root,args.task_id,args.operation,a.document(root,w.file_digest(root,args.state)));need(args.output,'new project input output path required');out=w.safe_path(root,args.output);need(not out.exists(),'preserve original request');w.atomic_write_json(out,result);result={'state':'request_base_prepared_no_permission','input':w.file_digest(root,args.output),'intent_sha256':w.sha256_value(result)}
-        else:result=build_preflight(root,args.base,args.facts_native,args.facts_command,args.self_native,args.self_command,args.backup,args.output)
+        with w.request_validation_context():
+            if args.command=='describe':result=describe(root,args.task_id)
+            elif args.command=='request-base':
+                result=request_base(root,args.task_id,args.operation,a.document(root,w.file_digest(root,args.state)));need(args.output,'new project input output path required');out=w.safe_path(root,args.output);need(not out.exists(),'preserve original request');w.atomic_write_json(out,result);result={'state':'request_base_prepared_no_permission','input':w.file_digest(root,args.output),'intent_sha256':w.sha256_value(result)}
+            else:result=build_preflight(root,args.base,args.facts_native,args.facts_command,args.self_native,args.self_command,args.backup,args.output)
         print(json.dumps(result,ensure_ascii=False,indent=2))
     except (w.WorkflowError,ValueError,KeyError,OSError)as error:parser.exit(1,str(error)+'\n')
