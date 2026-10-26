@@ -1414,6 +1414,9 @@ def record_approved_action(root, task_id, input_path):
     if action.get("schema") == "professional-cms-execution-source-registration/v1":
         from professional_cms_execution import record
         return record(root, task_id, input_path)
+    if action.get("schema") == "professional-owner-result-message-source/v1":
+        from department_autonomy import record_owner_result_message
+        return record_owner_result_message(root, task_id, input_path)
     if action.get("schema") == "current-autonomous-readonly-coordination-action/v1":
         from department_autonomy import record_readonly_coordination
         return record_readonly_coordination(root, task_id, input_path)

@@ -168,6 +168,85 @@ def _professional_readonly_coordination(root, snapshot, action):
   'business_producer_added':False,'current_assignment_changed':False,'external_permission_issued':False}
 
 
+def owner_result_message_source(root,snapshot,item):
+ """An authenticated owner's exact ordinary collaboration, never a permit.
+
+ A caller label is insufficient: the complete real native result must bind the
+ unchanged action file and its payload. External actions retain their own gates.
+ """
+ import re
+ goal=participant(root,snapshot,snapshot['goal_delivery']['primary_owner'])
+ frozen=document(root,snapshot['goal_contract']);owner=goal['primary_owner']
+ require(current_mode(root)and item.get('schema')=='professional-owner-result-message-source/v1'
+  and item.get('task_id')==snapshot['task_id']and item.get('goal_contract')==snapshot['goal_contract']
+  and item.get('authorization')==goal['authorization_pin']
+  and all(goal.get(k)==frozen.get(k)for k in ('primary_owner','producer_departments','authorized_scope','human_authorization')),
+  'unchanged original professional message contract and authority required')
+ action=document(root,item.get('original_action'));source=document(root,item.get('professional_result_request'))
+ native_result(root,source,w.department_registry(root)[owner]['chat_binding']['task_id'])
+ report=document(root,w.file_digest(root,source['outbox_path']))
+ require(source.get('task_id')==snapshot['task_id']and source.get('sender_department')==owner
+  and report.get('primary_owner')==report.get('department')==owner
+  and report.get('scope')==item.get('scope')in goal['authorized_scope']
+  and item['original_action']in report.get('evidence',[])and report.get('delivery_model')==MODE,
+  'actual complete original owner result must bind this exact action source')
+ target=action.get('target_department');registry=w.department_registry(root)
+ require(action.get('task_id')==snapshot['task_id']and action.get('scope')==item['scope']
+  and action.get('sender_department')==owner and target!=owner and professional(root,target)
+  and action.get('action_class')=='thread_message'and action.get('assignment_record_required')is False
+  and action.get('action_id')and not action.get('authorization_changes')and not action.get('internal_repairs')
+  and not any(action.get(k)for k in ('approval_id','consume_approval','execution_request','goal_responsibility_dispatch','parent_task_id')),
+  'ordinary same-goal professional message only; no new responsibility, execution or authority')
+ payload=action.get('payload');require(w.file_digest(root,payload.get('path',''))==payload
+  and payload['sha256']==action.get('payload_sha256'),'unchanged original professional message bytes required')
+ text=(Path(root)/payload['path']).read_text()
+ require(all(re.search(r'(?m)^'+k+'='+re.escape(str(action[k]))+r'\s*$',text)for k in ('task_id','scope','action_id','sender_department','target_department')),
+  'exact source payload task/scope/participants required')
+ dest=registry[target]['chat_binding'];sender=registry[owner]['chat_binding']
+ require(dest.get('project_id')==sender.get('project_id')==action.get('source_project_id')==action.get('target_project_id')==PROJECT
+  and Path(dest.get('cwd','')).resolve()==Path(root).resolve()==Path(sender.get('cwd','')).resolve()
+  and all(action.get(k)==dest[v]for k,v in {'target_thread_id':'task_id','target_thread_title':'title','target_cwd':'cwd','target_sidebar_section_id':'sidebar_section_id'}.items()),
+  'exact current professional role/project/directory/message target required')
+ return action,{'mode':MODE,'source':payload,'report':w.file_digest(root,source['outbox_path']),
+  'scope':item['scope'],'sender_department':owner,'target_department':target,
+  'purpose':'original_professional_collaboration_transport_only','external_permission_issued':False,
+  'business_producer_added':False,'current_assignment_changed':False}
+
+
+def record_owner_result_message(root,task,input_path):
+ import goal_delivery_runtime as g
+ pin=w.file_digest(root,input_path);item=document(root,pin)
+ with w.workflow_lock(root):
+  snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)))
+  require(task==item.get('task_id'),'exact original message registration task required')
+  action,route=owner_result_message_source(root,snapshot,item)
+  prepared={**action,'professional_owner_message_source':pin}
+  previous=[a for a in snapshot['goal_delivery'].get('approved_actions',[])if a.get('action_id')==action['action_id']]
+  if previous:
+   require(previous==[prepared],'original message action already frozen to different bytes')
+   return {'result':'duplicate_ignored','actual_message_sent':False,'external_permission_issued':False}
+  snapshot['goal_delivery']={**snapshot['goal_delivery'],'approved_actions':snapshot['goal_delivery'].get('approved_actions',[])+[prepared]}
+  w.append_workflow_event(root,task,snapshot['current_state'],{'goal_delivery':snapshot['goal_delivery'],
+   'professional_owner_message_source':pin,'approved_message_prepared':item['original_action'],'actual_message_sent':False,'external_permission_issued':False})
+  w.atomic_write_json(w.snapshot_path(root,task),snapshot)
+ return {'result':'recorded','actual_message_sent':False,'external_permission_issued':False,'route':route}
+
+
+def _registered_owner_result_message(root,snapshot,request):
+ keys=('task_id','scope','action_id','action_class','sender_department','target_department','payload','payload_sha256')
+ rows=[a for a in snapshot.get('goal_delivery',{}).get('approved_actions',[])if a.get('professional_owner_message_source')
+  and all(a.get(k)==request.get(k)for k in keys)]
+ if not rows:return None
+ require(len(rows)==1,'one original registered professional message required')
+ action=rows[0];pin=action['professional_owner_message_source'];original,route=owner_result_message_source(root,snapshot,document(root,pin))
+ require(action=={**original,'professional_owner_message_source':pin}
+  and all(request.get(k)==v for k,v in original.items()),'unchanged registered message and exact transport inputs required')
+ events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==snapshot['task_id']
+  and e.get('details',{}).get('professional_owner_message_source')==pin]
+ require(len(events)==1,'one real normal professional coordination registration required')
+ return route
+
+
 def _registered_professional_readonly_route(root,snapshot,request):
  actions=[a for a in snapshot.get('goal_delivery',{}).get('approved_actions',[])
   if a.get('schema')=='current-autonomous-readonly-coordination-action/v1'
@@ -268,7 +347,63 @@ def runtime_health_route(root,snapshot,request,packet,payload):
  return route
 
 
+def _hq_readonly_result_return(root,snapshot,request):
+ """A real HQ invitation and completed peer return do not add a producer."""
+ import re
+ import goal_delivery_runtime as g
+ proof=request.get('hq_readonly_result_return')
+ if proof is None:return None
+ authority(root);goal=snapshot.get('goal_delivery',{});frozen=document(root,snapshot['goal_contract'])
+ owner=goal.get('primary_owner');sender=request.get('sender_department');registry=w.department_registry(root)
+ require(current_mode(root)and snapshot.get('current_state')not in w.TERMINAL_STATES
+  and all(goal.get(k)==frozen.get(k)for k in ('primary_owner','producer_departments','authorized_scope','human_authorization'))
+  and professional(root,sender)and sender!=owner and request.get('target_department')==owner
+  and request.get('task_id')==snapshot['task_id']and request.get('scope')in frozen['authorized_scope']
+  and request.get('action_class')=='thread_message'and request.get('assignment_record_required')is False
+  and not request.get('authorization_changes')and not any(request.get(k)for k in ('execution_request','approval_id','consume_approval')),
+  'same original open task readonly peer return only; no participant or execution grant')
+ hq=registry['operations']['chat_binding'];peer=registry[sender]['chat_binding'];dest=registry[owner]['chat_binding']
+ source=g._native_document(root,proof.get('invitation_native'))
+ require(all(source.get('thread',{}).get(k)==hq[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()),'real original fixed HQ collaboration caller required')
+ pairs=[(t,m)for t in source.get('turns',[])for m in t.get('items',[])if m.get('id')==proof.get('invitation_call_id')]
+ require(len(pairs)==1,'one real HQ collaboration invocation required');original,call=pairs[0];body=call.get('arguments',{}).get('prompt','')
+ require(not original.get('error')and call.get('type')=='mcpToolCall'and call.get('server')=='codex_app'
+  and call.get('tool')=='send_message_to_thread'and call.get('status')=='completed'and not call.get('error')
+  and call.get('truncated',False)is False and call.get('arguments',{}).get('threadId')==peer['task_id']
+  and all(re.search(r'(?m)^'+k+'='+re.escape(v)+r'\s*$',body)for k,v in {'task_id':snapshot['task_id'],'scope':request['scope'],
+   'sender_department':'operations','target_department':sender,'action_id':proof.get('invitation_action_id','')}.items()),
+  'actual successful HQ invitation with unchanged task/scope/executor required')
+ page=g._native_document(root,proof.get('completed_native'));turn,message=w._completion_actual_final(root,page,sender,
+  turn_id=proof.get('source_turn_id'),message_id=proof.get('source_message_id'))
+ require(all(page.get('thread',{}).get(k)==peer[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()),'actual fixed peer completion identity required')
+ expected='<codex_delegation>\n  <source_thread_id>'+hq['task_id']+'</source_thread_id>\n  <input>'+body+'</input>\n</codex_delegation>'
+ users=[i for i,m in enumerate(turn.get('items',[]))if (m.get('type')=='userMessage'and m.get('content')==[{'type':'text','text':body}])
+  or(m.get('type')=='functionCallOutput'and m.get('namespace')=='codex_app'and m.get('name')=='send_message_to_thread'
+   and m.get('output')=={'text':expected,'truncated':False})]
+ items=turn.get('items',[]);end=items.index(message)
+ require(len(users)==1 and users[0]<end and any(m.get('type')=='agentMessage'and m.get('text','').strip()for m in items[users[0]+1:end])
+  and type(original.get('startedAt'))in {int,float}and original['startedAt']<=turn['startedAt']<=turn['completedAt']<=dt.datetime.now(dt.timezone.utc).timestamp(),
+  'exact delivered invitation, nonempty ACK and real completed peer result required')
+ pin=proof.get('report');report=document(root,pin)
+ require(pin['path']in message['text']and pin['sha256']in message['text']
+  and all(report.get(k)==v for k,v in {'task_id':snapshot['task_id'],'scope':request['scope'],'primary_owner':owner,
+   'actual_executor':sender,'received_action_id':proof['invitation_action_id']}.items()),'exact native completed report and original owner required')
+ payload=request.get('payload');require(w.file_digest(root,payload.get('path',''))==payload and payload['sha256']==request.get('payload_sha256'),'exact peer return payload bytes required')
+ text=(Path(root)/payload['path']).read_text()
+ require(pin['path']in text and pin['sha256']in text and all(re.search(r'(?m)^'+k+'='+re.escape(str(request[k]))+r'\s*$',text)
+  for k in ('task_id','scope','action_id','sender_department','target_department')),'unchanged peer return task/scope/report required')
+ require(peer.get('project_id')==dest.get('project_id')==hq.get('project_id')==request.get('source_project_id')==request.get('target_project_id')==PROJECT
+  and all(Path(b.get('cwd','')).resolve()==Path(root).resolve()for b in (peer,dest,hq))
+  and all(request.get(k)==dest[v]for k,v in {'target_thread_id':'task_id','target_thread_title':'title','target_cwd':'cwd','target_sidebar_section_id':'sidebar_section_id'}.items()),
+  'original professional receiver and exact current project/directory/target required')
+ return {**authority(root),'source':payload,'report':pin,'scope':request['scope'],'sender_department':sender,'target_department':owner,
+  'readonly_collaboration_return':True,'actual_owner_knowledge_proven':False,'formal_result_received_proven':False,
+  'business_producer_added':False,'external_permission_issued':False}
+
+
 def readonly_result_return_route(root,snapshot,request):
+ peer=_hq_readonly_result_return(root,snapshot,request)
+ if peer is not None:return peer
  """Authenticate a return of the original readonly collaboration, never a producer."""
  source=request.get('readonly_result_return')
  if source is None:return None
@@ -364,6 +499,8 @@ def message_route(root,snapshot,request):
  payload=request.get('payload')
  if not isinstance(payload,dict):return None
  require(w.file_digest(root,payload.get('path',''))==payload,'exact payload bytes required')
+ ordinary=_registered_owner_result_message(root,snapshot,request)
+ if ordinary is not None:return ordinary
  returned=readonly_result_return_route(root,snapshot,request)
  if returned is not None:return returned
  readonly=_registered_professional_readonly_route(root,snapshot,request)
@@ -1116,7 +1253,20 @@ def native_result(root,request,fixed_id):
  raw=request.get('visible_reply');require(isinstance(raw,dict)and w.file_digest(root,raw.get('path',''))==raw
   and (Path(root)/raw['path']).read_bytes()==message['text'].encode()and request.get('source_reply_sha256')==raw['sha256'],'original UTF8 result bytes required')
  pin=request.get('outbox')or(w.file_digest(root,request['outbox_path'])if request.get('outbox_path')else None)
- require(pin and pin['sha256']==request['result_sha256']and pin['path']in message['text']and pin['sha256']in message['text'],'actual source must identify the exact result bytes')
+ identified=bool(pin and pin['path']in message['text']and pin['sha256']in message['text'])
+ if not identified and request.get('result_source_phase')=='delivery_ready':
+  # The existing text READY form binds the same four-part identity. Never
+  # infer a path from an arbitrary progress message or an incomplete digest.
+  import shlex
+  marker='FLASHCAST_DELIVERY_READY '
+  declarations=[line[len(marker):]for line in message['text'].splitlines()if line.startswith(marker)]
+  if len(declarations)==1:
+   try:
+    fields=[part.split('=',1)for part in shlex.split(declarations[0])]
+    expected={k:request[k]for k in ('task_id','sender_department','candidate_version','result_sha256')}
+    identified=len(fields)==len(expected)and all(len(x)==2 for x in fields)and dict(fields)==expected and len(dict(fields))==len(fields)
+   except ValueError:identified=False
+ require(pin and pin['sha256']==request['result_sha256']and identified,'actual source must identify the exact result bytes')
  observed=w._parse_observed_at(request.get('reply_observed_at'));now=dt.datetime.now(dt.timezone.utc)
  require(observed is not None and observed<=now,'real source observation timestamp required')
  native_time=turn.get('completedAt')if request.get('result_source_phase')!='delivery_ready'else turn.get('startedAt')
@@ -1561,10 +1711,102 @@ def validate_native_ack(root,snapshot,role,pins):
   and (Path(root)/reply['path']).read_bytes()==matches[0][1]['text'].encode(),'actual ACK UTF8 differs')
  return obj
 
+def _rotated_original_professional_assignment(root,snapshot,role,rows):
+ """Read an original native responsibility across a verified role rotation.
+
+ The old registry is scoped to the existing read-only validator. No receipt,
+ new ACK, assignment or production authority is created by this projection.
+ """
+ import copy
+ import goal_continuity as gc
+ import goal_delivery_runtime as g
+ import department_rotation as rotation
+ frozen=document(root,snapshot['goal_contract']);goal=snapshot['goal_delivery']
+ verified,bad=w._validate_receipt_chain(root,snapshot['task_id'])
+ require(not bad and rows==verified,'intact exact original historical receipt chain required')
+ require(current_mode(root)and not autonomous_goal(frozen)and professional(root,role)
+  and role in frozen.get('producer_departments',[])
+  and all(goal.get(k)==frozen.get(k)for k in ('primary_owner','producer_departments','authorized_scope','human_authorization')),
+  'unchanged historical professional responsibility required')
+ records=list(rotation._records(root));current=w.department_registry(root)
+ links=[r for r in records if r['role']==role and r['new_binding']['task_id']==current[role]['chat_binding']['task_id']]
+ planned=[p for p in snapshot.get('departments',[])if p.get('department')==role]
+ require(len(links)==len(planned)==1 and planned[0].get('chat_task_id')==links[0]['old_binding']['task_id'],
+  'one original planned responsibility and actual same-role rotation required')
+ old=links[0]['old_binding'];registry=copy.deepcopy(current)
+ for record in records:
+  if record['role']in registry:registry[record['role']]['chat_binding']=record['old_binding']
+ for index,ack in enumerate(rows):
+  if not(ack.get('receipt_type')=='chat_ack'and ack.get('department')==role
+   and ack.get('chat_task_id')==old['task_id']and ack.get('ack_nonempty')is True):continue
+  sources=[];pages=[];texts=[]
+  for pin in ack.get('evidence',[]):
+   require(w.file_digest(root,pin.get('path',''))==pin,'original historical ACK evidence changed')
+   if not pin['path'].endswith('.json'):texts.append((Path(root)/pin['path']).read_bytes());continue
+   obj=document(root,pin)
+   if obj.get('schema')=='goal-current-assignment/v2':sources.append(obj)
+   page=g._native_document(root,pin)
+   if page.get('thread'):pages.append(page)
+  dispatches=[r for r in rows[:index]if r.get('receipt_type')=='dispatch_sent'and r.get('department')==role
+   and r.get('chat_task_id')==old['task_id']and r.get('action_id')==ack.get('action_id')and r.get('scope')==ack.get('scope')]
+  if not dispatches:continue
+  require(len(dispatches)==1,'one original exact dispatch before native ACK required')
+  dispatch=dispatches[0];sent=w._parse_observed_at(dispatch.get('created_at'));at=w._parse_observed_at(ack.get('created_at'))
+  policies=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('decision_id')==dispatch.get('policy_decision_id')]
+  require(len(policies)==1,'one original dispatch policy required');policy=policies[0]
+  require(all(policy.get(k)==v for k,v in {'status':'allow','task_id':snapshot['task_id'],'scope':ack['scope'],
+   'action_id':ack['action_id'],'action_class':'thread_message','target_department':role,'target_thread_id':old['task_id'],
+   'source_project_id':PROJECT,'target_project_id':PROJECT,'target_cwd':str(Path(root).resolve())}.items())
+   and policy.get('department')in {'operations',frozen.get('responsible_assistant'),frozen.get('primary_owner')},
+   'unchanged exact original allowed dispatch policy and project required')
+  sender=registry[policy['department']]['chat_binding'];calls=[];returns=[];payloads=[]
+  for pin in dispatch.get('evidence',[]):
+   require(w.file_digest(root,pin.get('path',''))==pin,'original native dispatch evidence changed')
+   if pin['sha256']==policy.get('payload_sha256'):payloads.append((Path(root)/pin['path']).read_text())
+   if not pin['path'].endswith('.json'):continue
+   page=g._native_document(root,pin)
+   if page.get('threadId')==old['task_id']:returns.append(page)
+   if not all(page.get('thread',{}).get(k)==sender[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()):continue
+   for turn in page.get('turns',[]):
+    if turn.get('error'):continue
+    calls.extend((turn,m)for m in turn.get('items',[])if m.get('type')=='mcpToolCall'and m.get('server')=='codex_app'
+     and m.get('tool')=='send_message_to_thread'and m.get('status')=='completed'and not m.get('error')
+     and m.get('truncated',False)is False and m.get('arguments',{}).get('threadId')==old['task_id'])
+  # Older wrappers bind exact_consumed_prompt instead of a naked threadId.
+  if not returns:
+   from qa_review_plan import _review_same_goal_send_wrapper
+   for pin in dispatch.get('evidence',[]):
+    if not pin['path'].endswith('.json'):continue
+    obj=document(root,pin)
+    if obj.get('actual_tool')=='mcp__codex_app__send_message_to_thread':
+     wrapper=_review_same_goal_send_wrapper(obj)
+     if wrapper.get('thread_id')==old['task_id']and wrapper.get('exact_consumed_prompt',{}).get('sha256')==policy['payload_sha256']:returns.append(wrapper)
+  calls=[(t,m)for t,m in calls if m['arguments'].get('prompt')in payloads and snapshot['task_id']in m['arguments']['prompt']]
+  require(len(calls)==len(returns)==1 and len(payloads)==1,'one exact actual successful native send, body and return required')
+  checked=w._parse_observed_at(policy.get('checked_at'));start=calls[0][0].get('startedAt')
+  require(sent and at and checked and checked<=sent<=at and type(start)in {int,float}and start<=sent.timestamp(),
+   'real original policy/send/ACK chronology required')
+  messages=[]
+  for page in pages:
+   if not all(page.get('thread',{}).get(k)==old[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()):continue
+   for turn in page.get('turns',[]):
+    if turn.get('status')not in {'inProgress','completed'}or turn.get('error'):continue
+    started=turn.get('startedAt')
+    if not(type(started)in {int,float}and sent.timestamp()-600<=started<=at.timestamp()):continue
+    for message in turn.get('items',[]):
+     text=message.get('text')
+     if message.get('type')=='agentMessage'and message.get('id')and isinstance(text,str)and text.strip()and(not texts or text.encode()in texts):
+      messages.append((turn.get('id'),message['id']))
+  require(len(set(messages))==1,'one real original nonempty native ACK and unchanged UTF8 required')
+  return True
+ require(False,'original rotated native dispatch/ACK source missing')
+
+
 def original_assignment_ready(root,snapshot,role):
  if snapshot['goal_delivery'].get('source_mode')=='owner_direct':return True
  rows=w.read_jsonl(w.receipts_path(root,snapshot['task_id']));fixed=w.department_registry(root)[role]['chat_binding']['task_id']
  sent=[r for r in rows if r.get('receipt_type')=='dispatch_sent'and r.get('department')==role and r.get('chat_task_id')==fixed]
+ if not sent:return _rotated_original_professional_assignment(root,snapshot,role,rows)
  require(sent,'original actual professional dispatch required')
  acks=[r for r in rows if r.get('receipt_type')=='chat_ack'and r.get('department')==role and r.get('chat_task_id')==fixed
   and r.get('ack_nonempty')and rows.index(r)>rows.index(sent[0])]
