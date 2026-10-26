@@ -41,10 +41,16 @@ def validate_binding(b,now=None,current=True,own=False):
 def context(root,task,approval=None,effect=False):
  sources=web.records(root,task);need(len(sources)==1,'one real registered original external WEB source');ctx=sources[0]
  if approval is None:return ctx,None,None
- row=w.effective_approvals(root).get(approval);need(row and row.get('task_id')==task
-  and row.get('approval_basis')=='verified_original_goal_external_WEB_source_v1'
+ row=w.effective_approvals(root).get(approval)
+ standing=ctx.get('standing_CMS_channel') is True
+ basis=('verified_professional_standing_CMS_WEB_source_v1' if standing else 'verified_original_goal_external_WEB_source_v1')
+ source_key='standing_CMS_authority' if standing else 'delegated_HQ_decision'
+ need(row and row.get('task_id')==task and row.get('approval_basis')==basis
   and row.get('original_human_authorization_pin')==ctx['authorization']
-  and row.get('delegated_HQ_decision')==ctx['decision']and row.get('execution_department')==ctx['role'],
+  and row.get(source_key)==ctx['decision'] and row.get('execution_department')==ctx['role']
+  and (not standing or (row.get('granted_by')==row.get('authority_department')==ctx['authority_department']
+    and row.get('standing_authorization_id')==ctx['standing_authorization_id']
+    and not row.get('delegated_HQ_decision'))),
   'real normal own issuer ledger source, not expected reference or caller binding')
  b=validate_binding(row.get('platform_binding'),current=effect,own=True)
  need(row['approval_id']==b['approvalId']==approval and row.get('action_id')==b['actionId']

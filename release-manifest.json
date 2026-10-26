@@ -1283,9 +1283,9 @@
     },
     {
       "path": "tools/r3_platform_binding_transport.py",
-      "source_sha256": "a36fe9669c022f96bd3b9ef2b144344f9fb99895621083177670ffe50fd1c3e4",
-      "release_sha256": "6b7b4f87646340bbc6067b706c8294303670dca989e889843e38ef2dd027de92",
-      "bytes": 19390
+      "source_sha256": "81b0fc0c109b8b508b80a87b2057f9fa3f3141bfa77ea31685d7f9885de0e12a",
+      "release_sha256": "478e85d52a78aec8b9e8db4e2571da30942f90faa3542893c1d2815757bbb707",
+      "bytes": 19822
     },
     {
       "path": "tools/readonly_work_view_cache.py",
@@ -1793,5 +1793,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "6fa3248014e5c90fd38ea13e7ee14c0a3eedc59c9180a0db686f89ebe467adcf"
+  "fingerprint": "89674c0294d688afb2c69c17595d603ec7464fd757c9d7699911eed20eb4db5e"
 }
