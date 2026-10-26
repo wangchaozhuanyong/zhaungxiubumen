@@ -417,7 +417,8 @@ def service_source_hashes(root):
              "readonly_work_view_cache", "department_autonomy", "goal_continuity", "goal_source_recovery",
              "flashcast_ops", "goal_delivery_runtime", "department_rotation",
              "professional_web_execution", "professional_web_increment",
-             "professional_cms_execution", "professional_cms_integration")
+             "professional_cms_execution", "professional_cms_integration",
+             "professional_cms_channel", "professional_cms_issuer")
     values = {"tools/" + name + ".py": hashlib.sha256((root / "tools" / (name + ".py")).read_bytes()).hexdigest()
               for name in names}
     if (root / CONFIG).is_file():

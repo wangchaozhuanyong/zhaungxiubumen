@@ -1,0 +1,318 @@
+"""Typed existing CMS channel delivery -> original WEB consumer and per-row issuer.
+
+No website/API operations, permit creation or receiver substitution occur here.
+Business sources and professional standing are re-read through their original
+validators; a typed report is not authority by itself.
+"""
+from pathlib import Path
+from copy import deepcopy
+import hashlib
+import json
+import re
+import subprocess
+import tempfile
+import tarfile
+import workflow_control as w
+import department_autonomy as a
+import professional_cms_execution as cms
+
+SCHEMA = 'professional-standing-CMS-WEB-channel-source/v1'
+
+
+def need(value, message):
+    a.require(value, 'CMS channel: ' + message)
+
+
+def _pins(value):
+    if isinstance(value, dict):
+        if set(value) == {'path', 'sha256', 'size'}: yield value
+        for child in value.values(): yield from _pins(child)
+    elif isinstance(value, list):
+        for child in value: yield from _pins(child)
+
+
+def _targets(value):
+    if isinstance(value, dict):
+        if isinstance(value.get('target'), dict) and value['target'].get('candidateVersion'):
+            yield value
+        for child in value.values(): yield from _targets(child)
+    elif isinstance(value, list):
+        for child in value: yield from _targets(child)
+
+
+def callbacks(root, pin):
+    """Only historical completed deliveries are memoized within one request.
+
+Live standing, requests, effects, policies, permits and execution CAS are not
+returned from this memo. Any changed local source dependency invalidates it.
+"""
+    context = w._VALIDATION_CONTEXT.get()
+    key = (str(Path(root).resolve()), w.sha256_value(pin))
+    memo = getattr(context, '_CMS_channel_completed_deliveries', {}) if context else {}
+    cached = memo.get(key)
+    if cached:
+        for path, version in cached['dependencies'].items():
+            context.bytes(path)
+            if context.files[path]['version'] != version:
+                cached = None; break
+        if cached:
+            for path, version in cached['external_versions'].items():
+                p = Path(path); stat = p.stat()
+                if (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns) != version:
+                    cached = None; break
+        if cached: return deepcopy(cached['value'])
+    import goal_delivery_runtime as g
+    from professional_cms_issuer import external
+    bundle = a.document(root, pin)
+    need(bundle.get('schema') == 'C1-original-existing-standing-channel-continuation-input/v6'
+         and isinstance(bundle.get('entries'), list) and 0 < len(bundle['entries']) <= 8,
+         'one bounded actual completed-channel input required')
+    result = []; seen = set(); external_versions = {}
+    for entry in bundle['entries']:
+        task = entry.get('task_id'); need(task not in seen, 'unique original task entry'); seen.add(task)
+        snapshot = g.restore_goal(root, w.read_json(w.snapshot_path(root, task)))
+        role = entry.get('original_source_executor')
+        binding = w.read_json(Path(root)/'data/department-registry.json')['collaboration_bindings'].get(role)
+        need(binding and binding['project_id'] != a.PROJECT and role not in snapshot['goal_delivery']['producer_departments'],
+             'original fixed external source executor, never a business producer')
+        states = [x for x in g._collaboration_wait_states(root, snapshot)
+                  if x.get('action_id') == entry.get('original_action_id')
+                  and x.get('department') == role and x.get('status') == 'result_received'
+                  and x.get('proof_state') == 'PROVEN' and x.get('result') == entry.get('actual_WEB_result')]
+        need(len(states) == 1, 'actual normally received and independently completed original WEB result required')
+        report = a.document(root, entry['actual_WEB_result'])
+        custody = a.document(root, entry['C1_source_custody'])
+        original_pin = custody.get('typed_original')
+        original = external(root, original_pin, binding)
+        need(original == report and original_pin['sha256'] == entry['actual_WEB_result']['sha256']
+             and original_pin['size'] == entry['actual_WEB_result']['size']
+             and report.get('task_id') == task and report.get('scope') == entry['scope']
+             and report.get('producer') == role and report.get('producer_thread') == binding['thread_id']
+             and custody.get('typed_exact_bytes_copy') == entry['actual_WEB_result'],
+             'exact original typed bytes, actual receiver custody, task/scope and role required')
+        stat = Path(original_pin['path']).stat()
+        external_versions[original_pin['path']] = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        result.append({'entry': entry, 'report': report, 'binding': binding, 'role': role})
+    if context:
+        memo[key] = {'value': deepcopy(result), 'dependencies': {p:x['version'] for p,x in context.files.items()},
+                     'external_versions': external_versions}
+        context._CMS_channel_completed_deliveries = memo
+    return result
+
+
+def baseline(root, source):
+    original = a.document(root, source['source'])
+    if 'original_source_baseline_only' in original:
+        return original['original_source_baseline_only']['complete_row']
+    rows = [r for r in original.get('record_actions', []) if r.get('exact_action') == source['action']]
+    need(len(rows) == 1, 'one exact original per-row baseline carrier required')
+    return rows[0]['baseline_only']['complete_row']
+
+
+def exact_target(root, source, delivery, binding):
+    from professional_cms_issuer import external
+    action = source['action']; row = a.document(root, baseline(root, source))
+    retained = source['protected_fields']['stable_business_readback_fields']
+    content_type = {'services': 'service', 'blog_posts': 'blog'}.get(action['table'])
+    need(content_type is not None, 'existing supported content table only')
+    expected = {'id':action['record_id'], 'slug':action['slug'], 'contentType':content_type,
+      'table':action['table'], 'taskId':action['task_id'], 'actionId':action['action_id'],
+      'candidateVersion':action['candidate_version'], 'scope':action['scope'],
+      'changedFields':action['changed_fields'], 'baselineProjectionFields':sorted(row),
+      'baselineFieldsSha256':w.sha256_value(row), 'desiredFieldsSha256':w.sha256_value(source['desired']),
+      'rollbackFieldsSha256':w.sha256_value(source['before']), 'expectedUpdatedAt':row['updated_at'],
+      'retainedProjectionFields':sorted(retained),
+      'retainedFieldsSha256':w.sha256_value({k:row[k] for k in retained}),
+      'rollbackAllowed':True, 'requiresParentRun':True}
+    need(delivery.get('target') == expected, 'every WEB target field/digest/scope must equal the registered row source')
+    frozen = external(root, delivery.get('source_json'), binding)
+    need(frozen.get('task_id') == action['task_id'] and frozen.get('business_scope') == source['business_scope']
+         and frozen.get('owner_source') == source['source']
+         and frozen.get('registration_input') == source['carrier']
+         and frozen.get('execution_department') == source['executor']
+         and frozen.get('original_professional_owner') == source['owner']
+         and frozen.get('registration_grants_write_authority') is False,
+         'unchanged original frozen source and participants, never a write grant')
+    candidates = [x for x in frozen.get('entries', []) if x.get('runtime_target') == expected]
+    need(len(candidates) == 1 and candidates[0].get('before') == row
+         and candidates[0].get('desired') == source['desired']
+         and candidates[0].get('forward_tuple') == action,
+         'actual frozen full-row before/desired/tuple, not a metadata-only target')
+    cli = delivery.get('Node_CLI', {})
+    need(cli.get('target') == action['candidate_version'] and cli.get('record_id') == action['record_id']
+         and cli.get('scope') == action['scope'] and cli.get('workflow') == '.github/workflows/content-publish-approved.yml'
+         and cli.get('entrypoint') == 'scripts/publish-content-trust-fixes.mjs'
+         and delivery.get('inverse_action') == 'rollback-' + action['candidate_version']
+         and delivery.get('inverse_candidate') == action['candidate_version'] + '-rollback-v1',
+         'same normal CLI/workflow and own conditional inverse namespace required')
+    return expected
+
+
+def validate(root, snapshot, item):
+    import professional_web_execution as web
+    import goal_delivery_runtime as g
+    need(item.get('schema') == SCHEMA and item.get('task_id') == snapshot['task_id']
+         and snapshot.get('current_state') not in w.TERMINAL_STATES,
+         'active original task and normal channel source required')
+    selected = [x for x in callbacks(root, item.get('channel_input')) if x['entry']['task_id'] == snapshot['task_id']]
+    need(len(selected) == 1, 'one exact original task entry required')
+    selected = selected[0]; entry = selected['entry']; report = selected['report']; binding = selected['binding']
+    sources = [x for x in cms.records(root, snapshot) if x['registration'] == item.get('source_registration')]
+    need(sources and all(x['business_scope'] == entry['scope'] and x['owner'] == entry['original_business_owner']
+          and x.get('message_owner',x['owner']) == entry['publication_integrator']
+          and x['executor'] == entry['original_CMS_executor'] and x['channel'] == selected['role'] for x in sources),
+         'same already-registered professional source/standing holder/business owner/executors')
+    names = {x['action']['candidate_version'] for x in sources}; actual = list(_targets(report))
+    targets = {x['target']['candidateVersion']:x for x in actual}
+    need(len(actual) == len(targets) == len(sources) and set(targets) == names
+         and sorted(entry['exact_targets'], key=lambda x:x['target']['candidateVersion']) == sorted(actual,key=lambda x:x['target']['candidateVersion']),
+         'complete exact independently delivered target set, no omitted/extra/ambiguous row')
+    physical = {x['action']['candidate_version']:exact_target(root,x,targets[x['action']['candidate_version']],binding) for x in sources}
+    local = report.get('local_candidate', report.get('local_version')); meta = entry['real_local_candidate']
+    need(local and all(meta.get(k) == local.get(k) for k in ('head','parent','tree','branch','paths','forward','inverse')),
+         'unchanged real original local candidate metadata and full path map')
+    paths = {x['path']:x['sha256'] for x in meta['paths']}
+    need(len(paths) == len(meta['paths']) and 0 < len(paths) <= 40
+         and all(not Path(p).is_absolute() and '..' not in Path(p).parts for p in paths), 'bounded unique same-project selected source paths')
+    ctx = {'root':str(Path(root).resolve()), 'task':snapshot['task_id'], 'scope':entry['scope'],
+      'owner':entry['original_business_owner'], 'role':selected['role'], 'binding':binding,
+      'decision':item['source_registration'], 'authorization':snapshot['goal_delivery']['authorization_pin'],
+      'contract':snapshot['goal_contract'], 'worktree':local['worktree'],
+      'site':str(Path(local['worktree']).resolve().parent.parent), 'branch':meta['branch'],
+      'commit':meta['head'], 'base':meta['parent'], 'tree':meta['tree'], 'paths':paths,
+      'prefix':snapshot['task_id']+'-cms-channel', 'backup':item.get('source_backup'),
+      'rollback':item.get('rollback_runbook'), 'standing_CMS_channel':True,
+      'authority_department':sources[0].get('message_owner',sources[0]['owner']),
+      'standing_authorization_id':sources[0]['standing_authorization_id'],
+      'registered_CMS_sources':sources, 'CMS_targets':physical,
+      'WEB_delivery':entry['actual_WEB_result'], 'channel_input':item['channel_input']}
+    need(Path(ctx['worktree']).resolve().is_relative_to(Path(binding['cwd']).resolve()), 'original fixed WEB worktree only')
+    need(web.git(ctx,'show','-s','--format=%H %P %T',ctx['commit']).decode().strip() == ' '.join([ctx['commit'],ctx['base'],ctx['tree']])
+         and set(web.git(ctx,'diff','--name-only',ctx['base'],ctx['commit']).decode().splitlines()) == set(paths),
+         'real immutable Git commit/parent/tree and complete exact delta paths required')
+    for path, sha in paths.items():
+        need(hashlib.sha256(web.git(ctx,'show',ctx['commit']+':'+path)).hexdigest() == sha, 'actual candidate source blob differs')
+    forward = web._external_bytes(meta['forward'],binding); inverse = web._external_bytes(meta['inverse'],binding)
+    delta = web._patch_effect(web._delta(ctx,ctx['base'],ctx['commit']))
+    need(web._patch_effect(web._patch_delta(forward)) == delta
+         and web._patch_effect(web._patch_delta(inverse)) == {p:(added,removed) for p,(removed,added) in delta.items()},
+         'real exact forward/inverse source effects; not a platform restoration proof')
+    repo = web.git(ctx,'config','--get','remote.origin.url').decode().strip()
+    match = re.fullmatch(r'(?:user-3de132cd98be@example.invalid:|https://github.com/)([\w.-]+/[\w.-]+?)(?:\.git)?',repo)
+    need(match, 'original GitHub repository only'); ctx['repository'] = match[1]
+    account = a.document(root,item.get('account_source'))
+    all_pins = [p for x in callbacks(root,item['channel_input']) for p in _pins(x['report'])]
+    original_account = item.get('account_original')
+    need(original_account in all_pins and web._external_bytes(original_account,binding) == w.safe_path(root,item['account_source']['path']).read_bytes()
+         and account.get('full_name') == ctx['repository'] and type(account.get('id')) is int,
+         'actual original WEB repository/account readback, no caller identity default')
+    actor = account.get('authenticated_actor', {})
+    need(actor.get('login') == ctx['repository'].split('/')[0] and type(actor.get('id')) is int and actor['id'] > 0,
+         'actual original authenticated account identity')
+    ctx.update(repository_id=account['id'],actor_id=actor['id'])
+    backup = a.document(root,ctx['backup'])
+    need(backup.get('task_id') == ctx['task'] and backup.get('function') == 'content-publish'
+         and backup.get('version') == report.get('current_edge_version')
+         and backup.get('original_WEB_delivery') == entry['actual_WEB_result']
+         and backup.get('runtime_files') and backup.get('source_build_archives'), 'real original full source/build backup, not an inverse-only claim')
+    for pin in backup['runtime_files']+backup['source_build_archives']:web._external_bytes(pin,binding)
+    proof_pin=backup.get('actual_source_proof');need(proof_pin in all_pins,'actual completed WEB runtime snapshot proof required')
+    from professional_cms_issuer import external
+    proof=external(root,proof_pin,binding);manifest=external(root,backup.get('source_manifest_original'),binding)
+    need(manifest.get('version')==backup['version'] and manifest.get('project_ref')==backup.get('project_ref')
+         and manifest.get('function')=='content-publish' and manifest.get('ezbr_sha256')==backup.get('ezbr_sha256'),
+         'same original complete function/version/source manifest')
+    expected_files=manifest.get('files',[]);folder=Path(backup['source_manifest_original']['path']).parent/'source'
+    need(len(expected_files)==len(backup['runtime_files']) and len(expected_files)>0,'complete runtime source, no subset')
+    mapped={str(folder/f['name']):f for f in expected_files}
+    for p in backup['runtime_files']:
+        need(p['path']in mapped and p['sha256']==mapped[p['path']]['sha256'] and p['size']==mapped[p['path']]['bytes'],
+             'each original archived runtime file and exact byte/hash required')
+    versions=[proof.get(k) for k in ('version','function_version') if k in proof]
+    need(versions and all(v==backup['version']for v in versions),'real original function source observation version')
+    if proof.get('archive') is not None:
+        need(proof['archive']in backup['source_build_archives'],'original WEB archive proof, never caller replacement')
+    else:
+        need({(f['name'],f['sha256'],f['bytes'])for f in proof.get('runtime_files',[])}==
+             {(f['name'],f['sha256'],f['bytes'])for f in expected_files},'actual full source comparison proves this original archive material')
+    for archive in backup['source_build_archives']:
+        with tarfile.open(archive['path'])as tar:
+            files={m.name:m for m in tar.getmembers()if m.isfile()}
+            need(all(not Path(m.name).is_absolute()and '..'not in Path(m.name).parts and not m.issym()and not m.islnk()for m in tar.getmembers()),'safe source-only archive')
+            for name,f in mapped.items():
+                rel='source/'+str(Path(name).relative_to(folder));need(rel in files and hashlib.sha256(tar.extractfile(files[rel]).read()).hexdigest()==f['sha256'],
+                     'archive contains every exact original function source byte')
+    runbook = a.document(root,ctx['rollback'])
+    need(runbook.get('task_id') == ctx['task'] and runbook.get('source_registration') == item['source_registration']
+         and runbook.get('WEB_delivery') == entry['actual_WEB_result']
+         and runbook.get('source_backup') == ctx['backup']
+         and runbook.get('unknown_effect_replay_allowed') is False
+         and runbook.get('all_rows_own_effect_or_inverse_required') is True,
+         'task/source-bound production recovery recipe; no current restore permission')
+    from managed_cms_permit_issuer import SUPABASE_HOST
+    project = SUPABASE_HOST.split('.')[0]; need(backup.get('project_ref') == project,'same existing protected function/project')
+    ctx.update(project_ref=project,edge_scope='company.example:edge:'+project+':content-publish',pages_scope='company.example:pages:production')
+    # Frozen legacy QA eligibility is not a new standing-channel prerequisite.
+    # Keep its immutable event/receipt bytes and order verifiable, while the
+    # current professional authority above is checked at its original entry.
+    previous = ''
+    for event in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS):
+        need(event.get('previous_event_hash','') == previous
+             and event.get('event_hash') == w.sha256_value({k:v for k,v in event.items() if k != 'event_hash'}),
+             'intact append-only event hash chain')
+        previous = event['event_hash']
+    _, invalid = w._validate_receipt_chain(root,ctx['task'])
+    need(not invalid, 'intact original receipt hash chain')
+    return ctx
+
+
+def issuer_context(root,snapshot,item):
+    import professional_web_execution as web
+    need(item.get('schema') == 'professional-cms-issuer-contract/v1' and item.get('task_id') == snapshot['task_id'], 'normal per-row issuer contract')
+    contexts = [x for x in web.records(root,snapshot['task_id']) if x.get('standing_CMS_channel')
+                and x['registration'] == item.get('channel_source_registration')]
+    need(len(contexts) == 1,'real registered completed WEB channel source required')
+    ctx = contexts[0]; name = item.get('target_name')
+    sources = [x for x in ctx['registered_CMS_sources'] if x['registration'] == item.get('source_registration')
+               and x['action']['candidate_version'] == name]
+    need(len(sources) == 1 and name in ctx['CMS_targets'], 'one exact task/action/row namespace; no borrowed target')
+    x = sources[0]
+    return x, {'original_source_baseline_only':{'complete_row':baseline(root,x)}}, ctx['CMS_targets'][name]
+
+
+def candidate(ctx,state):
+    """Exact clean three-way own patch on a real later base; no approval reset."""
+    import professional_web_execution as web
+    head = state.get('candidate_commit'); base = state.get('candidate_base',ctx['base'])
+    need(re.fullmatch('[0-9a-f]{40}',str(head)) and re.fullmatch('[0-9a-f]{40}',str(base)), 'real current candidate/base required')
+    mode = state.get('source_mode','forward'); need(mode in {'forward','remove_own_delta'},'known own source mode')
+    if head == ctx['commit'] and mode == 'forward':
+        need(base == ctx['base'],'exact original base'); return head,base
+    need(web.git(ctx,'merge-base',ctx['base'],base).decode().strip() == ctx['base']
+         and set(web.git(ctx,'diff','--name-only',base,head).decode().splitlines()) <= set(ctx['paths']),
+         'real causal base and original selected paths only')
+    if mode == 'remove_own_delta':
+        import goal_delivery_runtime as g
+        snapshot = g.restore_goal(Path(ctx['root']),w.read_json(w.snapshot_path(Path(ctx['root']),ctx['task'])))
+        pins = state.get('CMS_recovery_sources',[]); need(len(pins) == len(ctx['registered_CMS_sources']), 'all own row effects must be proved before removing channel')
+        proven = [s for s in g._collaboration_wait_states(Path(ctx['root']),snapshot) if s.get('department') == ctx['registered_CMS_sources'][0]['executor'] and s.get('status') == 'result_received' and s.get('proof_state') == 'PROVEN']
+        for source,pin in zip(ctx['registered_CMS_sources'],pins):
+            doc = a.document(Path(ctx['root']),pin); guard = doc.get('CMS_recovery_guard',{})
+            need(any(s.get('result') == pin for s in proven) and guard.get('task_id') == ctx['task']
+                 and guard.get('forward_action_id') == source['action']['action_id'] and guard.get('record_id') == source['action']['record_id']
+                 and (guard.get('state') == 'NO_OWN_SAVE' and guard.get('publish_runs') == [] and guard.get('permits') == []
+                   or guard.get('state') == 'OWN_INVERSE_COMPLETED' and all(guard.get(k) for k in ('original_publish_permit_id','original_publish_run_id','inverse_permit_id','inverse_completed_run_id','saved_updated_at'))),
+                 'each original PUB completed own inverse or real zero-effect guard; unknown is held')
+    left,right = (ctx['base'],ctx['commit']) if mode == 'forward' else (ctx['commit'],ctx['base'])
+    scratch = Path(ctx['root'])/'logs/professional-CMS-channel-source-checks'; scratch.mkdir(parents=True,exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=scratch) as directory:
+        temp = Path(directory)
+        for path in ctx['paths']:
+            def blob(commit):
+                p=subprocess.run(['git','show',commit+':'+path],cwd=ctx['worktree'],capture_output=True)
+                return p.stdout if p.returncode==0 else b''
+            for name,commit in (('current',base),('ancestor',left),('own',right)):(temp/name).write_bytes(blob(commit))
+            p=subprocess.run(['git','merge-file','-p',str(temp/'current'),str(temp/'ancestor'),str(temp/'own')],capture_output=True)
+            need(p.returncode==0 and blob(head)==p.stdout,'real shared-path conflict/new content needs exact bounded source-difference proof; no HQ approval inferred')
+            need(web.git(ctx,'ls-tree',head,'--',path).split()[:1] == web.git(ctx,'ls-tree',right,'--',path).split()[:1], 'same own source file mode/deletion only')
+    return head,base

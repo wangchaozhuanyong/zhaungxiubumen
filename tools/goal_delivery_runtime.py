@@ -1416,7 +1416,7 @@ def record_approved_action(root, task_id, input_path):
     if action.get("schema") in {"professional-ads-object-source-registration/v1", "professional-ads-plan-object-source-registration/v2", "professional-ads-plan-supplement-source-registration/v3"}:
         from professional_ads_execution import record
         return record(root, task_id, input_path)[0]
-    if action.get("schema") in {"professional-external-WEB-production-source/v1", "professional-external-WEB-owner-followon-source/v2"}:
+    if action.get("schema") in {"professional-external-WEB-production-source/v1", "professional-external-WEB-owner-followon-source/v2", "professional-standing-CMS-WEB-channel-source/v1"}:
         from professional_web_execution import record_source
         return record_source(root, task_id, input_path)
     if action.get("schema") == "professional-cms-issuer-contract/v1":

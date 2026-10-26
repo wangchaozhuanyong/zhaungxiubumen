@@ -15,6 +15,9 @@ def external(root,pin,binding):
     return json.loads(b)
 
 def validate_contract(root,snapshot,item):
+    if item.get('channel_source_registration') is not None:
+        from professional_cms_channel import issuer_context
+        return issuer_context(root,snapshot,item)
     sources=[x for x in src.records(root,snapshot) if x['registration']==item.get('source_registration')]
     a.require(item.get('schema')=='professional-cms-issuer-contract/v1' and item.get('task_id')==snapshot['task_id']
               and len(sources)==1,'one real registered source for issuer contract')
@@ -49,7 +52,8 @@ def record_contract(root,task,path):
     pin=w.file_digest(root,path);item=a.document(root,pin)
     with w.workflow_lock(root):
         snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)));validate_contract(root,snapshot,item)
-        rows=[e['details'][EVENT]for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==task and EVENT in e.get('details',{})]
+        rows=[e['details'][EVENT]for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==task and EVENT in e.get('details',{})
+              and a.document(root,e['details'][EVENT]).get('target_name')==item.get('target_name')]
         if rows:
             a.require(rows==[pin],'original issuer contract already registered to different bytes')
             return {'result':'duplicate_ignored','registration':pin,'permit_issued':False}
@@ -57,6 +61,10 @@ def record_contract(root,task,path):
     return {'result':'recorded','registration':pin,'permit_issued':False,'remote_loaded':False}
 
 def targets(root):
+    # One catalog read shares completed-source proofs, never execution permits.
+    with w.request_validation_context():return _targets(root)
+
+def _targets(root):
     import goal_delivery_runtime as g
     result={}
     for event in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS):
@@ -71,7 +79,7 @@ def targets(root):
         a.require(name not in result,'ambiguous professional issuer target')
         result[name]={'candidate_shape':MODEL,'task_id':snapshot['task_id'],'action_id':act['action_id'],'candidate_version':name,
           'scope':x['business_scope'],'execution_scope':act['scope'],'execution_owner':x['executor'],'record_id':act['record_id'],
-          'slug':act['slug'],'table':act['table'],'content_type':act['content_type'],'changed_fields':act['changed_fields'],
+          'slug':act['slug'],'table':act['table'],'content_type':t['contentType'],'changed_fields':act['changed_fields'],
           'candidate':(x['source']['path'],x['source']['sha256']),
           'rollback':(original['original_source_baseline_only']['complete_row']['path'],original['original_source_baseline_only']['complete_row']['sha256']),
           'payload_sha256':t['desiredFieldsSha256'],'baseline_projection_fields':t['baselineProjectionFields'],
