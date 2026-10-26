@@ -259,7 +259,84 @@ def validate_ordinary(root,base,item):
             'increment_allowed_operations':base['allowed_operations'],'increment_source_mode':kind,
             'increment_forward_patch':typed['forward'],'increment_inverse_patch':typed['inverse']}
 
+def test_assertions_only(before,after):
+    """Retain each assertion/call; only strengthen its exact string expectation."""
+    left=before.splitlines(keepends=True);right=after.splitlines(keepends=True)
+    need(len(left)==len(right),'same complete test structure, no removed/skipped case')
+    changed=[(a,b)for a,b in zip(left,right)if a!=b];need(changed,'actual assertion delta required')
+    literal=r'"(?:[^"\\]|\\.)*"'
+    for old,new in changed:
+        m=re.fullmatch(r'(\s*expect\(.+\)\.(toBe|toHaveAttribute)\()(.*)(\);\s*)',old)
+        n=re.fullmatch(r'(\s*expect\(.+\)\.(toBe|toHaveAttribute)\()(.*)(\);\s*)',new)
+        need(m and n and m[1]==n[1]and m[4]==n[4],'same actual subject and strict assertion, no weakening/replacement')
+        if m[2]=='toHaveAttribute':
+            x=re.fullmatch('('+literal+r'),\s*('+literal+')',m[3]);y=re.fullmatch('('+literal+r'),\s*('+literal+')',n[3])
+            need(x and y and x[1]==y[1]and json.loads(x[1])=='href','same exact href assertion')
+            need(json.loads(y[2]).startswith(json.loads(x[2])+'?text='),'same safe destination with source query only')
+        else:
+            need(re.fullmatch(literal,m[3]),'original exact string expectation')
+            expected=json.loads(m[3]);ternary=re.fullmatch(r'[A-Za-z_$][\w$]*\s*===\s*'+literal+r'\s*\?\s*('+literal+r')\s*:\s*('+literal+')',n[3])
+            values=[json.loads(n[3])]if re.fullmatch(literal,n[3])else [json.loads(ternary[1]),json.loads(ternary[2])]if ternary else []
+            need(values and all(v.startswith(expected+'\n\n')and len(v)>len(expected)+2 for v in values),'retain enquiry plus exact appended localized reference; no broad matcher')
+    return len(changed)
+
+def validate_related_tests(root,base,parent,item):
+    import professional_web_execution as web
+    need(base.get('code_only_release')and parent.get('ordinary_increment')and item.get('task_id')==base['task']and item.get('scope')==base['scope']
+         and item.get('original_source_registration')==base['registration']and same(root,item.get('parent_increment_source'),parent['increment_registration']), 'actual registered ordinary parent and same original authority/task/scope')
+    data=web.code_document(root,item['source_bundle']);typed=web.external(root,data['candidate'],base['binding'])
+    output=json.loads(ordinary_native(root,base,item,item['source_command']))
+    need(data.get('task_id')==typed.get('task_id')==base['task']and data.get('scope')==typed.get('scope')==base['scope']
+         and data.get('original_HQ_decision_sha256')==base['decision']['sha256']and output.get('receipt')=={'path':data['candidate']['path'],'sha256':data['candidate']['sha256'],'bytes':data['candidate']['size']}, 'real original complete WEB source binds exact candidate bytes')
+    ctx={**parent,'commit':typed['head'],'git_parent':typed['candidate_parent'],'base':typed['candidate_base'],'tree':typed['tree']}
+    need(ctx['git_parent']==parent['commit']and ctx['base']==parent['base']and typed['worktree']==base['worktree']and typed['branch']==base['branch']
+         and all(data.get(k)==ctx[v]for k,v in {'head':'commit','parent':'git_parent','integration_base':'base','tree':'tree','worktree':'worktree','branch':'branch'}.items())
+         and all(output.get(k)==ctx[v]for k,v in {'head':'commit','parent':'git_parent','base':'base','tree':'tree'}.items())
+         and web.git(ctx,'show','-s','--format=%H %P %T',ctx['commit']).decode().strip()==' '.join([ctx['commit'],ctx['git_parent'],ctx['tree']]), 'real linear head/parent/tree, same integration base/worktree/branch')
+    need(data['test_blobs']==typed['test_blobs']and data['original_16_blobs']==typed['original_16_blobs'],'whole original/test source maps agree with actual typed receipt')
+    paths=set(web.git(ctx,'diff','--name-only',ctx['git_parent'],ctx['commit']).decode().splitlines());need(paths==set(data['increment_paths'])==set(typed['increment_paths'])
+         and paths and paths.isdisjoint(parent['paths'])and all(re.fullmatch(r'src/[\w/.-]+\.test\.tsx?',p)for p in paths),'only exact new related existing test paths, never production/CI/config')
+    changed=0
+    for path in paths:
+        before=web.git(ctx,'show',ctx['git_parent']+':'+path);after=web.git(ctx,'show',ctx['commit']+':'+path)
+        changed+=test_assertions_only(before.decode(),after.decode())
+        need(web.git(ctx,'ls-tree',ctx['git_parent'],'--',path).split()[0]==web.git(ctx,'ls-tree',ctx['commit'],'--',path).split()[0],'test mode unchanged')
+        rows=[x for x in data['test_blobs']if x['path']==path];need(len(rows)==1,'one exact test blob source');x=rows[0]
+        for key,head,raw in [('parent',ctx['git_parent'],before),('head',ctx['commit'],after)]:need(x[key+'_sha256']==hashlib.sha256(raw).hexdigest()and x[key+'_blob']==web.git(ctx,'rev-parse',head+':'+path).decode().strip(),'actual before/after test bytes')
+    facts=json.loads(ordinary_native(root,base,item,item['CI_facts_command']));runs=[x for x in facts.get('runs',[])if x.get('path')==web.CODE_CI_PATHS['interaction-standards']and x.get('head_sha')==parent['commit']and x.get('conclusion')=='failure'and x.get('status')=='completed']
+    failure=web.code_document(root,item['actual_failure']);text=re.sub(r'\x1b\[[0-9;]*m','',failure.get('excerpt',''));failed=set(re.findall(r'FAIL\s+([^\s]+\.test\.tsx?)',text))
+    need(len(runs)==1 and failure.get('head')==parent['commit']and failure.get('run')==typed.get('old_failed_official_run_preserved')==runs[0]['id']
+         and failure.get('PR')==facts['PR']['number']==parent['existing_pull_number']and facts['PR']['head']==parent['commit']and failed==paths
+         and any(x.get('id')==failure.get('job')and x.get('head_sha')==parent['commit']and x.get('name')=='interaction-standards'and x.get('conclusion')=='failure'for x in facts.get('checks',[])),
+         'real official predecessor failure belongs to exactly these test files/PR, not a future green result')
+    checks=typed.get('checks',[]);need(len(checks)==2 and all(x.get('exit_code')==0 for x in checks),'real affected checks succeed')
+    import goal_delivery_runtime as g,shlex
+    page=g._native_document(root,item['actual_completed_native']);readback=ordinary_native(root,base,item,item['checks_readback_command'])
+    for index,command in enumerate([item['test_command'],item['lint_command']]):
+        pairs=[(t,m)for t in page['turns']for m in t['items']if m.get('id')==command];need(len(pairs)==1,'one real affected test/lint execution')
+        turn,cmd=pairs[0];shell=shlex.split(cmd.get('command',''));expected=shlex.split(checks[index]['command'])
+        need(turn.get('status')=='completed'and not turn.get('error')and cmd.get('type')=='commandExecution'and cmd.get('status')=='completed'and cmd.get('exitCode')==0
+             and shell[:2]==['/bin/zsh','-lc']and len(shell)==3 and shlex.split(shell[2])==expected+['>',checks[index]['path'],'2>&1']
+             and set(expected[(3 if index==0 else 2):])==paths and expected[:(3 if index==0 else 2)]==(['npm','test','--']if index==0 else ['npx','eslint'])
+             and Path(cmd['cwd']).resolve()==Path(ctx['worktree']).resolve(),'actual exact redirected check command; no ignored failure or alternate test scope')
+    for x in checks:
+        raw=web._external_bytes({'path':x['path'],'sha256':x['sha256'],'size':x['bytes']},base['binding'])
+        if x.get('tests_passed'):need(raw in readback and re.search(rb'Tests\s+'+str(x['tests_passed']).encode()+rb' passed',raw),'actual passing test count/log and native output')
+    artifacts=data['source_patches'];need(artifacts==typed['artifacts']==output['patches']and len(artifacts)==4,'exact immutable incremental and cumulative reverse sources')
+    for pin,(left,right)in zip(artifacts,[(ctx['git_parent'],ctx['commit']),(ctx['commit'],ctx['git_parent']),(ctx['base'],ctx['commit']),(ctx['commit'],ctx['base'])]):
+        need(web._external_bytes({'path':pin['path'],'sha256':pin['sha256'],'size':pin['bytes']},base['binding'])==web.git(ctx,'diff','--no-ext-diff','--binary','--full-index',left,right),'actual exact forward/inverse patch')
+    need(set(typed['cumulative_paths'])==set(parent['paths'])|paths==set(web.git(ctx,'diff','--name-only',ctx['base'],ctx['commit']).decode().splitlines()),'cumulative original source plus exact test delta only')
+    oldfiles=data['original_16_blobs'];need({x['path']for x in oldfiles}==set(parent['paths']),'complete original source map')
+    for x in oldfiles:
+        path=x['path'];need(x['parent_blob']==x['head_blob']==web.git(ctx,'rev-parse',ctx['commit']+':'+path).decode().strip()
+           and hashlib.sha256(web.git(ctx,'show',ctx['commit']+':'+path)).hexdigest()==parent['paths'][path],'original production/source bytes unchanged')
+    return {**ctx,'paths':{**parent['paths'],**{x:hashlib.sha256(web.git(ctx,'show',ctx['commit']+':'+x)).hexdigest()for x in paths}},'increment_source_mode':'related_test_assertions','related_assertion_line_count':changed}
+
 def _validate_item(root,base,item,values):
+    if item.get('schema')==ORD_SCHEMA and item.get('kind')=='related_test_assertions':
+        parents=[v for v in values if same(root,v.get('increment_registration'),item.get('parent_increment_source'))]
+        need(len(parents)==1,'one real previously registered ordinary successor')
+        return validate_related_tests(root,base,parents[0],item),ORD_EVENT
     if item.get('schema')==ORD_SCHEMA:return validate_ordinary(root,base,item),ORD_EVENT
     if item.get('schema')==SCHEMA:return validate(root,base,item),EVENT
     need(item.get('schema')==CI_SCHEMA,'known original adopted source schema')
