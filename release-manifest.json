@@ -1247,9 +1247,9 @@
     },
     {
       "path": "tools/professional_web_execution.py",
-      "source_sha256": "06040d1014d5565a9ee19e47e05db828777ed4b8b9f63d92c75273f334f266a3",
-      "release_sha256": "aa9948ee4f947c980ee6486f7a4efa0a8954667e71462dad720ea4c130fdf6a0",
-      "bytes": 86380
+      "source_sha256": "06843879103cd74257e0cb39ba1a95eb070e66d8545eef17d8a0083e5991f5b4",
+      "release_sha256": "73f8bb186e3ac4da800c3260eac61f746354ce439b1e3ebe8b18863facbdd7e4",
+      "bytes": 86426
     },
     {
       "path": "tools/professional_web_increment.py",
@@ -1793,5 +1793,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "39bd3e7c0079b17fcf3d0227556c9c2c9a54c7eec1d502c7a5d5f0d756168e28"
+  "fingerprint": "831383bc05ff8c7d65899c6642a739e60cecf76b4b639525dbd088d5d28e5ba1"
 }

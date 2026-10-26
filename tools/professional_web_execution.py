@@ -473,7 +473,7 @@ def _recovery_command(root,ctx,pin,command,failed=False,repository_read=False):
         common=Path(git(ctx,'rev-parse','--git-common-dir').decode().strip());common=(Path(ctx['worktree'])/common).resolve()if not common.is_absolute()else common.resolve()
         need(common.name=='.git','actual original repository common Git directory');allowed_cwds.add(common.parent)
     need(turn.get('status')=='completed'and not turn.get('error')and type(turn.get('startedAt'))in {int,float}
-         and type(turn.get('completedAt'))in {int,float}and turn['startedAt']<=turn['completedAt']
+         and type(turn.get('completedAt'))in {int,float}and turn['startedAt']<=turn['completedAt']<=dt.datetime.now(dt.timezone.utc).timestamp()
          and item.get('type')=='commandExecution'and Path(item.get('cwd','')).resolve()in allowed_cwds, 'real completed WEB turn/original repository cwd and ordered times')
     if not failed:
         need(item.get('status')=='completed'and item.get('exitCode')==0,'successful original recovery readback command')
