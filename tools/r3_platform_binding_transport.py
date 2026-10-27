@@ -75,11 +75,13 @@ def context(root,task,approval=None,effect=False):
  if approval is None:return ctx,None,None
  row=w.effective_approvals(root).get(approval)
  standing=ctx.get('standing_CMS_channel') is True
- basis=('verified_professional_standing_CMS_WEB_source_v1' if standing else 'verified_original_goal_external_WEB_source_v1')
- source_key='standing_CMS_authority' if standing else 'delegated_HQ_decision'
+ original=ctx.get('original_production_channel') is True
+ basis=('verified_frozen_original_production_delivery_v1' if original else 'verified_professional_standing_CMS_WEB_source_v1' if standing else 'verified_original_goal_external_WEB_source_v1')
+ source_key='original_professional_source' if original else 'standing_CMS_authority' if standing else 'delegated_HQ_decision'
  need(row and row.get('task_id')==task and row.get('approval_basis')==basis
   and row.get('original_human_authorization_pin')==ctx['authorization']
   and row.get(source_key)==ctx['decision'] and row.get('execution_department')==ctx['role']
+  and (not original or (row.get('granted_by')==ctx['owner'] and row.get('original_production_authority')==ctx['contract'] and not row.get('delegated_HQ_decision')))
   and (not standing or (row.get('granted_by')==row.get('authority_department')==ctx['authority_department']
     and row.get('standing_authorization_id')==ctx['standing_authorization_id']
     and not row.get('delegated_HQ_decision'))),

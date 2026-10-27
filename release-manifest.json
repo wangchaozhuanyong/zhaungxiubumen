@@ -920,9 +920,9 @@
     },
     {
       "path": "tools/builtin_wardrobe_current_binding.py",
-      "source_sha256": "c5e016d6dbc4295501fa9b57d9707143389d1d50ffd34345f26b0d8729baf845",
-      "release_sha256": "c5e016d6dbc4295501fa9b57d9707143389d1d50ffd34345f26b0d8729baf845",
-      "bytes": 19680
+      "source_sha256": "f90a2624159f2a25320c805960610aa79941c1dad45623b98a46c7f6ca80bb78",
+      "release_sha256": "18f1b580e992aa42b928d97930176c29267eb64d1621ba41d368ed37e158f69c",
+      "bytes": 35249
     },
     {
       "path": "tools/chatgpt_fe689_draft_admission.py",
@@ -1016,9 +1016,9 @@
     },
     {
       "path": "tools/department_event_dispatcher.py",
-      "source_sha256": "d27763f328eb15c010472ffaf6a6355f33510fdc6cbc2cdbc555ef06c93cafaa",
-      "release_sha256": "d27763f328eb15c010472ffaf6a6355f33510fdc6cbc2cdbc555ef06c93cafaa",
-      "bytes": 120464
+      "source_sha256": "d8d3d8f009e9d55c66506d9c2f9b31868406f08740e0dc2a975063b758c625cd",
+      "release_sha256": "d8d3d8f009e9d55c66506d9c2f9b31868406f08740e0dc2a975063b758c625cd",
+      "bytes": 120533
     },
     {
       "path": "tools/department_next_work.py",
@@ -1076,9 +1076,9 @@
     },
     {
       "path": "tools/goal_delivery_runtime.py",
-      "source_sha256": "24da703d8c94e48c5fbf3c6cfbc8caa233b748698a01f980eba57c333cc99933",
-      "release_sha256": "1281bf1f19909793d873a7e06bc1dcfec4cf8310f55568e04b76846a0efb1aaa",
-      "bytes": 204654
+      "source_sha256": "c146d0e5a6ae7e23b47be49a20852c18966f6068bfaff960ccd948086e3ac147",
+      "release_sha256": "9261e335887d2275958b2e3614b951c97a5cf873b4562471fc011d4a0d017940",
+      "bytes": 204710
     },
     {
       "path": "tools/goal_source_recovery.py",
@@ -1262,9 +1262,9 @@
     },
     {
       "path": "tools/professional_web_execution.py",
-      "source_sha256": "2296434c559209fb69183fc619b29acbf13c6b3769b93e7689d782dda84de444",
-      "release_sha256": "13d78a461a48bf35e36c74a87039805f00ae8d98f1c076af65e1f4946203fb57",
-      "bytes": 90572
+      "source_sha256": "fdd2e4761eddcecd19a6f04d456c8331c23c26c8cb21f08291b946f4e8d10bb5",
+      "release_sha256": "f424bdc4a4b12e45b3bc54e504fdbda7fb38c832426e44f62d3f0e473c0ab69d",
+      "bytes": 90962
     },
     {
       "path": "tools/professional_web_increment.py",
@@ -1298,9 +1298,9 @@
     },
     {
       "path": "tools/r3_platform_binding_transport.py",
-      "source_sha256": "20f987a642e19c348db1e716c27a4a6991facd3bd4a996d677ec43f2fc1e14f0",
-      "release_sha256": "0107639f37461063597d1d91e9ab3bbf400e8808ca9aabb1d8a6221251577507",
-      "bytes": 23450
+      "source_sha256": "bfe316226c478ea9cc9c079b7d504fbae9632e6d4aa69a55ab827864a245444f",
+      "release_sha256": "d8b7b0c2f696c83271f29eac6ed696205eca5f722a9e3394ea2722863424d887",
+      "bytes": 23787
     },
     {
       "path": "tools/readonly_work_view_cache.py",
@@ -1806,5 +1806,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "c67f973b417dc195a518220ce19ae901e19e7bd0830bc2546d6e8b2969b9c1ab"
+  "fingerprint": "9ec389d9a077f86dc7574f893285c7e83a193e60ffca7c4c77e5cbf4db276680"
 }

@@ -156,6 +156,9 @@ def validate_source(root,snapshot,item):
     import goal_delivery_runtime as g
     import goal_source_recovery as recovery
     import result_coordination as rc
+    if item.get('schema') == 'builtin-wardrobe-original-WEB-source-registration/v1':
+        from builtin_wardrobe_current_binding import web_context
+        return web_context(root, snapshot, item)
     if item.get('schema') == 'original-explicit-production-delivery-source/v1':
         from original_production_delivery import contexts
         return contexts(root, snapshot, item)[1]
@@ -317,6 +320,8 @@ def validate_code_recovery(ctx,state):
     need(git(ctx,'merge-base',output['own_candidate_commit'],output['current_main_sha']).decode().strip()==output['own_candidate_commit'], 'real own released source ancestry')
 
 def candidate(ctx,state):
+    if ctx.get('original_W_channel'):
+        need(state.get('source_mode', 'forward') == 'forward', 'original W permits forward source only; no CMS inverse or inferred production rollback')
     if ctx.get('original_production_channel'):
         from original_production_delivery import candidate as original_candidate
         return original_candidate(ctx, state)

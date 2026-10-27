@@ -273,3 +273,170 @@ def record_preflight(root, task_id, path):
             "production_preflight_registered": pin, "current_W_binding_source": target["current_binding_source"],
             "external_permission_issued": False})
     return {"result": "recorded", "event_id": event["event_id"], "external_permission_issued": False}
+
+
+WEB_SCHEMA = 'builtin-wardrobe-original-WEB-source-registration/v1'
+
+
+def web_context(root, snapshot, source):
+    """The original W's received WEB source; no new task or platform grant."""
+    import datetime as dt
+    import hashlib
+    import department_autonomy as a
+    import goal_delivery_runtime as g
+    import professional_web_execution as web
+    import managed_cms_permit_issuer as issuer
+
+    root = Path(root).resolve()
+    require(source.get('schema') == WEB_SCHEMA and source.get('task_id') == snapshot.get('task_id') == TASK
+            and set(source) == {'schema', 'task_id', 'owner_input', 'WEB_completed_native', 'WEB_source_command',
+                                'account_source', 'account_native', 'account_command', 'source_backup', 'rollback_runbook'},
+            'Exact original W WEB source schema required')
+    current = registered(root)
+    require(current is not None, 'Actual current original PUB full41 source required')
+    request = document(root, source['owner_input'])
+    goal = g.restore_goal(root, snapshot)['goal_delivery']
+    frozen = document(root, snapshot['goal_contract'])
+    require(request.get('task_id') == TASK and request.get('scope') == current['scope']
+            and request.get('business_owner') == goal.get('primary_owner') == 'paid-growth-data'
+            and request.get('original_goal_contract') == snapshot['goal_contract']
+            and request.get('original_human_authorization') == w.file_digest(root, frozen['human_authorization']['evidence_path'])
+            and request.get('original_WEB_role') == 'designated-development'
+            and all(goal.get(k) == frozen.get(k) for k in ('primary_owner', 'producer_departments', 'authorized_scope',
+                                                         'human_authorization', 'required_execution_actions')),
+            'Unchanged original W owner, scope, contract and human authority required')
+    role = request['original_WEB_role']; binding = g._collaboration_binding(root, snapshot, role)
+    require(binding and role not in w.department_registry(root)
+            and {'sender_department': goal['primary_owner'], 'target_department': role, 'scope': current['scope']} in goal['collaboration_scopes']
+            and all(request.get(k) == binding[v] for k, v in (
+                ('actual_original_WEB_fixed_chat', 'thread_id'), ('actual_original_WEB_project_id', 'project_id'),
+                ('actual_original_WEB_cwd', 'cwd'))), 'Real declared original external WEB binding, never an internal role')
+    report_pin = request['WEB_original_result_exact_copy']; report = document(root, report_pin)
+    proposed = document(root, request['prepared_source_original_exact_copy_NOT_REGISTERED'])
+    states = g._collaboration_wait_states(root, snapshot, only_action_id=report.get('received_action_id'))
+    require(len(states) == 1 and states[0].get('status') == 'result_received' and states[0].get('proof_state') == 'PROVEN'
+            and states[0].get('received') is True and states[0].get('result') == report_pin
+            and states[0].get('threadId') == binding['thread_id']
+            and all(states[0]['approved_action'].get(k) == v for k, v in (
+                ('task_id', TASK), ('scope', current['scope']), ('sender_department', goal['primary_owner']), ('target_department', role)))
+            and states[0].get('native_result') == source['WEB_completed_native'],
+            'Actual exact original WEB complete-result callback required')
+    native = g._native_document(root, source['WEB_completed_native'])
+    require(all(native.get('thread', {}).get(k) == binding[v] for k, v in
+                (('id', 'thread_id'), ('title', 'title'), ('cwd', 'cwd'))), 'Actual fixed WEB native identity required')
+    calls = [(t, c) for t in native.get('turns', []) for c in t.get('items', []) if c.get('id') == source['WEB_source_command']]
+    require(len(calls) == 1, 'One real original source-output command required')
+    turn, command = calls[0]; raw = w._completion_execution_output(command).decode('utf-8')
+    decoder = json.JSONDecoder(); output, end = decoder.raw_decode(raw.lstrip())
+    tail = raw.lstrip()[end:].strip()
+    require(tail == 'FLASHCAST_DELIVERY_READY task_id=' + TASK + ' sender_department=' + role
+            + ' candidate_version=' + report['candidate_version'] + ' result_sha256=' + report_pin['sha256'],
+            'Exact single original result/READY output; conflicting or incomplete output rejected')
+    final = [m for m in turn.get('items', []) if m.get('type') == 'agentMessage' and m.get('phase') == 'final_answer']
+    made = w._parse_observed_at(report.get('created_at'))
+    require(turn.get('status') == 'completed' and not turn.get('error') and len(final) == 1
+            and command.get('type') == 'commandExecution' and command.get('status') == 'completed' and command.get('exitCode') == 0
+            and Path(command.get('cwd', '')).resolve().is_relative_to(Path(binding['cwd']).resolve())
+            and made is not None and turn['startedAt'] <= made.timestamp() <= turn['completedAt'] <= dt.datetime.now(dt.timezone.utc).timestamp()
+            and output.get('report', {}).get('sha256') == report_pin['sha256']
+            and output['report'].get('size') == report_pin['size']
+            and web._external_bytes(output['report'], binding) == w.safe_path(root, report_pin['path']).read_bytes()
+            and output['report']['path'] in final[0].get('text', ''),
+            'Successful completed original WEB output/final must bind the exact immutable report')
+    require(report.get('task_id') == TASK and report.get('scope') == current['scope']
+            and report.get('sender_department') == role and report.get('business_owner') == goal['primary_owner']
+            and report.get('CMS_executor') == 'publishing'
+            and proposed.get('task_id') == TASK and proposed.get('scope') == current['scope']
+            and proposed.get('original_owner') == goal['primary_owner'] and proposed.get('channel_executor') == role
+            and all(proposed.get('original_human_authorization', {}).get(k) == request['original_human_authorization'][k] for k in ('sha256', 'size'))
+            and Path(proposed['original_human_authorization']['path']).resolve() == w.safe_path(root, request['original_human_authorization']['path']).resolve()
+            and proposed.get('adopted_PUB_source_event') == current['current_binding_event_id']
+            and proposed.get('source_registration_performed') is False
+            and proposed.get('production_authority_created_by_this_input') is False,
+            'Original producer proposal remains a nonexecuting source, not permission')
+    meta = request['code_candidate']
+    require(meta == report.get('local_git_candidate') and all(proposed.get('code_candidate', {}).get(k) == meta[k]
+            for k in ('head', 'base', 'parent', 'tree', 'branch', 'worktree', 'files', 'forward', 'inverse')),
+            'One authentic selected code candidate and proposal required')
+    require(Path(meta['worktree']).resolve().is_relative_to(Path(binding['cwd']).resolve()), 'Original website worktree required')
+    gitctx = {'worktree': meta['worktree']}; head = meta['head']; base = meta['base']
+    paths = {f['path']: f['sha256'] for f in meta['file_blobs']}
+    expected_paths = {'supabase/functions/_shared/builtin-wardrobe-targets.ts', 'scripts/managed-cms-targets-builtin-wardrobe-v1.mjs',
+                      'supabase/functions/content-publish/service.ts', 'src/lib/contentPublishBuiltinWardrobe.test.ts'}
+    require(len(paths) == len(meta['file_blobs']) == 4 and set(meta['files']) == set(paths) == expected_paths
+            and meta['base'] == meta['parent']
+            and web.git(gitctx, 'show', '-s', '--format=%H %P %T', head).decode().strip() == ' '.join([head, meta['parent'], meta['tree']])
+            and set(web.git(gitctx, 'diff', '--name-only', base, head).decode().splitlines()) == set(paths),
+            'Actual four-path Git head/parent/tree, no unrelated source')
+    blobs = {}
+    for f in meta['file_blobs']:
+        data = web.git(gitctx, 'show', head + ':' + f['path']); blobs[f['path']] = data
+        require(hashlib.sha256(data).hexdigest() == f['sha256'] and len(data) == f['size']
+                and web.git(gitctx, 'rev-parse', head + ':' + f['path']).decode().strip() == f['blob'], 'Exact original source blob/hash/size')
+    delta = web._patch_effect(web._delta({**gitctx, 'paths': paths}, base, head))
+    require(web._patch_effect(web._patch_delta(web._external_bytes(meta['forward'], binding))) == delta
+            and web._patch_effect(web._patch_delta(web._external_bytes(meta['inverse'], binding))) == {p: (added, removed) for p, (removed, added) in delta.items()},
+            'Exact source forward/inverse effects; not a production rollback grant')
+    # Both target objects are JSON inside existing TS/JS, not caller-built aliases.
+    runtime = decoder.raw_decode(blobs['supabase/functions/_shared/builtin-wardrobe-targets.ts'].decode().split('= [', 1)[1].lstrip())[0]
+    cli = decoder.raw_decode(blobs['scripts/managed-cms-targets-builtin-wardrobe-v1.mjs'].decode().split('const binding = ', 1)[1])[0]
+    require(runtime == proposed['protection_only_runtime_selector'] == report['prepared_exact_parameters']['exact_runtime_selector']
+            and proposed['protection_only_CLI_binding'] == report['prepared_exact_parameters']['exact_CLI_binding']
+            and set(cli) - set(proposed['protection_only_CLI_binding']) == {'sourceCandidatePath', 'sourceCandidateSha256', 'sourceProvenanceSha256', 'publicPaths'}
+            and all(cli[k] == v for k, v in proposed['protection_only_CLI_binding'].items()),
+            'Both immutable original code binding objects must agree')
+    five = {'expectedUpdatedAt', 'baselineProjectionFields', 'baselineFieldsSha256', 'retainedProjectionFields', 'retainedFieldsSha256'}
+    for path, value, marker in [('supabase/functions/_shared/builtin-wardrobe-targets.ts', runtime, '= ['),
+                                ('scripts/managed-cms-targets-builtin-wardrobe-v1.mjs', cli, 'const binding = ')]:
+        old = decoder.raw_decode(web.git(gitctx, 'show', base + ':' + path).decode().split(marker, 1)[1].lstrip())[0]
+        require(set(old) == set(value) and {k for k in old if old[k] != value[k]} == five,
+                'Exactly five protection values may change; original tuple/payload/rollback stay frozen')
+        require(all(value.get(k) == v for k, v in {'taskId': TASK, 'actionId': current['action_id'], 'candidateVersion': current['candidate_version'],
+                    'scope': current['scope'], 'table': current['table'], 'changedFields': current['changed_fields'],
+                    'expectedUpdatedAt': current['expected_updated_at'], 'baselineProjectionFields': current['baseline_projection_fields'],
+                    'baselineFieldsSha256': current['baseline_fields_sha256'], 'retainedProjectionFields': current['retained_projection_fields'],
+                    'retainedFieldsSha256': current['retained_fields_sha256'], 'desiredFieldsSha256': current['payload_sha256'],
+                    'rollbackFieldsSha256': current['rollback_fields_sha256'], 'rollbackAllowed': False, 'requiresParentRun': True}.items()),
+                'Original W exact tuple and registered full41/MS11 protection required')
+    # Validate all original producer evidence bytes; reuse its 137 checks, never reinterpret them as permission.
+    evidence = json.loads(web._external_bytes(report['evidence_manifest'], binding))
+    for pin in web._pins(evidence):
+        if Path(pin['path']).is_absolute() and not Path(pin['path']).resolve().is_relative_to(root): web._external_bytes(pin, binding)
+        else:
+            actual = w.file_digest(root, pin['path'])
+            require(all(actual[k] == pin[k] for k in ('sha256', 'size')), 'Original immutable producer evidence changed')
+    account = document(root, source['account_source']); account_native = g._native_document(root, source['account_native'])
+    account_calls = [(t, c) for t in account_native.get('turns', []) for c in t.get('items', []) if c.get('id') == source['account_command']]
+    require(len(account_calls) == 1 and account_native.get('thread', {}).get('id') == binding['thread_id'], 'Genuine original external account read required')
+    at, ac = account_calls[0]; outputs = []
+    for line in w._completion_execution_output(ac).decode().splitlines():
+        try: value = json.loads(line)
+        except ValueError: continue
+        if isinstance(value, dict): outputs.append(value)
+    name = account.get('full_name'); actor = account.get('authenticated_actor', {})
+    require(at.get('status') == 'completed' and not at.get('error') and ac.get('status') == 'completed' and ac.get('exitCode') == 0
+            and Path(ac.get('cwd', '')).resolve().is_relative_to(Path(binding['cwd']).resolve()) and outputs == [account]
+            and name == 'wangchaozhuanyong/zhuangxiuwangzhan' and type(account.get('id')) is int
+            and type(actor.get('id')) is int and actor['id'] > 0 and actor.get('login') == name.split('/')[0]
+            and web.git(gitctx, 'config', '--get', 'remote.origin.url').decode().strip() in
+                {'user-3de132cd98be@example.invalid:' + name + '.git', 'https://github.com/' + name, 'https://github.com/' + name + '.git'},
+            'Actual existing repository/actor identity only, no other-task permission')
+    components = [{'head': head, 'base': base, 'parent': meta['parent'], 'tree': meta['tree'], 'worktree': meta['worktree'],
+                   'paths': paths, 'forward': meta['forward'], 'inverse': meta['inverse']}]
+    backup = document(root, source['source_backup']); recovery = document(root, source['rollback_runbook'])
+    require(backup == {'task_id': TASK, 'source_components': components, 'actual_platform_backup_or_restore_proven': False}
+            and recovery == {'task_id': TASK, 'goal_contract': snapshot['goal_contract'], 'source_components': components,
+                             'unknown_effect_replay_allowed': False, 'CMS_inverse_allowed': False,
+                             'source_inverse_is_not_production_rollback': True, 'execution_requires_actual_platform_backup': True},
+            'Exact source-only recovery recipe; runtime backup remains an actual execution prerequisite')
+    require(not w.validate_workflow_events(root, TASK) and not w._validate_receipt_chain(root, TASK)[1]
+            and snapshot.get('current_state') not in w.TERMINAL_STATES, 'Intact active original W history')
+    project_ref = issuer.SUPABASE_HOST.split('.')[0]
+    return {'root': str(root), 'task': TASK, 'scope': current['scope'], 'owner': goal['primary_owner'], 'role': role,
+            'binding': binding, 'decision': source['owner_input'], 'authorization': request['original_human_authorization'],
+            'contract': snapshot['goal_contract'], 'worktree': meta['worktree'], 'site': binding['cwd'], 'branch': meta['branch'],
+            'commit': head, 'base': base, 'tree': meta['tree'], 'paths': paths, 'source_components': components,
+            'backup': source['source_backup'], 'rollback': source['rollback_runbook'], 'repository': name,
+            'repository_id': account['id'], 'actor_id': actor['id'], 'original_production_channel': True,
+            'original_W_channel': True, 'prefix': TASK + '-web', 'edge_scope': 'company.example:edge:' + project_ref + ':content-publish',
+            'pages_scope': 'company.example:pages:production', 'project_ref': project_ref}

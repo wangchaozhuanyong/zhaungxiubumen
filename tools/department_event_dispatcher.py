@@ -419,7 +419,7 @@ def service_source_hashes(root):
              "professional_web_execution", "professional_web_increment",
              "professional_cms_execution", "professional_cms_integration",
              "professional_cms_channel", "professional_cms_issuer", "chief_assistant_coordination",
-             "original_production_delivery")
+             "original_production_delivery", "builtin_wardrobe_current_binding", "r3_platform_binding_transport")
     values = {"tools/" + name + ".py": hashlib.sha256((root / "tools" / (name + ".py")).read_bytes()).hexdigest()
               for name in names}
     if (root / CONFIG).is_file():
