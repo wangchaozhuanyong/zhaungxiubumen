@@ -4116,6 +4116,9 @@ def _authenticated_formal_metadata_tail(root, formal, task_id, task_events):
             and (count == len(task_events) or formal.get("current_state") not in w.TERMINAL_STATES),
             "exact original committed snapshot prefix required")
     for event in task_events[count:]:
+        from department_autonomy import authenticated_chief_readonly_metadata
+        if authenticated_chief_readonly_metadata(root, formal, event):
+            continue
         detail = event.get("details", {})
         intent = detail.get("routine_decision_reply_intent", {})
         require(set(detail) == {"routine_decision_reply_intent", "external_permission_issued"}

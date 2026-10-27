@@ -74,8 +74,148 @@ def _runtime_health_packet(root, snapshot, request, packet, payload):
   'current_assignment_changed':False,'external_permission_issued':False}
 
 
+def _chief_readonly_source(action):
+ return action.get('chief_coordination_source') or {}
+
+
+def _chief_readonly_coordination(root,snapshot,action):
+ """Current delegated ordinary decision over an exact original external source request."""
+ import re,hashlib
+ import chief_assistant_coordination as chief,goal_delivery_runtime as g,result_coordination as rc,department_rotation as rotation
+ chief.authority(root);authority(root)
+ goal=participant(root,snapshot,action.get('sender_department'));frozen=document(root,snapshot.get('goal_contract'))
+ immutable=('primary_owner','producer_departments','authorized_scope','human_authorization','required_execution_actions','parent_task_id')
+ require(all(goal.get(k)==frozen.get(k)for k in immutable)and action.get('goal_contract')==snapshot['goal_contract']
+  and action.get('schema')=='current-autonomous-readonly-coordination-action/v1'
+  and action.get('task_id')==snapshot['task_id']and action.get('scope')in frozen.get('authorized_scope',[])
+  and action.get('sender_department')==frozen.get('primary_owner')and professional(root,action['sender_department'])
+  and action.get('action_class')=='thread_message'and action.get('assignment_record_required')is False
+  and action.get('delivery_mode')=='official_native_queue'
+  and not any(action.get(k)for k in ('authorization_changes','internal_repairs','approval_id','consume_approval','execution_request','professional_execution_source','parent_task_id')),
+  'exact unchanged original professional owner/contract/scope readonly message only')
+ chief.ordinary_source_history(root,snapshot['task_id'])
+ source=_chief_readonly_source(action);decision=document(root,source.get('decision'))
+ require(not action.get('hq_coordination_source')and decision.get('schema')=='chief-exact-routine-readonly-coordination-decision/v1'
+  and decision.get('decision_owner')==chief.ROLE and decision.get('owner_routine_delegation')==chief.SOURCE
+  and decision.get('original_nonpayment_delegation')==g._owner_decision_delegation(root)['source']
+  and decision.get('professional_owner')==action['sender_department']
+  and all(decision.get(k)==action.get(k)for k in ('task_id','scope'))
+  and decision.get('decision')=='coordinate_exact_nonpayment_change_preserve_action_gates'
+  and decision.get('normal_registration_still_required')is True
+  and decision.get('external_permission_issued')is False and decision.get('actual_execution_or_account_or_fee_permission')is False
+  and decision.get('new_account_or_fees')is False,'genuine current chief exact nonpayment readonly decision required')
+ original=document(root,decision.get('actual_blocked_request'));capture=document(root,decision.get('actual_blocked_result_capture'))
+ require(capture.get('exit_code')==0 and not capture.get('stderr'),'actual normal source refusal capture required')
+ try:failed=json.loads(capture['stdout'])
+ except (KeyError,ValueError,TypeError)as error:raise w.WorkflowError('exact original refusal JSON required')from error
+ require(failed==decision.get('actual_prepare_result')and failed.get('status')=='blocked'and failed.get('message_sent')is False
+  and failed.get('authorization_precheck',{}).get('reasons')==['new_department']
+  and failed['authorization_precheck'].get('needs_human_confirmation')is False
+  and failed['authorization_precheck'].get('decision_owner')=='operations'
+  and set(action)==set(original)|{'schema','goal_contract','chief_coordination_source'}
+  and all(action.get(k)==v for k,v in original.items()),'only exact original nonpayment message refusal; no source/payload replacement')
+ payload=action['payload'];require(w.file_digest(root,payload['path'])==payload and payload['sha256']==action['payload_sha256']
+  and decision.get('exact_payload')==payload and decision.get('exact_message_action')==action['action_id'],
+  'real decided original immutable payload/action required')
+ body=(Path(root)/payload['path']).read_text()
+ require(all(re.search(r'(?m)^'+k+'='+re.escape(str(action[k]))+r'\s*$',body)for k in ('task_id','scope','action_id','sender_department','target_department')),'exact original readonly body headers required')
+ identity=rc.exact_identity(source.get('result_identity',{}))
+ require(identity['task_id']==snapshot['task_id']and identity['sender_department']==action['sender_department'],'original professional result identity required')
+ intake=chief._committed_intake(root,{**identity,'received_record_id':source.get('received_record_id'),'coordinator_role':chief.ROLE})
+ require(intake.get('routine_delegation')==chief.SOURCE and intake['record_id']in decision.get('actual_new_result_receipts',[]),'own actual delegated original result receipt required')
+ report=document(root,intake['outbox']);evidence=report.get('evidence',[])
+ require(decision['actual_blocked_request']in evidence and decision['actual_blocked_result_capture']in evidence,'original professional received report must bind exact request and real refusal')
+ page=g._collaboration_native(root,source.get('native'));binding=w.department_registry(root)[chief.ROLE]['chat_binding']
+ require(all(page.get('thread',{}).get(k)==binding[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd','hostId':'host_id'}.items())
+  and binding['project_id']==PROJECT,'actual chief fixed native identity, never HQ alias')
+ selected=[(t,m)for t in page.get('turns',[])for m in t.get('items',[])if m.get('id')==source.get('message_id')]
+ require(len(selected)==1,'one actual chief decision message required')
+ turn,message=selected[0];text=message.get('text','');captured=w._parse_observed_at(capture.get('actual_at'));received=w._parse_observed_at(intake.get('created_at'))
+ require(message.get('type')=='agentMessage'and message.get('phase')in {'commentary','final_answer'}
+  and not turn.get('error')and turn.get('status')in {'inProgress','completed'}
+  and type(turn.get('startedAt'))in {int,float}and captured and received
+  and type(page.get('thread',{}).get('updatedAt'))in {int,float}
+  and captured<=received and received.timestamp()<=page['thread']['updatedAt']<=dt.datetime.now(dt.timezone.utc).timestamp()
+  and [m.get('id')for m in turn.get('items',[])].count(intake.get('actual_receiver_message_id'))==1
+  and [m.get('id')for m in turn['items']].index(intake['actual_receiver_message_id'])<[m.get('id')for m in turn['items']].index(source['message_id'])
+  and source['decision']['path']in text and source['decision']['sha256']in text,
+  'genuine original chief readonly decision message/hash/ordered task source required')
+ registry=w.department_registry(root);role=action['target_department'];fixed=g._collaboration_binding(root,snapshot,role)
+ require(role not in registry and fixed and fixed.get('existing_authorization_required')is True
+  and fixed.get('runtime_goal_authorization_required')is True and fixed.get('generic_cross_project_access_allowed')is False
+  and fixed.get('company_role_health_inherited')is False and fixed.get('host_id')=='local'
+  and fixed.get('project_id')!=PROJECT and Path(fixed.get('cwd','')).resolve()!=Path(root).resolve()
+  and all(action.get(k)==fixed.get(v)for k,v in {'target_project_id':'project_id','target_thread_id':'thread_id','target_thread_title':'title','target_cwd':'cwd'}.items())
+  and decision.get('exact_target_department')==role and decision.get('exact_target_thread')==fixed['thread_id']
+  and decision.get('exact_target_project')==fixed['project_id']and decision.get('exact_target_cwd')==fixed['cwd']
+  and action.get('source_project_id')==registry[action['sender_department']]['chat_binding']['project_id']==PROJECT,
+  'exact existing external role/project/cwd; no internal role or generic newdepartment')
+ rotated=document(root,fixed.get('rotation_record'))
+ require(rotated in rotation._records(root)and rotated.get('role')==role and rotation._id(rotated['new_binding'])==fixed['thread_id'],
+  'real same-role current external rotation required')
+ prior=document(root,source.get('original_source_packet'))
+ require(source['original_source_packet']in evidence and prior.get('task_id')==action['task_id']and prior.get('scope')==action['scope']
+  and prior.get('department')==action['sender_department'],'received original professional source lineage required')
+ legacy=prior.get('original_WEB_delivery',{});local_pin=source.get('original_external_delivery');delivery=document(root,local_pin)
+ require({k:legacy.get(k)for k in ('sha256','size')}=={k:local_pin.get(k)for k in ('sha256','size')}
+  and Path(legacy.get('path','')).resolve().is_relative_to(Path(fixed['cwd']).resolve())
+  and delivery.get('task_id')==action['task_id']and delivery.get('head')==prior.get('original_local_source',{}).get('head'),
+  'exact existing external delivery copy/hash and original source relation, not production authority')
+ return {**authority(root),'source':payload,'report':intake['outbox'],'scope':action['scope'],
+  'sender_department':action['sender_department'],'target_department':role,'purpose':'original_professional_collaboration_transport_only',
+  'registered_readonly_coordination_source':source,'business_producer_added':False,'current_assignment_changed':False,
+  'external_permission_issued':False}
+
+
+def authenticated_chief_readonly_metadata(root,formal,event):
+ """Same-state source/observation/intent facts do not mutate the original CMS contract."""
+ import goal_delivery_runtime as g
+ from goal_source_recovery import _collaboration_queue_preparation
+ detail=event.get('details',{});keys=set(detail)
+ registration={'goal_delivery','action_id','approved_message_prepared','actual_chief_coordination_source','actual_message_sent','new_business_producer_added'}
+ observation={'goal_delivery','actual_route_observation','external_permission_issued'}
+ intent_keys={'collaboration_queue_intent','external_permission_issued'}
+ if keys not in (registration,observation,intent_keys):return False
+ require(event.get('state')==formal.get('current_state')and event.get('task_id')==formal.get('task_id'),
+  'readonly metadata cannot change original task/state')
+ snapshot=g.restore_goal(root,formal);goal=snapshot['goal_delivery']
+ if keys==registration:
+  action=document(root,detail['approved_message_prepared'])
+  require(detail['action_id']==action.get('action_id')and detail.get('actual_message_sent')is False
+   and detail.get('new_business_producer_added')is False
+   and detail['actual_chief_coordination_source']==_chief_readonly_source(action).get('native'),
+   'exact actual chief source registration metadata required')
+  require(action in detail['goal_delivery'].get('approved_actions',[]),'registered immutable action required')
+ elif keys==observation:
+  require(detail.get('external_permission_issued')is False,'observation grants no external permission')
+  matches=[a for a in detail['goal_delivery'].get('approved_actions',[])if _chief_readonly_source(a)
+   and detail['goal_delivery'].get('current_route_observations',{}).get(a.get('action_id'))==detail['actual_route_observation']]
+  require(len(matches)==1,'one exact registered readonly observation required');action=matches[0]
+  live=document(root,detail['actual_route_observation']);observed=w._parse_observed_at(live.get('observed_at'))
+  require(observed is not None and observed<=dt.datetime.now(dt.timezone.utc)
+   and live.get('delivery_mode')=='official_native_queue','real original queue observation time required')
+  inventory=g._collaboration_native(root,live.get('actual_native_observation'))
+  for row in live.get('threads',[]):
+   require(row in [*inventory.get('threads',[]),*inventory.get('pinnedThreads',[])], 'unchanged actual inventory rows required')
+ else:
+  require(detail.get('external_permission_issued')is False,'readonly transport intent grants no external permission')
+  intent=detail['collaboration_queue_intent'];request,prepared,policy,_,target=_collaboration_queue_preparation(root,snapshot,intent['request'],intent['prepared'])
+  matches=[a for a in goal.get('approved_actions',[])if a.get('action_id')==intent.get('action_id')and _chief_readonly_source(a)]
+  require(len(matches)==1 and request.get('action_id')==intent['action_id']and intent.get('payload')==request['payload']
+   and intent.get('policy_decision_id')==policy['decision_id']and intent.get('target_thread_id')==target['thread_id'],
+   'one authentic normal prepared readonly queue intent required; unknown effect is not sent')
+  action=matches[0]
+ _chief_readonly_coordination(root,snapshot,action)
+ if 'goal_delivery'in detail:
+  immutable=('primary_owner','responsible_assistant','producer_departments','authorized_scope','human_authorization','authorization_pin','required_execution_actions','parent_task_id','collaboration_scopes')
+  require(all(detail['goal_delivery'].get(k)==formal['goal_delivery'].get(k)for k in immutable),
+   'readonly appended metadata cannot replace frozen actors/scope/actions/declarations')
+ return True
+
+
 def _professional_readonly_coordination(root, snapshot, action):
  """Authenticate one HQ-decided ordinary message; never add a producer or execution grant."""
+ if _chief_readonly_source(action):return _chief_readonly_coordination(root,snapshot,action)
  import ast, re, shlex
  from goal_delivery_runtime import _owner_decision_delegation
  goal=participant(root,snapshot,action.get('sender_department'))
@@ -304,14 +444,14 @@ def _registered_owner_result_message(root,snapshot,request):
 def _registered_professional_readonly_route(root,snapshot,request):
  actions=[a for a in snapshot.get('goal_delivery',{}).get('approved_actions',[])
   if a.get('schema')=='current-autonomous-readonly-coordination-action/v1'
-  and a.get('hq_coordination_source',{}).get('decision')
+  and (a.get('hq_coordination_source',{}).get('decision')or _chief_readonly_source(a).get('decision'))
   and all(a.get(k)==request.get(k)for k in ('task_id','scope','action_id','action_class','sender_department','target_department','payload','payload_sha256'))]
  if not actions:return None
  require(len(actions)==1,'one exact registered professional readonly coordination required')
  action=actions[0];route=_professional_readonly_coordination(root,snapshot,action)
  events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==snapshot['task_id']
   and e.get('details',{}).get('action_id')==action['action_id']
-  and e.get('details',{}).get('actual_HQ_coordination_source')==action['hq_coordination_source']['native']
+  and e.get('details',{}).get('actual_chief_coordination_source'if _chief_readonly_source(action)else'actual_HQ_coordination_source')==(action.get('chief_coordination_source')or action['hq_coordination_source'])['native']
   and e.get('details',{}).get('approved_message_prepared')]
  require(len(events)==1 and document(root,events[0]['details']['approved_message_prepared'])==action,
   'one real normal readonly registration event with exact source required')
@@ -319,7 +459,7 @@ def _registered_professional_readonly_route(root,snapshot,request):
 
 
 def validate_readonly_coordination(root, snapshot, action):
- if action.get('hq_coordination_source',{}).get('decision'):
+ if action.get('hq_coordination_source',{}).get('decision')or _chief_readonly_source(action):
   return _professional_readonly_coordination(root,snapshot,action)
  import re
  from goal_delivery_runtime import _collaboration_native
@@ -379,7 +519,7 @@ def record_readonly_coordination(root, task, input_path):
   snapshot['goal_delivery']={**goal,'approved_actions':goal.get('approved_actions',[])+[action]}
   w.atomic_write_json(w.snapshot_path(root,task),snapshot)
   w.append_workflow_event(root,task,snapshot['current_state'],{'goal_delivery':snapshot['goal_delivery'],'action_id':action['action_id'],
-   'approved_message_prepared':pin,'actual_HQ_coordination_source':action['hq_coordination_source']['native'],
+   'approved_message_prepared':pin,('actual_chief_coordination_source'if _chief_readonly_source(action)else'actual_HQ_coordination_source'):(action.get('chief_coordination_source')or action['hq_coordination_source'])['native'],
    'actual_message_sent':False,'new_business_producer_added':False})
  return {'result':'recorded','task_id':task,'action_id':action['action_id'],'input':pin,
   'actual_message_sent':False,'external_permission_issued':False}
@@ -589,7 +729,7 @@ def message_route(root,snapshot,request):
  # the declared collaboration, exact approved payload, original authority and
  # fresh native identity; the internal autonomous lane grants none of these.
  if request.get('target_department')not in w.department_registry(root):
-  return _registered_owner_result_message(root,snapshot,request)
+  return _registered_owner_result_message(root,snapshot,request)or _registered_professional_readonly_route(root,snapshot,request)
  payload=request.get('payload')
  if not isinstance(payload,dict):return None
  require(w.file_digest(root,payload.get('path',''))==payload,'exact payload bytes required')
@@ -745,7 +885,8 @@ def _fresh_owner_message_policy_source(root,snapshot,request,route):
    and page.get('turns')and not page['turns'][0].get('error'),
    'actual fresh original sender and receiver native identity required')
  action=g.approved_action(root,snapshot,{k:request.get(k)for k in keys if k!='delivery_mode'})
- source_key='professional_execution_source'if route.get('registered_execution_message_source') is not None else'professional_owner_message_source'
+ source_key=('chief_coordination_source'if route.get('registered_readonly_coordination_source')is not None else
+  'professional_execution_source'if route.get('registered_execution_message_source') is not None else'professional_owner_message_source')
  require(action and action.get(source_key),'real original owner-message registration required')
  observation=snapshot['goal_delivery'].get('current_route_observations',{}).get(action['action_id'])
  live=document(root,observation)

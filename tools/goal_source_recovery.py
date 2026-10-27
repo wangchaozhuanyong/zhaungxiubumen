@@ -1238,15 +1238,17 @@ def prepare_message(root, request):
             x.get(k)==request.get(k) for k in ('sender_department','target_department','scope'))]
         from professional_cms_integration import message_context as standing_message
         integration=standing_message(root,snapshot,request)
-        if (len(declared)!=1 or original.get('primary_owner')!=goal.get('primary_owner')
+        from goal_delivery_runtime import owner_result_collaboration_binding
+        exact_owner_binding=owner_result_collaboration_binding(root,snapshot,request)
+        if ((len(declared)!=1 and exact_owner_binding is None)or original.get('primary_owner')!=goal.get('primary_owner')
                 or (request['sender_department']!=original.get('primary_owner') and integration is None)
                 or request['scope'] not in original.get('authorized_scope',[])
                 or original.get('human_authorization')!=goal.get('human_authorization')):
             raise w.WorkflowError('exact original owner, human source and declared external collaboration required')
     if binding is None:
         external=w.read_json(Path(root)/'data/department-registry.json').get('collaboration_bindings',{}).get(request['target_department'])
-        if not external or request['target_department'] not in {
-                d.get('target_department') for d in execution_collaboration_scopes(root,snapshot)}:
+        if not external or (exact_owner_binding is None and request['target_department'] not in {
+                d.get('target_department') for d in execution_collaboration_scopes(root,snapshot)}):
             raise w.WorkflowError('original explicitly declared collaboration target required')
         binding={**external,'task_id':external['thread_id']}
     if any(page.get('thread',{}).get(k) != binding.get(v) for k,v in
