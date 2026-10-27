@@ -563,6 +563,23 @@ def readonly_result_return_route(root,snapshot,request):
   'actual_owner_knowledge_proven':known,'formal_result_received_proven':False,'business_producer_added':False,'external_permission_issued':False}
 
 
+def _registered_execution_source_message(root,snapshot,request):
+ """Read this exact existing source-bound action; never grant a new route."""
+ if request.get('professional_execution_source') is None:return None
+ import goal_delivery_runtime as g
+ from professional_cms_execution import validate_message
+ keys=('task_id','sender_department','action_id','action_class','scope','source_project_id',
+  'target_project_id','target_department','target_thread_id','target_thread_title','target_cwd',
+  'target_sidebar_section_id','payload_sha256')
+ action=g.approved_action(root,snapshot,{k:request.get(k)for k in keys})
+ require(action is not None and action.get('professional_execution_source')==request['professional_execution_source']
+  and all(request.get(k)==action.get(k)for k in ('payload','execution_tuple','assignment_record_required','authorization_changes','internal_repairs')),
+  'one unchanged registered execution-source message/action/payload/tuple required')
+ require(not any(request.get(k)for k in ('approval_id','consume_approval','execution_request','goal_responsibility_dispatch','parent_task_id')),
+  'registered execution-source message grants transport only')
+ return validate_message(root,snapshot,action)
+
+
 def message_route(root,snapshot,request):
  if not isinstance(request,dict)or request.get('action_class')!='thread_message':return None
  from chief_assistant_coordination import message_route as routine_reply
@@ -582,6 +599,7 @@ def message_route(root,snapshot,request):
  if returned is not None:return returned
  readonly=_registered_professional_readonly_route(root,snapshot,request)
  if readonly is not None:return readonly
+ execution_source=_registered_execution_source_message(root,snapshot,request)
  text=(Path(root)/payload['path']).read_text()
  try:obj=json.loads(text)
  except (ValueError,UnicodeError):obj=None
@@ -605,7 +623,8 @@ def message_route(root,snapshot,request):
  require(target not in ASSISTANTS and ((sender in g.get('producer_departments',[]) and target=='operations')
   or(sender=='operations' and target in g.get('producer_departments',[]))
   or(sender==g.get('primary_owner') and any(c.get('target_department')==target and c.get('scope')==request.get('scope')for c in g.get('collaboration_scopes',[])))
-  or(sender in g.get('producer_departments',[]) and target==g.get('primary_owner') and sender!=target)), 'only original department report/HQ coordination/collaboration return')
+  or(sender in g.get('producer_departments',[]) and target==g.get('primary_owner') and sender!=target)
+  or execution_source is not None), 'only original department report/HQ coordination/collaboration return')
  require(set(obj)=={'schema','task_id','scope','sender_department','target_department','goal_contract','owner_authorization','report','next_action'}
   and all(obj.get(k)==request.get(k)for k in ('task_id','scope','sender_department','target_department'))
   and request['task_id']==task and request['scope']in g['authorized_scope']
@@ -621,7 +640,11 @@ def message_route(root,snapshot,request):
   and all(request.get(k)==dest.get(v)for k,v in {'target_thread_id':'task_id','target_thread_title':'title','target_cwd':'cwd','target_sidebar_section_id':'sidebar_section_id'}.items()), 'exact fixed role/project/directory/target required')
  require(registry[sender].get('new_dispatch_enabled')is True and registry[target].get('new_dispatch_enabled')is True
   and w._chat_binding_healthy(source,verification_ttl_hours=26) and w._chat_binding_healthy(dest,verification_ttl_hours=26), 'current exact sender/target health required')
- return {**auth,'source':payload,'report':obj['report'],'scope':request['scope'],'sender_department':sender,'target_department':target}
+ route={**auth,'source':payload,'report':obj['report'],'scope':request['scope'],'sender_department':sender,'target_department':target}
+ if execution_source is not None:
+  route.update(purpose='original_professional_collaboration_transport_only',
+   registered_execution_message_source=execution_source['registration'],report=execution_source['owner_result'],external_permission_issued=False)
+ return route
 
 def _owner_message_transport_not_started(root,snapshot,request):
  """No new decision may outrun a durable original intent or partial effect."""
@@ -699,7 +722,9 @@ def _fresh_owner_message_policy_source(root,snapshot,request,route):
  import goal_delivery_runtime as g
  require(request.get('delivery_mode')=='official_native_queue'
   and route.get('purpose')=='original_professional_collaboration_transport_only'
-  and g.owner_result_collaboration_binding(root,snapshot,request)is not None,
+  and (g.owner_result_collaboration_binding(root,snapshot,request)is not None
+       if route.get('registered_execution_message_source') is None
+       else _registered_execution_source_message(root,snapshot,request) is not None),
   'expired message policy requires the original registered owner-message queue source')
  keys=('task_id','sender_department','action_id','action_class','scope','source_project_id','target_project_id',
        'target_department','target_thread_id','target_thread_title','target_cwd','target_sidebar_section_id','payload_sha256','delivery_mode')
@@ -716,14 +741,15 @@ def _fresh_owner_message_policy_source(root,snapshot,request,route):
    and page.get('turns')and not page['turns'][0].get('error'),
    'actual fresh original sender and receiver native identity required')
  action=g.approved_action(root,snapshot,{k:request.get(k)for k in keys if k!='delivery_mode'})
- require(action and action.get('professional_owner_message_source'),'real original owner-message registration required')
+ source_key='professional_execution_source'if route.get('registered_execution_message_source') is not None else'professional_owner_message_source'
+ require(action and action.get(source_key),'real original owner-message registration required')
  observation=snapshot['goal_delivery'].get('current_route_observations',{}).get(action['action_id'])
  live=document(root,observation)
  require(live.get('observed_at')==request['live_observed_at']and live.get('actual_native_observation')==request.get('actual_live_inventory')
   and live.get('actual_native_target_turns',{}).get(request['target_thread_id'])==request.get('actual_target_state'),
   'current policy must bind this real normal preparation observation')
  return {'goal_contract':snapshot['goal_contract'],'authorization':snapshot['goal_delivery']['authorization_pin'],
-  'registered_message_source':action['professional_owner_message_source'],'original_result':route['report'],
+  'registered_message_source':action[source_key],'original_result':route['report'],
   'payload':request['payload'],'actual_route_observation':observation,
   'actual_sender_state':request['actual_sender_state'],'actual_target_state':request['actual_target_state'],
   'actual_live_inventory':request['actual_live_inventory'],'live_observed_at':request['live_observed_at']}
