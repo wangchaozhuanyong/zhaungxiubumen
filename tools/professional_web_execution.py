@@ -156,6 +156,8 @@ def validate_source(root,snapshot,item):
     import goal_delivery_runtime as g
     import goal_source_recovery as recovery
     import result_coordination as rc
+    if item.get('schema') == 'original-received-CMS-channel-production-source/v1':
+        return cms.received_increment_web_context(root,snapshot,item)
     if item.get('schema') == 'builtin-wardrobe-original-WEB-source-registration/v1':
         from builtin_wardrobe_current_binding import web_context
         return web_context(root, snapshot, item)
@@ -375,7 +377,9 @@ def execution_context(root,task,state):
         sources=[x for x in code_records(root,task) if x['registration']==state['code_only_source_registration']]
         need(len(sources)==1,'one authenticated explicitly selected code-only source stage')
         return sources[0]
-    return select(root,records(root,task)[0],state)
+    sources=records(root,task)
+    need(len(sources)==1,'one actual registered original WEB production source required; issuer contract/local target alone is not that source')
+    return select(root,sources[0],state)
 
 def static_intent(root,request):
     ctx=execution_context(root,request['task_id'],request.get('state',{}));role=request.get('sender_department',request.get('department'))
@@ -694,7 +698,9 @@ def preflight(root,task,action,action_class,scope,department):
     return {**item,'risk_level':'R3'if op=='edge_deploy'else'R2',**{k:req[k]for k in ('task_id','department','action_id','action_class','scope','facts','self_check','backup','rollback')}},req,rows[-1]['input'],ctx
 
 def authorization_precheck(root,request):
-    ctx0=records(root,request['task_id'])[0]
+    sources=records(root,request['task_id'])
+    need(len(sources)==1,'one actual registered original WEB production source required; issuer contract/local target alone is not that source')
+    ctx0=sources[0]
     if ctx0.get('code_only_release')and request==a.document(root,ctx0['initial_request']):
         return {'schema':'goal-authorization-precheck/v1','task_id':ctx0['task'],'status':'within_original_authorization','reasons':['real_owner_HQ_code_only_followon_source'],'source_registration':ctx0['registration'],'original_authorization':ctx0['authorization'],'needs_human_confirmation':False,'actual_action_allowed':False,'external_permission_issued':False,'next_owner':ctx0['role'],'next_action':'use normal request-base with original-executor fresh facts and single-use policy'}
     ctx=static_intent(root,request);op=request.get('operation');need(op in OPS,'known original production operation')

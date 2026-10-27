@@ -462,3 +462,177 @@ if __name__ == '__main__':
     args=parser.parse_args()
     try:print(json.dumps(status(Path(__file__).resolve().parents[1],args.task_id),ensure_ascii=False,indent=2))
     except (w.WorkflowError,KeyError,ValueError) as error:parser.exit(1,str(error)+'\n')
+
+WEB_INCREMENT_SCHEMA = 'original-received-CMS-channel-production-source/v1'
+
+
+def received_increment_web_context(root, snapshot, item):
+    """An actual owner-selected WEB delivery for an already registered CMS action.
+
+    Registered CMS source, producer final and owner custody are separate facts.
+    The original WEB callback is not promoted to result_received by this reader.
+    Current facts, per-stage selfcheck/policy and single-use effects stay outside.
+    """
+    import hashlib
+    import datetime as dt
+    import department_autonomy as a
+    import goal_delivery_runtime as g
+    import professional_web_execution as web
+    need = a.require
+    need(item.get('schema') == WEB_INCREMENT_SCHEMA and item.get('task_id') == snapshot['task_id']
+         and set(item) == {'schema','task_id','CMS_source_registration','owner_message_action_id','owner_selection',
+              'WEB_completed_native','WEB_audit_native','evidence_manifest','source_backup','rollback_runbook'},
+         'exact original received CMS-channel WEB source schema required')
+    contexts = [x for x in records(root,snapshot) if x['registration'] == item['CMS_source_registration']]
+    need(len(contexts) == 1 and contexts[0].get('dated_source_not_execution_CAS') is True,
+         'one actual registered original CMS increment source; issuer is not a WEB source')
+    source = contexts[0]; owner = source['owner']; scope = source['business_scope']; role = source['channel']
+    goal = snapshot['goal_delivery']; frozen = a.document(root,snapshot['goal_contract'])
+    binding = g._collaboration_binding(root,snapshot,role)
+    need(binding and role not in w.department_registry(root) and binding.get('project_id') != a.PROJECT
+         and all(goal.get(k) == frozen.get(k) for k in ('primary_owner','producer_departments',
+                    'authorized_scope','human_authorization','required_execution_actions')),
+         'original external WEB role and unchanged owner/contract/authority/scopes required')
+    orders = [s for s in g._collaboration_wait_states(root,snapshot,only_action_id=item['owner_message_action_id'])
+              if s.get('received') is True and s.get('status') in {'message_received','result_received'}
+              and s.get('department') == 'system-development']
+    need(len(orders) == 1, 'actual original owner-to-SYS source-return receipt required')
+    order = orders[0]['approved_action']; route = a._registered_owner_result_message(root,snapshot,order)
+    need(route is not None and order.get('sender_department') == owner and order.get('scope') == scope,
+         'authenticated original owner normal result-message source required')
+    owner_report = a.document(root,route['report']); selection = a.document(root,item['owner_selection'])
+    need(owner_report.get('primary_deliverable') == item['owner_selection']
+         and item['owner_selection'] in owner_report.get('evidence',[])
+         and selection.get('task_id') == snapshot['task_id'] and selection.get('scope') == scope
+         and selection.get('owner') == owner, 'exact real professional owner selection, not caller permission metadata')
+    report_pin = selection['source']; report = web.external(root,report_pin,binding)
+    body = w.safe_path(root,order['payload']['path']).read_text()
+    need(report_pin['path'] in body and report_pin['sha256'] in body
+         and report.get('task_id') == snapshot['task_id'] and report.get('scope') == scope
+         and report.get('sender_department') == role and report.get('target_department') == owner,
+         'actual delivered owner message must bind exact original external WEB report and participants')
+    callbacks = [s for s in g._collaboration_wait_states(root,snapshot,only_action_id=report['action_id'])
+                 if s.get('received') is True and s.get('department') == role
+                 and s.get('status') in {'message_received','result_received'}]
+    need(len(callbacks) == 1 and callbacks[0]['approved_action'].get('professional_execution_source') == source['registration']
+         and callbacks[0]['approved_action'].get('execution_tuple') == source['action']
+         and callbacks[0]['approved_action'].get('sender_department') == owner,
+         'actual received original WEB work order for this exact registered CMS tuple required')
+    page = g._native_document(root,item['WEB_completed_native'])
+    need(all(page.get('thread',{}).get(k) == binding[v] for k,v in {'id':'thread_id','title':'title','cwd':'cwd'}.items()),
+         'real original fixed external WEB completion identity required')
+    completed = [(t,m) for t in page.get('turns',[]) for m in t.get('items',[])
+                 if t.get('status') == 'completed' and not t.get('error') and m.get('type') == 'agentMessage'
+                 and m.get('phase') == 'final_answer' and report_pin['path'] in m.get('text','')]
+    need(len(completed) == 1, 'one real independently completed producer final linking this exact report required')
+    turn,final = completed[0]; made = w._parse_observed_at(report.get('created_at')); selected_at = w._parse_observed_at(selection.get('at'))
+    need(made and selected_at and type(turn.get('startedAt')) in {int,float} and type(turn.get('completedAt')) in {int,float}
+         and turn['startedAt'] <= made.timestamp() <= turn['completedAt'] <= selected_at.timestamp() <= dt.datetime.now(dt.timezone.utc).timestamp(),
+         'actual source/final/owner selection chronology required; no changed old native status')
+    original = report['original_owner_and_sources']
+    need(original.get('professional_owner') == owner and original.get('content_executor') == source['executor']
+         and original.get('source_registration') == source['registration']
+         and original.get('source_event') == source['event_id'], 'unchanged exact registered CMS source and event')
+    from professional_cms_issuer import validate_contract
+    issuer_pin = original['issuer_contract']; issuer_doc = a.document(root,issuer_pin)
+    issuer_rows = [e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS) if e.get('task_id') == snapshot['task_id']
+                   and e.get('details',{}).get('professional_cms_issuer_contract') == issuer_pin]
+    need(len(issuer_rows) == 1 and issuer_rows[0]['event_id'] == original.get('issuer_event')
+         and validate_contract(root,snapshot,issuer_doc)[2] == source['physical_target'],
+         'actual same-action issuer registration, never borrowed W or other namespace')
+    manifest = web.external(root,item['evidence_manifest'],binding)
+    need(selection['frozen'] == item['evidence_manifest'] and manifest.get('task_id') == snapshot['task_id']
+         and isinstance(manifest.get('pins'),list) and manifest.get('pin_count') == len(manifest['pins']) > 0,
+         'complete exact frozen original producer evidence manifest')
+    for pin in manifest['pins']:
+        if Path(pin['path']).is_absolute() and not Path(pin['path']).resolve().is_relative_to(Path(root).resolve()):
+            web._external_bytes(pin,binding)
+        else:
+            actual = w.file_digest(root,pin['path']);need(all(actual[k] == pin[k] for k in ('sha256','size')),
+                                                       'immutable original company-side source pin changed')
+    audit = web.external(root,item['WEB_audit_native'],binding)
+    need(report['actual_checks']['native'] == item['WEB_audit_native']
+         and all(audit.get('thread',{}).get(k) == binding[v] for k,v in {'id':'thread_id','title':'title','cwd':'cwd'}.items())
+         and audit.get('turn',{}).get('id') == turn['id'] and audit['turn'].get('startedAt') == turn['startedAt'],
+         'same actual producer audit excerpt and later real completed turn required')
+    state = web.code_document(root,report['exact_normal_production_entry_gap']['request_state'])
+    state_calls = []
+    for command in audit.get('items',[]):
+        if command.get('type') != 'commandExecution' or command.get('status') != 'completed' or command.get('exitCode') != 0:
+            continue
+        need(Path(command.get('cwd','')).resolve().is_relative_to(Path(binding['cwd']).resolve()), 'real external command cwd required')
+        try: output = json.loads(w._completion_execution_output(command))
+        except ValueError: continue
+        if isinstance(output,dict) and output.get('state') == state:state_calls.append((command,output))
+    need(len(state_calls) == 1, 'one actual complete native output of the original request state required')
+    failed = state_calls[0][1].get('normal_request',{})
+    need(failed.get('exit_code') == report['exact_normal_production_entry_gap']['request_actual_exit_code'] == 1
+         and failed.get('stdout') == '' and 'IndexError: list index out of range' in failed.get('stderr','')
+         and report['exact_normal_production_entry_gap'].get('request_output_created') is False,
+         'actual pre-request empty-source failure retained; not a successful preflight/push')
+    meta = report['actual_local_version']; ctx = {'worktree':meta['worktree']}; head = meta['candidate_commit']; base = meta['candidate_base']
+    files = meta['files']; paths = {x['path']:x['sha256'] for x in files}
+    need(meta['task_id'] == snapshot['task_id'] and selection['local_candidate'] == head
+         and head[:8] in final.get('text','') and len(paths) == len(files) == meta['file_count'] and 0 < len(paths) <= 40
+         and Path(meta['worktree']).resolve().is_relative_to(Path(binding['cwd']).resolve())
+         and all(state.get(k) == meta.get(k) for k in ('candidate_commit','candidate_parent','candidate_parents','candidate_base','candidate_tree','branch','worktree'))
+         and meta['candidate_parent'] == base and meta['candidate_parents'] == [base]
+         and web.git(ctx,'show','-s','--format=%H %P %T',head).decode().strip() == ' '.join([head,base,meta['candidate_tree']])
+         and set(web.git(ctx,'diff','--name-only',base,head).decode().splitlines()) == set(paths),
+         'actual bounded Git head/parent/tree/branch/worktree/source map, never a future or substituted version')
+    for f in files:
+        path = f['path'];need(not Path(path).is_absolute() and '..' not in Path(path).parts,'exact repository relative source path')
+        raw = web.git(ctx,'show',head+':'+path);tree = web.git(ctx,'ls-tree',head,'--',path).decode().split()
+        old = web.git(ctx,'ls-tree',base,'--',path).decode().split()
+        need(hashlib.sha256(raw).hexdigest() == f['sha256'] and len(raw) == f['size']
+             and tree[:3] == [f['mode'],'blob',f['blob']] and f['mode'] in {'100644','100755'}
+             and (not old or old[0] == f['mode']), 'every original blob/hash/size/mode must survive')
+    delta = web._patch_effect(web._delta({**ctx,'paths':paths},base,head))
+    forward, inverse = meta['forward'],meta['inverse_source_only']
+    need(web._patch_effect(web._patch_delta(web._external_bytes(forward,binding))) == delta
+         and web._patch_effect(web._patch_delta(web._external_bytes(inverse,binding))) == {p:(added,removed)for p,(removed,added)in delta.items()},
+         'exact original forward/inverse source effects, never compiled runtime restore proof')
+    alignment = report['CLI_workflow_runtime_local_alignment']; runtime_path = alignment['runtime_selector']; cli_path = alignment['new_exact_reader']
+    need(runtime_path in paths and cli_path in paths and report['exact_Kitchen_runtime_target'] == source['physical_target'],
+         'actual original registered one-field full41/stable38/MS11 target only')
+    runtime = web.git(ctx,'show',head+':'+runtime_path).decode(); decoder = json.JSONDecoder()
+    match = re.search(r'=\s*(\[)',runtime);need(match is not None,'actual immutable runtime target array required')
+    targets,end = decoder.raw_decode(runtime[match.start(1):]);need(targets == [source['physical_target']], 'one exact runtime target; no shoe/W/default namespace')
+    cli = web.git(ctx,'show',head+':'+cli_path).decode()
+    constants = {k:json.loads(v) for k,v in re.findall(r'const\s+(sourcePath|sourceSha256|name|taskId|scope)\s*=\s*("[^"\n]*")\s*;',cli)}
+    need(set(constants) == {'sourcePath','sourceSha256','name','taskId','scope'}
+         and constants['sourcePath'] in paths and constants['sourceSha256'] == paths[constants['sourcePath']]
+         and all(constants[k] == v for k,v in {'name':source['action']['candidate_version'],'taskId':snapshot['task_id'],'scope':source['action']['scope']}.items()),
+         'original CLI/frozen source must bind this exact task/action/scope/bytes')
+    frozen_bytes = web.git(ctx,'show',head+':'+constants['sourcePath']); carrier = json.loads(frozen_bytes)
+    need(carrier.get('registration_input') == source['registration'] and carrier.get('owner_source') == source['source']
+         and carrier.get('runtime_target') == source['physical_target'] and carrier.get('forward_tuple') == source['action']
+         and carrier.get('before') == a.document(root,source['baseline_pin']) and carrier.get('desired') == source['desired']
+         and carrier.get('original_professional_owner') == owner and carrier.get('business_scope') == scope
+         and carrier.get('new_permission_issued') is False and carrier.get('baseline_only_not_execution_CAS') is True,
+         'immutable original full-row source/carrier/only-field delta retained')
+    account = web.external(root,report['actual_remote_current_effects']['fresh_facts'],binding)
+    native_state = state_calls[0][1]['state']; repo = native_state['repository']; actor = native_state['actor']; rawgh = account.get('raw_GitHub',{}).get('data',{})
+    need(account.get('state') == state and rawgh.get('viewer') == {'login':actor.get('login'),'databaseId':actor.get('id')}
+         and rawgh.get('repository',{}).get('nameWithOwner') == repo and rawgh['repository'].get('databaseId') == state['repository_id']
+         and type(actor.get('id')) is int and actor['id'] > 0 and actor.get('login') == repo.split('/')[0]
+         and web.git(ctx,'config','--get','remote.origin.url').decode().strip() in {'user-3de132cd98be@example.invalid:'+repo+'.git','https://github.com/'+repo,'https://github.com/'+repo+'.git'},
+         'actual same original repository/actor raw native identity; no copied other-task permission')
+    components = [{'head':head,'base':base,'parent':meta['candidate_parent'],'tree':meta['candidate_tree'],
+                   'worktree':meta['worktree'],'paths':paths,'forward':forward,'inverse':inverse}]
+    backup = a.document(root,item['source_backup']); recovery = a.document(root,item['rollback_runbook'])
+    need(backup == {'task_id':snapshot['task_id'],'source_components':components,'actual_platform_backup_or_restore_proven':False}
+         and recovery == {'task_id':snapshot['task_id'],'goal_contract':snapshot['goal_contract'],'source_components':components,
+            'unknown_effect_replay_allowed':False,'CMS_inverse_requires_own_completed_parent':True,
+            'source_inverse_is_not_production_rollback':True,'execution_requires_actual_platform_backup':True},
+         'exact source-only backup/recovery provenance; no invented actual platform restore or future parent')
+    from managed_cms_permit_issuer import SUPABASE_HOST
+    project_ref = SUPABASE_HOST.split('.')[0]
+    return {'root':str(Path(root).resolve()),'task':snapshot['task_id'],'scope':scope,'owner':owner,'role':role,'binding':binding,
+            'decision':item['owner_selection'],'authorization':goal['authorization_pin'],'contract':snapshot['goal_contract'],
+            'worktree':meta['worktree'],'site':binding['cwd'],'branch':meta['branch'],'commit':head,'base':base,'tree':meta['candidate_tree'],
+            'paths':paths,'source_components':components,'registered_CMS':source,'backup':item['source_backup'],'rollback':item['rollback_runbook'],
+            'repository':repo,'repository_id':state['repository_id'],'actor_id':actor['id'],'original_production_channel':True,
+            'prefix':snapshot['task_id']+'-original-web','edge_scope':'company.example:edge:'+project_ref+':content-publish',
+            'pages_scope':'company.example:pages:production','project_ref':project_ref,
+            'producer_final_proven':True,'owner_source_selection_proven':True,'formal_WEB_result_receipt_not_inferred':True}

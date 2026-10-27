@@ -1076,9 +1076,9 @@
     },
     {
       "path": "tools/goal_delivery_runtime.py",
-      "source_sha256": "01d00c704bc3bcc1b141de71cfbd4cfc7430ff90d84ba5e8ec6f4f86d20eb872",
-      "release_sha256": "89f4c16e7951bd1538b6c2a9d2f573da37085c753a967900558966cd94205404",
-      "bytes": 204765
+      "source_sha256": "b9d555a9eff1e87bbfc1913ebd570cedfe7375e81b9537efd7318dca2aa6ff18",
+      "release_sha256": "056648400124b0961d94cedd99ccd42c71505bfdb5751049443bba9918dc0983",
+      "bytes": 204819
     },
     {
       "path": "tools/goal_source_recovery.py",
@@ -1238,9 +1238,9 @@
     },
     {
       "path": "tools/professional_cms_execution.py",
-      "source_sha256": "f5b9311237910c1b712f9c068fb326d84ca97075f3f40a12cd6d81fff1a40ba3",
-      "release_sha256": "e8895854085ebcbb91c6e6f89d9bc4a2ce03e9b0a1653d1ddbce7b9db7eafd07",
-      "bytes": 36116
+      "source_sha256": "a0859b9e5756b0e6dd5e92aaef8d11ec3c852bb4137357278cbdd408bce5b545",
+      "release_sha256": "9d09e89d08a17d69586d490033bc15a76b4e1d6ff0811a1db3ded59f385b3d48",
+      "bytes": 52391
     },
     {
       "path": "tools/professional_cms_integration.py",
@@ -1262,9 +1262,9 @@
     },
     {
       "path": "tools/professional_web_execution.py",
-      "source_sha256": "bf267df8fbef811668a2383b8eddc719ecbb46443a5e1ea2bdf6d7d729b2e607",
-      "release_sha256": "82f68b7951da6f09f4020349688d52e7fbdfbc2aaaf781aa05f4040257c7808a",
-      "bytes": 91327
+      "source_sha256": "b2f2282c3af4a6377b652a24ec466f034b684567264a7e080edf6420993e7f2e",
+      "release_sha256": "7240f3a05efc50bfa1c4dbd5b55f8d2888acff9ee43a88422a2c5602a40c520f",
+      "bytes": 91810
     },
     {
       "path": "tools/professional_web_increment.py",
@@ -1806,5 +1806,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "80b272c53557ce1dcb2fc4b412a567d8341f241b5a3fb111faca4ff020b90424"
+  "fingerprint": "c8a1bfdca6bcfb5dae5e6de02dc69e8e3e95514dc560a159ed192fd8755ae263"
 }
