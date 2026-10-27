@@ -533,6 +533,28 @@ def _protected_rows(root, original, current, columns):
     return after
 
 
+def _exact_created_row(root, original, current, spec):
+    """Attribute the one fresh delta to this action, never another planned row."""
+    from collections import Counter
+    operation=spec['operation']
+    if operation=='create_ad_group_only':
+        columns=('Name','Campaign name','Context Hints','Bid strategy')
+        expected={'Name':spec['desired']['Ad group name'],'Campaign name':spec['desired']['Parent Campaign'],
+                  'Context Hints':spec['desired']['Context hints (optional)'],'Bid strategy':spec['desired']['Bid strategy']}
+    else:
+        need(operation=='create_ad_only','only an exact create action has a new object row')
+        columns=('Ad','URL','Campaign name','Ad group')
+        expected={'Ad':spec['desired']['Ad Name'],'URL':spec['desired']['Link'],
+                  'Campaign name':spec['desired']['Parent Campaign'],'Ad group':spec['parent_group_name']}
+    before=_native_table(root,original);after=_native_table(root,current)
+    need(all(k in before[0]and k in after[0]for k in columns),'complete supported created-row fields')
+    def project(rows):return Counter(tuple(str(row[rows[0].index(k)])for k in columns)for row in rows[1:])
+    left,right=project(before),project(after)
+    need(not(left-right)and sum((right-left).values())==1 and right-left==Counter({tuple(str(expected[k])for k in columns):1}),
+         'one fresh row must belong to this exact reserved object; no foreign/planned-peer delta')
+    return {'operation':operation,'exact_created_fields':expected,'only_one_new_row':True}
+
+
 def _protected_groups_after_child(root, original, current, request, spec):
     """Only the new child's exact parent may gain a derived serving status."""
     columns=('Active','Name','Campaign name','Status','Context Hints','Billing Event','Bid strategy')
@@ -703,6 +725,9 @@ def record_effect(root, proof):
     before_groups=_native_table(root,before_facts['groups_table']);before_ads=_native_table(root,before_facts['ads_table'])
     need(len(after_groups)==len(before_groups)+(1 if operation=='create_ad_group_only'else 0)
          and len(after_ads)==len(before_ads)+(1 if operation=='create_ad_only'else 0),'only the single reserved object changed; all original/current rows protected')
+    if operation in {'create_ad_group_only','create_ad_only'}:
+        _exact_created_row(root,before_facts['groups_table']if operation=='create_ad_group_only'else before_facts['ads_table'],
+                           observation['groups_table']if operation=='create_ad_group_only'else observation['ads_table'],spec)
     if operation=='upload_reference_image':
         asset=observation.get('asset_id');need(isinstance(asset,str)and asset and asset in text and not asset.startswith(('select-option-','node-','blob:','data:','http:','https:'))
              and not any(x.rstrip('.,;').endswith('/'+asset)for x in re.findall(r"blob:[^\s'\"<>]+",text))
