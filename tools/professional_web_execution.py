@@ -156,6 +156,9 @@ def validate_source(root,snapshot,item):
     import goal_delivery_runtime as g
     import goal_source_recovery as recovery
     import result_coordination as rc
+    if item.get('schema') == 'original-protected-material-body-WEB-source/v1':
+        from professional_cms_channel import original_body_context
+        return original_body_context(root,snapshot,item)
     if item.get('schema') == 'original-received-CMS-channel-production-source/v1':
         return cms.received_increment_web_context(root,snapshot,item)
     if item.get('schema') == 'builtin-wardrobe-original-WEB-source-registration/v1':
@@ -272,15 +275,22 @@ def _external_bytes(pin,binding):
 def records(root,task):
     import goal_delivery_runtime as g
     rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==task and EVENT in e.get('details',{})]
-    if not rows:return []
+    from professional_cms_channel import original_body_records
+    body=original_body_records(root,task)
+    need(not(rows and body),'ambiguous original and body source catalogs')
+    if not rows:return body
     need(len(rows)==1,'ambiguous original external execution source')
     pin=rows[0]['details'][EVENT];item=a.document(root,pin);snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)))
     return [{**validate_source(root,snapshot,item),'registration':pin,'event_id':rows[0]['event_id']}]
 def applies(root,task,action_class):
-    return action_class in {'site_ci_prepare','site_publish','git_push'} and any(e.get('task_id')==task and EVENT in e.get('details',{})for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS))
+    from professional_cms_channel import ORIGINAL_BODY_EVENT
+    return action_class in {'site_ci_prepare','site_publish','git_push'} and any((e.get('task_id')==task and EVENT in e.get('details',{}))or e.get('details',{}).get(ORIGINAL_BODY_EVENT,{}).get('target_task_id')==task for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS))
 def record_source(root,task,path):
     import goal_delivery_runtime as g
     pin=w.file_digest(root,path);item=a.document(root,pin)
+    if item.get('schema')=='original-protected-material-body-WEB-source/v1':
+        from professional_cms_channel import record_original_body
+        return record_original_body(root,task,path)
     with w.workflow_lock(root):
         snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)));ctx=validate_source(root,snapshot,item);old=records(root,task)
         if old:need(old[0]['registration']==pin,'immutable source already bound');return {'result':'duplicate_ignored','source':pin,'external_permission_issued':False}
@@ -703,6 +713,8 @@ def authorization_precheck(root,request):
     sources=records(root,request['task_id'])
     need(len(sources)==1,'one actual registered original WEB production source required; issuer contract/local target alone is not that source')
     ctx0=sources[0]
+    if ctx0.get('protected_body_source_custody'):
+        return {'schema':'goal-authorization-precheck/v1','task_id':ctx0['task'],'status':'authorization_change_required','reasons':['exact_original_WEB_per_stage_authority_source_required'],'source_registration':ctx0['registration'],'original_authorization':ctx0['authorization'],'needs_human_confirmation':False,'actual_action_allowed':False,'external_permission_issued':False,'next_owner':ctx0['role'],'next_action':ctx0['production_authority_dependency']}
     if ctx0.get('code_only_release')and request==a.document(root,ctx0['initial_request']):
         return {'schema':'goal-authorization-precheck/v1','task_id':ctx0['task'],'status':'within_original_authorization','reasons':['real_owner_HQ_code_only_followon_source'],'source_registration':ctx0['registration'],'original_authorization':ctx0['authorization'],'needs_human_confirmation':False,'actual_action_allowed':False,'external_permission_issued':False,'next_owner':ctx0['role'],'next_action':'use normal request-base with original-executor fresh facts and single-use policy'}
     ctx=static_intent(root,request);op=request.get('operation');need(op in OPS,'known original production operation')
@@ -789,6 +801,7 @@ def record_approval(root,**kwargs):
 
 def request_base(root,task,op,state):
     ctx=execution_context(root,task,state);need(op in OPS,'registered operation')
+    need(not ctx.get('protected_body_source_custody'),'original source custody is registered; exact original WEB per-stage authority source required; frozen CMS contract grants no code deployment/site_publish')
     if ctx.get('code_only_release'):need(op in ctx['allowed_operations'],'code-only release excludes R3/Edge/CMS')
     head=state.get('candidate_commit');main=state.get('main_sha')if op in {'edge_deploy','r3_dispatch','pages_deploy'}else None
     need(re.fullmatch('[0-9a-f]{40}',str(head))is not None,'real full candidate head required, no missing or predicted value')
@@ -847,6 +860,7 @@ def describe(root,task,state=None):
       'registered_code_only_stages':[{'source':x['registration'],'commit':x['commit'],'linear_parent':x['git_parent'],'cumulative_base':x['base'],'paths':x['paths'],'operations':list(x['allowed_operations'])} for x in __import__('original_production_delivery').code_records(root,task)],
       'adopted_increments':[{'commit':x['commit'],'base':x['base'],'tree':x['tree'],'branch':x['branch'],'worktree':x['worktree'],'source':x['increment_registration'],'operations':x['increment_allowed_operations'],
                             **{k:x[k]for k in ('git_parent','existing_pull_number','increment_source_mode')if k in x}}for x in __import__('professional_web_increment').sources(root,ctx)],
+      **({k:ctx[k]for k in ('registered_protected_body_targets','original_PUB_tuples','current_source_backup','normal_recovery_runbook','production_authority_dependency')}if ctx.get('protected_body_source_custody')else{}),
       'local_source_stage_only':ctx.get('local_source_stage_only',False),'source_registration_grants_execution_authority':False,
       'future_PR_merge_SHA_run_or_version_provided':False,'actual_external_action_performed':False}
 

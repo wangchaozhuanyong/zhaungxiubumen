@@ -4107,6 +4107,57 @@ def validate_two_material_formal_goal(formal, rows):
             "publisher must freeze two exact Save tuples and real publishing authority")
 
 
+def _authenticated_owner_source_metadata(root, formal, event):
+    """Authenticate normal owner source transport, never a new execution action."""
+    import department_autonomy as a
+    import goal_delivery_runtime as g
+    import goal_source_recovery as recovery
+    detail=event.get('details',{});keys=set(detail)
+    source_keys={'goal_delivery','professional_owner_message_source','approved_message_prepared','actual_message_sent','external_permission_issued'}
+    snapshot=g.restore_goal(root,formal);actions=snapshot['goal_delivery'].get('approved_actions',[])
+    def find(action_id):return [x for x in actions if x.get('professional_owner_message_source') and x.get('action_id')==action_id]
+    if keys==source_keys:
+        original=a.document(root,detail['approved_message_prepared']);matches=find(original.get('action_id'))
+    elif keys=={'goal_delivery','actual_route_observation','external_permission_issued'}:
+        matches=[x for x in actions if x.get('professional_owner_message_source') and detail['goal_delivery'].get('current_route_observations',{}).get(x.get('action_id'))==detail['actual_route_observation']]
+    elif keys=={'collaboration_queue_intent','external_permission_issued'}:
+        matches=find(detail['collaboration_queue_intent'].get('action_id'))
+    elif keys=={'goal_delivery','collaboration_receipt','actual_transport_status','external_permission_issued'}:
+        record=a.document(root,detail['collaboration_receipt']);matches=find(record.get('action_id')) or [x for x in actions if a._chief_readonly_source(x) and x.get('action_id')==record.get('action_id')]
+    else:return False
+    if not matches:return False
+    require(len(matches)==1 and detail.get('external_permission_issued')is False and event.get('state')==formal.get('current_state')
+            and event.get('task_id')==formal.get('task_id'), 'one exact same-state ordinary owner source action')
+    action=matches[0];pin=action.get('professional_owner_message_source')
+    if pin:
+        original,route=a.owner_result_message_source(root,snapshot,a.document(root,pin))
+        require(action=={**original,'professional_owner_message_source':pin} and route['external_permission_issued']is False,
+                'actual original professional native/result/action/payload source, no caller waiver')
+    else:
+        require('collaboration_receipt'in detail,'only actual chief readonly receipt here')
+        a._chief_readonly_coordination(root,snapshot,action)
+    if keys==source_keys:
+        require(detail['professional_owner_message_source']==pin and a.document(root,detail['approved_message_prepared'])==original
+                and detail['actual_message_sent']is False and action in detail['goal_delivery'].get('approved_actions',[]),'unchanged normal owner message registration')
+    elif 'actual_route_observation'in detail:
+        live=a.document(root,detail['actual_route_observation']);inventory=g._collaboration_native(root,live.get('actual_native_observation'))
+        require(live.get('delivery_mode')=='official_native_queue' and w._parse_observed_at(live.get('observed_at'))is not None
+                and all(row in [*inventory.get('threads',[]),*inventory.get('pinnedThreads',[])]for row in live.get('threads',[])), 'actual source observation, not a guessed identity')
+    elif 'collaboration_queue_intent'in detail:
+        intent=detail['collaboration_queue_intent'];request,prepared,policy,_,target=recovery._collaboration_queue_preparation(root,snapshot,intent['request'],intent['prepared'])
+        require(intent['action_id']==request.get('action_id')==action['action_id'] and intent['payload']==request['payload']==action['payload']
+                and intent['policy_decision_id']==policy['decision_id'] and intent['target_thread_id']==target['thread_id']
+                and policy.get('external_permission_issued')is False,'actual original normal owner queue intent and policy')
+    else:
+        require(detail['collaboration_receipt']in snapshot['goal_delivery'].get('collaboration_records',[]) and record.get('source_kind')=='official_native_queue'
+                and detail['actual_transport_status']==record.get('status'),'actual recorded frozen queue receipt')
+        recovery.collaboration_queue_source(root,snapshot,record)
+    if 'goal_delivery'in detail:
+        immutable=('primary_owner','responsible_assistant','producer_departments','authorized_scope','human_authorization','authorization_pin','required_execution_actions','parent_task_id','collaboration_scopes')
+        require(all(detail['goal_delivery'].get(k)==formal['goal_delivery'].get(k)for k in immutable),'ordinary owner transport cannot alter contract/actors/authority/scope')
+    return True
+
+
 def _authenticated_formal_metadata_tail(root, formal, task_id, task_events):
     """Read an authenticated same-state ordinary message tail, never edit snapshot."""
     import chief_assistant_coordination as chief
@@ -4117,6 +4168,8 @@ def _authenticated_formal_metadata_tail(root, formal, task_id, task_events):
             "exact original committed snapshot prefix required")
     for event in task_events[count:]:
         from department_autonomy import authenticated_chief_readonly_metadata
+        if _authenticated_owner_source_metadata(root, formal, event):
+            continue
         if authenticated_chief_readonly_metadata(root, formal, event):
             continue
         detail = event.get("details", {})
