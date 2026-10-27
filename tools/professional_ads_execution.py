@@ -533,6 +533,30 @@ def _protected_rows(root, original, current, columns):
     return after
 
 
+def _protected_groups_after_child(root, original, current, request, spec):
+    """Only the new child's exact parent may gain a derived serving status."""
+    columns=('Active','Name','Campaign name','Status','Context Hints','Billing Event','Bid strategy')
+    before=_native_table(root,original);after=_native_table(root,current)
+    need(all(k in before[0]and k in after[0]for k in columns),'complete protected group columns')
+    name=spec['parent_group_name'];campaign=spec['desired']['Parent Campaign']
+    def selected(rows):return [r for r in rows[1:]if r[rows[0].index('Name')]==name and r[rows[0].index('Campaign name')]==campaign]
+    left,right=selected(before),selected(after)
+    need(len(left)==len(right)==1 and request.get('parent_group_id'),'one exact original target parent')
+    prior={k:left[0][before[0].index(k)]for k in columns};latest={k:right[0][after[0].index(k)]for k in columns}
+    need(all(latest[k]==prior[k]for k in columns if k!='Status'),'parent content, active switch, campaign/hints/bid remain unchanged')
+    need(latest['Status']==prior['Status']or prior['Status']=='Not serving'and latest['Status']in {'In review','Pending review','Under review','Serving'},'only attributable parent review/serving transition after own new child')
+    def projection(rows,normalize=False):
+        values=[]
+        for r in rows[1:]:
+            row={k:r[rows[0].index(k)]for k in columns}
+            if normalize and row['Name']==name and row['Campaign name']==campaign:row['Status']=prior['Status']
+            values.append(tuple(str(row[k])for k in columns))
+        return values
+    left_values=projection(before);right_values=projection(after,True)
+    need(len(left_values)==len(right_values)and all(right_values.count(x)==left_values.count(x)for x in left_values),'all other groups and fields remain exact')
+    return after
+
+
 def _budget_projection(root, projection, expected):
     need(isinstance(projection,dict) and projection.get('currency')=='MYR'
          and projection.get('budget_kind')=='average_daily' and projection.get('value') in expected,
@@ -608,14 +632,19 @@ def planned_preflight(root, item, context, *, fresh=True):
                  'existing/unknown upload must be read first; one new upload only')
         else:
             need(spec['desired']['Ad Name']not in [row[ads[0].index('Ad')]for row in ads[1:]],'ad already exists; no duplicate Create')
-            upload_id=next(k for k,s in operation_specs(root,context).items()if s['operation']=='upload_reference_image'and s['object_key']==spec['upload_key'])
-            effects=_effect_rows(root,context['registration'],upload_id)
-            need(len(effects)==1,'real uploaded asset/crop readback first; old group permit is not an upload')
-            effect=effects[0]['details']['professional_ads_object_effect'];asset=doc(root,effect['observation'])
-            need(request.get('asset_binding')=={'upload_effect_event_id':effects[0]['event_id'],'asset_id':asset['asset_id'],'image_sha256':spec['desired']['Image']['sha256']},'same real uploaded image ID and original image SHA')
-            need(facts.get('selected_asset_id')==asset['asset_id']and facts.get('crop_preview',{}).get('asset_id')==asset['asset_id']
-                 and facts['crop_preview'].get('image_sha256')==spec['desired']['Image']['sha256'], 'current exact crop/preview and asset; no substitute image')
-            preview=facts['crop_preview'].get('native_evidence');need(isinstance(preview,dict)and w.file_digest(root,preview['path'])==preview,'actual native preview evidence')
+            if facts.get('native_client_image_stage') is not None:
+                binding=_native_client_image_binding(root,context,spec,facts['native_client_image_stage'],facts)
+                need(request.get('asset_binding')==binding,'exact backend-derived original client image stage, not a fabricated server asset')
+            else:
+                upload_id=next(k for k,s in operation_specs(root,context).items()if s['operation']=='upload_reference_image'and s['object_key']==spec['upload_key'])
+                effects=_effect_rows(root,context['registration'],upload_id)
+                need(len(effects)==1,'real uploaded asset/crop readback first; old group permit is not an upload')
+                effect=effects[0]['details']['professional_ads_object_effect'];asset=doc(root,effect['observation'])
+                need(request.get('asset_binding')=={'upload_effect_event_id':effects[0]['event_id'],'asset_id':asset['asset_id'],'image_sha256':spec['desired']['Image']['sha256']},'same real uploaded image ID and original image SHA')
+                need(isinstance(asset['asset_id'],str)and not asset['asset_id'].startswith(('blob:','data:','http:','https:')),'a local blob URL is never a server asset ID')
+                need(facts.get('selected_asset_id')==asset['asset_id']and facts.get('crop_preview',{}).get('asset_id')==asset['asset_id']
+                     and facts['crop_preview'].get('image_sha256')==spec['desired']['Image']['sha256'], 'current exact crop/preview and asset; no substitute image')
+                preview=facts['crop_preview'].get('native_evidence');need(isinstance(preview,dict)and w.file_digest(root,preview['path'])==preview,'actual native preview evidence')
             need(facts.get('actual_form_fields')=={k:''for k in ('Ad Name','Title','Description','Link','Tracking parameters')}, 'actual empty ad fields; desired values derive from plan')
     return request
 
@@ -669,13 +698,14 @@ def record_effect(root, proof):
     text='\n'.join(w.safe_path(root,p['path']).read_text()for p in evidence if Path(p['path']).suffix.lower()in {'.txt','.md'})
     spec=context['object_spec'];operation=spec['operation']
     issued_request=doc(root,policy[0]['exact_request']);before_facts=doc(root,issued_request['facts'])
-    after_groups=_protected_rows(root,before_facts['groups_table'],observation['groups_table'],('Active','Name','Campaign name','Status','Context Hints','Bid strategy'))
+    after_groups=(_protected_groups_after_child(root,before_facts['groups_table'],observation['groups_table'],issued_request,spec)if operation=='create_ad_only'else _protected_rows(root,before_facts['groups_table'],observation['groups_table'],('Active','Name','Campaign name','Status','Context Hints','Bid strategy')))
     after_ads=_protected_rows(root,before_facts['ads_table'],observation['ads_table'],('Active','Ad','Status','URL','Campaign name','Ad group'))
     before_groups=_native_table(root,before_facts['groups_table']);before_ads=_native_table(root,before_facts['ads_table'])
     need(len(after_groups)==len(before_groups)+(1 if operation=='create_ad_group_only'else 0)
          and len(after_ads)==len(before_ads)+(1 if operation=='create_ad_only'else 0),'only the single reserved object changed; all original/current rows protected')
     if operation=='upload_reference_image':
-        asset=observation.get('asset_id');need(isinstance(asset,str)and asset and asset in text and not asset.startswith(('select-option-','node-'))
+        asset=observation.get('asset_id');need(isinstance(asset,str)and asset and asset in text and not asset.startswith(('select-option-','node-','blob:','data:','http:','https:'))
+             and not any(x.rstrip('.,;').endswith('/'+asset)for x in re.findall(r"blob:[^\s'\"<>]+",text))
              and observation.get('image_sha256')==spec['desired']['Image']['sha256'],'actual platform asset ID and exact uploaded source SHA')
         need(observation.get('crop_preview_evidence')in evidence,'real crop/preview evidence after upload')
     elif operation=='create_ad_only':
@@ -684,6 +714,17 @@ def record_effect(root, proof):
              and observation['parent_group_id']==issued_request.get('parent_group_id')and observation['parent_group_id']in text,
              'real created ad ID/name/parent readback')
         need(observation.get('delivery_status')and observation.get('fields_not_exposed')is not None,'review/Serving and unexposed fields reported separately')
+        image=issued_request.get('asset_binding',{})
+        if image.get('kind')=='native_client_image_ready':
+            original_stage=doc(root,image['stage_proof']);client=_native_client_image_proof(root,original_stage)
+            _native_client_created_readback(root,client,issued_request,attempts[0],observation,page,call,proof)
+            need(image['image_sha256']==client['image_sha256']and image['form_tab']==client['form_tab']
+                 and observation.get('native_client_image_stage_event_id')==image['stage_event_id']
+                 and observation.get('input_image_sha256')==client['image_sha256']
+                 and observation.get('created_ad_preview')in evidence,'real final ad/preview linked to exact original client crop; no upload success inferred')
+            if observation.get('asset_id') is not None:
+                need(isinstance(observation['asset_id'],str)and observation['asset_id']in text and not observation['asset_id'].startswith(('blob:','data:','http:','https:')),'only a genuinely exposed final server asset ID')
+            else:need('server_asset_id'in observation['fields_not_exposed']or 'file_id'in observation['fields_not_exposed'],'unexposed server ID must be reported honestly')
     elif operation=='create_ad_group_only':
         need(isinstance(observation.get('group_id'),str)and observation['group_id']in text
              and spec['desired']['Ad group name']in text,'real created group ID/name')
@@ -695,6 +736,7 @@ def record_effect(root, proof):
         value={**{k:proof[k]for k in IDENTITY},'source_registration':context['registration'],'observation':proof['observation'],
                'native_observation':proof['actual_native_observation'],'native_call_id':proof['native_call_id'],
                'policy_decision_id':proof['policy_decision_id'],'request':attempts[0]['request'],
+               **({'native_create_call_id':proof['native_create_call_id'],'native_client_image_stage_event_id':issued_request['asset_binding']['stage_event_id']}if issued_request.get('asset_binding',{}).get('kind')=='native_client_image_ready'else{}),
                'new_permission_issued':False,'business_parent_closed':False}
         if old:
             need(len(old)==1 and old[0]['details']['professional_ads_object_effect']==value,'preserve original effect; no replacement')
@@ -725,17 +767,24 @@ def freeze_preflight(root, bundle, output):
     need(context and context.get('plan_objects'),'one normal derived plan object')
     facts=doc(root,bundle['facts']);check=doc(root,bundle['self_check'])
     need(check.get('facts')==bundle['facts'],'professional selfcheck must bind exact current facts')
+    binding=None
+    if request['operation']=='create_ad_only':
+        spec=context['object_spec']
+        if facts.get('native_client_image_stage') is not None:
+            binding=_native_client_image_binding(root,context,spec,facts['native_client_image_stage'],facts)
+        else:
+            upload=next(s for s in operation_specs(root,context).values()if s['operation']=='upload_reference_image'and s['object_key']==spec['upload_key'])
+            effects=_effect_rows(root,context['registration'],upload['action_id']);need(len(effects)==1,'real upload/crop readback before ad')
+            observed=doc(root,effects[0]['details']['professional_ads_object_effect']['observation'])
+            need(isinstance(observed.get('asset_id'),str)and not observed['asset_id'].startswith(('blob:','data:','http:','https:')),'connector/asset branch requires the real server file ID')
+            binding={'upload_effect_event_id':effects[0]['event_id'],'asset_id':observed['asset_id'],'image_sha256':spec['desired']['Image']['sha256']}
     target=w.safe_path(root,output);need(not target.exists(),'new immutable actual input directory; preserve prior effects')
     target.mkdir(parents=True)
     def put(name,value):
         path=target/name;w.atomic_write_json(path,value);return w.file_digest(root,str(path.relative_to(root)))
     request.update(observed_at=facts['observed_at'],facts=bundle['facts'],self_check=bundle['self_check'])
     request['parent_group_id']=facts.get('parent_group',{}).get('id')
-    if request['operation']=='create_ad_only':
-        spec=context['object_spec'];upload=next(s for s in operation_specs(root,context).values()if s['operation']=='upload_reference_image'and s['object_key']==spec['upload_key'])
-        effects=_effect_rows(root,context['registration'],upload['action_id']);need(len(effects)==1,'real upload/crop readback before ad')
-        observed=doc(root,effects[0]['details']['professional_ads_object_effect']['observation'])
-        request['asset_binding']={'upload_effect_event_id':effects[0]['event_id'],'asset_id':observed['asset_id'],'image_sha256':spec['desired']['Image']['sha256']}
+    if request['operation']=='create_ad_only':request['asset_binding']=binding
     common={k:request[k]for k in IDENTITY};common['intent_sha256']=w.sha256_value(context['object_spec'])
     request['backup']=put('CURRENT-VISIBLE-BACKUP.json',{**common,'schema':'professional-visible-before-backup/v2','facts':bundle['facts'],
         'groups_table':facts['groups_table'],'ads_table':facts['ads_table'],'native_evidence':facts['raw_evidence'],
@@ -751,6 +800,186 @@ def freeze_preflight(root, bundle, output):
     input_pin=put('NORMAL-OBJECT-PREFLIGHT.json',item)
     planned_preflight(root,item,context)
     return {'state':'CURRENT_INPUT_FROZEN_NOT_REGISTERED_NOT_A_PERMIT','request':request_pin,'preflight':input_pin,'actual_action_allowed':False}
+
+
+
+NATIVE_IMAGE_SCHEMA = 'professional-ads-native-client-image-stage/v1'
+NATIVE_IMAGE_EVENT = 'professional_ads_native_client_image_preparation'
+
+
+def _native_client_image_proof(root, proof):
+    """Authenticate an original retained client image; never claim server upload."""
+    need(proof.get('schema')==NATIVE_IMAGE_SCHEMA and proof.get('action_class')=='ads_write','typed original native client-image source')
+    context=match(root,w.read_json(w.snapshot_path(root,proof['task_id'])),proof)
+    need(context and context.get('plan_objects') and context['object_spec']['operation']=='create_ad_only'
+         and proof.get('source_registration')==context['registration'],'one original mapped ad; no new action or borrowed source')
+    spec=context['object_spec'];req=doc(root,proof['original_upload_request']);upload=next(s for s in operation_specs(root,context).values()if s['operation']=='upload_reference_image'and s['object_key']==spec['upload_key'])
+    need(same(req,upload,(*IDENTITY,'source_project_id','account_id','parent_campaign_id','object_key','operation','desired'))
+         and req['source_registration']==context['registration'],'same exact original mapped image/request')
+    logical=w.sha256_value([req[k]for k in IDENTITY]);attempt_path='logs/professional-ads-object-attempts/'+logical+'.jsonl'
+    need(w.file_digest(root,attempt_path)==proof.get('original_upload_attempt'),'original image reservation bytes stay frozen')
+    attempts=w.read_jsonl(Path(root)/attempt_path);policies=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('decision_id')==proof.get('upload_policy_decision_id')]
+    need(len(attempts)==len(policies)==1 and attempts[0].get('state')=='reserved_before_native_effect'
+         and attempts[0]['policy_decision_id']==policies[0]['decision_id']and policies[0].get('status')=='allow'
+         and policies[0].get('autonomous_action_key')==logical and policies[0].get('exact_request')==proof['original_upload_request']==attempts[0].get('request'),
+         'one original consumed image policy/reservation; never re-sign or release it')
+    data=doc(root,proof['professional_source_input']);native=data['native_image_preparation'];image=spec['desired']['Image'];facts=doc(root,req['facts']);channel=facts['channel'];parent=facts['parent_group']
+    target=proof.get('target_parent_binding',parent)
+    need(isinstance(target,dict)and target.get('name')==spec['parent_group_name']and proof.get('parent_group_id')==target.get('id'),'exact mapped target parent native source required for shared-image reuse; upload parent is not the target by default')
+    if target!=parent:
+        need(data.get('target_parent_binding')==target,'original professional shared-image target binding source required')
+    option=target.get('native_option');need(isinstance(option,dict)and w.file_digest(root,option['path'])==option and ('Value: '+target['name']+', ID: select-option-'+target['id'])in w.safe_path(root,option['path']).read_text(),'actual independent target-parent option/ID')
+    need(data.get('task_id')==spec['task_id']and data.get('scope')==spec['scope']and data.get('account_id')==spec['account_id']and data.get('campaign_id')==spec['parent_campaign_id']
+         and native.get('request')==proof['original_upload_request']and native.get('policy')==policies[0]['decision_id']and native.get('action')==upload['action_id']
+         and native.get('source_image')==image and req.get('parent_group_id')==parent['id']
+         and parent['name']==upload['parent_group_name']and native.get('live_form_tab')==proof.get('form_tab')==channel['runtime_tab'], 'actual original account/parent/image/retained form source')
+    from chatgpt_fe689_draft_admission import BROWSER_PROFILE,BROWSER_EXTENSION
+    inv=doc(root,facts['native_inventory']);browser=inv['channel']
+    need(channel['profile']==proof.get('profile')==browser.get('profileName')==BROWSER_PROFILE
+         and channel['stable_extension']==proof.get('stable_extension')==browser.get('metadata',{}).get('extensionInstanceId')==BROWSER_EXTENSION
+         and channel['runtime_browser']==browser.get('id')and parse_qs(urlsplit(channel['account_url']).query).get('act')==[spec['account_id']], 'stable real profile/extension/account, never a runtime number whitelist')
+    for pin in native['proofs']:need(w.file_digest(root,pin['path'])==pin,'unchanged original native preparation evidence')
+    for field in ('retained_calls','crop_DOM','crop_image'):
+        need(proof.get(field)in native['proofs'],'exact original professional source must bind this evidence')
+    rows=json.loads(w.safe_path(root,proof['retained_calls']['path']).read_text())
+    need(w.file_digest(root,proof['retained_calls']['path'])==proof['retained_calls']and isinstance(rows,list)and len(rows)==2,'two original chooser/crop call-output pairs')
+    fixed=w.department_registry(root)[proof['department']]['chat_binding'];relative=Path(proof.get('canonical_log_relative',''))
+    need(relative.parts and not relative.is_absolute()and '..'not in relative.parts and fixed['task_id']in relative.name and relative.suffix=='.jsonl','original actor canonical source path')
+    path=CANONICAL_SESSIONS/relative
+    need(path.is_file()and not any(p.is_symlink()for p in [path,*path.parents])and path.resolve().is_relative_to(CANONICAL_SESSIONS.resolve()),'real original canonical history, not an alternate caller log')
+    wanted=[proof.get('chooser_call_id'),proof.get('crop_call_id')];need(len(set(wanted))==2 and all(isinstance(x,str)and x for x in wanted),'two exact original UI calls')
+    found={cid:[]for cid in wanted};all_calls=[];outputs={};meta=None
+    with path.open()as f:
+        for line in f:
+            row=json.loads(line);p=row.get('payload',{})
+            if row.get('type')=='session_meta':need(meta is None,'one canonical session');meta=p
+            if p.get('call_id')in found:found[p['call_id']].append(row)
+            if p.get('type')=='function_call'and p.get('namespace')in {'mcp__cua_repl','mcp__node_repl'}:
+                try:code=json.loads(p.get('arguments','{}')).get('code','')
+                except (ValueError,AttributeError):continue
+                all_calls.append((row,code))
+            elif p.get('type')=='function_call_output'and any(p.get('call_id')==x[0]['payload'].get('call_id')for x in all_calls):outputs[p.get('call_id')]=row
+    need(meta and meta.get('id')==fixed['task_id']and meta.get('cwd')==str(Path(root).resolve()),'original canonical role/project identity')
+    calls=[]
+    for index,cid in enumerate(wanted):
+        pair=found[cid];need(len(pair)==2 and pair==[rows[index]['call'],rows[index]['output']]
+             and pair[0]['payload'].get('type')=='function_call'and pair[0]['payload'].get('namespace')in {'mcp__cua_repl','mcp__node_repl'}
+             and pair[1]['payload'].get('type')=='function_call_output','actual canonical exact call/output, never a summary')
+        code=json.loads(pair[0]['payload']['arguments'])['code'];out=pair[1]['payload']['output'];need(isinstance(out,list)and all(x.get('type')=='input_text'and isinstance(x.get('text'),str)for x in out),'complete original native output')
+        start=w._parse_observed_at(pair[0]['timestamp']);end=w._parse_observed_at(pair[1]['timestamp']);reserved=w._parse_observed_at(attempts[0]['at'])
+        need(start and end and reserved and reserved<=start<=end<=dt.datetime.now(dt.timezone.utc),'original reservation/call/output sequence')
+        calls.append({'id':cid,'code':code,'text':'\n'.join(x['text']for x in out),'start':start,'end':end})
+    choose,crop=calls;need(choose['end']<=crop['start'],'chooser completes before real crop save')
+    for source_row,source_code in all_calls:
+        source_at=w._parse_observed_at(source_row.get('timestamp'))
+        if source_at and choose['end']<source_at<crop['start']:
+            need(not re.search(r"(?:name:\x27(?:Create|Upload image)\x27|\.setFiles\s*\()",source_code),'intervening Create or image reselection requires actual new native source')
+    code=choose['code'];binding=re.search(r'var\s+(\w+)\s*=\s*JSON\.parse\(await\s+\w+\.readFile\((\w+)\+\x27/input/CURRENT-EXECUTION-REQUEST.json\x27',code)
+    tab=re.search(r'(\w+)\.playwright\.getByRole\(\x27button\x27,\{name:\x27Upload image\x27,exact:true\}\)\.click\(\)',code)
+    need(binding and tab and proof['upload_policy_decision_id']in code and proof['original_upload_request']['sha256']in code
+         and '.setFiles(['+binding[1]+'.desired.Image.local_path])'in code and 'filechooser'in code,'real visible chooser and original request image binding')
+    dirvar=binding[2];tabvar=tab[1];folder=str(w.safe_path(root,req['facts']['path']).parent)
+    definitions=[];tabdefs=[]
+    for row,script in all_calls:
+        stamp=w._parse_observed_at(row.get('timestamp'))
+        if not stamp or stamp>choose['start']:continue
+        for m in re.finditer(r'(?:var|let|const)\s+'+re.escape(dirvar)+r'\s*=\s*([\x27\x22])([^\x27\x22]+)\1',script):definitions.append(m[2])
+        m=re.search(r'(?:var|let|const)\s+'+re.escape(tabvar)+r'\s*=\s*await cua\.createBrowserTab\(([\x27\x22])([^\x27\x22]+)\1,([\x27\x22])([^\x27\x22]+)\3\)',script)
+        if m:tabdefs.append((row,m[2],m[4]))
+    need(definitions and all(x==folder for x in definitions)and tabdefs,'real original request directory and tab creation source')
+    tabrow,bid,url=tabdefs[-1];tabout=outputs.get(tabrow['payload']['call_id'],{}).get('payload',{}).get('output',[]);tabtext='\n'.join(x.get('text','')for x in tabout)
+    need(bid==channel['runtime_browser']and url==channel['account_url']and 'Browser tab: '+channel['runtime_tab']+','in tabtext,'original real tab/account/browser response, not guessed handles')
+    need('filechooser: \'received\''in choose['text']and 'setFiles: \'completed\''in choose['text']and 'Edit image'in choose['text']
+         and tabvar+".playwright.getByRole('button',{name:'Save changes',exact:true}).click()"in crop['code'],'actual chooser receipt and crop-save UI call/output')
+    dom=doc(root,proof['crop_DOM']);need(dom.get('url')==channel['account_url']and isinstance(dom.get('dialogs'),list)and len(dom['dialogs'])==1,'actual retained form/account DOM')
+    dialog=dom['dialogs'][0];blob=[x['src']for x in dialog.get('images',[])if x.get('src','').startswith('blob:https://ads.openai.com/')]
+    need(blob and len(blob)==len(set(blob))and all(x in crop['text']for x in blob)
+         and all(x in dialog.get('text','')and x in crop['text']for x in ('Create Ad',context['intent']['parent_campaign_name'],spec['parent_group_name']))
+         and 'Edit image'not in dialog.get('text',''),'actual original crop returned to same ad form; blob is not server ID')
+    proof_at=w._parse_observed_at(data.get('at_UTC'));dom_at=w._parse_observed_at(dom.get('at'))
+    need(proof_at and dom_at and crop['start']<=dom_at<=crop['end']<=proof_at<=dt.datetime.now(dt.timezone.utc),'real crop/source times, not freshened old observations')
+    return {'context':context,'upload':upload,'upload_request':req,'image_sha256':image['sha256'],'parent_group_id':target['id'],'original_upload_parent_group_id':parent['id'],
+            'channel':channel,'form_tab':channel['runtime_tab'],'blob_urls':blob,'crop_at':dom_at,'crop_evidence':proof['crop_image'],
+            'tab_variable':tabvar,'canonical_calls':all_calls,'canonical_outputs':outputs,'crop_call_end':crop['end'],'upload_policy_decision_id':policies[0]['decision_id']}
+
+
+def _native_client_image_live(root, proof, stage):
+    ctx=stage['context']
+    need(not _effect_rows(root,ctx['registration'],stage['upload']['action_id']),'real server upload effect must use the existing asset-ID branch')
+    need(not _effect_rows(root,ctx['registration'],proof['action_id']),'actual created ad is final; never restage or replay')
+    for row,code in stage['canonical_calls']:
+        at=w._parse_observed_at(row.get('timestamp'))
+        if at and at>stage['crop_call_end']and stage['tab_variable']in code:
+            need(not re.search(re.escape(stage['tab_variable'])+r'(?:\.playwright[^;]*|)\.(?:click|goto|reload|setFiles|submit|dispatchEvent)\s*\(',code),
+                 'retained form has a later UI trigger; unknown Create or changed image must be read, not replayed')
+    return {'state':'NATIVE_CLIENT_IMAGE_PREPARED_NOT_SERVER_UPLOAD','task_id':proof['task_id'],'action_id':proof['action_id'],
+            'image_sha256':stage['image_sha256'],'parent_group_id':stage['parent_group_id'],'form_tab':stage['form_tab'],
+            'blob_urls':stage['blob_urls'],'crop_observed_at':stage['crop_at'].isoformat(),'server_asset_id':'NOT_EXPOSED',
+            'server_upload_effect':'UNKNOWN_NOT_CLAIMED','original_upload_attempt_released':False,'actual_action_allowed':False,'new_permission_issued':False}
+
+
+def native_client_image_check(root, proof):
+    return _native_client_image_live(root,proof,_native_client_image_proof(root,proof))
+
+def record_native_client_image(root, proof, pin):
+    with w.workflow_lock(root):
+        need(doc(root,pin)==proof,'exact immutable native client image source')
+        checked=native_client_image_check(root,proof)
+        old=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('details',{}).get(NATIVE_IMAGE_EVENT,{}).get('proof')==pin
+             or same(e.get('details',{}).get(NATIVE_IMAGE_EVENT,{}),proof)]
+        need(not old,'native image stage already recorded; no duplicate or concurrent restage')
+        snapshot=w.read_json(w.snapshot_path(root,proof['task_id']));need(snapshot['current_state']not in w.TERMINAL_STATES,'closed task is historical')
+        value={**{k:proof[k]for k in IDENTITY},'proof':pin,'source_registration':proof['source_registration'],'stage':checked}
+        event=w.append_workflow_event(root,proof['task_id'],snapshot['current_state'],{NATIVE_IMAGE_EVENT:value})
+    return {'result':'recorded_client_stage_only','event_id':event['event_id'],'proof':pin,'server_asset_id':'NOT_EXPOSED',
+            'original_upload_attempt_released':False,'actual_action_allowed':False,'new_permission_issued':False}
+
+
+def _native_client_created_readback(root, client, issued, attempt, observation, page, native_call, proof):
+    """After-write evidence uses the historical image, never the pre-click ban."""
+    tab=client['tab_variable'];create_id=proof.get('native_create_call_id')
+    need(isinstance(create_id,str)and create_id and create_id!=native_call['id'],'one actual Create invocation then actual observation')
+    create=[]
+    pattern=re.escape(tab)+r"\.playwright\.getByRole\(\x27button\x27,\{name:\x27Create\x27,exact:true\}\)\.click\(\)"
+    for row,code in client['canonical_calls']:
+        at=w._parse_observed_at(row.get('timestamp'))
+        if at and at>client['crop_call_end']and re.search(pattern,code):create.append((row,code))
+    need(len(create)==1 and create[0][0]['payload']['call_id']==create_id,'only one exact original retained-form Create; unknown/duplicate effects cannot close')
+    call=create[0][0];output=client['canonical_outputs'].get(create_id)
+    observations=[(row,code)for row,code in client['canonical_calls']if row['payload'].get('call_id')==native_call['id']]
+    need(output and len(observations)==1,'complete original canonical Create/observation outputs')
+    obsrow,code=observations[0];obsout=client['canonical_outputs'].get(native_call['id']);need(obsout,'complete actual native readback output')
+    expected=re.fullmatch(r"\s*await "+re.escape(tab)+r"\.getAXState\(\{disableDiffing:true\}\);?\s*",code)
+    need(expected and json.loads(obsrow['payload']['arguments'])==native_call.get('arguments'),'actual same-form pure native UI readback, not an agent ID assertion')
+    raw=obsout['payload'].get('output',[]);need(raw and all(x.get('type')=='input_text'and isinstance(x.get('text'),str)for x in raw),'actual complete native UI output')
+    text='\n'.join(x['text']for x in raw)
+    need(all(x in text for x in (observation['ad_id'],observation['parent_group_id'],client['context']['object_spec']['desired']['Ad Name'])),'actual returned ad ID/name/parent must be in the canonical UI read')
+    source_calls=[m for t in page.get('turns',[])for m in t.get('items',[])if m.get('id')==create_id]
+    need(len(source_calls)==1 and source_calls[0].get('type')=='mcpToolCall'and source_calls[0].get('server')in {'cua_repl','node_repl'}and source_calls[0].get('tool')=='js'
+         and json.loads(call['payload']['arguments'])==source_calls[0].get('arguments'),'same original first-party Create call, no borrowed native source')
+    for cid in (create_id,native_call['id']):
+        turns=[t for t in page.get('turns',[])if any(m.get('id')==cid for m in t.get('items',[]))]
+        need(len(turns)==1 and turns[0].get('status')=='completed'and not turns[0].get('error'),'actual completed first-party action/observation turn')
+        begin=dt.datetime.fromtimestamp(turns[0]['startedAt'],dt.timezone.utc);finish=dt.datetime.fromtimestamp(turns[0]['completedAt'],dt.timezone.utc)
+        source=call if cid==create_id else obsrow;result=output if cid==create_id else obsout
+        need(begin<=w._parse_observed_at(source['timestamp'])<=w._parse_observed_at(result['timestamp'])<=finish,'first-party completed turn contains actual canonical action/output')
+    reserved=w._parse_observed_at(attempt['at']);start=w._parse_observed_at(call.get('timestamp'));end=w._parse_observed_at(output.get('timestamp'));read_at=w._parse_observed_at(obsrow.get('timestamp'));read_end=w._parse_observed_at(obsout.get('timestamp'));at=w._parse_observed_at(observation.get('observed_at'))
+    need(all(x is not None for x in (reserved,start,end,read_at,read_end,at))and reserved<=start<=end<=read_at<=read_end<=at<=dt.datetime.now(dt.timezone.utc),'actual reserved action -> one Create -> full native result chronology')
+    return {'create_call_id':create_id,'readback_call_id':native_call['id'],'reserved_at':attempt['at'],'Create_at':call['timestamp'],'readback_at':obsout['timestamp'],'one_provider_Create_effect_only':True}
+
+
+def _native_client_image_binding(root, context, spec, stage_pin, facts):
+    proof=doc(root,stage_pin);source=_native_client_image_proof(root,proof);stage=_native_client_image_live(root,proof,source)
+    need(same(proof,spec)and proof['source_registration']==context['registration'],'same planned ad and original image source')
+    rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('details',{}).get(NATIVE_IMAGE_EVENT,{}).get('proof')==stage_pin]
+    need(len(rows)==1 and rows[0]['details'][NATIVE_IMAGE_EVENT]['source_registration']==context['registration'],'one real committed native client stage; a flag is not admission')
+    observed=w._parse_observed_at(facts.get('observed_at'));channel=facts['channel']
+    need(observed and observed>=source['crop_at']and all(channel.get(k)==source['channel'][k]for k in ('profile','stable_extension','runtime_browser','runtime_tab','account_url'))
+         and facts['parent_group']['id']==source['parent_group_id']and facts.get('selected_asset_id')is None,'same retained real form/channel/parent; no fabricated asset ID')
+    crop=facts.get('crop_preview',{});need(crop.get('image_sha256')==stage['image_sha256']and crop.get('form_tab')==stage['form_tab']and crop.get('blob_urls')==stage['blob_urls'], 'current exact original local crop, never a blob UUID as server ID')
+    pin=crop.get('native_evidence');need(isinstance(pin,dict)and w.file_digest(root,pin['path'])==pin,'actual fresh current crop evidence')
+    return {'kind':'native_client_image_ready','stage_event_id':rows[0]['event_id'],'stage_proof':stage_pin,'image_sha256':stage['image_sha256'],
+            'parent_group_id':stage['parent_group_id'],'form_tab':stage['form_tab'],'blob_urls':stage['blob_urls'],'server_asset_id':None}
 
 
 FAILURE_STAGE = 'professional-ads-pre-provider-failure-stage/v1'
@@ -884,11 +1113,13 @@ def record_failure_stage(root, proof, pin):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root', default=str(Path(__file__).resolve().parents[1]))
-    p.add_argument('command', choices=['source-check', 'status', 'reserve','derive','effect-record','failure-check','failure-record','freeze-preflight','preflight','policy-check','issue'])
+    p.add_argument('command', choices=['source-check', 'status', 'reserve','derive','effect-record','native-image-check','native-image-record','failure-check','failure-record','freeze-preflight','preflight','policy-check','issue'])
     p.add_argument('--input', required=True); p.add_argument('--decision-id')
     p.add_argument('--key');p.add_argument('--kind',choices=['group','upload','ad','budget']);p.add_argument('--output')
     args = p.parse_args(); root = Path(args.root).resolve(); item = w.read_json(w.safe_path(root, args.input))
-    if args.command in {'failure-check','failure-record'}:
+    if args.command in {'native-image-check','native-image-record'}:
+        out=(native_client_image_check(root,item)if args.command=='native-image-check'else record_native_client_image(root,item,w.file_digest(root,args.input)))
+    elif args.command in {'failure-check','failure-record'}:
         out=(failure_stage_check(root,item)if args.command=='failure-check'else record_failure_stage(root,item,w.file_digest(root,args.input)))
     elif args.command=='derive':
         out=derive(root,w.file_digest(root,args.input),args.key,args.kind)
