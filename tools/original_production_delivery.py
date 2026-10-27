@@ -229,6 +229,11 @@ def candidate(ctx, state):
          and web.git(ctx, 'merge-base', ctx['base'], base).decode().strip() == ctx['base']
          and set(web.git(ctx, 'diff', '--name-only', base, head).decode().splitlines()) <= set(ctx['paths']),
          'real same-lineage combined head/base and only original paths')
+    if ctx.get('original_peer_overlap_source'):
+        parents = web.git(ctx, 'show', '-s', '--format=%P', head).decode().split()
+        need(state.get('candidate_parents') == parents and state.get('candidate_parent') == parents[0]
+             and state.get('candidate_tree') == web.git(ctx, 'rev-parse', head + '^{tree}').decode().strip()
+             and (head != ctx['commit'] or parents == ctx['git_parents']), 'actual full Git parents must remain separate from cumulative base')
     if ctx.get('owner_received_code_stage'):
         parents = web.git(ctx, 'show', '-s', '--format=%P', head).decode().split()
         need(len(parents) == 1 and state.get('candidate_parent') == parents[0],
@@ -255,6 +260,9 @@ def candidate(ctx, state):
         folder = Path(folder)
         for component in ctx['source_components']:
             for path in component['paths']:
+                if ctx.get('original_peer_overlap_source') and web.git(ctx, 'ls-tree', base, '--', path).strip():
+                    need(web.git(ctx, 'ls-tree', head, '--', path).split()[:1] == web.git(ctx, 'ls-tree', base, '--', path).split()[:1],
+                         'current peer file mode must survive an exact source rebase')
                 def blob(commit):
                     x = subprocess.run(['git', 'show', commit+':'+path], cwd=ctx['worktree'], capture_output=True)
                     return x.stdout if x.returncode == 0 else b''
@@ -444,3 +452,202 @@ def record(root, task, path):
         event = w.append_workflow_event(root, task, snapshot['current_state'], {cms.EVENT: pin, web.EVENT: pin, 'frozen_contract_unchanged': True})
     return {'result': 'recorded', 'source': pin, 'event_id': event['event_id'], 'external_permission_issued': False,
             'remote_READY': False, 'business_producers_changed': False}
+
+
+OVERLAP_SCHEMA = 'original-production-peer-overlap-source/v1'
+OVERLAP_EVENT = 'professional_WEB_original_peer_overlap_source'
+
+
+def _source_pin(root, pin, binding):
+    """Read exact custody in this controller or the original external website."""
+    import professional_web_execution as web
+    path = Path(pin.get('path', ''))
+    if not path.is_absolute() or path.resolve().is_relative_to(Path(root).resolve()):
+        actual = w.file_digest(root, pin['path'])
+        need(_pin_equal(actual, pin), 'exact project source bytes required')
+        return w.safe_path(root, actual['path']).read_bytes()
+    return web._external_bytes(pin, binding)
+
+
+def _additive_registration_hunk(left, right, combined):
+    """Only unions of existing CI arguments/imports/registries, never arbitrary code."""
+    ci = r'\s+src/[A-Za-z0-9_./-]+\.test\.[A-Za-z0-9]+ \\\n'
+    if re.fullmatch(ci, left) and re.fullmatch(ci, right):
+        need(combined in {left + right, right + left}, 'CI resolution must preserve the two original exact test arguments only')
+        return
+    spread = r'(.*Object\.entries\(\{ )(\.\.\.[A-Za-z_$][\w$]*(?:, \.\.\.[A-Za-z_$][\w$]*)*)( \}\)\.map[^\n]*\n)'
+    parts = [re.fullmatch(spread, x) for x in (left, right, combined)]
+    def union(a, b, c):
+        need(len(set(a)) == len(a) and len(set(b)) == len(b) and len(set(c)) == len(c)
+             and set(c) == set(a) | set(b)
+             and all([v for v in c if v in set(original)] == original for original in (a, b)),
+             'only the two existing ordered registration sets may combine')
+    if all(parts):
+        need(len({p[1] for p in parts}) == len({p[3] for p in parts}) == 1, 'registry code outside spread identifiers must stay byte-identical')
+        union(*[p[2].split(', ') for p in parts]); return
+    imports = r'((?:import \{ [A-Za-z0-9_$, ]+ \} from "[A-Za-z0-9_./-]+";\n)+)export \{ ([A-Za-z0-9_$, ]+) \};\n'
+    parts = [re.fullmatch(imports, x) for x in (left, right, combined)]
+    need(all(parts), 'unsupported conflict shape; exact professional source is required')
+    union(*[p[1].splitlines(True) for p in parts]); union(*[p[2].split(', ') for p in parts])
+
+
+def overlap_source_bytes(root, base, head, later_base, worktree, resolutions):
+    """Rebuild every contribution; only authenticated paired hunks may combine."""
+    import professional_web_execution as web
+    need(isinstance(resolutions, list) and 0 < len(resolutions) <= 3
+         and len({r.get('path') for r in resolutions}) == len(resolutions)
+         and all(set(r) == {'path', 'current_main_hunk', 'own_Contact_hunk', 'combined_hunk', 'reason'} for r in resolutions),
+         'bounded unique exact resolution objects required')
+    declared = {r['path']: r for r in resolutions}; touched = set()
+    ctx = {'worktree': worktree}
+    scratch = Path(root) / 'logs/professional-CMS-channel-source-checks'; scratch.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=scratch) as folder:
+        folder = Path(folder)
+        for component in base['source_components']:
+            for path in component['paths']:
+                def blob(commit):
+                    p = subprocess.run(['git', 'show', commit + ':' + path], cwd=worktree, capture_output=True)
+                    return p.stdout if p.returncode == 0 else b''
+                current, ancestor, own = blob(later_base), blob(component['base']), blob(component['head'])
+                row = declared.get(path)
+                if row:
+                    touched.add(path)
+                    _additive_registration_hunk(row['current_main_hunk'], row['own_Contact_hunk'], row['combined_hunk'])
+                    left, right, combined = [row[k].encode('utf-8') for k in ('current_main_hunk', 'own_Contact_hunk', 'combined_hunk')]
+                    need(left and right and combined and left != right and combined not in {left, right}
+                         and current.count(left) == own.count(right) == 1
+                         and blob(head).count(combined) == 1, 'exact peer/own/combined original source hunks required')
+                    marker = ('__ORIGINAL_AUTHENTICATED_PEER_RESOLUTION_' + hashlib.sha256(path.encode()).hexdigest() + '__\n').encode()
+                    need(all(marker not in data for data in (current, ancestor, own, blob(head))), 'resolution marker cannot collide with source bytes')
+                    current = current.replace(left, marker, 1); own = own.replace(right, marker, 1)
+                for label, raw in [('current', current), ('ancestor', ancestor), ('own', own)]: (folder / label).write_bytes(raw)
+                result = subprocess.run(['git', 'merge-file', '-p', str(folder/'current'), str(folder/'ancestor'), str(folder/'own')], capture_output=True)
+                expected = result.stdout
+                if row:
+                    need(expected.count(marker) == 1, 'one reconstructed combined hunk; unresolved extra overlap rejected')
+                    expected = expected.replace(marker, combined, 1)
+                need(result.returncode == 0 and expected == blob(head)
+                     and web.git(ctx, 'ls-tree', head, '--', path).split()[:1]
+                         == web.git(ctx, 'ls-tree', component['head'], '--', path).split()[:1]
+                     and (not web.git(ctx, 'ls-tree', later_base, '--', path).strip() or
+                          web.git(ctx, 'ls-tree', head, '--', path).split()[:1] == web.git(ctx, 'ls-tree', later_base, '--', path).split()[:1]),
+                     'complete original and peer contributions/file modes must survive; undeclared differences rejected')
+    need(touched == set(declared), 'all and only declared original overlap paths required')
+
+
+def overlap_context(root, base, item):
+    """Authenticate an exact received original production successor, not a waiver."""
+    import professional_web_execution as web
+    import goal_delivery_runtime as g
+    need(item.get('schema') == OVERLAP_SCHEMA and set(item) == {'schema', 'task_id', 'original_source_registration',
+         'owner_input', 'actual_completed_native', 'facts_command', 'failed_command', 'source_backup', 'rollback_runbook'}
+         and base.get('original_production_channel') is True and base.get('registered_CMS')
+         and item.get('task_id') == base['task'] and item.get('original_source_registration') == base['registration'],
+         'one authenticated original production/CMS source required; no other task or source')
+    request = a.document(root, item['owner_input']); binding = base['binding']
+    need(request.get('schema') == 'SEO2-exact-original-Contact-three-current-main-overlap-source-repair/v1'
+         and request.get('task_id') == base['task'] and request.get('scope') == base['scope']
+         and request.get('professional_owner') == base['owner']
+         and _pin_equal(request.get('authority_source930'), base['registration'])
+         and Path(request['authority_source930']['path']).resolve() == w.safe_path(root, base['registration']['path']).resolve(),
+         'same original professional owner, task, scope and immutable source relation')
+    report = json.loads(_source_pin(root, request['actual_WEB_report'], binding))
+    snapshot = g.restore_goal(root, w.read_json(w.snapshot_path(root, base['task'])))
+    states = [s for s in g._collaboration_wait_states(root, snapshot, only_action_id=request.get('original_WEB_action'))
+              if s.get('department') == base['role'] and s.get('status') == 'result_received'
+              and s.get('proof_state') == 'PROVEN' and _pin_equal(s.get('result'), request['actual_WEB_report'])]
+    need(len(states) == 1 and a.document(root, states[0]['result']) == report
+         and report.get('task_id') == base['task'] and report.get('scope') == base['scope']
+         and report.get('producer') == base['role'] and report.get('producer_thread') == binding['thread_id']
+         and report.get('action_id') == request['original_WEB_action']
+         and _pin_equal(report.get('source', {}).get('professional_execution_source'), base['registration'])
+         and report['source'].get('original_contract_sha256') == base['contract']['sha256']
+         and report['source'].get('original_human_authorization', {}).get('sha256') == base['authorization']['sha256'],
+         'actual original owner received exact completed WEB result, unchanged contract and human authority')
+    native = g._native_document(root, item['actual_completed_native'])
+    received_native = g._native_document(root, states[0]['native_result'])
+    for page in (native, received_native):
+        need(all(page.get('thread', {}).get(k) == binding[v] for k, v in {'id': 'thread_id', 'title': 'title', 'cwd': 'cwd'}.items()),
+             'actual same fixed external WEB native identity required')
+    calls = [(t, m) for t in native.get('turns', []) for m in t.get('items', []) if m.get('id') == item['facts_command']]
+    need(len(calls) == 1, 'one actual original WEB facts command required')
+    turn, command = calls[0]; made = w._parse_observed_at(report.get('produced_at'))
+    finals = [m for m in turn.get('items', []) if m.get('type') == 'agentMessage' and m.get('phase') == 'final_answer']
+    need(turn.get('status') == 'completed' and not turn.get('error') and len(finals) == 1
+         and request['actual_WEB_report']['path'] in finals[0].get('text', '')
+         and command.get('type') == 'commandExecution' and command.get('status') == 'completed' and command.get('exitCode') == 0
+         and made is not None and turn['startedAt'] <= made.timestamp() <= turn['completedAt'] <= dt.datetime.now(dt.timezone.utc).timestamp()
+         and any(t.get('id') == turn['id'] and t.get('status') == 'completed' and not t.get('error') for t in received_native.get('turns', [])),
+         'real successful WEB command and genuine completed result chronology')
+    facts = json.loads(w._completion_execution_output(command))['state']
+    observed = w._parse_observed_at(facts.get('observed_at'))
+    need(item['facts_command'] == request['real_facts_command'] == report['fresh_first_party_facts']['native_command_ids']['facts']
+         and facts == json.loads(_source_pin(root, report['fresh_first_party_facts']['state'], binding))
+         and observed is not None and turn['startedAt'] <= observed.timestamp() <= made.timestamp(),
+         'exact actual frozen facts output and ordered observation, never restamped freshness')
+    meta = report['actual_local_version']; selected = request['exact_candidate']
+    fields = ('candidate_commit', 'candidate_base', 'candidate_parents', 'candidate_tree', 'branch', 'worktree',
+              'source_component_path_count', 'actual_delta_path_count', 'already_current_paths', 'necessary_overlap_paths', 'forward', 'inverse_own_source_only')
+    need(all(selected.get(k) == meta.get(k) for k in fields)
+         and all(facts.get(k) == meta.get(k) for k in ('candidate_commit', 'candidate_base', 'candidate_parents', 'candidate_tree', 'branch', 'worktree'))
+         and facts.get('candidate_parent') == meta['candidate_parents'][0]
+         and Path(command.get('cwd', '')).resolve() == Path(meta['worktree']).resolve()
+         and facts.get('actor', {}).get('id') == base['actor_id'] and facts['actor'].get('login') == base['repository'].split('/')[0]
+         and facts.get('repository') == base['repository'] and facts.get('repository_id') == base['repository_id'],
+         'one actual source head, two real parents, cumulative base, worktree and original account')
+    head, parent = meta['candidate_commit'], meta['candidate_base']; gitctx = {'worktree': meta['worktree']}
+    need(Path(meta['worktree']).resolve().is_relative_to(Path(binding['cwd']).resolve())
+         and meta['worktree'] == base['worktree'] and meta['branch'] == base['branch']
+         and web.git(gitctx, 'show', '-s', '--format=%H %P %T', head).decode().strip() == ' '.join([head, *meta['candidate_parents'], meta['candidate_tree']])
+         and len(meta['candidate_parents']) == 2 and parent in meta['candidate_parents']
+         and web.git(gitctx, 'merge-base', base['base'], parent).decode().strip() == base['base'],
+         'real original same-worktree two-parent integration ancestry; no invented linear parent')
+    files = meta['files']; paths = {f['path']: f['sha256'] for f in files}
+    need(len(paths) == len(files) == selected['source_component_path_count'] and set(paths) == set(base['paths']),
+         'complete original source paths, no unrelated target or fake extra edit')
+    actual_delta = set(web.git(gitctx, 'diff', '--name-only', parent, head).decode().splitlines())
+    need(actual_delta <= set(paths) and len(actual_delta) == meta['actual_delta_path_count']
+         and set(meta['already_current_paths']) == set(paths) - actual_delta,
+         'source path count and actual new delta are distinct, authenticated facts')
+    for f in files:
+        raw = web.git(gitctx, 'show', head + ':' + f['path'])
+        need(hashlib.sha256(raw).hexdigest() == f['sha256'] and len(raw) == f['size']
+             and web.git(gitctx, 'rev-parse', head + ':' + f['path']).decode().strip() == f['blob'], 'exact immutable source blob/hash/size')
+    resolutions = json.loads(_source_pin(root, request['exact_three_overlap_hunks'], binding))
+    need(report['necessary_current_main_integration']['proof'] == request['exact_three_overlap_hunks']
+         and set(request['three_exact_resolution_paths']) == set(meta['necessary_overlap_paths']) == {r['path'] for r in resolutions},
+         'one received immutable precise resolution source, not a caller allowlist')
+    overlap_source_bytes(root, base, head, parent, meta['worktree'], resolutions)
+    delta = {p: change for p, change in web._patch_effect(web._delta({**gitctx, 'paths': paths}, parent, head)).items() if change[0] or change[1]}
+    need(set(delta) == actual_delta, 'patch covers actual changed paths only; unchanged source is retained separately')
+    need(web._patch_effect(web._patch_delta(_source_pin(root, meta['forward'], binding))) == delta
+         and web._patch_effect(web._patch_delta(_source_pin(root, meta['inverse_own_source_only'], binding)))
+             == {p: (added, removed) for p, (removed, added) in delta.items()}, 'exact own source forward/inverse; no production rollback inferred')
+    failed = [m for m in turn.get('items', []) if m.get('id') == item['failed_command']]
+    need(len(failed) == 1 and item['failed_command'] == request['real_failed_command']
+         and failed[0].get('type') == 'commandExecution' and failed[0].get('status') == 'failed' and failed[0].get('exitCode') == 1
+         and failed[0].get('output') == {'text': request['exact_refusal_text'] + '\n', 'truncated': False}
+         and 'request-base' in failed[0].get('command', '') and '--operation git_push' in failed[0]['command']
+         and Path(failed[0].get('cwd', '')).resolve() == Path(meta['worktree']).resolve(),
+         'one exact real pre-intent source refusal; nonzero is never treated as successful execution')
+    freeze = json.loads(_source_pin(root, request['actual_WEB_freeze81'], binding))
+    need(freeze.get('task_id') == base['task'] and freeze.get('report') == request['actual_WEB_report']
+         and freeze.get('actual_head') == head and len(freeze.get('files', [])) == 81, 'complete genuine immutable producer evidence set')
+    for pin in freeze['files']: _source_pin(root, pin, binding)
+    combined = {'head': head, 'base': parent, 'parents': meta['candidate_parents'], 'tree': meta['candidate_tree'],
+                'worktree': meta['worktree'], 'forward': meta['forward'], 'inverse': meta['inverse_own_source_only']}
+    backup = a.document(root, item['source_backup']); recovery = a.document(root, item['rollback_runbook'])
+    need(backup == {'task_id': base['task'], 'original_source_registration': base['registration'], 'combined_source': combined,
+                   'actual_Functions_or_ESZIP_restore_proven': False}
+         and recovery == {'task_id': base['task'], 'original_source_registration': base['registration'], 'combined_source': combined,
+                          'source_inverse_base': parent, 'linear_parent_is_not_rollback': True, 'unknown_effect_replay_allowed': False,
+                          'own_CMS_inverse_requires_actual_completed_parent': True, 'execution_time_full_source_build_and_runtime_backup_still_required': True},
+         'exact own-delta recovery and real runtime backup boundary; no parent/ESZIP fiction')
+    component = {**combined, 'parent': meta['candidate_parents'][0], 'paths': paths}
+    return {**base, 'commit': head, 'base': parent, 'tree': meta['candidate_tree'], 'paths': paths,
+            'source_components': [component], 'original_source_components': base['source_components'],
+            'backup': item['source_backup'], 'rollback': item['rollback_runbook'], 'git_parent': meta['candidate_parents'][0],
+            'git_parents': meta['candidate_parents'], 'original_peer_overlap_source': item,
+            'adopted_increment': item, 'ordinary_increment': True, 'increment_actor_id': base['actor_id'], 'increment_source_mode': 'exact_original_peer_overlap',
+            'increment_allowed_operations': sorted(web.OPS), 'increment_forward_patch': meta['forward'],
+            'increment_inverse_patch': meta['inverse_own_source_only']}

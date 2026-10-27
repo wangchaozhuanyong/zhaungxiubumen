@@ -386,6 +386,8 @@ def static_intent(root,request):
            (request.get('exact_standing_CMS_channel_source')==ctx['registration'] and not request.get('exact_HQ_production_decision'))
            if ctx.get('standing_CMS_channel') else request.get('exact_HQ_production_decision')==ctx['decision']),
          'exact actual external WEB/projects/source; no actor substitution, mislabeled HQ decision or expansion')
+    need(request.get('exact_original_overlap_source') == (ctx.get('increment_registration') if ctx.get('original_peer_overlap_source') else None),
+         'exact registered overlap source must bind this intent; no caller waiver or unrelated source')
     return ctx
 def working_source(ctx,head):
     need(git(ctx,'rev-parse','HEAD').decode().strip()==head
@@ -788,6 +790,7 @@ def request_base(root,task,op,state):
       **({'exact_original_production_source':ctx['registration']} if ctx.get('original_production_channel') else
          {'exact_standing_CMS_channel_source':ctx['registration']} if ctx.get('standing_CMS_channel')
          else {'exact_HQ_production_decision':ctx['decision']})}
+    if ctx.get('original_peer_overlap_source'):req['exact_original_overlap_source']=ctx['increment_registration']
     req['desired']=intent(root,req,check_desired=False)[3];return req
 
 def build_preflight(root,base_path,facts_native,facts_command,self_native,self_command,backup_path,out_path):

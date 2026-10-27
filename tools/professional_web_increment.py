@@ -662,6 +662,8 @@ def validate_published_deferred_component(root,base,parent,item):
 
 
 def _validate_item(root,base,item,values):
+    from original_production_delivery import OVERLAP_SCHEMA, OVERLAP_EVENT, overlap_context
+    if item.get('schema') == OVERLAP_SCHEMA:return overlap_context(root,base,item),OVERLAP_EVENT
     if item.get('schema')==ORD_SCHEMA and item.get('kind')=='existing_component_deferred_mount':
         parents=[v for v in values if same(root,v.get('increment_registration'),item.get('parent_increment_source'))]
         need(len(parents)==1,'one original adopted published predecessor')
@@ -685,7 +687,8 @@ def _validate_item(root,base,item,values):
     need(len(parents)==1,'one previously registered immutable parent increment')
     return validate_ci(root,base,parents[0],item),CI_EVENT
 def sources(root,base):
-    keys=(EVENT,CI_EVENT,ORD_EVENT)
+    from original_production_delivery import OVERLAP_EVENT
+    keys=(EVENT,CI_EVENT,ORD_EVENT,OVERLAP_EVENT)
     rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==base['task']and any(e.get('details',{}).get(k)for k in keys)]
     values=[];seen=set()
     for e in rows:
