@@ -249,10 +249,17 @@ def validate_payloads(payloads, roles, retired_roles, non_runtime_files):
         if 'tools/department_autonomy.py' not in payloads:
             raise ValueError('Current autonomous runtime module required')
         active_ids={row['id']for row in rows if row.get('new_dispatch_enabled')is not False}
-        if active_ids.intersection({'operations-assistant','operations-assistant-2','operations-assistant-3','qa','qa-technical'}):
-            raise ValueError('Current autonomous package must not reactivate assistant approval roles')
+        routine=contract.get('routine_coordination',{}).get('model')=='owner_delegated_routine_coordination_v1'
+        forbidden={'operations-assistant-2','operations-assistant-3','qa','qa-technical'} | (set() if routine else {'operations-assistant'})
+        if active_ids.intersection(forbidden):
+            raise ValueError('Retired assistant/QA roles cannot reactivate')
         standby=[row for row in rows if row['id']=='operations-assistant']
-        if len(standby)!=1 or standby[0].get('mode')!='standby' or standby[0].get('automatic_wakeup_enabled')is not False:
+        if routine:
+            if (len(standby)!=1 or standby[0].get('mode')!='coordinator'
+                    or standby[0].get('coordination_authority',{}).get('production_write_allowed')is not False
+                    or standby[0].get('coordination_authority',{}).get('technical_QA_required')is not False):
+                raise ValueError('One routine coordinator, no production or technical QA gate required')
+        elif len(standby)!=1 or standby[0].get('mode')!='standby' or standby[0].get('automatic_wakeup_enabled')is not False:
             raise ValueError('Exactly one nonautomatic standby assistant required')
         code=payloads['tools/department_autonomy.py'].decode('utf-8')
         flags={target.id:node.value.value for node in ast.parse(code).body if isinstance(node,ast.Assign) and isinstance(node.value,ast.Constant)for target in node.targets if isinstance(target,ast.Name)}

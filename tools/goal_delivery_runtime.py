@@ -311,6 +311,11 @@ def authorization_precheck(root, task_id, request):
         if changes:return outcome('authorization_change_required',changes,confirmation=True)
         return {**outcome('within_original_authorization',['authenticated_original_standing_integration_message']),
                 'source_registration':integration.get('registration'), 'external_permission_issued':False}
+    from chief_assistant_coordination import message_route as routine_reply
+    routine=routine_reply(root,snapshot,request)
+    if routine is not None:
+        if changes:return outcome('authorization_change_required',changes,confirmation=True)
+        return {**outcome('within_original_authorization',['actual_owner_delegated_routine_decision_reply']), 'current_mode':routine['mode']}
     readonly_return = readonly_result_return_route(root,snapshot,request)
     if sender not in {"operations", goal.get("responsible_assistant"), *producers} and not brand_executor and readonly_return is None:
         raise w.WorkflowError("original goal participant required; no authority delegation by metadata")
@@ -814,8 +819,10 @@ def owner_result_collaboration_binding(root, snapshot, requested):
         raise w.WorkflowError('one actual registered original owner-result message source required')
     registry=w.department_registry(root)
     source=registry[action['sender_department']]['chat_binding']
-    target=registry[action['target_department']]['chat_binding']
-    return source,{**target,'thread_id':target['task_id']}
+    target=(registry[action['target_department']]['chat_binding'] if action['target_department']in registry
+            else _collaboration_binding(root,snapshot,action['target_department']))
+    if not isinstance(target,dict):raise w.WorkflowError('original declared external binding required')
+    return source,{**target,'thread_id':target.get('thread_id',target.get('task_id'))}
 
 
 def collaboration_route(root, snapshot, requested):

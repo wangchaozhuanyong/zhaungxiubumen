@@ -1186,7 +1186,7 @@ def _work_boundary_view(root, role, *, assignment=None, read_assignment=True):
             sources=w.read_json(Path(root)/'data/task-contract.json').get('result_handoff_contract',{}).get('scheduled_daily_sources',[])
             scheduled=[s for s in sources if isinstance(s,dict) and re.fullmatch(s.get('task_id_pattern','(?!)'),path.stem)]
             relevant=(goal and (role in goal.get('producer_departments',[]) or role==goal.get('responsible_assistant')
-                               or role=='operations')) or any(role in {s.get('department'),s.get('responsible_assistant')} for s in scheduled)
+                               or role=='operations' or role=='operations-assistant' and __import__('chief_assistant_coordination').authority(root) is not None)) or any(role in {s.get('department'),s.get('responsible_assistant')} for s in scheduled)
             if not relevant and not scheduled:continue
             rows=inventory_handoff_rows(root,path.stem)
             # Scheduled routing belongs to the frozen result identity. Intake
@@ -1209,7 +1209,8 @@ def _work_boundary_view(root, role, *, assignment=None, read_assignment=True):
                 knowledge=bool(goal and sender==goal.get('responsible_assistant'))
                 if knowledge:target='operations'
                 if not goal:target=daily_targets.get(rc._key(identity),target)
-                if target!=role and sender!=role:continue
+                delegated=(target=='operations' and role=='operations-assistant' and __import__('chief_assistant_coordination').authority(root) is not None)
+                if target!=role and sender!=role and not delegated:continue
                 key=rc._key(identity)
                 item=groups.setdefault(key,{**identity,'target_department':target,
                     'knowledge_only':knowledge,'events':[], 'controller_followthrough':'pending'})

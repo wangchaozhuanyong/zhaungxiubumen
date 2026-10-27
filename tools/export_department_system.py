@@ -256,7 +256,7 @@ def public_policy(value):
     for key, child in value.items():
         if (key.startswith("owner_") or key in {"collaboration_bindings", "chat_binding",
                  "health_evidence", "expansion_history", "system_rebuild_authorization",
-                "mode_authorization", "assistant_retention_authority", "historical_role_source_moves",
+                "mode_authorization", "assistant_retention_authority", "historical_role_source_moves", "routine_delegation_authority", "routine_delegation_source", "actual_owner_native",
                 "completion_contracts", "health_probe_packets", "health_probe_live_identities", "completion_evidence",
                 "direct_execution_takeovers", "direct_message_packets"}
                 or "admission" in key or "handover" in key or key.endswith("_packet")):
@@ -526,7 +526,7 @@ def prepare(root: Path, target: Path):
         "departments": rows, "total_role_count": len(rows),
         "active_department_count": sum(row.get("new_dispatch_enabled", True) is not False for row in rows),
         "standby_assistant_count": sum(row.get("mode")=="standby" for row in rows),
-        "execution_department_count": sum(row.get("new_dispatch_enabled",True)is not False and row["id"]!="operations" for row in rows),
+        "execution_department_count": sum(row.get("new_dispatch_enabled",True)is not False and row["id"] not in {"operations","operations-assistant"} for row in rows),
         "health_policy": {"verification_ttl_hours": 26}, "public_template": True,
         "runtime_bindings_require_local_setup": True,
     })

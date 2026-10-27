@@ -168,6 +168,56 @@ def _professional_readonly_coordination(root, snapshot, action):
   'business_producer_added':False,'current_assignment_changed':False,'external_permission_issued':False}
 
 
+def _original_declared_external_owner_message(root,snapshot,action):
+ """Only an original frozen cross-project collaboration, never a new role."""
+ role=action.get('target_department');registry=w.department_registry(root)
+ if role in registry:return None
+ import goal_delivery_runtime as g
+ import department_rotation as rotation
+ goal=snapshot['goal_delivery'];frozen=document(root,snapshot['goal_contract'])
+ declaration={'sender_department':goal['primary_owner'],'target_department':role,'scope':action.get('scope')}
+ require(action.get('sender_department')==goal['primary_owner']
+  and len([d for d in goal.get('collaboration_scopes',[])if d==declaration])==1,
+  'original declared owner/external collaboration/scope required; not a new department')
+ if declaration not in frozen.get('collaboration_scopes',[]):
+  sources=[]
+  for pin in goal.get('collaboration_records',[]):
+   record=document(root,pin)
+   if record.get('source_kind')=='historical_native_collaboration' and record.get('sender_department')==role and record.get('scope')==action.get('scope'):
+    # The normal historical recovery was committed before window rotation.
+    # Authenticate its immutable bytes/event, never replay it against today's chat.
+    def pins(value):
+     if isinstance(value,dict):
+      if set(value)=={'path','sha256','size'}:require(w.file_digest(root,value['path'])==value,'original recovered collaboration pin changed')
+      else:
+       for child in value.values():pins(child)
+     elif isinstance(value,list):
+      for child in value:pins(child)
+    pins(record)
+    events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS) if e.get('task_id')==snapshot['task_id']
+     and e.get('details',{}).get('historical_source_recovered')is True and e['details'].get('collaboration_receipt')==pin
+     and e['details'].get('prior_policy_fabricated')is False
+     and declaration in e['details'].get('goal_delivery',{}).get('collaboration_scopes',[])]
+    require(len(events)==1,'one genuine original recovered external collaboration event required')
+    sources.append(pin)
+  require(len(sources)==1 and not w.validate_workflow_events(root,snapshot['task_id']),
+   'original normal recovered external collaboration/native source required')
+ fixed=g._collaboration_binding(root,snapshot,role)
+ require(isinstance(fixed,dict)and fixed.get('existing_authorization_required')is True
+  and fixed.get('generic_cross_project_access_allowed')is False and fixed.get('runtime_goal_authorization_required')is True
+  and fixed.get('company_role_health_inherited')is False and fixed.get('host_id')=='local'
+  and fixed.get('project_id') and fixed.get('project_id')!=PROJECT
+  and fixed.get('cwd') and Path(fixed['cwd']).resolve()!=Path(root).resolve()
+  and all(action.get(k)==fixed.get(v)for k,v in {'target_project_id':'project_id','target_thread_id':'thread_id','target_thread_title':'title','target_cwd':'cwd'}.items()),
+  'exact existing external project/directory/current fixed role required; no controller-project substitute')
+ rotation_pin=fixed.get('rotation_record');record=document(root,rotation_pin)
+ require(record.get('role')==role and record in rotation._records(root)
+  and rotation._id(record['new_binding'])==fixed['thread_id']
+  and record['new_binding'].get('cwd')==fixed['cwd'] and record['new_binding'].get('project_id')==fixed['project_id'],
+  'actual verified original same-role external rotation required')
+ return {**fixed,'task_id':fixed['thread_id']}
+
+
 def owner_result_message_source(root,snapshot,item):
  """An authenticated owner's exact ordinary collaboration, never a permit.
 
@@ -191,8 +241,9 @@ def owner_result_message_source(root,snapshot,item):
   and item['original_action']in report.get('evidence',[])and report.get('delivery_model')==MODE,
   'actual complete original owner result must bind this exact action source')
  target=action.get('target_department');registry=w.department_registry(root)
+ external=_original_declared_external_owner_message(root,snapshot,action)
  require(action.get('task_id')==snapshot['task_id']and action.get('scope')==item['scope']
-  and action.get('sender_department')==owner and target!=owner and professional(root,target)
+  and action.get('sender_department')==owner and target!=owner and (professional(root,target) or external is not None)
   and action.get('action_class')=='thread_message'and action.get('assignment_record_required')is False
   and action.get('action_id')and not action.get('authorization_changes')and not action.get('internal_repairs')
   and not any(action.get(k)for k in ('approval_id','consume_approval','execution_request','goal_responsibility_dispatch','parent_task_id')),
@@ -202,11 +253,14 @@ def owner_result_message_source(root,snapshot,item):
  text=(Path(root)/payload['path']).read_text()
  require(all(re.search(r'(?m)^'+k+'='+re.escape(str(action[k]))+r'\s*$',text)for k in ('task_id','scope','action_id','sender_department','target_department')),
   'exact source payload task/scope/participants required')
- dest=registry[target]['chat_binding'];sender=registry[owner]['chat_binding']
- require(dest.get('project_id')==sender.get('project_id')==action.get('source_project_id')==action.get('target_project_id')==PROJECT
-  and Path(dest.get('cwd','')).resolve()==Path(root).resolve()==Path(sender.get('cwd','')).resolve()
-  and all(action.get(k)==dest[v]for k,v in {'target_thread_id':'task_id','target_thread_title':'title','target_cwd':'cwd','target_sidebar_section_id':'sidebar_section_id'}.items()),
-  'exact current professional role/project/directory/message target required')
+ dest=external or registry[target]['chat_binding'];sender=registry[owner]['chat_binding']
+ require(sender.get('project_id')==action.get('source_project_id')==PROJECT
+  and Path(sender.get('cwd','')).resolve()==Path(root).resolve()
+  and action.get('target_project_id')==dest.get('project_id')
+  and (external is not None or dest.get('project_id')==PROJECT and Path(dest.get('cwd','')).resolve()==Path(root).resolve())
+  and all(action.get(k)==dest[v]for k,v in {'target_thread_id':'task_id','target_thread_title':'title','target_cwd':'cwd'}.items())
+  and (external is not None or action.get('target_sidebar_section_id')==dest.get('sidebar_section_id')),
+  'exact current professional/existing declared external role/project/directory/message target required')
  return action,{'mode':MODE,'source':payload,'report':w.file_digest(root,source['outbox_path']),
   'scope':item['scope'],'sender_department':owner,'target_department':target,
   'purpose':'original_professional_collaboration_transport_only','external_permission_issued':False,
@@ -511,10 +565,14 @@ def readonly_result_return_route(root,snapshot,request):
 
 def message_route(root,snapshot,request):
  if not isinstance(request,dict)or request.get('action_class')!='thread_message':return None
+ from chief_assistant_coordination import message_route as routine_reply
+ direct=routine_reply(root,snapshot,request)
+ if direct is not None:return direct
  # External collaborators retain the original complete-goal path. It checks
  # the declared collaboration, exact approved payload, original authority and
  # fresh native identity; the internal autonomous lane grants none of these.
- if request.get('target_department')not in w.department_registry(root):return None
+ if request.get('target_department')not in w.department_registry(root):
+  return _registered_owner_result_message(root,snapshot,request)
  payload=request.get('payload')
  if not isinstance(payload,dict):return None
  require(w.file_digest(root,payload.get('path',''))==payload,'exact payload bytes required')
@@ -1464,7 +1522,9 @@ def autonomous_result_route(root,identity):
   require(len(queued)<=1 and all(r.get('target_department')=='operations'and r.get('mode_authorization')==OWNER
    and r.get('source_mode')=='scheduled_run'and r.get('source_automation_id')==daily['automation_id']for r in queued),
    'one immutable declared daily receiver and original source required')
-  return {'lane':'HQ_knowledge','target_department':'operations','source_mode':MODE,'scheduled_report_only':True,
+  from chief_assistant_coordination import default_receiver
+  target=(queued[0].get('target_department')or queued[0].get('responsible_assistant')) if queued else default_receiver(root,'operations')
+  return {'lane':'HQ_knowledge','target_department':target,'source_mode':MODE,'scheduled_report_only':True,
    'acceptance_proven':False,'notification_proven':False,'HQ_second_review_required':False,
    'automatic_wakeup_allowed':True,'knowledge_only':True}
  if not current_mode(root)or not snapshot.get('goal_delivery'):return None
@@ -1475,16 +1535,19 @@ def autonomous_result_route(root,identity):
  require(len(queued)<=1,'one immutable original queued result recipient required')
  # Never reinterpret a committed old recipient. Suppress its new activation;
  # actual original SQL/native intake remains readable before this classification.
- if queued and (queued[0].get('target_department')or queued[0].get('responsible_assistant'))in ASSISTANTS:
+ from chief_assistant_coordination import authority as routine_authority, SOURCE as routine_SOURCE
+ current_chief=(queued and queued[0].get('target_department')=='operations-assistant'
+  and queued[0].get('routine_route_authorization')==routine_SOURCE and routine_authority(root) is not None)
+ if queued and (queued[0].get('target_department')or queued[0].get('responsible_assistant'))in ASSISTANTS and not current_chief:
   return {'lane':'historical_read_only','target_department':None,'automatic_wakeup_allowed':False,'reason':'original assistant transport retained without new wakeup'}
  if queued:
   # The hash-chained exact queue has already frozen this delivery's receiver.
   # Parent/producer routing is only for a result that has not been queued yet.
   target=queued[0].get('target_department')or queued[0].get('responsible_assistant')
   require(queued[0].get('outbox',{}).get('sha256')==identity['result_sha256']
-   and(target=='operations'or professional(root,target)), 'exact frozen original professional result recipient required')
-  return {'lane':'HQ_knowledge'if target=='operations'else'professional_acceptance','target_department':target,'source_mode':MODE,
-   'acceptance_proven':False,'notification_proven':False,'HQ_second_review_required':False,'automatic_wakeup_allowed':True,'knowledge_only':target=='operations'}
+   and(target=='operations'or current_chief or professional(root,target)), 'exact frozen original professional result recipient required')
+  return {'lane':'HQ_knowledge'if target in {'operations','operations-assistant'}else'professional_acceptance','target_department':target,'source_mode':MODE,
+   'acceptance_proven':False,'notification_proven':False,'HQ_second_review_required':False,'automatic_wakeup_allowed':True,'knowledge_only':target in {'operations','operations-assistant'}}
  target='operations';source={}
  parent_id=snapshot['goal_delivery'].get('parent_task_id')
  if autonomous_goal(snapshot['goal_delivery']):
@@ -1510,8 +1573,10 @@ def autonomous_result_route(root,identity):
  # already frozen transport, which was returned above.
  if target==identity['sender_department']==snapshot['goal_delivery']['primary_owner']:
   target='operations'
- return {'lane':'HQ_knowledge'if target=='operations'else'professional_acceptance','target_department':target,'source_mode':MODE,
-  'acceptance_proven':False,'notification_proven':False,'HQ_second_review_required':False,'automatic_wakeup_allowed':True,'knowledge_only':target=='operations'}
+ from chief_assistant_coordination import default_receiver
+ target=default_receiver(root,target)
+ return {'lane':'HQ_knowledge'if target in {'operations','operations-assistant'}else'professional_acceptance','target_department':target,'source_mode':MODE,
+  'acceptance_proven':False,'notification_proven':False,'HQ_second_review_required':False,'automatic_wakeup_allowed':True,'knowledge_only':target in {'operations','operations-assistant'}}
 
 def register_preflight(root,task,input_path):
  from tools.shop_office_web_execution import applies as web_applies, record_preflight as web_record
@@ -1601,13 +1666,16 @@ def received_knowledge(root,request):
  """Knowledge intake proves an actual receiver read, not another technical review."""
  import goal_delivery_runtime as g
  role=request.get('coordinator_role','operations');page=g._native_document(root,request.get('actual_receiver_native'))
- target=autonomous_result_route(root,request).get('target_department');require(role==target,'one exact current result receiver')
+ target=autonomous_result_route(root,request).get('target_department')
+ from chief_assistant_coordination import authority as routine_authority,receiver_context
+ delegated=receiver_context(root,request,target) if request.get('routine_delegation') else None
+ require(delegated is not None or role==target,'one exact current result receiver')
  fixed=w.department_registry(root)[role]['chat_binding'];require(all(page.get('thread',{}).get(k)==fixed[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()),'actual receiver native identity')
  pairs=[(t,m)for t in page.get('turns',[])for m in t.get('items',[])if m.get('id')==request.get('actual_receiver_message_id')]
  require(len(pairs)==1 and not pairs[0][0].get('error')and pairs[0][1].get('type')=='agentMessage'
   and request['result_sha256']in pairs[0][1].get('text',''),'receiver must actually name this exact result SHA')
  return {'actual_receiver_native':request['actual_receiver_native'],'actual_receiver_message_id':request['actual_receiver_message_id'],
-  'acceptance_proven':False,'HQ_second_review_required':False}
+  **(delegated or {}),'acceptance_proven':False,'HQ_second_review_required':False}
 
 
 def existing_receiver_result_knowledge(root,source):
@@ -1731,6 +1799,9 @@ def completed_result_archive(root,request,route):
 def record_autonomous_result(root,request):
  import result_coordination as rc,uuid
  task=w.validate_task_id(request['task_id']);identity=rc.exact_identity(request);event=request['event']
+ if event=='controller_decision' and request.get('routine_delegation'):
+  from chief_assistant_coordination import record_decision
+  return record_decision(root,request)
  require(event in {'notification_queued','controller_received'},'ordinary delivery has no assistant QA/technical decision stage')
  role=identity['sender_department'];fixed=w.department_registry(root)[role]['chat_binding']['task_id']
  rows=w._result_handoff_rows(root,task);same=[x for x in rows if all(x.get(k)==v for k,v in identity.items())]
@@ -1753,13 +1824,19 @@ def record_autonomous_result(root,request):
  pin=w.file_digest(root,request['outbox_path'])if request.get('outbox_path')else request.get('outbox')or queued[0]['outbox']
  require(pin['sha256']==identity['result_sha256'],'exact original result pin')
  if queued:require(pin==queued[0]['outbox'],'result intake must retain original queued bytes')
+ if event=='controller_received' and route['target_department'] in {'operations','operations-assistant'}:
+  from chief_assistant_coordination import authority as routine_authority,receiver_context
+  if routine_authority(root) is not None:receiver_context(root,request,route['target_department'])
  knowledge=received_knowledge(root,request)if event=='controller_received'else{}
  row={**request,**identity,**(source or {}),**knowledge,'record_id':str(uuid.uuid4()),'schema_version':'1.0','created_at':w.utc_timestamp(),
   'outbox':pin,'evidence':[w.file_digest(root,p)for p in request.get('evidence_paths',[])],
   'target_department':route['target_department'],'coordinator_role':request.get('coordinator_role','operations'),
   'mode_authorization':OWNER,'business_goal_closed':False,'assistant_approval_required':False}
  if archive:row['completed_result_archive']=archive
- row.pop('outbox_path',None);row.pop('evidence_paths',None)
+ if event=='notification_queued' and route['target_department']=='operations-assistant':
+  from chief_assistant_coordination import SOURCE as routine_SOURCE
+  row['routine_route_authorization']=routine_SOURCE
+ row.pop('outbox_path',None);row.pop('evidence_paths',None);row.pop('coordination_claim',None)
  require(isinstance(row.get('idempotency_key'),str)and row['idempotency_key'],'normal stable effect idempotency key')
  if event=='controller_received':
   # Use the same SQL reservation table and native readback as historical result
@@ -1768,6 +1845,9 @@ def record_autonomous_result(root,request):
   with rc.coordination_lock(root):
    store=rc.CoordinationStore(root)
    try:
+    if knowledge.get('routine_delegation'):
+     from chief_assistant_coordination import lease as routine_lease
+     routine_lease(root,store,request)
     store._begin();old=store.conn.execute('SELECT status,payload_json FROM reservations WHERE result_key=? AND effect_key=?',(rc._key(identity),effect)).fetchone()
     require(old is None,'existing/unknown original intake must be recovered, not reappended')
     store.conn.execute("INSERT INTO reservations VALUES(?,?,?,'uncertain',NULL)",(rc._key(identity),effect,rc._canonical(payload)));store.conn.commit()
@@ -1795,12 +1875,17 @@ def knowledge_source(root,identity,require_transport=False):
 
 
 def autonomy_record_applies(root,request):
+ if request.get('event')=='controller_decision' and request.get('routine_delegation'):
+  from chief_assistant_coordination import authority as routine_authority
+  require(routine_authority(root) is not None,'actual current routine delegation required')
+  return True
  snapshot=w.read_json(w.snapshot_path(root,request.get('task_id','')))
  if (request.get('event')in {'notification_queued','controller_received'}
   and scheduled_delivery_source(root,request)is not None):return True
  return bool(current_mode(root)and isinstance(snapshot.get('goal_delivery'),dict)
   and request.get('sender_department')in snapshot.get('goal_delivery',{}).get('producer_departments',[])
-  and request.get('event')in {'notification_queued','controller_received'})
+  and (request.get('event')in {'notification_queued','controller_received'}
+       or request.get('event')=='controller_decision'and request.get('routine_delegation')))
 
 def validate_native_ack(root,snapshot,role,pins):
  import goal_delivery_runtime as g
@@ -2100,7 +2185,7 @@ class HistoricalRegistry(dict):
 def work_boundary(root,role,assignment=None,read_assignment=True):
  registry=w.department_registry(root);item=registry.get(role,{})
  require(item,'registered current or historical role')
- if role in ASSISTANTS:
+ if role in ASSISTANTS and not (role=='operations-assistant' and __import__('chief_assistant_coordination').authority(root) is not None):
   return {'schema':'goal-work-boundary/v1','department':role,'role_state':'standby'if role=='operations-assistant'else'retired_history',
    'grouped_work':{'current_blockers':[],'current_execution':[],'historical_anomalies':[]},'actual_current_assignment':None,
    'ready_actions':[],'waiting_actions':[],'source_errors':[],'actionable_count':0,'can_report_no_change':True,

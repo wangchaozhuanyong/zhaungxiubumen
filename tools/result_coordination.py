@@ -156,6 +156,9 @@ def _goal_actor(root, identity, role, *, assigned=True):
     from department_autonomy import MODE, autonomous_result_route
     route = autonomous_result_route(root, identity) or {}
     if route.get('source_mode') == MODE:
+        from chief_assistant_coordination import actor_allowed
+        if actor_allowed(root,identity,route.get('target_department'),role):
+            return goal_delivery(root, identity['task_id'])
         if role != route.get('target_department') or role == identity['sender_department']:
             _fail('only the frozen original professional receiver may handle this result')
         return goal_delivery(root, identity['task_id'])
@@ -1216,13 +1219,18 @@ def _role(root, role, owner, identity=None):
     from department_autonomy import MODE, autonomous_result_route
     route = (autonomous_result_route(root, identity) or {}) if identity else {}
     if route.get('source_mode') == MODE:
-        if role != route.get('target_department') or role == identity['sender_department']:
+        from chief_assistant_coordination import actor_allowed
+        if not actor_allowed(root,identity,route.get('target_department'),role) and (role != route.get('target_department') or role == identity['sender_department']):
             _fail('only the frozen original professional receiver may claim this result')
     original_target = (route.get('target_department') if route.get('source_mode') == MODE else
                        (result_lane(root, identity).get('target_department')
                         if identity and goal_delivery(root, identity['task_id']) is None else None))
     if role not in coordinator_roles(root, task_id=identity["task_id"] if identity else None) and role != original_target:
         _fail("registered coordinator role required")
+    if route.get("source_mode") == MODE:
+        from chief_assistant_coordination import actor_allowed
+        if actor_allowed(root,identity,route.get("target_department"),role) and (not isinstance(owner,str) or owner.split(":",1)[0] != _w().department_registry(root)[role]["chat_binding"]["task_id"]):
+            _fail("real current routine handling actor thread required")
     if not isinstance(owner, str) or not owner.strip() or len(owner) > 200:
         _fail("nonempty coordinator owner audit metadata required")
 
@@ -1327,6 +1335,8 @@ class CoordinationStore:
         with coordination_lock(self.root):
             _goal_actor(self.root, identity, role)
             _validate_queued(self.root, identity)
+            from chief_assistant_coordination import claimable
+            claimable(self.root,identity,role)
             self._begin()
             try:
                 old = self._row(identity)
@@ -1673,19 +1683,23 @@ def _autonomous_intake_readback(root, payload, row):
     if row.get('mode_authorization') != OWNER:
         return False
     request=payload['request'];identity=exact_identity(request)
+    if request.get('event') != 'controller_received':return False
     if (request.get('event') != 'controller_received' or row.get('event') != 'controller_received'
             or row.get('assistant_approval_required') is not False
             or row.get('acceptance_proven') is not False or row.get('business_goal_closed') is not False):
         _fail('exact autonomous knowledge intake schema required')
     authority(root);queued=queued_source(root,identity)
     target=queued.get('target_department') or queued.get('responsible_assistant')
-    if (row.get('target_department') != target or row.get('coordinator_role') != target
+    from chief_assistant_coordination import intake_readback
+    delegated=intake_readback(root,payload,row)
+    if (row.get('target_department') != target or (not delegated and row.get('coordinator_role') != target)
             or row.get('outbox') != queued.get('outbox') or row.get('outbox') != payload['pins']['outbox']):
         _fail('autonomous intake must retain its original frozen receiver and bytes')
     observed=[_w()._parse_observed_at(x.get('created_at')) for x in (queued,row)]
     if (any(x is None for x in observed) or not observed[0] <= observed[1] <= dt.datetime.now(dt.timezone.utc)):
         _fail('original queue then real native intake chronology required')
-    proof=received_knowledge(root,{**request,'coordinator_role':target})
+    proof=received_knowledge(root,{**request,'coordinator_role':row.get('coordinator_role') if delegated else target,
+        'coordinator_owner':row.get('coordinator_owner')})
     if any(row.get(k)!=v for k,v in proof.items()):
         _fail('unchanged actual original receiver native proof required')
     return True
@@ -2123,7 +2137,9 @@ def _committed_intake_actor(root, record):
         page = _native_document(root, record.get('actual_receiver_native'))
         role, owner = record.get('coordinator_role'), page.get('thread', {}).get('id')
         supplied = record.get('coordinator_owner')
-        if (not role or not owner or role != record.get('target_department')
+        from chief_assistant_coordination import receiver_context
+        if record.get('routine_delegation'):receiver_context(root,record,record.get('target_department'))
+        if (not role or not owner or (role != record.get('target_department') and not record.get('routine_delegation'))
                 or (supplied is not None and (not isinstance(supplied, str) or supplied.split(':', 1)[0] != owner))):
             _fail('actual autonomous committed receiver/owner differs')
         return role, supplied or owner
@@ -2245,7 +2261,8 @@ def _received_delivery(root, identity, route):
                 _fail('native intake owner differs from original SQL reservation')
             role = row['responsible_assistant']
         if role != target:
-            _fail('actual committed intake role differs from frozen recipient')
+            from chief_assistant_coordination import receiver_context
+            receiver_context(root,row,target)
         return row
     if identity == ORIGINAL_A3_CONCLUSION and route.get('target_department') == 'operations':
         from direct_system_repair import received_original_knowledge

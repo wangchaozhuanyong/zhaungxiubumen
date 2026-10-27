@@ -848,7 +848,7 @@
     },
     "assistant_assignment_required": false,
     "QA_required": false,
-    "ordinary_result_receiver": "operations",
+    "ordinary_result_receiver": "operations-assistant",
     "legacy_assistant_contracts": "read_only_original_contracts_and_effects; no new dispatch or approvals",
     "historical_assistant_configuration": {
       "cross_assistant_transfer_requires_same_capability": true,
@@ -866,6 +866,14 @@
     "read_only": true,
     "historical_qa_preserved": true,
     "new_tasks_allowed": false
+  },
+  "routine_coordination": {
+    "model": "owner_delegated_routine_coordination_v1",
+    "primary": "operations-assistant",
+    "fallback": "operations",
+    "same_SQL_identity_claim_required": true,
+    "historical_logical_receiver_immutable": true,
+    "production_permission_issued": false
   },
   "public_template": true
 }

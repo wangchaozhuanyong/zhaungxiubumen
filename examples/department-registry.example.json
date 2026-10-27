@@ -28,7 +28,7 @@
       "mode": "controller",
       "new_dispatch_enabled": true,
       "coordination_authority": {
-        "routine_decisions": false,
+        "routine_decisions": true,
         "dispatch_approved_next": true,
         "review_capabilities": [],
         "sets_goals_and_major_authorization": true,
@@ -376,22 +376,8 @@
       "professional_skill": "departments/operations-assistant/SKILL.md",
       "role_config": ".codex/agents/operations-assistant.toml",
       "department_readme": "departments/operations-assistant/README.md",
-      "approved_subskills": [
-        "renovation-seo-geo",
-        "web-dev-toolkit:code-reviewer",
-        "web-dev-toolkit:design-acceptance",
-        "google-ads-renovation-ppc",
-        "renovation-sales-ops",
-        "full-house-custom-ad"
-      ],
-      "approved_subskill_paths": [
-        "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md",
-        "<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/code-reviewer/SKILL.md",
-        "<CODEX_HOME>/plugins/cache/personal/web-dev-toolkit/0.1.0+codex.20260906070311/skills/design-acceptance/SKILL.md",
-        "<CODEX_HOME>/skills/google-ads-renovation-ppc/SKILL.md",
-        "<CODEX_HOME>/skills/renovation-sales-ops/SKILL.md",
-        "<CODEX_HOME>/skills/full-house-custom-ad/SKILL.md"
-      ],
+      "approved_subskills": [],
+      "approved_subskill_paths": [],
       "input_paths": [
         "AGENTS.md",
         "data/",
@@ -404,17 +390,20 @@
         "reports/",
         "logs/department-outbox/"
       ],
-      "mode": "standby",
-      "new_dispatch_enabled": false,
+      "mode": "coordinator",
+      "new_dispatch_enabled": true,
       "coordination_authority": {
-        "routine_decisions": false,
-        "dispatch_approved_next": false,
+        "routine_decisions": true,
+        "dispatch_approved_next": true,
         "review_capabilities": [],
-        "ordinary_approval": false
+        "ordinary_approval": true,
+        "technical_QA_required": false,
+        "HQ_second_review_required": false,
+        "production_write_allowed": false
       },
-      "standby": true,
-      "automatic_wakeup_enabled": false,
-      "explicit_auxiliary_tasks_only": true,
+      "standby": false,
+      "automatic_wakeup_enabled": true,
+      "explicit_auxiliary_tasks_only": false,
       "ordinary_approval_required": false,
       "chat_binding": {
         "status": "unbound",
@@ -523,8 +512,8 @@
     }
   ],
   "total_role_count": 11,
-  "active_department_count": 10,
-  "standby_assistant_count": 1,
+  "active_department_count": 11,
+  "standby_assistant_count": 0,
   "execution_department_count": 9,
   "health_policy": {
     "verification_ttl_hours": 26

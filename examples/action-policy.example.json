@@ -63,7 +63,6 @@
       }
     },
     "retired_current_targets": [
-      "operations-assistant",
       "operations-assistant-2",
       "operations-assistant-3",
       "qa",
@@ -335,6 +334,14 @@
     "idle_qualified_assistant_selection": true,
     "sensitive_scope_changes_require_real_authorization": true,
     "current_execution_enabled": false
+  },
+  "routine_coordination": {
+    "model": "owner_delegated_routine_coordination_v1",
+    "primary": "operations-assistant",
+    "fallback": "operations",
+    "same_SQL_identity_claim_required": true,
+    "historical_logical_receiver_immutable": true,
+    "production_permission_issued": false
   },
   "public_template": true
 }

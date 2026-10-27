@@ -114,3 +114,7 @@ professional 动态 `target | dry-run` 名称仅沿真实登记目标和 active 
 正常`professional_web_execution.py describe/request-base/build-preflight`复用；原WEB临近执行鲜读actor/repo/main/branch/PR/同head官方Node22 CI和未知效果，自身实际原生facts/selfcheck及源备份后沿正常preflight/policy单次办理。代码来源仅支持准确push/PR/CI/merge及必要既有Pages，不取得CMS/R3/Edge/DB/auth/账号/费用权限。已有同head成功自动Pages只读回，不重复手动dispatch。
 
 真实main前进后由原WEB形成同语义patch的必要后继；来源消费者验证原base祖先、准确原路径和语义，禁止用新head夹带业务变化或force旧base。`source-backup --task-id <原task> --state <真实当前state> --output <本项目内新目录>`只冻结当前真实Git正逆patch和source backup，供原build-preflight；不造未来PR/main/run，也不是远端备份或平台回滚效果。已发布后逆向须`state.code_recovery_source`绑定原实际allow policy、原WEB成功原生读回的own_candidate/current_main/完整SHA与时间，才可沿新逆向commit/PR/CI及新窄policy执行，不借别的任务许可或恢复整旧树。
+
+## 总助理普通决定实名委托
+
+当前入口：`python3 tools/chief_assistant_coordination.py authority`；普通结果原身份沿现有`result_coordination.py claim`领取，正常result-handoff记录实际controller_received/controller_decision，逻辑receiver不变、actor实名。直接回复及未知效果读回见该CLI的`reply`、`reply-effect`和[共享角色方法](../departments/operations-assistant/SKILL.md)。新完整结果默认总助理，协作仍回owner；历史实收不重收，专业执行不新增技术审批。

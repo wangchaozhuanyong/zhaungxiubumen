@@ -4011,7 +4011,20 @@ def policy_check(
     if action_class=='thread_message' or action_class in SPECIALIST_ACTION_CLASSES:
         from department_autonomy import ASSISTANTS,current_mode
         if current_mode(root) and (department in ASSISTANTS or target_department in ASSISTANTS):
-            raise WorkflowError('assistant roles are historical-only; no new dispatch, approval or wakeup')
+            from chief_assistant_coordination import authority as routine_authority
+            notice_identity=re.fullmatch(r'notify-result-([0-9a-f]{64})',str(action_id or ''))
+            routine_notice=(action_class=='thread_message' and target_department=='operations-assistant'
+                and scope==f'department_result:{task_id}:{department}' and notice_identity is not None
+                and (root/'logs/result-notifications'/(notice_identity[1]+'.json')).is_file()
+                and department not in ASSISTANTS and routine_authority(root) is not None
+                and _queued_notification_route(root,dict(task_id=task_id,sender_department=department,
+                    action_id=action_id,action_class=action_class,scope=scope,source_project_id=source_project_id,
+                    target_project_id=target_project_id,target_department=target_department,
+                    target_thread_id=target_thread_id,target_thread_title=target_thread_title,
+                    target_cwd=target_cwd,target_sidebar_section_id=target_sidebar_section_id,
+                    payload_sha256=payload_sha256))==[])
+            if not routine_notice:
+                raise WorkflowError('assistant roles are historical-only; no new dispatch, approval or wakeup')
     from department_autonomy import policy as autonomous_policy
     autonomous_requested=dict(task_id=task_id,department=department,action_id=action_id,action_class=action_class,scope=scope,approval_id=approval_id,skill=skill,consume_approval=consume_approval,source_project_id=source_project_id,target_project_id=target_project_id,target_department=target_department,payload_sha256=payload_sha256)
     autonomous_decision=autonomous_policy(root,autonomous_requested)

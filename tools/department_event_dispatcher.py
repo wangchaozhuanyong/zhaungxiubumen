@@ -418,7 +418,7 @@ def service_source_hashes(root):
              "flashcast_ops", "goal_delivery_runtime", "department_rotation",
              "professional_web_execution", "professional_web_increment",
              "professional_cms_execution", "professional_cms_integration",
-             "professional_cms_channel", "professional_cms_issuer")
+             "professional_cms_channel", "professional_cms_issuer", "chief_assistant_coordination")
     values = {"tools/" + name + ".py": hashlib.sha256((root / "tools" / (name + ".py")).read_bytes()).hexdigest()
               for name in names}
     if (root / CONFIG).is_file():
@@ -1389,7 +1389,11 @@ def _autonomous_activation_context(root, snapshot, value, record, row):
         expected = 'operations'
     route = rc.frozen_notification_route(root, record)
     exact = record['delivery_identity']
-    lane = 'HQ_knowledge' if expected == 'operations' else 'professional_acceptance'
+    if expected=='operations' and route.get('target_department')=='operations-assistant':
+        from chief_assistant_coordination import default_receiver,SOURCE as routine_SOURCE
+        original_queue=rc._validate_queued(root,value)
+        if original_queue.get('routine_route_authorization')==routine_SOURCE:expected=default_receiver(root,expected)
+    lane = 'HQ_knowledge' if expected in {'operations','operations-assistant'} else 'professional_acceptance'
     if (row['target'] != expected or route['target_department'] != expected
             or route['lane'] != lane or exact['target_department'] != expected
             or exact['target_thread_id'] != binding(root, expected)['task_id']):
@@ -1410,7 +1414,7 @@ def _autonomous_activation_context(root, snapshot, value, record, row):
     for role in dict.fromkeys((frozen['primary_owner'], value['sender_department'])):
         autonomous.original_assignment_ready(root, snapshot, role)
     return {'scope': scope, 'sender_department': value['sender_department']
-            if expected == 'operations' else 'operations',
+            if expected in {'operations','operations-assistant'} else 'operations',
             'delivery_model': autonomous.MODE, 'goal_contract': snapshot['goal_contract'],
             'original_owner': frozen['primary_owner'], 'original_producer': value['sender_department'],
             'frozen_recipient': expected, 'original_outbox': queued['outbox']}
@@ -1649,7 +1653,10 @@ def _ingest_view(root, store, allowed):
                 valid.add(event)
                 continue
             from department_autonomy import ASSISTANTS,current_mode
-            if current_mode(root) and record.get('route',{}).get('target_department') in ASSISTANTS:
+            from chief_assistant_coordination import authority as routine_authority
+            active_chief=(record.get('route',{}).get('target_department')=='operations-assistant' and routine_authority(root) is not None
+                and rc._validate_queued(root,value).get('routine_route_authorization')==__import__('chief_assistant_coordination').SOURCE)
+            if current_mode(root) and record.get('route',{}).get('target_department') in ASSISTANTS and not active_chief:
                 continue  # preserve the original transport; never wake a retired assistant
             if record.get('delivered'):
                 continue
