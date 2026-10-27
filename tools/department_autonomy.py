@@ -1606,10 +1606,19 @@ def autonomous_result_route(root,identity):
  if daily is not None:
   queued=[r for r in w._result_handoff_rows(root,identity['task_id'])if r.get('event')=='notification_queued'
    and all(r.get(k)==identity[k]for k in ('task_id','sender_department','candidate_version','result_sha256'))]
-  require(len(queued)<=1 and all(r.get('target_department')=='operations'and r.get('mode_authorization')==OWNER
-   and r.get('source_mode')=='scheduled_run'and r.get('source_automation_id')==daily['automation_id']for r in queued),
-   'one immutable declared daily receiver and original source required')
-  from chief_assistant_coordination import default_receiver
+  require(len(queued)<=1,'one immutable declared daily receiver and original source required')
+  from chief_assistant_coordination import default_receiver, authority as routine_authority, SOURCE as routine_SOURCE
+  for row in queued:
+   target=row.get('target_department')
+   require(row.get('mode_authorization')==OWNER and row.get('source_mode')=='scheduled_run'
+    and row.get('source_automation_id')==daily['automation_id']
+    and (target=='operations' or target=='operations-assistant' and row.get('routine_route_authorization')==routine_SOURCE
+         and routine_authority(root) is not None), 'one immutable declared daily receiver and original source required')
+   # Revalidate the original V2/READY/automation/owner evidence. This never
+   # changes the frozen receiver, signs intake, or creates a synthetic goal.
+   fixed=w.department_registry(root)[identity['sender_department']]['chat_binding']['task_id']
+   original=native_result(root,row,fixed)
+   require(all(row.get(k)==v for k,v in original.items()),'original frozen daily native/owner source must remain exact')
   target=(queued[0].get('target_department')or queued[0].get('responsible_assistant')) if queued else default_receiver(root,'operations')
   return {'lane':'HQ_knowledge','target_department':target,'source_mode':MODE,'scheduled_report_only':True,
    'acceptance_proven':False,'notification_proven':False,'HQ_second_review_required':False,

@@ -4107,6 +4107,41 @@ def validate_two_material_formal_goal(formal, rows):
             "publisher must freeze two exact Save tuples and real publishing authority")
 
 
+def _authenticated_formal_metadata_tail(root, formal, task_id, task_events):
+    """Read an authenticated same-state ordinary message tail, never edit snapshot."""
+    import chief_assistant_coordination as chief
+    count = formal.get("event_count")
+    require(type(count) is int and 0 < count <= len(task_events)
+            and task_events[count-1].get("state") == formal.get("current_state")
+            and (count == len(task_events) or formal.get("current_state") not in w.TERMINAL_STATES),
+            "exact original committed snapshot prefix required")
+    for event in task_events[count:]:
+        detail = event.get("details", {})
+        intent = detail.get("routine_decision_reply_intent", {})
+        require(set(detail) == {"routine_decision_reply_intent", "external_permission_issued"}
+                and detail["external_permission_issued"] is False and event.get("state") == formal["current_state"]
+                and intent.get("routine_delegation") == chief.SOURCE and intent.get("handling_actor") == chief.ROLE,
+                "only authenticated ordinary same-state transport metadata after snapshot")
+        request = chief.doc(root, intent.get("request"))
+        require(request.get("task_id") == task_id and request.get("action_id") == intent.get("action_id")
+                and request.get("payload") == intent.get("payload"), "exact original ordinary request and immutable payload")
+        effects = chief.reply_effect(root, task_id, request["action_id"])
+        require(effects.get("state") == "official_queue_accepted_not_received" and effects.get("intent") == intent,
+                "actual original accepted ordinary queue source, never an unknown or invented effect")
+        policies = [p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS) if p.get("decision_id") == intent.get("policy_decision_id")]
+        require(len(policies) == 1, "one actual original ordinary policy required")
+        policy = policies[0]
+        require(all(policy.get(k) == request.get(k) for k in ("task_id", "scope", "action_id", "action_class", "target_department", "target_thread_id", "payload_sha256"))
+                and policy.get("department") == request.get("sender_department") == chief.ROLE
+                and policy.get("status") == "allow" and policy.get("external_permission_issued") is False
+                and (policy.get("routine_delegation") == chief.SOURCE or policy.get("routine_delegation") is None
+                     and intent.get("decision_record_id") == request.get("routine_decision_reply", {}).get("decision_record_id")
+                     and bool(intent.get("decision_record_id")))
+                and policy.get("approval_basis") == "department_autonomous_delivery_v1"
+                and not policy.get("consume_approval") and not policy.get("approval_id"),
+                "ordinary source policy cannot carry Save/execution authority")
+
+
 @strict
 def authenticated_formal_goal_source(root, formal, contract, task_id):
     """Confirm the existing goal initializer's human source and committed history."""
@@ -4121,10 +4156,10 @@ def authenticated_formal_goal_source(root, formal, contract, task_id):
     task_events = [event for event in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS)
                    if event.get("task_id") == task_id]
     require(task_events and task_events[0].get("state") == "planned"
-            and formal.get("event_count") == len(task_events)
             and formal.get("current_state") == task_events[-1].get("state")
             and not w.validate_workflow_events(root, task_id),
             "real committed original workflow history required")
+    _authenticated_formal_metadata_tail(root, formal, task_id, task_events)
     frozen_goals = [event.get("details", {}).get("goal_delivery") for event in task_events
                     if isinstance(event.get("details", {}).get("goal_delivery"), dict)]
     require(frozen_goals, "original event-frozen goal required")
