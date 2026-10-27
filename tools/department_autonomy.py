@@ -650,7 +650,7 @@ def _owner_message_transport_not_started(root,snapshot,request):
  """No new decision may outrun a durable original intent or partial effect."""
  action=request['action_id'];task=snapshot['task_id']
  for event in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={'task_id':task}):
-  for key in ('collaboration_queue_intent','native_queue_intent','dispatch_intent'):
+  for key in ('collaboration_queue_intent','native_queue_intent','dispatch_intent','routine_decision_reply_intent'):
    marker=event.get('details',{}).get(key,{})
    require(isinstance(marker,dict),'malformed original transport intent; exact original effect readback required')
    if marker.get('action_id')==action:
@@ -770,6 +770,8 @@ def message_policy(root,request):
  with w.workflow_lock(root):
   snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,request['task_id'])))
   route=message_route(root,snapshot,request);require(route is not None,'authenticated task message required')
+  from chief_assistant_coordination import ORDINARY_PURPOSES, ordinary_message_facts
+  ordinary_facts=ordinary_message_facts(root,snapshot,request,route) if route.get('purpose') in ORDINARY_PURPOSES else None
   page=g._collaboration_native(root,request.get('actual_target_state'));binding=_message_fixed_binding(root,snapshot,request,request['target_department'])
   require(all(page.get('thread',{}).get(k)==binding[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()),'actual native target identity required')
   rows=w.read_jsonl(Path(root)/w.POLICY_DECISIONS)
@@ -794,19 +796,20 @@ def message_policy(root,request):
      and checked>w._parse_observed_at(previous['checked_at'])and row.get('message_policy_source'),
      'one ordered authentic original policy successor; no ambiguity or branch')
    ids.add(identifier);previous=row
-  if route.get('purpose')=='original_professional_collaboration_transport_only'and request.get('delivery_mode')=='official_native_queue':
+  if (route.get('purpose')=='original_professional_collaboration_transport_only' or ordinary_facts is not None) and request.get('delivery_mode')=='official_native_queue':
    _owner_message_transport_not_started(root,snapshot,request)
   source=None
   if previous:
    age=(now-w._parse_observed_at(previous['checked_at'])).total_seconds()
    if age<=300:return previous
-   source=_fresh_owner_message_policy_source(root,snapshot,request,route)
+   source=ordinary_facts if ordinary_facts is not None else _fresh_owner_message_policy_source(root,snapshot,request,route)
    # Re-read original effect under the same workflow lock immediately before append.
    _owner_message_transport_not_started(root,snapshot,request)
   checked_at=w.utc_timestamp()
   value={k:request[k]for k in fields};value.update(department=request['sender_department'],status='allow',approval_basis=MODE,
    checked_at=checked_at,approval_id='',consume_approval=False,reason=['actual_owner_delegation_original_task_report_only'],
    routing_status='routing_allowed',required_receipts=['normal_fixed_native_transport_and_effect_readback'],external_permission_issued=False)
+  if ordinary_facts is not None:value.update(routine_delegation=ordinary_facts['routine_delegation'],routine_message_source=ordinary_facts)
   if external_health is not None:value['actual_external_collaboration_health']=external_health
   if previous:value.update(supersedes_message_policy={'decision_id':previous['decision_id'],'sha256':w.sha256_value(previous)},
    message_policy_generation=len(existing),message_policy_root_id=existing[0]['decision_id'],

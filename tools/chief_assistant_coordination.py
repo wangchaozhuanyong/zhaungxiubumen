@@ -230,10 +230,121 @@ def record_decision(root, request):
             store.close()
 
 
+
+
+ORDINARY_PURPOSES = {'current_chief_original_owner_followthrough', 'original_professional_report_to_current_chief'}
+
+
+def ordinary_source_history(root, task):
+    """Immutable provenance only; old QA never becomes a new communication gate."""
+    events = w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS); previous = ''; own = []
+    for event in events:
+        require(event.get('previous_event_hash', '') == previous
+                and event.get('event_hash') == w.sha256_value({k: v for k, v in event.items() if k != 'event_hash'}),
+                'intact original workflow hash chain required')
+        previous = event['event_hash']
+        if event.get('task_id') == task: own.append(event)
+    require(own and own[0].get('state') == 'planned' and not any(e.get('state') == 'closed' for e in own),
+            'existing open original task history required; no closed goal reopening')
+    previous = ''
+    for row in w.read_jsonl(w.receipts_path(root, task)):
+        require(row.get('task_id') == task and row.get('previous_hash', '') == previous
+                and row.get('receipt_hash') == w.sha256_value(w._receipt_payload_for_hash(row)),
+                'intact original receipt hash chain required')
+        previous = row['receipt_hash']
+
+
+def ordinary_message_route(root, snapshot, request):
+    """Current owner-delegated communication, separate from old execution actors."""
+    import department_autonomy as a
+    import goal_delivery_runtime as g
+    sender, target = request.get('sender_department'), request.get('target_department')
+    if request.get('action_class') != 'thread_message' or ROLE not in {sender, target}:
+        return None
+    if request.get('result_notification') is not None or request.get('result_identity') is not None:
+        return None  # Formal result delivery retains its own authenticated transport.
+    require(authority(root) is not None, 'genuine current chief owner delegation required')
+    a.authority(root)
+    require(request.get('routine_delegation', SOURCE) == SOURCE
+            and (sender != ROLE or request.get('routine_delegation') == SOURCE),
+            'explicit authentic current chief source required; caller labels are not delegation')
+    require(request.get('delivery_mode') == 'official_native_queue' and not request.get('assignment_record_required') and not any(request.get(k) for k in (
+        'authorization_changes', 'approval_id', 'consume_approval', 'execution_request', 'permission_issued',
+        'production_write_allowed', 'qa_verdict', 'result_notification', 'routine_decision_reply')),
+        'ordinary communication cannot assign a task, impersonate a receipt or issue execution authority')
+    frozen = doc(root, snapshot.get('goal_contract'))
+    require(snapshot.get('current_state') not in w.TERMINAL_STATES
+            and all(snapshot.get('goal_delivery', {}).get(k) == frozen.get(k) for k in
+                ('primary_owner', 'producer_departments', 'authorized_scope', 'human_authorization', 'required_execution_actions')),
+            'supplied original state and frozen participants cannot change')
+    snapshot = g.restore_goal(root, snapshot); goal = snapshot.get('goal_delivery', {})
+    require(snapshot.get('task_id') == request.get('task_id') == frozen.get('task_id')
+            and snapshot.get('current_state') not in w.TERMINAL_STATES
+            and all(goal.get(k) == frozen.get(k) for k in ('primary_owner', 'producer_departments',
+                     'authorized_scope', 'human_authorization', 'required_execution_actions'))
+            and request.get('scope') in goal.get('authorized_scope', [])
+,
+            'active unchanged original task, authority, owner, scope and intact history required')
+    ordinary_source_history(root, snapshot['task_id'])
+    owner = goal.get('primary_owner')
+    if sender == ROLE:
+        require(target == owner and a.professional(root, target), 'ordinary followthrough returns only to the real original professional owner')
+        purpose = 'current_chief_original_owner_followthrough'
+    else:
+        require(target == ROLE and sender not in a.ASSISTANTS
+                and sender in {owner, *goal.get('producer_departments', [])} and a.professional(root, sender),
+                'original professional report only; retired actors cannot become current senders')
+        purpose = 'original_professional_report_to_current_chief'
+    payload = request.get('payload')
+    require(isinstance(payload, dict) and w.file_digest(root, payload.get('path', '')) == payload
+            and request.get('payload_sha256') == payload['sha256'], 'unchanged exact ordinary message bytes required')
+    body = w.safe_path(root, payload['path']).read_text()
+    keys = ('task_id', 'scope', 'action_id', 'sender_department', 'target_department') if sender == ROLE else ('task_id', 'scope')
+    require(all(re.search(r'(?m)^' + key + '=' + re.escape(str(request.get(key, ''))) + r'\s*$', body) for key in keys),
+            'original task/scope and real sender/receiver/action payload relation required')
+    registry = w.department_registry(root); source, dest = [registry[x]['chat_binding'] for x in (sender, target)]
+    require(source.get('project_id') == dest.get('project_id') == request.get('source_project_id') == request.get('target_project_id') == a.PROJECT
+            and Path(source.get('cwd', '')).resolve() == Path(dest.get('cwd', '')).resolve() == Path(root).resolve()
+            and all(request.get(k) == dest[v] for k, v in {'target_thread_id': 'task_id', 'target_thread_title': 'title',
+                'target_cwd': 'cwd', 'target_sidebar_section_id': 'sidebar_section_id'}.items())
+            and registry[sender].get('new_dispatch_enabled') is True and registry[target].get('new_dispatch_enabled') is True,
+            'exact current fixed sender/receiver/project/directory/sidebar required; no role alias')
+    return {'mode': a.MODE, 'purpose': purpose, 'source': payload, 'report': payload, 'scope': request['scope'],
+            'sender_department': sender, 'target_department': target, 'owner_source': SOURCE,
+            'goal_contract': snapshot['goal_contract'], 'original_professional_owner': owner,
+            'historical_responsible_assistant_unchanged': goal.get('responsible_assistant'),
+            'external_permission_issued': False, 'business_producer_added': False}
+
+
+def ordinary_message_facts(root, snapshot, request, route):
+    """Fresh sending facts are checked at policy, not written into old sources."""
+    import department_autonomy as a
+    import goal_delivery_runtime as g
+    require(route.get('purpose') in ORDINARY_PURPOSES and ordinary_message_route(root, snapshot, request) == route,
+            'same authentic ordinary coordination route required')
+    observed = w._parse_observed_at(request.get('live_observed_at')); now = dt.datetime.now(dt.timezone.utc)
+    require(observed is not None and 0 <= (now - observed).total_seconds() <= 300,
+            'fresh ordinary sender/receiver observation required before queue; preserve old report bytes')
+    registry = w.department_registry(root)
+    pins = {}
+    for key, role in (('actual_sender_state', request['sender_department']), ('actual_target_state', request['target_department'])):
+        page = g._collaboration_native(root, request.get(key)); fixed = registry[role]['chat_binding']
+        require(all(page.get('thread', {}).get(k) == fixed[v] for k, v in
+                    {'id': 'task_id', 'title': 'title', 'cwd': 'cwd', 'hostId': 'host_id'}.items())
+                and page['thread'].get('kind') == 'codex' and page['thread'].get('status', {}).get('type') in {'active', 'idle', 'notLoaded'} and page.get('turns')
+                and not page['turns'][0].get('error') and page['turns'][0].get('status') in {'completed', 'inProgress', 'pending'}
+                and type(page['turns'][0].get('startedAt')) in {int, float}
+                and page['turns'][0]['startedAt'] <= now.timestamp(),
+                'real current fixed native identity/turn; unknown, failed or substituted role rejected')
+        pins[key] = request[key]
+    return {'goal_contract': route['goal_contract'], 'routine_delegation': SOURCE, 'payload': request['payload'],
+            'live_observed_at': request['live_observed_at'], **pins, 'external_permission_issued': False}
+
+
 def message_route(root, snapshot, request):
     source = request.get('routine_decision_reply')
     if source is None:
-        return None
+        return ordinary_message_route(root, snapshot, request)
     import result_coordination as rc
     require(request.get('action_class') == 'thread_message' and not request.get('assignment_record_required')
             and not any(request.get(k) for k in ('authorization_changes', 'approval_id', 'consume_approval', 'execution_request')),
@@ -301,7 +412,7 @@ def reply(root, request_path, directory):
         destination.mkdir(parents=True)
         w.atomic_write_json(destination / 'normal-preparation.json', prepared)
         intent = {'action_id': request['action_id'], 'request': request_pin,
-                  'decision_record_id': route['decision_record_id'], 'directory': directory,
+                  'decision_record_id': route.get('decision_record_id'), 'ordinary_message_source': route.get('goal_contract'), 'routine_delegation': SOURCE, 'directory': directory,
                   'payload': request['payload'], 'policy_decision_id': prepared['policy_decision']['decision_id'],
                   'handling_actor': request['sender_department'], 'target_department': request['target_department']}
         w.append_workflow_event(root, request['task_id'], snapshot['current_state'],
