@@ -1773,7 +1773,7 @@ def _rotated_original_professional_assignment(root,snapshot,role,rows):
   if not dispatches:continue
   require(len(dispatches)==1,'one original exact dispatch before native ACK required')
   dispatch=dispatches[0];sent=w._parse_observed_at(dispatch.get('created_at'));at=w._parse_observed_at(ack.get('created_at'))
-  policies=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('decision_id')==dispatch.get('policy_decision_id')]
+  policies=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS, where={'decision_id':dispatch.get('policy_decision_id')})if p.get('decision_id')==dispatch.get('policy_decision_id')]
   require(len(policies)==1,'one original dispatch policy required');policy=policies[0]
   require(all(policy.get(k)==v for k,v in {'status':'allow','task_id':snapshot['task_id'],'scope':ack['scope'],
    'action_id':ack['action_id'],'action_class':'thread_message','target_department':role,'target_thread_id':old['task_id'],

@@ -518,7 +518,7 @@ def validate_goal(root, goal, *, task_id=None):
 def restore_goal(root, snapshot):
     result = copy.deepcopy(snapshot)
     frozen_completion = None
-    for row in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS):
+    for row in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS, where={"task_id": snapshot.get("task_id")}):
         if row.get("task_id") != snapshot.get("task_id"):
             continue
         detail = row.get("details", {})

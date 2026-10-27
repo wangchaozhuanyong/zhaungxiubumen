@@ -194,7 +194,7 @@ class RequestValidationContext:
             self.proofs.clear()
         return self.files[key]["raw"]
 
-    def json(self, path, *, lines=False):
+    def json(self, path, *, lines=False, where=None):
         key = str(Path(path).resolve())
         raw = self.bytes(path)
         mode = "jsonl" if lines else "json"
@@ -215,7 +215,19 @@ class RequestValidationContext:
                 if not isinstance(value, dict):
                     raise WorkflowError("strict request JSON object required")
                 cached[mode] = value
-        return deepcopy(cached[mode])
+        value = cached[mode]
+        if where is not None:
+            if not lines or not isinstance(where, dict) or not where or any(not isinstance(k, str) for k in where):
+                raise WorkflowError("exact JSONL field selector required")
+            # Select data before copying, not a PASS/authority/latest/effect memo.
+            # Fresh bytes/version checks above run on every call. Keep duplicates
+            # and order; existing caller identity/chain/role checks still run.
+            value = [row for row in value if all(row.get(k) == v for k, v in where.items())]
+        # Cached inputs were parsed from JSON, so they contain JSON values only.
+        # Preserve an independent mutable return value without recursively
+        # copying millions of Python nodes on every same-request source read.
+        # Validators still run each time; bytes/version invalidation is unchanged.
+        return json.loads(json.dumps(value, ensure_ascii=True, separators=(",", ":")))
 
     def recheck(self):
         # Under the original commit lock, hash each dependency once. Parsing
@@ -261,14 +273,14 @@ def read_json(path: Path) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def read_jsonl(path: Path) -> list[dict[str, Any]]:
+def read_jsonl(path: Path, *, where=None) -> list[dict[str, Any]]:
     from readonly_work_view_cache import note_read
     note_read(path)
     if not path.exists():
         return []
     current = _VALIDATION_CONTEXT.get()
     if current is not None:
-        return current.json(path, lines=True)
+        return current.json(path, lines=True, where=where)
     rows: list[dict[str, Any]] = []
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         if not line.strip():
@@ -279,8 +291,11 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
             continue
         if isinstance(value, dict):
             rows.append(value)
+    if where is not None:
+        if not isinstance(where, dict) or not where or any(not isinstance(k, str) for k in where):
+            raise WorkflowError("exact JSONL field selector required")
+        return [row for row in rows if all(row.get(k) == v for k, v in where.items())]
     return rows
-
 
 def atomic_write_text(path: Path, content: str) -> None:
     from department_rotation import prohibit_validation_write

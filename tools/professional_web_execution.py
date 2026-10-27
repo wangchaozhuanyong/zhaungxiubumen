@@ -654,6 +654,8 @@ def record_preflight(root,task,path):
     pin=w.file_digest(root,path);item=a.document(root,pin);req=a.document(root,item.get('request'));validate_request(root,req)
     need(item.get('schema')=='professional-external-WEB-fresh-preflight/v1'and req.get('task_id')==task,'normal external WEB preflight envelope')
     with w.workflow_lock(root):
+        if req['state'].get('known_zero_push_recovery'):
+            observed=w._parse_observed_at(req.get('observed_at'));need(observed and 0<=(dt.datetime.now(dt.timezone.utc)-observed).total_seconds()<=300,'recovery observations expired during validation; no stale preflight commit')
         rows=[e['details']['professional_WEB_preflight']for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==task and e.get('details',{}).get('professional_WEB_preflight',{}).get('action_id')==req['action_id']]
         if rows and rows[-1]['request']==item['request']:return {'result':'duplicate_ignored','permission_issued':False}
         issued=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('task_id')==task and p.get('action_id')==req['action_id']and p.get('status')=='allow']
@@ -711,6 +713,7 @@ def policy(root,requested):
         if ctx.get('standing_CMS_channel'):
             value.pop('delegated_HQ_decision');value.update(standing_CMS_authority=ctx['decision'],authority_department=ctx['authority_department'],standing_authorization_id=ctx['standing_authorization_id'])
         if requested.get('consume_approval'):
+            if recovery:need(0<=(dt.datetime.now(dt.timezone.utc)-observed).total_seconds()<=300,'recovery observations expired during validation; no stale policy consumption')
             if op=='edge_deploy':
                 apr=w.effective_approvals(root).get(reference(ctx,state['candidate_commit'],state['main_sha']));need(apr and apr.get('status')=='active'and apr.get('source_preflight')==pin,'one exact current unconsumed R3 run-bound approval reference')
                 need(w._parse_observed_at(apr['platform_binding']['expiresAt'])>dt.datetime.now(dt.timezone.utc),'R3 approval expired, do not extend old permission')

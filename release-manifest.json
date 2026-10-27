@@ -1001,9 +1001,9 @@
     },
     {
       "path": "tools/department_autonomy.py",
-      "source_sha256": "fe8de2f66756a7ea92abfc3a4a6ba9b0a5bba103de8ee16c69c5e4f4003ca964",
-      "release_sha256": "705f8ac9001cdcd3e566fb4580bb22974c87af2e9bce0d979cc61a71d25c7add",
-      "bytes": 176610
+      "source_sha256": "b1fcd01d2fd816b864c7ff4c7e49ce25bf44545924a14d5462c143bacad97da1",
+      "release_sha256": "753bdac94eb3c4028ed213bfdd3bd56f8db231cfe5c87f10a7bf5fb5e8e83e33",
+      "bytes": 176668
     },
     {
       "path": "tools/department_event_dispatcher.py",
@@ -1067,9 +1067,9 @@
     },
     {
       "path": "tools/goal_delivery_runtime.py",
-      "source_sha256": "a2118be93c9fdfbde0d2d516d4ee354eff9395e2f29f5bc4fe07d15bee1e7856",
-      "release_sha256": "f619743b259d6362abe5a3847ff1e052e731c0845277b730ad8d0ca279b0745e",
-      "bytes": 200536
+      "source_sha256": "966051ce3729f42c2e0b4bbaf81ea42deedf36164517bb46d82398b1dab013d5",
+      "release_sha256": "3d72a3a7f25baf7f60832ceb31c666b67d2d076185cb2d166911d7120b7ead32",
+      "bytes": 200580
     },
     {
       "path": "tools/goal_source_recovery.py",
@@ -1247,9 +1247,9 @@
     },
     {
       "path": "tools/professional_web_execution.py",
-      "source_sha256": "06843879103cd74257e0cb39ba1a95eb070e66d8545eef17d8a0083e5991f5b4",
-      "release_sha256": "73f8bb186e3ac4da800c3260eac61f746354ce439b1e3ebe8b18863facbdd7e4",
-      "bytes": 86426
+      "source_sha256": "cb3c01fb5558708c3f7f5f5ea47d6a3f978917f1f127d1151af650a79335db56",
+      "release_sha256": "d9be2d663bf000190f4ac8f4f25e7c91a69877797fade9515f005ea4e6bd2fec",
+      "bytes": 86890
     },
     {
       "path": "tools/professional_web_increment.py",
@@ -1775,9 +1775,9 @@
     },
     {
       "path": "tools/workflow_control.py",
-      "source_sha256": "606dae5f1ddca1f63e81ffe4187f4b08193b4967b66a94c299fb68a5cf9fd7dc",
-      "release_sha256": "d05781f10d762ec5d28d2f917a369ba7d8fd6f8cb5fae73221a840839a870ffd",
-      "bytes": 607653
+      "source_sha256": "d734431e0503e6cd58b317aca12f3b4030a56a2dd71621a1b7910d528ac766ab",
+      "release_sha256": "5ea3e10cf382522a0f3a145e5f08f3f4667e29c7d9100207126c599e298698b6",
+      "bytes": 608928
     }
   ],
   "retired_roles": [
@@ -1793,5 +1793,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "831383bc05ff8c7d65899c6642a739e60cecf76b4b639525dbd088d5d28e5ba1"
+  "fingerprint": "de4d6c52105a772d1dcf951a212ca1727d447a1e8edb090d18be7d100163061b"
 }
