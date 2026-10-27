@@ -641,6 +641,59 @@ def _owner_message_transport_not_started(root,snapshot,request):
    raise w.WorkflowError('original collaboration effect/unknown receipt exists; read original key, no new policy')
 
 
+def _message_fixed_binding(root,snapshot,request,role):
+ """An external collaborator remains external to the department registry."""
+ import goal_delivery_runtime as g
+ registry=w.department_registry(root)
+ if role in registry:return registry[role]['chat_binding']
+ require(role==request.get('target_department'),'an external role cannot substitute the original professional sender')
+ pair=g.owner_result_collaboration_binding(root,snapshot,request)
+ require(pair is not None,'one authenticated original owner-message external binding required')
+ binding=pair[1]
+ require(binding.get('project_id')!=PROJECT and binding.get('thread_id')
+  and binding.get('runtime_goal_authorization_required') is True
+  and binding.get('generic_cross_project_access_allowed') is False,
+  'exact registered original external collaboration, never generic access')
+ return {**binding,'task_id':binding['thread_id']}
+
+
+def _external_message_health(root,snapshot,request,role,pin):
+ """Validate original native reply/time without creating an internal health row."""
+ import goal_delivery_runtime as g
+ import hashlib
+ binding=_message_fixed_binding(root,snapshot,request,role)
+ require(role not in w.department_registry(root)and w._chat_binding_healthy(binding,verification_ttl_hours=0),
+  'eligible original external role required; stale cache is not a fresh reply')
+ observed=w._parse_observed_at(request.get('live_observed_at'));now=dt.datetime.now(dt.timezone.utc)
+ require(observed is not None and 0<=(now-observed).total_seconds()<=300,'fresh actual external collaboration observation required')
+ page=g._collaboration_native(root,pin);thread=page.get('thread',{})
+ require(all(thread.get(k)==binding[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd','hostId':'host_id'}.items())
+  and thread.get('kind')=='codex'and thread.get('status',{}).get('type')in {'active','idle','notLoaded'},
+  'actual original external role/project host/directory/identity required')
+ turns=page.get('turns',[])
+ require(turns and not turns[0].get('error')and turns[0].get('status')in {'inProgress','pending','completed'},
+  'real current external turn; failed or unknown is not healthy')
+ finals=[]
+ for turn in turns:
+  messages=[m for m in turn.get('items',[])if m.get('type')=='agentMessage'and m.get('phase')in {'final_answer','final'}]
+  if turn.get('status')!='completed' or turn.get('error') or not messages:continue
+  require(len(messages)==1 and isinstance(messages[0].get('text'),str)and messages[0]['text'].strip(),
+   'one genuine nonempty external completed reply; ambiguous/empty is rejected')
+  stamp=turn.get('completedAt')
+  at=dt.datetime.fromtimestamp(stamp,dt.timezone.utc)if type(stamp)in {int,float}else w._parse_observed_at(stamp)
+  require(at is not None and type(turn.get('startedAt'))in {int,float}and turn['startedAt']<=at.timestamp()<=now.timestamp(),
+   'real original external completion chronology')
+  finals.append((at,turn,messages[0]))
+ require(finals,'one real external completed reply required; notLoaded is not health')
+ at,turn,final=max(finals,key=lambda x:x[0])
+ ttl=int(w.read_json(Path(root)/'data/department-registry.json').get('health_policy',{}).get('verification_ttl_hours',26))
+ require(0<=(now-at).total_seconds()<=ttl*3600,'actual external reply expired; do not refresh old time')
+ return {'department':role,'project_id':binding['project_id'],'thread_id':binding['task_id'],
+  'native_reply':pin,'source_turn_id':turn['id'],'source_message_id':final['id'],
+  'reply_sha256':hashlib.sha256(final['text'].encode('utf-8')).hexdigest(),'reply_observed_at':at.isoformat(),
+  'internal_department_or_health_row_created':False,'external_permission_issued':False}
+
+
 def _fresh_owner_message_policy_source(root,snapshot,request,route):
  """The existing normal preparation facts, not caller renewal flags."""
  import goal_delivery_runtime as g
@@ -657,7 +710,7 @@ def _fresh_owner_message_policy_source(root,snapshot,request,route):
   'fresh original message observation required; no future or backdated policy')
  registry=w.department_registry(root)
  for key,role in (('actual_sender_state',request['sender_department']),('actual_target_state',request['target_department'])):
-  page=g._collaboration_native(root,request.get(key));fixed=registry[role]['chat_binding']
+  page=g._collaboration_native(root,request.get(key));fixed=_message_fixed_binding(root,snapshot,request,role)
   require(all(page.get('thread',{}).get(k)==fixed[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items())
    and page['thread'].get('hostId')==fixed['host_id']and page['thread'].get('kind')=='codex'
    and page.get('turns')and not page['turns'][0].get('error'),
@@ -680,14 +733,18 @@ def message_policy(root,request):
  # A fresh real final can repair a stale health cache before the normal gate.
  from flashcast_ops import refresh_department_health
  import goal_delivery_runtime as g
+ snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,request['task_id'])))
+ external_health=None
  for key,role in (('actual_sender_state',request.get('sender_department')),('actual_target_state',request.get('target_department'))):
-  if request.get(key):refresh_department_health(root,role,request[key],only_if_stale=True)
+  if request.get(key):
+   if role in w.department_registry(root):refresh_department_health(root,role,request[key],only_if_stale=True)
+   else:external_health=_external_message_health(root,snapshot,request,role,request[key])
  fields=('task_id','action_id','action_class','scope','source_project_id','target_project_id','target_department',
          'target_thread_id','target_thread_title','target_cwd','target_sidebar_section_id','payload_sha256')
  with w.workflow_lock(root):
   snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,request['task_id'])))
   route=message_route(root,snapshot,request);require(route is not None,'authenticated task message required')
-  page=g._collaboration_native(root,request.get('actual_target_state'));binding=w.department_registry(root)[request['target_department']]['chat_binding']
+  page=g._collaboration_native(root,request.get('actual_target_state'));binding=_message_fixed_binding(root,snapshot,request,request['target_department'])
   require(all(page.get('thread',{}).get(k)==binding[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()),'actual native target identity required')
   rows=w.read_jsonl(Path(root)/w.POLICY_DECISIONS)
   existing=[x for x in rows if x.get('task_id')==request['task_id']and x.get('action_id')==request['action_id']and x.get('approval_basis')==MODE]
@@ -724,6 +781,7 @@ def message_policy(root,request):
   value={k:request[k]for k in fields};value.update(department=request['sender_department'],status='allow',approval_basis=MODE,
    checked_at=checked_at,approval_id='',consume_approval=False,reason=['actual_owner_delegation_original_task_report_only'],
    routing_status='routing_allowed',required_receipts=['normal_fixed_native_transport_and_effect_readback'],external_permission_issued=False)
+  if external_health is not None:value['actual_external_collaboration_health']=external_health
   if previous:value.update(supersedes_message_policy={'decision_id':previous['decision_id'],'sha256':w.sha256_value(previous)},
    message_policy_generation=len(existing),message_policy_root_id=existing[0]['decision_id'],
    renewal_reason='expired_original_policy_no_transport_effect',message_policy_source=source,delivery_mode='official_native_queue')
