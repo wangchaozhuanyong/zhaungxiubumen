@@ -1456,6 +1456,9 @@ def _condo_faq_v7_post_candidate_preflight(root, task_id, input_path, action):
 def record_approved_action(root, task_id, input_path):
     """Freeze a precise routine decision, or owner action in an original declared collaboration scope."""
     action = w.read_json(w.safe_path(root, input_path))
+    if action.get("schema") == "original-received-code-only-source/v1":
+        from original_production_delivery import record_code
+        return record_code(root, task_id, input_path)
     if action.get("schema") == "original-explicit-production-delivery-source/v1":
         from original_production_delivery import record
         return record(root, task_id, input_path)

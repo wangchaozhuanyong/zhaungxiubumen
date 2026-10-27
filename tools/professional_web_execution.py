@@ -306,7 +306,7 @@ def validate_code_recovery(ctx,state):
          and proof.get('department')==ctx['role']and proof.get('source_registration')==ctx['registration'], 'same real own code release recovery source')
     rows=[r for r in w.read_jsonl(root/w.POLICY_DECISIONS)if r.get('decision_id')==proof.get('forward_policy_decision_id')]
     need(len(rows)==1 and rows[0].get('status')=='allow'and rows[0].get('task_id')==ctx['task']
-         and rows[0].get('department')==ctx['role']and rows[0].get('delegated_HQ_decision')==ctx['decision'], 'real original single-use forward policy, not an unrelated grant')
+         and rows[0].get('department')==ctx['role']and (rows[0].get('original_professional_source') if ctx.get('owner_received_code_stage') else rows[0].get('delegated_HQ_decision'))==ctx['decision'], 'real original single-use forward policy, not an unrelated grant')
     request=a.document(root,rows[0]['exact_request']);need(request.get('operation')in {'merge','pages_deploy'},'real published/merged own source only')
     output=json.loads(native(root,ctx,proof.get('actual_native'),proof.get('command_id')))
     observed=w._parse_observed_at(output.get('observed_at'));issued=w._parse_observed_at(rows[0].get('checked_at'))
@@ -365,6 +365,11 @@ def candidate(ctx,state):
 
 def execution_context(root,task,state):
     from professional_web_increment import select
+    if 'code_only_source_registration' in state:
+        from original_production_delivery import code_records
+        sources=[x for x in code_records(root,task) if x['registration']==state['code_only_source_registration']]
+        need(len(sources)==1,'one authenticated explicitly selected code-only source stage')
+        return sources[0]
     return select(root,records(root,task)[0],state)
 
 def static_intent(root,request):
@@ -724,6 +729,7 @@ def policy(root,requested):
         if ctx.get('original_production_channel'):
             value.pop('delegated_HQ_decision');value.update(original_production_authority=ctx['contract'],original_professional_source=ctx['decision'])
         if requested.get('consume_approval'):
+            need(not ctx.get('local_source_stage_only'),'local compatible code source is registered; this source-only stage does not supply original WEB per-action production authority; no five-CMS permission inheritance')
             if recovery:need(0<=(dt.datetime.now(dt.timezone.utc)-observed).total_seconds()<=300,'recovery observations expired during validation; no stale policy consumption')
             if op=='edge_deploy':
                 apr=w.effective_approvals(root).get(reference(ctx,state['candidate_commit'],state['main_sha']));need(apr and apr.get('status')=='active'and apr.get('source_preflight')==pin,'one exact current unconsumed R3 run-bound approval reference')
@@ -812,8 +818,8 @@ def source_backup(root,task,state,out_path):
     path=directory/'SOURCE-BACKUP.json';w.atomic_write_json(path,value)
     return {'source_backup':w.file_digest(root,str(path.relative_to(root))),'external_permission_issued':False}
 
-def describe(root,task):
-    sources=records(root,task)
+def describe(root,task,state=None):
+    sources=[execution_context(root,task,state)] if state and 'code_only_source_registration' in state else records(root,task)
     need(len(sources)==1,'one actual registered original WEB production source required; issuer contract/local target alone is not that source')
     ctx=sources[0]
     return {'task_id':task,'registered_source':ctx['registration'],'role':ctx['role'],'binding':ctx['binding'],
@@ -822,8 +828,10 @@ def describe(root,task):
       'original_real_head':ctx['commit'],'branch':ctx['branch'],'source_paths':ctx['paths'],
       'operations':{op:{'action_class':kind,'scope':scopes(ctx,op),'facts_required_at_actual_stage':True}for op,kind in OPS.items()if not ctx.get('code_only_release')or op in ctx['allowed_operations']},
       'minimum_platform_guards':({'all_exact_head_required_CI':sorted(CHECKS),'Pages_workflow':PAGES,'fresh_execution_seconds':300,'single_use':True,'excluded_operations':['CMS','R3','Edge','DB','auth','account','Ads']}if ctx.get('code_only_release')else{'all_exact_head_required_CI':sorted(CHECKS),'R3_workflow':R3,'Pages_workflow':PAGES,'R3_run_attempt':1,'environment':'production-supabase','approval_TTL_minutes':15,'single_use':True}),
+      'registered_code_only_stages':[{'source':x['registration'],'commit':x['commit'],'linear_parent':x['git_parent'],'cumulative_base':x['base'],'paths':x['paths'],'operations':list(x['allowed_operations'])} for x in __import__('original_production_delivery').code_records(root,task)],
       'adopted_increments':[{'commit':x['commit'],'base':x['base'],'tree':x['tree'],'branch':x['branch'],'worktree':x['worktree'],'source':x['increment_registration'],'operations':x['increment_allowed_operations'],
                             **{k:x[k]for k in ('git_parent','existing_pull_number','increment_source_mode')if k in x}}for x in __import__('professional_web_increment').sources(root,ctx)],
+      'local_source_stage_only':ctx.get('local_source_stage_only',False),'source_registration_grants_execution_authority':False,
       'future_PR_merge_SHA_run_or_version_provided':False,'actual_external_action_performed':False}
 
 if __name__=='__main__':
@@ -832,7 +840,7 @@ if __name__=='__main__':
     args=parser.parse_args();root=Path(__file__).resolve().parents[1]
     try:
         with w.request_validation_context():
-            if args.command=='describe':result=describe(root,args.task_id)
+            if args.command=='describe':result=describe(root,args.task_id,a.document(root,w.file_digest(root,args.state))if args.state else None)
             elif args.command=='record-push-recovery':result=record_push_recovery(root,args.task_id,args.input)
             elif args.command=='push-recovery-probe':
                 result=push_recovery_probe(root,args.task_id,a.document(root,w.file_digest(root,args.state)))

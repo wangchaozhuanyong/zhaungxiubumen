@@ -229,7 +229,13 @@ def candidate(ctx, state):
          and web.git(ctx, 'merge-base', ctx['base'], base).decode().strip() == ctx['base']
          and set(web.git(ctx, 'diff', '--name-only', base, head).decode().splitlines()) <= set(ctx['paths']),
          'real same-lineage combined head/base and only original paths')
-    if mode == 'remove_own_delta':
+    if ctx.get('owner_received_code_stage'):
+        parents = web.git(ctx, 'show', '-s', '--format=%P', head).decode().split()
+        need(len(parents) == 1 and state.get('candidate_parent') == parents[0],
+             'true current linear parent is mandatory and never inferred from cumulative base')
+    if mode == 'remove_own_delta' and ctx.get('code_only_release'):
+        web.validate_code_recovery(ctx, state)
+    elif mode == 'remove_own_delta':
         import goal_delivery_runtime as g
         source = ctx['registered_CMS']; pin = state.get('CMS_recovery_source'); proof = a.document(Path(ctx['root']), pin)
         snapshot = g.restore_goal(Path(ctx['root']), w.read_json(w.snapshot_path(Path(ctx['root']), ctx['task'])))
@@ -259,6 +265,167 @@ def candidate(ctx, state):
                      and web.git(ctx, 'ls-tree', head, '--', path).split()[:1] == web.git(ctx, 'ls-tree', right, '--', path).split()[:1],
                      'each original source contribution and file mode must survive; a genuine overlap needs exact new source')
     return head, base
+
+
+CODE_SCHEMA = 'original-received-code-only-source/v1'
+CODE_EVENT = 'professional_WEB_received_code_only_source'
+
+
+def code_context(root, snapshot, item):
+    """An authenticated professional source stage, separate from existing CMS."""
+    import professional_web_execution as web
+    import goal_delivery_runtime as g
+    import result_coordination as rc
+    import xml.etree.ElementTree as ET
+    base_sources = web.records(root, snapshot['task_id'])
+    need(len(base_sources) == 1 and item.get('schema') == CODE_SCHEMA
+         and item.get('task_id') == snapshot['task_id']
+         and item.get('original_source_registration') == base_sources[0]['registration'],
+         'one original authority lineage; code-only stage never replaces CMS source')
+    base = base_sources[0]; owner = base['owner']; binding = base['binding']
+    goal = a.participant(root, snapshot, owner); data = a.document(root, item['owner_input'])
+    need(data.get('task_id') == snapshot['task_id'] and data.get('scope') == base['scope']
+         and data.get('primary_owner') == data.get('department') == owner
+         and data.get('original_goal_contract') == snapshot['goal_contract']
+         and data.get('original_executor') == data.get('actual_source_producer') == base['role']
+         and data.get('actual_source_producer_thread_id') == binding['thread_id']
+         and goal['primary_owner'] == owner, 'same frozen task/scope/owner/original external executor')
+    # The committed receipt proves custody only; it is not a technical approval.
+    decision = a.document(root, item['actual_custody_decision']); identity = rc.exact_identity(decision)
+    intake = rc._received_delivery(root, identity, {'target_department': 'operations-assistant'})
+    report = a.document(root, decision['outbox'])
+    need(intake and intake['record_id'] == decision.get('actual_intake_record_id')
+         and identity['task_id'] == snapshot['task_id'] and identity['sender_department'] == owner
+         and decision.get('scope') == base['scope'] and report.get('primary_owner') == owner
+         and item['owner_input'] in report.get('evidence', []), 'actual same-result SQL/native custody of complete professional input')
+    business = a.document(root, data['actual_original_business_input'])
+    selection = a.document(root, data['actual_C1_ordinary_compatibility_decision'])
+    need(selection.get('task_id') == business.get('task_id') == snapshot['task_id']
+         and selection.get('scope') == business.get('scope') == base['scope']
+         and selection.get('professional_business_owner') == business.get('primary_owner') == owner
+         and selection.get('original_code_executor') == business.get('original_code_executor') == base['role']
+         and web.code_same_pin(root, selection['original_exact_input'], data['actual_original_business_input']),
+         'actual original professional scope/selection, not a new permission')
+    original_pin = data['actual_typed_producer_original']; typed = web.external(root, original_pin, binding)
+    need(a.document(root, data['actual_exact_C1_typed_copy']) == typed
+         and typed.get('task_id') == snapshot['task_id'] and typed.get('scope') == base['scope']
+         and typed.get('producer') == base['role'] and typed.get('producer_thread') == binding['thread_id']
+         and typed.get('original_action_id') == data['actual_original_action_id']
+         and web.code_same_pin(root, typed['professional_decision'], data['actual_C1_ordinary_compatibility_decision'])
+         and web.code_same_pin(root, typed['original_business_input'], data['actual_original_business_input']),
+         'unmodified original complete producer report and exact professional custody')
+    native = g._native_document(root, item['actual_WEB_native'])
+    need(all(native.get('thread', {}).get(k) == binding[v] for k, v in
+             {'id':'thread_id','title':'title','cwd':'cwd','hostId':'host_id'}.items()), 'actual original WEB identity/project host')
+    matches = [(t,c) for t in native.get('turns', []) for c in t.get('items', []) if c.get('id') == item.get('source_command')]
+    need(len(matches) == 1, 'one actual completed source-emitting command')
+    turn, command = matches[0]; raw = json.loads(w._completion_execution_output(command))
+    finals = [m for m in turn.get('items', []) if m.get('type') == 'agentMessage' and m.get('phase') == 'final_answer']
+    source_final = g._native_document(root, data['actual_producer_completed_native'])
+    original_turns = [t for t in source_final.get('turns', []) if t.get('id') == turn.get('id')]
+    echoes = []
+    for m in turn.get('items', []):
+        if m.get('type') != 'functionCallOutput': continue
+        output = m.get('output', {}); text = output.get('text', '') if isinstance(output, dict) else ''
+        try: doc = ET.fromstring(text)
+        except ET.ParseError: continue
+        payload = doc.findtext('input') or ''
+        if (doc.tag == 'codex_delegation' and doc.findtext('source_thread_id') == w.department_registry(root)['operations']['chat_binding']['task_id']
+            and all(s in payload for s in (snapshot['task_id'], base['scope'], data['actual_original_action_id'],
+                   data['actual_C1_ordinary_compatibility_decision']['sha256']))): echoes.append(m)
+    made = w._parse_observed_at(typed.get('produced_at'))
+    need(turn.get('status') == 'completed' and not turn.get('error')
+         and command.get('type') == 'commandExecution' and command.get('status') == 'completed' and command.get('exitCode') == 0
+         and Path(command.get('cwd', '')).resolve().is_relative_to(Path(binding['cwd']).resolve())
+         and raw.get('report') == original_pin and len(finals) == len(echoes) == len(original_turns) == 1
+         and original_turns[0].get('status') == 'completed' and finals[0] in original_turns[0]['items']
+         and turn['items'].index(echoes[0]) < turn['items'].index(command) < turn['items'].index(finals[0])
+         and made is not None and turn['startedAt'] <= made.timestamp() <= turn['completedAt'] <= dt.datetime.now(dt.timezone.utc).timestamp()
+         and w.safe_path(root, data['actual_final_UTF8']['path']).read_bytes() == finals[0]['text'].encode('utf-8')
+         and w.file_digest(root, data['actual_final_UTF8']['path']) == data['actual_final_UTF8'],
+         'real ordered original HQ source delivery, successful report command and unchanged completed final')
+    meta = typed['actual_candidate']; paths = {x['repo_path']:x['sha256'] for x in typed['current_cumulative_files']}
+    need(typed['current_cumulative_files'] == data['actual_cumulative_three_file_map'] and len(paths) == 3
+         and all(p.startswith('src/') and '..' not in Path(p).parts and p.endswith(('.ts','.tsx')) for p in paths)
+         and all(meta.get(k) == data[v] for k,v in {'head':'actual_final_head','parent':'actual_linear_parent',
+             'candidate_base':'actual_candidate_integration_base','tree':'actual_tree','branch':'actual_branch','worktree':'actual_worktree'}.items()),
+         'complete bounded source map and true linear parent separate from cumulative base')
+    ctx = {**base, 'decision':data['actual_C1_ordinary_compatibility_decision'], 'worktree':meta['worktree'],
+           'branch':meta['branch'],'commit':meta['head'],'git_parent':meta['parent'],'base':meta['candidate_base'],
+           'tree':meta['tree'],'paths':paths,'code_only_release':True,'allowed_operations':web.CODE_OPS,
+           'original_production_channel':True,'owner_received_code_stage':True,
+           'prefix':snapshot['task_id']+'-owner-code','backup':item['source_backup'],'rollback':item['source_backup']}
+    for key in ('registered_CMS','repair','standing_CMS_channel','standing_authorization_id','authority_department','registered_CMS_sources','CMS_targets','channel_input','WEB_delivery'):
+        ctx.pop(key,None)
+    ctx['local_source_stage_only']=True
+    need(Path(ctx['worktree']).resolve().is_relative_to(Path(binding['cwd']).resolve())
+         and web.git(ctx, 'show','-s','--format=%H %P %T',ctx['commit']).decode().strip() == ' '.join([ctx['commit'],ctx['git_parent'],ctx['tree']])
+         and web.git(ctx,'merge-base',ctx['base'],ctx['git_parent']).decode().strip() == ctx['base']
+         and set(web.git(ctx,'diff','--name-only',ctx['base'],ctx['commit']).decode().splitlines()) == set(paths),
+         'real immutable cumulative Git objects; never fake parent=base')
+    for f in typed['current_cumulative_files']:
+        blob = web.git(ctx,'show',ctx['commit']+':'+f['repo_path'])
+        need(hashlib.sha256(blob).hexdigest() == f['sha256'] and len(blob) == f['size']
+             and web.git(ctx,'rev-parse',ctx['commit']+':'+f['repo_path']).decode().strip() == f['blob'], 'exact complete producer blobs')
+    dictionary = data['actual_dictionary_base_equality']; relative = str(Path(dictionary['path']).relative_to(Path(ctx['worktree'])))
+    old = web.git(ctx,'show',ctx['base']+':'+relative); new = web.git(ctx,'show',ctx['commit']+':'+relative)
+    need(old == new and hashlib.sha256(new).hexdigest() == dictionary['sha256'] and len(new) == dictionary['size'],
+         'shared dictionary/MS preserved at actual baseline bytes')
+    backup = a.document(root, item['source_backup'])
+    need(web.code_same_pin(root,item['source_backup'],data['actual_source_backup_C1_copy'])
+         and web.external(root, typed['real_own_source_backup'],binding) == backup
+         and backup.get('task_id') == snapshot['task_id'] and backup.get('source_commit') == ctx['commit']
+         and backup.get('source_base') == ctx['base'] and backup.get('git_parent') == ctx['git_parent']
+         and backup.get('unknown_effect_replay_allowed') is False, 'own cumulative source backup, not defective-parent/platform restore')
+    for p in backup['files'] + [backup['source_archive']]: web._external_bytes(p,binding)
+    delta = web._patch_effect(web._delta(ctx,ctx['base'],ctx['commit']))
+    need(web._patch_effect(web._patch_delta(web._external_bytes(backup['forward'],binding))) == delta
+         and web._patch_effect(web._patch_delta(web._external_bytes(backup['inverse'],binding))) == {p:(v[1],v[0]) for p,v in delta.items()},
+         'cumulative exact forward/inverse; historical linear inverse is not production recovery')
+    ctx['source_components'] = [{'base':ctx['base'],'head':ctx['commit'],'paths':paths}]
+    account = a.document(root,item['account_source']); account_native = g._native_document(root,item['account_native'])
+    calls=[(t,c) for t in account_native.get('turns',[]) for c in t.get('items',[]) if c.get('id')==item['account_command']]
+    need(len(calls)==1 and account_native.get('thread',{}).get('id')==binding['thread_id'],'actual original account read identity')
+    at,ac=calls[0]; outputs=[]
+    for line in w._completion_execution_output(ac).decode().splitlines():
+        try: value=json.loads(line)
+        except ValueError: continue
+        if isinstance(value,dict):outputs.append(value)
+    need(at.get('status')=='completed' and not at.get('error') and ac.get('status')=='completed' and ac.get('exitCode')==0
+         and outputs==[account] and account['full_name']==base['repository']
+         and type(account['id']) is int and type(account['authenticated_actor']['id']) is int
+         and account['authenticated_actor']['login']==base['repository'].split('/')[0], 'same repository and actual actor; no principal default')
+    ctx.update(repository_id=account['id'],actor_id=account['authenticated_actor']['id'])
+    previous=''
+    for event in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS):
+        need(event.get('previous_event_hash','')==previous and event.get('event_hash')==w.sha256_value({k:v for k,v in event.items() if k!='event_hash'}), 'intact original append-only event hash chain')
+        previous=event['event_hash']
+    need(not w._validate_receipt_chain(root,snapshot['task_id'])[1], 'intact original receipt chain')
+    return ctx
+
+
+def code_records(root, task):
+    import goal_delivery_runtime as g
+    snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,task))); values=[]
+    for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS):
+        pin=e.get('details',{}).get(CODE_EVENT)
+        if e.get('task_id')==task and pin:
+            need(not any(x['registration']==pin for x in values),'one committed code-source effect')
+            values.append({**code_context(root,snapshot,a.document(root,pin)),'registration':pin,'event_id':e['event_id']})
+    return values
+
+
+def record_code(root, task, path):
+    import goal_delivery_runtime as g
+    pin=w.file_digest(root,path)
+    with w.workflow_lock(root):
+        snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)));ctx=code_context(root,snapshot,a.document(root,pin))
+        old=code_records(root,task)
+        if old:
+            need(len(old)==1 and old[0]['registration']==pin,'existing code-stage effect must be read; never replace it')
+            return {'result':'duplicate_ignored','source':pin,'event_id':old[0]['event_id'],'permission_issued':False}
+        e=w.append_workflow_event(root,task,snapshot['current_state'],{CODE_EVENT:pin})
+    return {'result':'recorded','source':pin,'event_id':e['event_id'],'permission_issued':False,'primary_CMS_source_unchanged':True}
 
 
 def record(root, task, path):

@@ -1076,9 +1076,9 @@
     },
     {
       "path": "tools/goal_delivery_runtime.py",
-      "source_sha256": "edf654b7431367bcb955e546e737f02096660023c8e251f8fc690b2a76b223c9",
-      "release_sha256": "464950456b5c52be0707329967275f7f0e332a9f201a3a4c8a1bb9602edf9e94",
-      "bytes": 204467
+      "source_sha256": "24da703d8c94e48c5fbf3c6cfbc8caa233b748698a01f980eba57c333cc99933",
+      "release_sha256": "1281bf1f19909793d873a7e06bc1dcfec4cf8310f55568e04b76846a0efb1aaa",
+      "bytes": 204654
     },
     {
       "path": "tools/goal_source_recovery.py",
@@ -1154,9 +1154,9 @@
     },
     {
       "path": "tools/original_production_delivery.py",
-      "source_sha256": "4bbfc26f1f4592cd769fc91453203ad1eebe54563dcfa82f672339932b6538be",
-      "release_sha256": "4caa949a7e118cd7c451da6ea34b45ac3db0bacc8f247d3ff44d4c20492af26d",
-      "bytes": 23467
+      "source_sha256": "040eac43e593c91d28156b214c1ab02840105223846eb586070b8a691e6d719c",
+      "release_sha256": "ab2a624df31a6366ac83e74e0db5591be3f31ae288398990c66d5495e1e54aba",
+      "bytes": 37160
     },
     {
       "path": "tools/original_task_publisher_handover.py",
@@ -1262,9 +1262,9 @@
     },
     {
       "path": "tools/professional_web_execution.py",
-      "source_sha256": "13ca69f824af18bb6aef81aac6294b544184c8cc53bb415192b0f2fcd921948f",
-      "release_sha256": "28ec29fc2c33b1e391c1ead0646aad9a4e9c04e762914cc322fa478e3b1615bb",
-      "bytes": 89320
+      "source_sha256": "2296434c559209fb69183fc619b29acbf13c6b3769b93e7689d782dda84de444",
+      "release_sha256": "13d78a461a48bf35e36c74a87039805f00ae8d98f1c076af65e1f4946203fb57",
+      "bytes": 90572
     },
     {
       "path": "tools/professional_web_increment.py",
@@ -1806,5 +1806,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "27dc192835e6d54e838afe10a96e823b588b572872e7ec6dbc895e5885414322"
+  "fingerprint": "cad1e5bf788f9b75dbf8639b8e78cb0bcbd44d900550fa698909dba6361bad98"
 }
