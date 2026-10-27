@@ -651,3 +651,127 @@ def overlap_context(root, base, item):
             'adopted_increment': item, 'ordinary_increment': True, 'increment_actor_id': base['actor_id'], 'increment_source_mode': 'exact_original_peer_overlap',
             'increment_allowed_operations': sorted(web.OPS), 'increment_forward_patch': meta['forward'],
             'increment_inverse_patch': meta['inverse_own_source_only']}
+
+def protected_alias_ci_context(root, base, parent, item):
+    """A received exact original CMS CI correction; never a general source waiver."""
+    import professional_web_execution as web
+    import goal_delivery_runtime as g
+    import result_coordination as rc
+    need(set(item) == {'schema','kind','task_id','scope','original_source_registration','parent_increment_source',
+         'owner_input','owner_result_identity','source_backup','rollback_runbook'}
+         and item.get('schema') == 'professional-external-WEB-ordinary-code-successor/v1'
+         and item.get('kind') == 'registered_protected_alias_CI_repair'
+         and base.get('original_production_channel') and parent.get('original_peer_overlap_source')
+         and item.get('task_id') == base['task'] and item.get('scope') == base['scope']
+         and item.get('original_source_registration') == base['registration']
+         and item.get('parent_increment_source') == parent['increment_registration'], 'exact original production source and adopted peer predecessor')
+    data = a.document(root,item['owner_input']); identity = rc.exact_identity(item['owner_result_identity'])
+    queued = [r for r in w._result_handoff_rows(root,base['task']) if r.get('event') == 'notification_queued' and rc.exact_identity(r) == identity]
+    received = [r for r in w._result_handoff_rows(root,base['task']) if r.get('event') == 'controller_received' and rc.exact_identity(r) == identity]
+    need(identity['task_id'] == base['task'] and identity['sender_department'] == base['owner'] and len(queued) == len(received) == 1
+         and queued[0]['outbox'] == received[0]['outbox'] and queued[0]['created_at'] <= received[0]['created_at'], 'one exact actual professional owner result and later committed intake')
+    rc._committed_result(root,received[0]); box = a.document(root,queued[0]['outbox'])
+    need(item['owner_input'] in box.get('evidence',[]) and any(x.get('exact_input') == item['owner_input'] for x in box.get('next_actions',[]))
+         and box.get('primary_owner') == base['owner'] and data.get('primary_owner') == base['owner']
+         and data.get('task_id') == base['task'] and data.get('scope') == base['scope'], 'original owner exact final source custody, not caller metadata')
+    report = json.loads(_source_pin(root,data['actual_WEB_report'],base['binding']))
+    need(report.get('task_id') == base['task'] and report.get('scope') == base['scope']
+         and report.get('sender_department') == base['role'] and report.get('target_department') == base['owner']
+         and report.get('actual_final_local_version') == data.get('actual_final_version')
+         and report.get('actual_own_validation') == data.get('actual_local_checks'), 'same actual producer final source, tests and owner scope')
+    old = a.document(root,data['previous_source_input']); oldreport = json.loads(_source_pin(root,old['actual_WEB_report'],base['binding']))
+    need(old.get('task_id') == base['task'] and old.get('scope') == base['scope'] and old.get('primary_owner') == base['owner']
+         and report.get('professional_local_continuation',{}).get('sha256') == data['previous_source_input']['sha256']
+         and oldreport.get('actual_local_test_successor') == old.get('actual_b420'), 'immutable real CI predecessor/source chain')
+    native = g._native_document(root,data['actual_completed_WEB_native']); meta = data['actual_final_version']; checks = data['actual_local_checks']
+    finals = [(t,m) for t in native.get('turns',[]) for m in t.get('items',[]) if t.get('id') == data['completed_WEB_turn']
+              and m.get('type') == 'agentMessage' and m.get('phase') == 'final_answer' and data['actual_WEB_report']['path'] in m.get('text','')]
+    need(all(native['thread'].get(k) == base['binding'][v] for k,v in {'id':'thread_id','title':'title','cwd':'cwd'}.items()) and len(finals) == 1,
+         'one real original WEB completed final, no rotated actor substitution')
+    turn,final = finals[0]; made = w._parse_observed_at(report.get('created_at')); selected = w._parse_observed_at(data.get('at'))
+    need(turn.get('status') == 'completed' and not turn.get('error') and made and selected
+         and turn['startedAt'] <= made.timestamp() <= turn['completedAt'] <= selected.timestamp() <= dt.datetime.now(dt.timezone.utc).timestamp(), 'actual final/source chronology')
+    audit = json.loads(_source_pin(root,checks['untruncated_original_native'],base['binding']))
+    need(audit.get('thread') == native['thread'] or all(audit.get('thread',{}).get(k) == native['thread'].get(k) for k in ('id','title','cwd')), 'actual original producer audit identity')
+    need(audit.get('turn',{}).get('id') == turn['id'] and audit['turn'].get('startedAt') == turn['startedAt'], 'same actual turn audit and completed final')
+    def command(key):
+        rows = [m for m in audit.get('items',[]) if m.get('id') == key]
+        need(len(rows)==1 and rows[0].get('type')=='commandExecution' and rows[0].get('status')=='completed'
+             and rows[0].get('exitCode')==0 and Path(rows[0].get('cwd','')).resolve()==Path(meta['worktree']).resolve(), 'real successful original WEB command/cwd')
+        return rows[0],w._completion_execution_output(rows[0]).decode()
+    test,out = command(checks['tests']['command_id']); need(checks['tests']['command'] in test['command'] and re.search(r'Tests\s+4 passed',out), 'actual four tests output, never writer success or skipped-only')
+    lint,out = command(checks['typecheck_lint_diff']['command_id']);need('typecheck' in lint['command'] and 'eslint' in lint['command'] and 'git diff --check' in lint['command'], 'real type/lint/diff command')
+    diff,out = command(checks['differential_command_id']); delta = json.loads(out)
+    need(delta == checks['actual_registered_target_differential'] and delta['old_true_to_false']==delta['unapproved_additions']==0
+         and delta['exact_cms_pages_site_page_alias_additions']==len(delta['additions'])==2, 'actual bounded predicate positive/negative differential; no global matcher change')
+    for freeze_pin,report_pin in [(data['frozen_final48'],data['actual_WEB_report']),(old['actual_frozen_128pins'],old['actual_WEB_report'])]:
+        freeze = json.loads(_source_pin(root,freeze_pin,base['binding'])); pins=freeze.get('pins',freeze.get('files',[]))
+        need(freeze.get('task_id')==base['task'] and freeze.get('report')==report_pin and pins and freeze.get('pin_count',len(pins))==len(pins),'complete immutable producer source evidence')
+        for pin in pins:_source_pin(root,pin,base['binding'])
+    head,linear,cumulative,prhead = meta['candidate_commit'],meta['candidate_parent'],meta['cumulative_integration_base'],meta['last_known_PR_head']
+    gitctx={'worktree':meta['worktree']}; b420=old['actual_b420']; pr=old['completed_effects_reused']['pull_request']
+    need(meta['worktree']==base['worktree'] and meta['branch']==base['branch'] and head[:8] in final['text']
+         and linear==b420['candidate_commit'] and prhead==b420['candidate_parent']==pr['head'] and cumulative==b420['candidate_base']
+         and meta['candidate_parents']==[linear] and web.git(gitctx,'show','-s','--format=%H %P %T',head).decode().strip()==' '.join([head,linear,meta['candidate_tree']])
+         and web.git(gitctx,'show','-s','--format=%P',linear).decode().strip()==prhead, 'real final/linear/test predecessor, cumulative base, original pushed PR head')
+    state=a.document(root,{**old['actual_normal_refusal']['full_current_state'],'path':str(Path(old['actual_normal_refusal']['full_current_state']['path']).relative_to(Path(root)))})
+    need(state.get('candidate_commit')==linear and state.get('repository')==base['repository'] and state.get('actor',{}).get('id')==base['actor_id']
+         and state.get('remote_branch_sha')==prhead and state.get('pull_request',{}).get('number')==pr['number'], 'actual original repository/actor/existing PR effects, not guessed head')
+    predecessor_state={**state,'candidate_commit':prhead,'candidate_parent':old['completed_effects_reused']['clean_causal_current_main_integration']['parents'][0],
+                       'candidate_parents':old['completed_effects_reused']['clean_causal_current_main_integration']['parents'],
+                       'candidate_tree':old['completed_effects_reused']['clean_causal_current_main_integration']['tree']}
+    candidate(parent,predecessor_state) # Reconstruct every original and peer contribution before accepting any repair.
+    failed=old['official_CI'];need(failed['head']==prhead and pr['number']>0 and pr['head']==prhead
+         and {x['name']:x['conclusion']for x in failed['checks']}=={'furniture-page-pr-checks':'success','interaction-standards':'failure','r3-managed-cms-pr-checks':'failure'}
+         and all(x['head_sha']==prhead and x['status']=='completed' for x in failed['checks']), 'real predecessor CI failures retained, not final success')
+    for key in ('R3_failure','Interaction_failure'):_source_pin(root,failed[key]['annotations'],base['binding'])
+    testpaths=set(b420['increment_paths']);aliaspaths=set(meta['actual_increment_paths']);files=meta['files'];paths={f['path']:f['sha256']for f in files}
+    need(len(testpaths)==4 and all(re.fullmatch(r'src/lib/[\w]+\.test\.ts',p)for p in testpaths)
+         and aliaspaths=={'supabase/functions/_shared/managed-targets.ts','src/lib/protectedContentTargets.test.ts'}
+         and set(web.git(gitctx,'diff','--name-only',prhead,linear).decode().splitlines())==testpaths
+         and set(web.git(gitctx,'diff','--name-only',linear,head).decode().splitlines())==aliaspaths
+         and set(paths)==set(parent['paths'])|testpaths|aliaspaths and len(paths)==len(files)<=40
+         and set(web.git(gitctx,'diff','--name-only',cumulative,head).decode().splitlines())<=set(paths), 'only exact related tests/predicate, no unrelated source expansion')
+    for f in files:
+        path=f['path'];raw=web.git(gitctx,'show',head+':'+path);row=web.git(gitctx,'ls-tree',head,'--',path).decode().split();before=web.git(gitctx,'ls-tree',prhead,'--',path).decode().split()
+        need(row[:3]==[f['mode'],'blob',f['blob']] and f['mode'] in {'100644','100755'} and (not before or before[0]==f['mode'])
+             and hashlib.sha256(raw).hexdigest()==f['sha256'] and len(raw)==f['size'], 'every final original blob/hash/size/mode')
+        if path not in testpaths|aliaspaths:need(raw==web.git(gitctx,'show',prhead+':'+path), 'unchanged original17 and peer bytes remain exact')
+    target=base['registered_CMS']['action'];selector=json.dumps(target['candidate_version']);increments=0;insertions=0
+    for path in testpaths:
+        left=web.git(gitctx,'show',prhead+':'+path).decode().splitlines();right=web.git(gitctx,'show',linear+':'+path).decode().splitlines()
+        import difflib
+        for tag,l0,l1,r0,r1 in difflib.SequenceMatcher(a=left,b=right,autojunk=False).get_opcodes():
+            if tag=='equal':continue
+            if tag=='insert':need(right[r0:r1]==['        '+selector+','],'only exact registered selector assertion added');insertions+=1
+            else:
+                need(tag=='replace'and l1-l0==r1-r0==1,'no removed tests/subjects or weakened matchers')
+                l=left[l0].split('//')[0].rstrip();r=right[r0].split('//')[0].rstrip();matches=list(re.finditer(r'\.toHaveLength\((\d+)\)',l))
+                need(sum(r==l[:m.start(1)]+str(int(m[1])+1)+l[m.end(1):] for m in matches)==1, 'same registry subject, exact one new target count only');increments+=1
+        need(web.git(gitctx,'show',head+':'+path)==web.git(gitctx,'show',linear+':'+path),'b420 four-test bytes exactly reused')
+    need(increments==3 and insertions==1,'exact four related CI assertions')
+    path='supabase/functions/_shared/managed-targets.ts';before=web.git(gitctx,'show',linear+':'+path).decode();after=web.git(gitctx,'show',head+':'+path).decode()
+    oldexpr='table === "site_pages" && record.page_key === target.slug';newexpr='(table === "site_pages" || (table === '+json.dumps(target['table'])+' && target.contentType === "site_page")) && record.page_key === target.slug'
+    need(target['table']=='cms_pages' and before.count(oldexpr)==1 and after==before.replace(oldexpr,newexpr),'only actual registered CMS page alias, retain outer exact table/target and original site_pages guard')
+    path='src/lib/protectedContentTargets.test.ts';before=web.git(gitctx,'show',linear+':'+path).decode();after=web.git(gitctx,'show',head+':'+path).decode()
+    added=after[len(before):] if after.startswith(before) else None
+    import difflib
+    changes=[(tag,i,j,k,l)for tag,i,j,k,l in difflib.SequenceMatcher(a=before.splitlines(True),b=after.splitlines(True),autojunk=False).get_opcodes()if tag!='equal']
+    need(len(changes)==1 and changes[0][0]=='insert','old protection tests unchanged, positive and negative additions only')
+    lines=after.splitlines(True);block=''.join(lines[changes[0][3]:changes[0][4]])
+    need('it(' in block and f'isProtectedContentRecord("{target["table"]}", {{ page_key: "{target["slug"]}" }})).toBe(true)'in block
+         and all(f'isProtectedContentRecord("{table}", {{ page_key: "{slug}" }})).toBe(false)'in block for table,slug in [(target['table'],'ordinary-page'),('services',target['slug']),('cms_sections',target['slug'])]),'required exact positive and mismatched table/key negatives')
+    patches=meta['source_patches']
+    for key,(left,right) in {'alias_two_file_forward':(linear,head),'alias_two_file_inverse_source_only':(head,linear),
+        'cumulative21-forward-relative-integration62de.patch':(cumulative,head),'cumulative21-inverse-source-only-to-integration62de.patch':(head,cumulative),
+        'cumulative-CI-repair-six-path-forward-relative-PR986.patch':(prhead,head),'cumulative-CI-repair-six-path-inverse-source-only-to-PR986.patch':(head,prhead)}.items():
+        actual={p:v for p,v in web._patch_effect(web._delta({**gitctx,'paths':paths},left,right)).items()if any(v)}
+        need(web._patch_effect(web._patch_delta(_source_pin(root,patches[key],base['binding'])))==actual,'exact actual incremental/cumulative forward/inverse effects')
+    backup=a.document(root,item['source_backup']);recovery=a.document(root,item['rollback_runbook']);combined={'head':head,'base':cumulative,'parent':linear,'tree':meta['candidate_tree'],'worktree':meta['worktree'],'paths':paths}
+    need(backup=={'task_id':base['task'],'source':combined,'actual_Functions_or_ESZIP_restore_proven':False}
+         and recovery=={'task_id':base['task'],'source':combined,'source_inverse_not_production_restore':True,'unknown_effect_replay_allowed':False,'execution_time_full_source_build_runtime_backup_required':True},'exact source backup/recovery only, not runtime restore or replay permission')
+    return {**parent,'commit':head,'base':cumulative,'tree':meta['candidate_tree'],'paths':paths,'git_parent':linear,'git_parents':[linear],
+            'source_components':[{**combined,'forward':patches['cumulative21-forward-relative-integration62de.patch'],'inverse':patches['cumulative21-inverse-source-only-to-integration62de.patch']}],
+            'backup':item['source_backup'],'rollback':item['rollback_runbook'],'adopted_increment':item,'ordinary_increment':True,
+            'increment_source_mode':'registered_protected_alias_CI_repair','existing_pull_number':pr['number'],'previous_actual_PR_head':prhead,
+            'increment_actor_id':base['actor_id'],'increment_allowed_operations':sorted(web.OPS)}

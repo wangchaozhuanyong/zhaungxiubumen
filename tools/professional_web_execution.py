@@ -417,6 +417,8 @@ def intent(root,req,check_desired=True):
         need(not ctx.get('ordinary_increment')or op!='pull_request','existing original PR is reused; never create a duplicate PR')
         pr=state.get('pull_request',{})
         allowed_heads={ctx['git_parent'],head,ctx['commit']}
+        if ctx.get('increment_source_mode')=='registered_protected_alias_CI_repair':
+            allowed_heads.add(ctx['previous_actual_PR_head'])
         need(pr.get('number')==ctx['existing_pull_number']and pr.get('base_branch')=='main'and pr.get('head_branch')==ctx['branch']
              and pr.get('head_sha')in allowed_heads,'same actual existing PR only; no creation or replacement')
         if op=='git_push':need(state.get('remote_branch_sha')in allowed_heads,'fresh original branch effect/CAS; unknown head must be read back')

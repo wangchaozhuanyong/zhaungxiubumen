@@ -664,6 +664,11 @@ def validate_published_deferred_component(root,base,parent,item):
 def _validate_item(root,base,item,values):
     from original_production_delivery import OVERLAP_SCHEMA, OVERLAP_EVENT, overlap_context
     if item.get('schema') == OVERLAP_SCHEMA:return overlap_context(root,base,item),OVERLAP_EVENT
+    if item.get('schema')==ORD_SCHEMA and item.get('kind')=='registered_protected_alias_CI_repair':
+        from original_production_delivery import protected_alias_ci_context
+        parents=[v for v in values if same(root,v.get('increment_registration'),item.get('parent_increment_source'))]
+        need(len(parents)==1,'one actual registered original peer/source predecessor')
+        return protected_alias_ci_context(root,base,parents[0],item),ORD_EVENT
     if item.get('schema')==ORD_SCHEMA and item.get('kind')=='existing_component_deferred_mount':
         parents=[v for v in values if same(root,v.get('increment_registration'),item.get('parent_increment_source'))]
         need(len(parents)==1,'one original adopted published predecessor')
