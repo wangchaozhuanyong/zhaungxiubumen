@@ -1001,9 +1001,9 @@
     },
     {
       "path": "tools/department_autonomy.py",
-      "source_sha256": "b1fcd01d2fd816b864c7ff4c7e49ce25bf44545924a14d5462c143bacad97da1",
-      "release_sha256": "753bdac94eb3c4028ed213bfdd3bd56f8db231cfe5c87f10a7bf5fb5e8e83e33",
-      "bytes": 176668
+      "source_sha256": "0858596bab44973399ac51deb49377a89baf3d42514b6aef249754ca6c5f0df5",
+      "release_sha256": "3c63e9c8504c5bb3f574b12e682d33b46395d35bb25bee6249f760ec7231f69c",
+      "bytes": 189214
     },
     {
       "path": "tools/department_event_dispatcher.py",
@@ -1193,9 +1193,9 @@
     },
     {
       "path": "tools/paid_three_page_bounded_cms.py",
-      "source_sha256": "a01a59ef3189e0f4f91aa1e09c3100668052d4b3b039271f519ea5162fa5703d",
-      "release_sha256": "49d0807c64b2b46fb4b1ffde6f740fd10c329b6530ed64c1bc53e50f96a941a0",
-      "bytes": 375199
+      "source_sha256": "da8f22808744d42a649ea72874db248f3065d3c4ad00af2f076d42d0083a3f90",
+      "release_sha256": "fd233de79bec91f895cc98d3cf170f3cac365c9287655e52b7767f1ed193cb91",
+      "bytes": 387401
     },
     {
       "path": "tools/parent_initial_child_review.py",
@@ -1247,9 +1247,9 @@
     },
     {
       "path": "tools/professional_web_execution.py",
-      "source_sha256": "841a087063f453a6c98708958f281572ddd96df3595ba8cc288ccb56388ed40e",
-      "release_sha256": "0f077f11c4acecda7a9f5ca3f70fa8819bce8bd391465625d0aa7f0a565da175",
-      "bytes": 87201
+      "source_sha256": "655aa2e2b024c0f6bc9e3cfdd5a097f21186d6162c21c0b42c67f9f6acbd4caa",
+      "release_sha256": "905f05d235b11aec13c5d5688e1eaec1350dedb2d11d94fca86a10283a2d3ca8",
+      "bytes": 87366
     },
     {
       "path": "tools/professional_web_increment.py",
@@ -1793,5 +1793,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "9e846865f85dfada34c97bc984a39995620e670f8f6b76784e7171dc6a6def47"
+  "fingerprint": "d037808f73b552edc5facd69ce6f3d5b5ffa71f5c67f685de8b43baeed5b2f5a"
 }

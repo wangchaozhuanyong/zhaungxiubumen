@@ -3669,6 +3669,20 @@ EN2_AUTH = {"path": "logs/handoffs/2026-10-10-owner-direct-paid/assistant2-owned
             "sha256": "060e68362fe56228838d410fb35d089a8f5df5c1be1e2f1ebae46cf4832bae7f", "size": 2208}
 
 
+def _current_original_publisher_metadata(root, historical):
+    """Current same-role catalog metadata; frozen sources and permits stay old."""
+    import department_rotation as rotation
+    if rotation.validation_registry(root) is not None:
+        return {'execution_thread_id': historical}
+    current=w.department_registry(root)['publishing']['chat_binding']
+    if current['task_id']==historical:return {'execution_thread_id':historical}
+    links=[r for r in rotation._records(root)if r['role']=='publishing'
+           and r['old_binding']['task_id']==historical and r['new_binding']['task_id']==current['task_id']]
+    require(len(links)==1,'one verified same-role original publisher rotation required')
+    return {'execution_thread_id':current['task_id'],'historical_execution_thread_id':historical,
+            'execution_binding_source':current['rotation_record'],'production_permission_inherited':False}
+
+
 def english_kitchen_en2_targets(root):
     """Read the one frozen EN2 registration; never infer a new field or tuple."""
     root = Path(root).resolve()
@@ -3773,7 +3787,7 @@ def english_kitchen_en2_targets(root):
         "task_id": EN2_TASK, "action_id": EN2_ACTION, "candidate_version": EN2_VERSION,
         "scope": EN2_SCOPE, "table": "services", "record_id": EN2_RECORD,
         "slug": "kitchen", "content_type": "service", "changed_fields": list(EN2_FIELDS),
-        "execution_owner": "publishing", "execution_thread_id": EN2_PUBLISHER,
+        "execution_owner": "publishing", **_current_original_publisher_metadata(root,EN2_PUBLISHER),
         "candidate_shape": "english_kitchen_en2_exact", "candidate": (EN2_CANDIDATE["path"], EN2_CANDIDATE["sha256"]),
         "source_frozen_candidate": (candidate["source_frozen_candidate"]["path"], candidate["source_frozen_candidate"]["sha256"]),
         "rollback": (candidate["backup"]["path"], candidate["backup"]["sha256"]),
@@ -3792,6 +3806,111 @@ def validate_english_kitchen_en2_candidate(root, candidate, target):
     exact = english_kitchen_en2_targets(root)["english-kitchen-en2-exact-v1"]
     require(target == exact and candidate == doc(root, EN2_CANDIDATE),
             "one unchanged frozen original EN2 candidate and registered target required")
+
+
+@strict
+def original_publisher_current_source(root, item):
+    """Authenticated current-row preparation; never replaces a registered target.
+
+    The frozen30/46 sources remain historical. This projection retains every
+    current41/59 field and reports actual missing delivery/standing inputs.
+    No permit reader treats this readonly projection as an execution request.
+    """
+    import department_autonomy as autonomy
+    import goal_delivery_runtime as goal_runtime
+    root=Path(root).resolve();task=item.get('task_id')
+    require(item.get('schema')=='original-publisher-current-CMS-source-input/v1','exact current-source envelope required')
+    snapshot=goal_runtime.restore_goal(root,w.read_json(w.snapshot_path(root,task)));goal=snapshot['goal_delivery']
+    frozen=doc(root,snapshot['goal_contract']);report=doc(root,item.get('report'));aggregate=doc(root,item.get('aggregate'))
+    require(autonomy.current_mode(root)and goal.get('primary_owner')==frozen.get('primary_owner')=='publishing'
+      and 'publishing'in frozen.get('producer_departments',[])and snapshot.get('current_state')not in w.TERMINAL_STATES
+      and all(goal.get(k)==frozen.get(k)for k in ('primary_owner','producer_departments','authorized_scope','human_authorization','required_execution_actions'))
+      and report.get('schema')=='PUB-original-goal-fresh-effect-and-only-remaining-reconciliation/v1'
+      and report.get('task_id')==task and report.get('scope')in goal['authorized_scope']
+      and report.get('department')==report.get('primary_owner')=='publishing'
+      and report.get('original_contract')==snapshot['goal_contract']
+      and all(report.get(k)==0 for k in ('new_Save','new_permit','new_preview','new_policy_consumption'))
+      and report.get('parent_or_goal_closed')is False,'unchanged original PUB goal and no-execution source required')
+    autonomy.original_assignment_ready(root,snapshot,'publishing')
+    native=goal_runtime._native_document(root,item.get('actual_PUB_native'));fixed=w.department_registry(root)['publishing']['chat_binding']
+    require(fixed.get('project_id')==autonomy.PROJECT and Path(fixed['cwd']).resolve()==root
+      and all(native.get('thread',{}).get(k)==fixed[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()),'real current same-role publisher native required')
+    selected=[(t,c)for t in native.get('turns',[])for c in t.get('items',[])if c.get('id')==item.get('source_command_id')]
+    require(len(selected)==1,'one actual original publisher source command required');turn,command=selected[0]
+    require(turn.get('status')=='completed'and not turn.get('error')and command.get('type')=='commandExecution'
+      and command.get('status')=='completed'and command.get('exitCode')==0 and Path(command.get('cwd','')).resolve()==root,
+      'actual completed successful publisher source, not a caller reconstruction')
+    output=json.loads(w._completion_execution_output(command));at=w._parse_observed_at(report.get('at'))
+    require(output.get('aggregate')==item['aggregate']and item['report']in output.get('reports',[])
+      and item['report']in aggregate.get('reports',[])and at
+      and turn['startedAt']<=at.timestamp()<=turn['completedAt']<=dt.datetime.now(dt.timezone.utc).timestamp(),
+      'actual command binds exact complete report/aggregate bytes and real source time')
+    comparison=doc(root,report['current_fields_and_exact_original_values'])
+    require(comparison.get('task_id')==task and comparison.get('scope')==report['scope']
+      and comparison.get('rewrite_original_content')is False
+      and comparison.get('new_backup_for_execution_or_preview_or_policy_or_Save')is False
+      and comparison.get('not_future_execution_freshness')is True,'current source is historical observation, never future CAS')
+    targets=(english_kitchen_en2_targets(root)if task==EN2_TASK else two_original_material_targets(root)if task==MATERIAL_PUBLICATION_TASK else{})
+    require(targets or not frozen.get('required_execution_actions'),'unknown production tuple cannot use this source reader')
+    raw=doc(root,item.get('actual_full_rows'))
+    queries=[(t,c)for t in native.get('turns',[])for c in t.get('items',[])if c.get('id')==item.get('row_query_command_id')]
+    require(len(queries)==1,'one real original authenticated full-row query required');qt,query=queries[0]
+    from managed_cms_permit_issuer import SUPABASE_HOST
+    require(qt['id']==turn['id']and turn['items'].index(query)<turn['items'].index(command)
+      and query.get('type')=='mcpToolCall'and query.get('server')=='codex_apps'and query.get('tool')=='supabase.execute_sql'
+      and query.get('status')=='completed'and not query.get('error')
+      and query.get('arguments')=={'project_id':SUPABASE_HOST.split('.')[0],'query':raw.get('query')}
+      and Path(item['actual_full_rows']['path']).name in command.get('command','')
+      and raw.get('actual_response',{}).get('isError')is False,'actual successful original query/project/source bytes required')
+    texts=raw['actual_response'].get('content',[])
+    require(len(texts)==1 and texts[0].get('type')=='text','one original complete query result required')
+    response=json.loads(texts[0]['text']);matches=re.findall(r'<(untrusted-data-[0-9a-f-]+)>\s*(\[.*?\])\s*</\1>',response.get('result',''),re.S)
+    require(len(matches)==1 and json.loads(matches[0][1])==raw.get('rows'),'exact unchanged full-row response, never a reconstructed or partial row')
+    result=[]
+    for current in comparison.get('comparisons',[]):
+        wrapper=doc(root,current['current_authenticated_full_row']);before=wrapper.get('record',{});fields=current.get('fields',[])
+        require(wrapper.get('actual_query')==raw['query']and wrapper.get('observed_at')==raw.get('observed_at')
+          and [r for r in raw['rows']if r.get('table_name')==wrapper.get('table')and r.get('record',{}).get('id')==before.get('id')]==[{'table_name':wrapper.get('table'),'record':before}],
+          'complete original authenticated row must match the actual query result exactly')
+        require(before.get('id')==current.get('record_id')and before.get('slug')==current.get('slug')
+          and len(before)==current.get('current_full_fields')and before.get('updated_at')==current.get('raw_server_CAS')
+          and type(before.get('version'))is int and before['version']==current.get('version'),
+          'exact complete current row/field set/server-owned metadata required')
+        matches=[(name,t)for name,t in targets.items()if t['record_id']==before['id']]
+        if not targets:
+            require(not fields and len(before)==41,'internal preparation cannot invent a new target')
+            result.append({'record_id':before['id'],'current_row':current['current_authenticated_full_row'],
+              'current_full_fields':len(before),'current_MS_fields':sorted(k for k in before if k.endswith('_ms')),
+              'state':'INTERNAL_PREPARATION_ONLY','CMS_Save_authorized_from_old_contract':False,
+              'missing_exact_source':{'field':'C1_standing_execution_source','owner':'content-organic-website',
+                'trigger':'actual own standing/HQ delegation, original G01/G02 pins and fresh same-row semantic binding after NEXT12 Save/readback safety boundary'},
+              'G01_renderer_owner':'designated-development','G02_no_historical_whole_field_replay':True})
+            continue
+        require(len(matches)==1,'one original registered record/namespace required');name,target=matches[0]
+        old=doc(root,{'path':target['rollback'][0],'sha256':target['rollback'][1],'size':w.file_digest(root,target['rollback'][0])['size']})
+        require(fields==target['changed_fields']and set(old)<=set(before)
+          and all(k.endswith('_ms')for k in set(before)-set(old)),'only actual added MS projection fields; exact original write fields required')
+        if task==EN2_TASK:desired=doc(root,EN2_CANDIDATE)['desired_fields']
+        else:desired={f:doc(root,{'path':target['candidate'][0],'sha256':target['candidate'][1],'size':w.file_digest(root,target['candidate'][0])['size']})[f]for f in fields}
+        require(doc(root,current['exact_patch_reused'])==desired and set(desired)==set(fields),'unchanged exact original accepted two-field values required')
+        values={f:before[f]for f in fields};original={f:old[f]for f in fields}
+        state=('EXISTING_SAME_EFFECT_NO_NEW_WRITE'if values==desired else'CURRENT_BEFORE_SOURCE_PREPARED'if values==original else'CURRENT_TARGET_VALUES_CHANGED_REBIND_REQUIRED')
+        retained=set(before)-set(fields);stable=retained-{'updated_at','version'}
+        execution_scope=target['scope']if target['scope'].startswith('company.example:')else 'company.example:'+target['table']+':'+before['id']+':'+','.join(fields)
+        result.append({'namespace':name,'original_registered_target':target,'state':state,
+          'business_scope':target['scope'],'proposed_execution_scope_carrier':execution_scope,
+          'current_row':current['current_authenticated_full_row'],'current_full_fields':len(before),
+          'write_fields':fields,'desired_fields':desired,'desired_fields_sha256':digest(desired),'current_before_fields_sha256':digest(values),
+          'current_full_row_sha256':digest(before),'nonwrite_fields':sorted(retained),'stable_readback_fields':sorted(stable),
+          'retained_fields_sha256':digest({k:before[k]for k in stable}),'MS_fields':sorted(k for k in before if k.endswith('_ms')),
+          'rollback_allowed':False,'actual_WEB_delivery':None,'runtime_READY':False,
+          'registration_only_remains':True,'old_target_or_old_backup_NOT_REPLACED':True,
+          'next_owner':'designated-development with original publishing owner',
+          'next_action':'actual same-namespace target/CLI/runtime typed delivery, then normal exact source/readiness consumer; original PUB fresh full row/CAS/selfcheck/preview/new single-use permit before any Save'})
+    require(len(result)==len(targets)if targets else len(result)==1,'complete original row set only')
+    return {'task_id':task,'scope':report['scope'],'current_execution_thread_id':fixed['task_id'],
+      'source_report':item['report'],'source_command_id':command['id'],'rows':result,'read_only_preparation':True,
+      'source_is_execution_request':False,'new_permission_issued':False,'remote_READY':False,'business_goal_closed':False}
 
 
 # The two original materials are source candidates only until the publisher
@@ -4043,10 +4162,10 @@ def two_original_material_targets(root):
                 formal["goal_delivery"]["human_authorization"],
             "formal publisher contract and workflow must freeze the same two actions")
     authenticated_formal_goal_source(root, formal, contract, MATERIAL_PUBLICATION_TASK)
-    return build_two_original_material_targets(rows)
+    return build_two_original_material_targets(rows,root=root)
 
 
-def build_two_original_material_targets(rows):
+def build_two_original_material_targets(rows,root=None):
     """Build only the two already validated source rows after formal freeze."""
     targets = {}
     for slug, row in rows.items():
@@ -4055,7 +4174,7 @@ def build_two_original_material_targets(rows):
             "task_id": task, "action_id": action, "candidate_version": version,
             "scope": scope, "table": "materials", "record_id": row["record_id"],
             "slug": slug, "content_type": "material", "changed_fields": list(MATERIAL_FIELDS),
-            "execution_owner": owner, "execution_thread_id": "example-native-f4ba16119c32b000",
+            "execution_owner": owner, **(_current_original_publisher_metadata(root,"example-native-f4ba16119c32b000")if root is not None else{'execution_thread_id':"example-native-f4ba16119c32b000"}),
             "candidate_shape": "two_original_material_body_registration_only_v1",
             "candidate": (row["candidate"]["path"], row["candidate"]["sha256"]),
             "rollback": (row["backup"]["path"], row["backup"]["sha256"]),
@@ -4621,3 +4740,19 @@ def _source_release_readback(root, effect, fence_audit):
         and fence_audit["committed_at"] <= released["at"] <= final_release["at"] <= dt.datetime.now(dt.timezone.utc).timestamp(),
         "actual released source result cannot retain an active owner")
     return {"released_at":released["at"],"source_release_proved":True,"read_only":True}
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Readonly original publisher current-source projection')
+    parser.add_argument('command', choices=['current-source-check'])
+    parser.add_argument('--root', default=str(Path(__file__).resolve().parents[1]))
+    parser.add_argument('--input', required=True)
+    args = parser.parse_args()
+    try:
+        root = Path(args.root).resolve()
+        with w.request_validation_context():
+            result = original_publisher_current_source(root, doc(root, w.file_digest(root, args.input)))
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    except (w.WorkflowError, OSError, ValueError, KeyError, TypeError) as error:
+        parser.exit(1, str(error) + '\n')

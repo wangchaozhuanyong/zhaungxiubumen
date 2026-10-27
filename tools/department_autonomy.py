@@ -1732,6 +1732,137 @@ def validate_native_ack(root,snapshot,role,pins):
   and (Path(root)/reply['path']).read_bytes()==matches[0][1]['text'].encode(),'actual ACK UTF8 differs')
  return obj
 
+OWNER_CONTINUATION_EVENT='original_professional_owner_continuation_source'
+
+class OriginalAssignmentSourceMissing(w.WorkflowError):
+ """Missing legacy transport representation; never a changed/ambiguous source."""
+
+def validate_owner_continuation_source(root,snapshot,item,*,historical=False):
+ """Actual current-owner continuation facts, not an old dispatch or a permit."""
+ import re
+ import goal_delivery_runtime as g
+ authority(root);snapshot=g.restore_goal(root,snapshot);goal=snapshot['goal_delivery']
+ frozen=document(root,snapshot['goal_contract']);role=item.get('department')
+ require(current_mode(root)and item.get('schema')=='original-professional-owner-continuation-source/v1'
+  and item.get('task_id')==snapshot['task_id']and item.get('goal_contract')==snapshot['goal_contract']
+  and item.get('authorization')==goal['authorization_pin']
+  and role==goal['primary_owner']==frozen['primary_owner']and role in frozen['producer_departments']
+  and professional(root,role)and (snapshot.get('current_state')not in w.TERMINAL_STATES or historical and snapshot.get('current_state')=='closed')
+  and all(goal.get(k)==frozen.get(k)for k in ('primary_owner','producer_departments','authorized_scope','human_authorization','required_execution_actions')),
+  'unchanged original professional owner/contract/scope; continuation cannot transfer or expand authority')
+ registry=w.department_registry(root);hq=registry['operations']['chat_binding'];fixed=registry[role]['chat_binding']
+ def page(pin,binding):
+  p=g._native_document(root,pin)
+  require(binding.get('project_id')==PROJECT and Path(binding.get('cwd','')).resolve()==Path(root).resolve()
+   and all(p.get('thread',{}).get(k)==binding[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items())
+   and p['thread'].get('hostId',binding.get('host_id'))==binding.get('host_id')
+   and p['thread'].get('projectId',PROJECT)==PROJECT,
+   'actual same fixed original project/role/native source required')
+  return p
+ sender=page(item.get('actual_HQ_native'),hq);receiver=page(item.get('actual_owner_native'),fixed)
+ calls=[(t,m)for t in sender.get('turns',[])for m in t.get('items',[])if m.get('id')==item.get('HQ_call_id')]
+ require(len(calls)==1,'one actual current-owner continuation send required');turn,call=calls[0]
+ body=call.get('arguments',{}).get('prompt','')
+ require(turn.get('status')=='completed'and not turn.get('error')and type(turn.get('completedAt'))in {int,float}
+  and turn['completedAt']<=dt.datetime.now(dt.timezone.utc).timestamp()
+  and call.get('type')=='mcpToolCall'and call.get('server')=='codex_app'and call.get('tool')=='send_message_to_thread'
+  and call.get('status')=='completed'and not call.get('error')and not call.get('truncated',False)
+  and call.get('arguments',{}).get('threadId')==fixed['task_id']
+  and all(re.search(r'(?m)^'+k+'='+re.escape(v)+r'\s*$',body)for k,v in
+   {'sender_department':'operations','target_department':role,'assignment_record_required':'false'}.items())
+  and re.search(r'(?<![A-Za-z0-9-])'+re.escape(snapshot['task_id'])+r'(?![A-Za-z0-9-])',body),
+  'real completed HQ continuation to this original owner/task; never caller labels')
+ manifest_pin=item.get('original_goal_manifest')
+ require(w.file_digest(root,manifest_pin.get('path',''))==manifest_pin,'unchanged original-goal manifest bytes required')
+ def unique(pairs):
+  out={}
+  for key,value in pairs:
+   require(key not in out,'ambiguous original-goal manifest field');out[key]=value
+  return out
+ manifest=json.loads(w.safe_path(root,manifest_pin['path']).read_text(),object_pairs_hook=unique)
+ require(isinstance(manifest,list)and 0<len(manifest)<=32 and manifest_pin['path']in body,
+  'actual bounded original-goal source manifest required')
+ anchors=[(t,m)for t in sender.get('turns',[])for m in t.get('items',[])if m.get('id')==item.get('manifest_command_id')]
+ require(len(anchors)==1,'one real original-goal manifest read required');at,anchor=anchors[0]
+ require(at['id']==turn['id']and turn['items'].index(anchor)<turn['items'].index(call)
+  and anchor.get('type')=='commandExecution'and anchor.get('status')=='completed'and anchor.get('exitCode')==0
+  and Path(anchor.get('cwd','')).resolve()==Path(root).resolve()
+  and Path(manifest_pin['path']).name in anchor.get('command','')
+  and json.loads(w._completion_execution_output(anchor))==[
+   {'task':r['task_id'],'owner':r['primary_owner'],'scope':r['scopes']}for r in manifest],
+  'real successful HQ read must bind every original manifest task/owner/scope before send')
+ selected=[r for r in manifest if r.get('task_id')==snapshot['task_id']]
+ require(len(selected)==1 and selected[0].get('primary_owner')==role
+  and selected[0].get('scopes')==goal['authorized_scope'],'exact original owner/scopes from real HQ manifest, no new scope')
+ matches=[t for t in receiver.get('turns',[])if t.get('id')==item.get('owner_turn_id')]
+ require(len(matches)==1,'one real current-owner receipt turn required');rt=matches[0];items=rt.get('items',[])
+ expected='<codex_delegation>\n  <source_thread_id>'+hq['task_id']+'</source_thread_id>\n  <input>'+body+'</input>\n</codex_delegation>'
+ echoes=[(ix,m)for ix,m in enumerate(items)if m.get('id')==item.get('owner_received_message_id')
+  and ((m.get('type')=='functionCallOutput'and m.get('namespace')=='codex_app'and m.get('name')=='send_message_to_thread'
+    and m.get('output')=={'text':expected,'truncated':False})
+   or m.get('type')=='userMessage'and m.get('content')==[{'type':'text','text':body}])]
+ require(len(echoes)==1 and rt.get('status')in {'inProgress','completed'}and not rt.get('error')
+  and type(rt.get('startedAt'))in {int,float}and type(receiver.get('thread',{}).get('updatedAt'))in {int,float}
+  and rt['startedAt']<=receiver['thread']['updatedAt']<=dt.datetime.now(dt.timezone.utc).timestamp()
+  and turn['startedAt']<=receiver['thread']['updatedAt'],
+  'exact actual original-owner delivered body and real chronology required')
+ start=echoes[0][0]+1;end=next((ix for ix in range(start,len(items))if items[ix].get('type')not in {'agentMessage','reasoning'}),len(items))
+ acks=[m for m in items[start:end]if m.get('type')=='agentMessage'and m.get('phase')=='commentary'and m.get('text','').strip()]
+ require(len(acks)==1 and acks[0].get('id')==item.get('owner_ACK_message_id'),
+  'one exact first nonempty owner ACK before its next tool; not any later progress/READY')
+ reply=item.get('owner_ACK_UTF8');require(w.file_digest(root,reply.get('path',''))==reply
+  and (Path(root)/reply['path']).read_bytes()==acks[0]['text'].encode(),'actual current-owner ACK UTF8 differs')
+ # This authenticates responsibility provenance, not an old assistant verdict.
+ # Revalidating a historical CMS plan with today's project-only QA schema would
+ # manufacture a new review prerequisite. Its original bytes/hash chain stay exact.
+ previous=''
+ for event in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS):
+  require(event.get('previous_event_hash','')==previous
+   and event.get('event_hash')==w.sha256_value({k:v for k,v in event.items()if k!='event_hash'}),
+   'original immutable workflow hash chain changed')
+  previous=event['event_hash']
+ require(not w._validate_receipt_chain(root,snapshot['task_id'])[1],
+  'original immutable receipt chain must remain intact')
+ return {'department':role,'task_id':snapshot['task_id'],'current_thread_id':fixed['task_id'],
+  'actual_owner_turn_id':rt['id'],'actual_owner_ACK_message_id':acks[0]['id'],
+  'original_goal_contract':snapshot['goal_contract'],'current_continuation_not_old_dispatch':True,'permission_issued':False}
+
+def record_owner_continuation_source(root,path):
+ import goal_delivery_runtime as g
+ pin=w.file_digest(root,path);item=document(root,pin);task=item.get('task_id');repair_task=item.get('registration_task_id')
+ with w.workflow_lock(root):
+  snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)));proof=validate_owner_continuation_source(root,snapshot,item)
+  repair=g.restore_goal(root,w.read_json(w.snapshot_path(root,repair_task)));responsibility=participant(root,repair,'system-development')
+  require(responsibility['primary_owner']=='system-development'and repair['goal_contract']==item.get('registration_goal_contract')
+   and responsibility['authorization_pin']==item.get('registration_authorization'),
+   'actual original SYS maintenance responsibility/source required; no business contract update')
+  original_assignment_ready(root,repair,'system-development')
+  old=[e['details'][OWNER_CONTINUATION_EVENT]['source']for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)
+   if e.get('details',{}).get(OWNER_CONTINUATION_EVENT,{}).get('target_task_id')==task]
+  if old:
+   require(old==[pin],'original-owner continuation already has a different immutable source')
+   return {'result':'duplicate_ignored','source':pin,'proof':proof,'dispatch_or_ACK_created':False}
+  e=w.append_workflow_event(root,repair_task,repair['current_state'],{OWNER_CONTINUATION_EVENT:{'target_task_id':task,'department':proof['department'],'source':pin},'external_permission_issued':False})
+ return {'result':'recorded','source':pin,'event_id':e['event_id'],'proof':proof,'dispatch_or_ACK_created':False,'current_assignment_changed':False}
+
+def registered_owner_continuation(root,snapshot,role):
+ import goal_delivery_runtime as g
+ events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)
+  if e.get('details',{}).get(OWNER_CONTINUATION_EVENT,{}).get('target_task_id')==snapshot['task_id']]
+ if not events:return None
+ require(len(events)==1,'one exact immutable original-owner continuation source required')
+ event=events[0];row=event['details'][OWNER_CONTINUATION_EVENT];item=document(root,row['source'])
+ repair=g.restore_goal(root,w.read_json(w.snapshot_path(root,event['task_id'])))
+ require(event['task_id']==item.get('registration_task_id')and event.get('state')not in w.TERMINAL_STATES
+  and repair['goal_contract']==item.get('registration_goal_contract')
+  and repair['goal_delivery'].get('primary_owner')=='system-development'
+  and repair['goal_delivery'].get('authorization_pin')==item.get('registration_authorization'),
+  'real original SYS source-registration event/contract; not a manufactured business dispatch')
+ proof=validate_owner_continuation_source(root,snapshot,item,historical=True)
+ require(row.get('department')==role,'source-registration role changed')
+ require(proof['department']==role,'original-owner continuation cannot replace another producer responsibility')
+ return proof
+
 def _rotated_original_professional_assignment(root,snapshot,role,rows):
  """Read an original native responsibility across a verified role rotation.
 
@@ -1760,7 +1891,7 @@ def _rotated_original_professional_assignment(root,snapshot,role,rows):
  for index,ack in enumerate(rows):
   if not(ack.get('receipt_type')=='chat_ack'and ack.get('department')==role
    and ack.get('chat_task_id')==old['task_id']and ack.get('ack_nonempty')is True):continue
-  sources=[];pages=[];texts=[]
+  sources=[];pages=[];texts=[];polls=[]
   for pin in ack.get('evidence',[]):
    require(w.file_digest(root,pin.get('path',''))==pin,'original historical ACK evidence changed')
    if not pin['path'].endswith('.json'):texts.append((Path(root)/pin['path']).read_bytes());continue
@@ -1768,6 +1899,7 @@ def _rotated_original_professional_assignment(root,snapshot,role,rows):
    if obj.get('schema')=='goal-current-assignment/v2':sources.append(obj)
    page=g._native_document(root,pin)
    if page.get('thread'):pages.append(page)
+   polls.extend(page.get('polls',[]))
   dispatches=[r for r in rows[:index]if r.get('receipt_type')=='dispatch_sent'and r.get('department')==role
    and r.get('chat_task_id')==old['task_id']and r.get('action_id')==ack.get('action_id')and r.get('scope')==ack.get('scope')]
   if not dispatches:continue
@@ -1800,9 +1932,13 @@ def _rotated_original_professional_assignment(root,snapshot,role,rows):
     if not pin['path'].endswith('.json'):continue
     obj=document(root,pin)
     if obj.get('actual_tool')=='mcp__codex_app__send_message_to_thread':
-     wrapper=_review_same_goal_send_wrapper(obj)
+     try:wrapper=_review_same_goal_send_wrapper(obj)
+     except ValueError as error:
+      if str(error)=='known complete same-goal native send wrapper required':raise OriginalAssignmentSourceMissing(str(error))from error
+      raise
      if wrapper.get('thread_id')==old['task_id']and wrapper.get('exact_consumed_prompt',{}).get('sha256')==policy['payload_sha256']:returns.append(wrapper)
   calls=[(t,m)for t,m in calls if m['arguments'].get('prompt')in payloads and snapshot['task_id']in m['arguments']['prompt']]
+  if not calls or not returns:raise OriginalAssignmentSourceMissing('one exact actual successful native send, body and return required')
   require(len(calls)==len(returns)==1 and len(payloads)==1,'one exact actual successful native send, body and return required')
   checked=w._parse_observed_at(policy.get('checked_at'));start=calls[0][0].get('startedAt')
   require(sent and at and checked and checked<=sent<=at and type(start)in {int,float}and start<=sent.timestamp(),
@@ -1818,16 +1954,31 @@ def _rotated_original_professional_assignment(root,snapshot,role,rows):
      text=message.get('text')
      if message.get('type')=='agentMessage'and message.get('id')and isinstance(text,str)and text.strip()and(not texts or text.encode()in texts):
       messages.append((turn.get('id'),message['id']))
+  for poll in polls:
+   turn=poll.get('latestTurn',{});message=poll.get('latestAssistantMessage',{});text=message.get('text')
+   if (poll.get('schemaVersion')==1 and poll.get('thread',{}).get('id')==old['task_id']
+    and poll.get('thread',{}).get('hostId')==old.get('host_id','local')
+    and turn.get('status')in {'inProgress','completed'}and not turn.get('error')
+    and type(turn.get('startedAt'))in {int,float}and sent.timestamp()-600<=turn['startedAt']<=at.timestamp()
+    and poll.get('latestAssistantMessageId')==message.get('id')and message.get('id')
+    and message.get('turnId')==turn.get('id')and message.get('phase')in {'commentary','final_answer'}
+    and isinstance(text,str)and text.strip()and texts and text.encode()in texts):
+    messages.append((turn['id'],message['id']))
+  if not messages:raise OriginalAssignmentSourceMissing('one real original nonempty native ACK and unchanged UTF8 required')
   require(len(set(messages))==1,'one real original nonempty native ACK and unchanged UTF8 required')
   return True
- require(False,'original rotated native dispatch/ACK source missing')
+ raise OriginalAssignmentSourceMissing('original rotated native dispatch/ACK source missing')
 
 
 def original_assignment_ready(root,snapshot,role):
  if snapshot['goal_delivery'].get('source_mode')=='owner_direct':return True
  rows=w.read_jsonl(w.receipts_path(root,snapshot['task_id']));fixed=w.department_registry(root)[role]['chat_binding']['task_id']
  sent=[r for r in rows if r.get('receipt_type')=='dispatch_sent'and r.get('department')==role and r.get('chat_task_id')==fixed]
- if not sent:return _rotated_original_professional_assignment(root,snapshot,role,rows)
+ if not sent:
+  try:return _rotated_original_professional_assignment(root,snapshot,role,rows)
+  except OriginalAssignmentSourceMissing:
+   if role==snapshot['goal_delivery'].get('primary_owner')and registered_owner_continuation(root,snapshot,role):return True
+   raise
  require(sent,'original actual professional dispatch required')
  acks=[r for r in rows if r.get('receipt_type')=='chat_ack'and r.get('department')==role and r.get('chat_task_id')==fixed
   and r.get('ack_nonempty')and rows.index(r)>rows.index(sent[0])]
@@ -2031,8 +2182,16 @@ def maintenance_preflight(root):
 if __name__=='__main__':
  import argparse
  parser=argparse.ArgumentParser(description='Current autonomous department runtime entry')
- parser.add_argument('command',choices=['maintenance-preflight']);parser.add_argument('--root',default=str(Path(__file__).resolve().parents[1]))
+ parser.add_argument('command',choices=['maintenance-preflight','owner-continuation-source-check','owner-continuation-source-record']);parser.add_argument('--root',default=str(Path(__file__).resolve().parents[1]));parser.add_argument('--input')
  args=parser.parse_args()
- try:print(json.dumps(maintenance_preflight(Path(args.root).resolve()),ensure_ascii=False,indent=2))
+ try:
+  root=Path(args.root).resolve()
+  if args.command=='maintenance-preflight':result=maintenance_preflight(root)
+  elif args.command=='owner-continuation-source-record':result=record_owner_continuation_source(root,args.input)
+  else:
+   import goal_delivery_runtime as g
+   item=document(root,w.file_digest(root,args.input));snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,item['task_id'])))
+   result={'result':'validated','proof':validate_owner_continuation_source(root,snapshot,item),'dispatch_or_ACK_created':False}
+  print(json.dumps(result,ensure_ascii=False,indent=2))
  except (w.WorkflowError,ValueError,OSError,KeyError)as error:
   print(json.dumps({'state':'BLOCKED_EXACT_MAINTENANCE_SOURCE','reason':str(error),'deletion_executed':False},ensure_ascii=False));raise SystemExit(1)

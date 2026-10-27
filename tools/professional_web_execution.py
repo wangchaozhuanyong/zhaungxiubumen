@@ -797,7 +797,9 @@ def source_backup(root,task,state,out_path):
     return {'source_backup':w.file_digest(root,str(path.relative_to(root))),'external_permission_issued':False}
 
 def describe(root,task):
-    ctx=records(root,task)[0]
+    sources=records(root,task)
+    need(len(sources)==1,'one actual registered original WEB production source required; issuer contract/local target alone is not that source')
+    ctx=sources[0]
     return {'task_id':task,'registered_source':ctx['registration'],'role':ctx['role'],'binding':ctx['binding'],
       **({'standing_CMS_authority':ctx['decision'],'authority_department':ctx['authority_department'],'standing_authorization_id':ctx['standing_authorization_id']} if ctx.get('standing_CMS_channel') else {'decision':ctx['decision']}),
       'original_real_head':ctx['commit'],'branch':ctx['branch'],'source_paths':ctx['paths'],
