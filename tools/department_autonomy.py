@@ -565,27 +565,114 @@ def message_route(root,snapshot,request):
   and w._chat_binding_healthy(source,verification_ttl_hours=26) and w._chat_binding_healthy(dest,verification_ttl_hours=26), 'current exact sender/target health required')
  return {**auth,'source':payload,'report':obj['report'],'scope':request['scope'],'sender_department':sender,'target_department':target}
 
+def _owner_message_transport_not_started(root,snapshot,request):
+ """No new decision may outrun a durable original intent or partial effect."""
+ action=request['action_id'];task=snapshot['task_id']
+ for event in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={'task_id':task}):
+  for key in ('collaboration_queue_intent','native_queue_intent','dispatch_intent'):
+   marker=event.get('details',{}).get(key,{})
+   require(isinstance(marker,dict),'malformed original transport intent; exact original effect readback required')
+   if marker.get('action_id')==action:
+    raise w.WorkflowError('original owner transport intent/effect exists; read original key, no new policy')
+ for row in w.read_jsonl(w.receipts_path(root,task)):
+  if row.get('action_id')==action and row.get('receipt_type')in {'dispatch_sent','chat_ack'}:
+   raise w.WorkflowError('original owner message already sent/received; read original key, no new policy')
+ for pin in snapshot['goal_delivery'].get('collaboration_records',[]):
+  record=document(root,pin)
+  if record.get('action_id')==action:
+   raise w.WorkflowError('original collaboration effect/unknown receipt exists; read original key, no new policy')
+
+
+def _fresh_owner_message_policy_source(root,snapshot,request,route):
+ """The existing normal preparation facts, not caller renewal flags."""
+ import goal_delivery_runtime as g
+ require(request.get('delivery_mode')=='official_native_queue'
+  and route.get('purpose')=='original_professional_collaboration_transport_only'
+  and g.owner_result_collaboration_binding(root,snapshot,request)is not None,
+  'expired message policy requires the original registered owner-message queue source')
+ keys=('task_id','sender_department','action_id','action_class','scope','source_project_id','target_project_id',
+       'target_department','target_thread_id','target_thread_title','target_cwd','target_sidebar_section_id','payload_sha256','delivery_mode')
+ require(g.collaboration_route(root,snapshot,{k:request.get(k)for k in keys})==[],
+  'fresh exact normal owner-message route required for a new policy')
+ observed=w._parse_observed_at(request.get('live_observed_at'));now=dt.datetime.now(dt.timezone.utc)
+ require(observed is not None and 0<=(now-observed).total_seconds()<=300,
+  'fresh original message observation required; no future or backdated policy')
+ registry=w.department_registry(root)
+ for key,role in (('actual_sender_state',request['sender_department']),('actual_target_state',request['target_department'])):
+  page=g._collaboration_native(root,request.get(key));fixed=registry[role]['chat_binding']
+  require(all(page.get('thread',{}).get(k)==fixed[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items())
+   and page['thread'].get('hostId')==fixed['host_id']and page['thread'].get('kind')=='codex'
+   and page.get('turns')and not page['turns'][0].get('error'),
+   'actual fresh original sender and receiver native identity required')
+ action=g.approved_action(root,snapshot,{k:request.get(k)for k in keys if k!='delivery_mode'})
+ require(action and action.get('professional_owner_message_source'),'real original owner-message registration required')
+ observation=snapshot['goal_delivery'].get('current_route_observations',{}).get(action['action_id'])
+ live=document(root,observation)
+ require(live.get('observed_at')==request['live_observed_at']and live.get('actual_native_observation')==request.get('actual_live_inventory')
+  and live.get('actual_native_target_turns',{}).get(request['target_thread_id'])==request.get('actual_target_state'),
+  'current policy must bind this real normal preparation observation')
+ return {'goal_contract':snapshot['goal_contract'],'authorization':snapshot['goal_delivery']['authorization_pin'],
+  'registered_message_source':action['professional_owner_message_source'],'original_result':route['report'],
+  'payload':request['payload'],'actual_route_observation':observation,
+  'actual_sender_state':request['actual_sender_state'],'actual_target_state':request['actual_target_state'],
+  'actual_live_inventory':request['actual_live_inventory'],'live_observed_at':request['live_observed_at']}
+
+
 def message_policy(root,request):
  # A fresh real final can repair a stale health cache before the normal gate.
  from flashcast_ops import refresh_department_health
+ import goal_delivery_runtime as g
  for key,role in (('actual_sender_state',request.get('sender_department')),('actual_target_state',request.get('target_department'))):
   if request.get(key):refresh_department_health(root,role,request[key],only_if_stale=True)
- route=message_route(root,w.read_json(w.snapshot_path(root,request['task_id'])),request)
- require(route is not None,'authenticated task message required')
- from goal_delivery_runtime import _collaboration_native
- page=_collaboration_native(root,request.get('actual_target_state'));binding=w.department_registry(root)[request['target_department']]['chat_binding']
- require(all(page.get('thread',{}).get(k)==binding[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()), 'actual native target identity required')
- rows=w.read_jsonl(Path(root)/w.POLICY_DECISIONS)
- same=lambda x: all(x.get(k)==request.get(k)for k in ('task_id','action_id','scope','payload_sha256','target_thread_id'))
- existing=[x for x in rows if same(x)and x.get('approval_basis')==MODE]
- require(len(existing)<=1, 'ambiguous original transport policy')
- if existing:return existing[0]
- fields=('task_id','action_id','action_class','scope','source_project_id','target_project_id','target_department','target_thread_id','target_thread_title','target_cwd','target_sidebar_section_id','payload_sha256')
- value={k:request[k]for k in fields};value.update(department=request['sender_department'],status='allow',approval_basis=MODE,
-  decision_id='pol-'+w.sha256_value([value,w.utc_timestamp()])[:20],checked_at=w.utc_timestamp(),approval_id='',consume_approval=False,
-  reason=['actual_owner_delegation_original_task_report_only'],routing_status='routing_allowed',required_receipts=['normal_fixed_native_transport_and_effect_readback'],external_permission_issued=False)
- with w.workflow_lock(root):w.append_jsonl_locked(Path(root)/w.POLICY_DECISIONS,value)
+ fields=('task_id','action_id','action_class','scope','source_project_id','target_project_id','target_department',
+         'target_thread_id','target_thread_title','target_cwd','target_sidebar_section_id','payload_sha256')
+ with w.workflow_lock(root):
+  snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,request['task_id'])))
+  route=message_route(root,snapshot,request);require(route is not None,'authenticated task message required')
+  page=g._collaboration_native(root,request.get('actual_target_state'));binding=w.department_registry(root)[request['target_department']]['chat_binding']
+  require(all(page.get('thread',{}).get(k)==binding[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()),'actual native target identity required')
+  rows=w.read_jsonl(Path(root)/w.POLICY_DECISIONS)
+  existing=[x for x in rows if x.get('task_id')==request['task_id']and x.get('action_id')==request['action_id']and x.get('approval_basis')==MODE]
+  now=dt.datetime.now(dt.timezone.utc);previous=None;ids=set()
+  for index,row in enumerate(existing):
+   checked=w._parse_observed_at(row.get('checked_at'));identifier=row.get('decision_id')
+   require(all(row.get(k)==request.get(k)for k in fields)and row.get('department')==request['sender_department']
+    and row.get('status')=='allow'and row.get('routing_status')=='routing_allowed'
+    and row.get('external_permission_issued')is False and not row.get('consume_approval')and not row.get('approval_id')
+    and isinstance(identifier,str)and identifier.startswith('pol-')and identifier not in ids
+    and checked is not None and checked<=now
+    and ('delivery_mode'not in row or row['delivery_mode']==request.get('delivery_mode')),
+    'exact immutable original message policy identity/time required')
+   if previous is None:
+    require(not row.get('supersedes_message_policy')and row.get('message_policy_generation',0)==0,
+     'one original transport policy root required')
+   else:
+    require(row.get('supersedes_message_policy')=={'decision_id':previous['decision_id'],'sha256':w.sha256_value(previous)}
+     and row.get('message_policy_generation')==index and row.get('message_policy_root_id')==existing[0]['decision_id']
+     and row.get('renewal_reason')=='expired_original_policy_no_transport_effect'
+     and checked>w._parse_observed_at(previous['checked_at'])and row.get('message_policy_source'),
+     'one ordered authentic original policy successor; no ambiguity or branch')
+   ids.add(identifier);previous=row
+  if route.get('purpose')=='original_professional_collaboration_transport_only'and request.get('delivery_mode')=='official_native_queue':
+   _owner_message_transport_not_started(root,snapshot,request)
+  source=None
+  if previous:
+   age=(now-w._parse_observed_at(previous['checked_at'])).total_seconds()
+   if age<=300:return previous
+   source=_fresh_owner_message_policy_source(root,snapshot,request,route)
+   # Re-read original effect under the same workflow lock immediately before append.
+   _owner_message_transport_not_started(root,snapshot,request)
+  checked_at=w.utc_timestamp()
+  value={k:request[k]for k in fields};value.update(department=request['sender_department'],status='allow',approval_basis=MODE,
+   checked_at=checked_at,approval_id='',consume_approval=False,reason=['actual_owner_delegation_original_task_report_only'],
+   routing_status='routing_allowed',required_receipts=['normal_fixed_native_transport_and_effect_readback'],external_permission_issued=False)
+  if previous:value.update(supersedes_message_policy={'decision_id':previous['decision_id'],'sha256':w.sha256_value(previous)},
+   message_policy_generation=len(existing),message_policy_root_id=existing[0]['decision_id'],
+   renewal_reason='expired_original_policy_no_transport_effect',message_policy_source=source,delivery_mode='official_native_queue')
+  value['decision_id']='pol-'+w.sha256_value([value,checked_at])[:20]
+  w.append_jsonl_locked(Path(root)/w.POLICY_DECISIONS,value)
  return value
+
 
 def adopted_save_source(root):
  """Preserve the old completed proof and its exact CAS successor separately."""
