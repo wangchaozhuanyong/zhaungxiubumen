@@ -12,6 +12,78 @@ import workflow_control as w
 SCHEMA = 'professional-standing-CMS-integration-source/v1'
 
 
+def _single_row(root, source, carrier, item):
+    """Read the immutable single-service codec without rewriting its evidence."""
+    import department_autonomy as a
+    need = a.require
+    pub = a.document(root, source.get('original_PUB_result'))
+    row = pub.get('record', {}); diff = pub.get('exact_diff', {})
+    action = source.get('exact_action', {}); protection = source.get('protected_fields', {})
+    fields = action.get('changed_fields')
+    before = a.document(root, source['baseline_only']['complete_row'])
+    need(source.get('department') == source.get('integration_owner')
+         and source.get('original_business_owner') == source.get('original_content_producer')
+         and fields == ['content_en', 'content_zh'] and action.get('table') == 'services'
+         and row.get('table') == action['table'] and row.get('id') == action.get('record_id')
+         and row.get('slug') == action.get('slug') and row.get('field_count') == len(before) == 41
+         and set(row.get('authenticated_complete_fields', [])) == set(before)
+         and protection.get('stable_business_fields_count') == 37
+         and protection.get('nonwrite_fields_count') == 39 and protection.get('MS_fields_count') == 11
+         and protection == pub.get('protected_fields')
+         and set(protection.get('MS_fields', [])) == {k for k in before if k.endswith('_ms')}
+         and source['baseline_only'].get('raw_updated_at') == row.get('raw_updated_at_CAS') == before.get('updated_at')
+         and source['baseline_only'].get('version') == row.get('server_version') == before.get('version')
+         and diff.get('changed_fields') == fields and diff.get('all_links_unchanged') is True
+         and source.get('new_permission_to_other_role_or_account') is False
+         and source.get('new_CMS_Save') is False and source.get('new_deploy_or_account_or_fee') is False
+         and source.get('original_parent_closed') is False
+         and source.get('baseline_only', {}).get('not_execution_time_CAS') is True,
+         'exact single-service two-field readonly codec and protected full41 required')
+    original = {'authenticated_full41': row['full41_current_copy'], 'backup_full41': row['full41_backup'],
+                'forward_values': diff['candidate_forward_values'],
+                'conditional_inverse_values': pub['rollback']['inverse_two_field_values']}
+    reverse = source['rollback']
+    need(reverse.get('task_id') == action.get('task_id') and reverse.get('action_class') == 'cms_write'
+         and reverse.get('changed_fields') == fields and reverse.get('new_inverse_policy_required') is True
+         and reverse.get('forward_policy_or_other_task_permit_reuse') is False,
+         'own exact two-field inverse requires an independent future inverse policy')
+    need(carrier.get('schema') == 'exact-existing-service-CMS-channel-registration-input/v1'
+         and carrier.get('existing_CMS_renderer_only') is True
+         and carrier.get('actual_runtime_loaded') is False and carrier.get('new_permission_issued') is False
+         and carrier.get('normal_source_and_runtime_still_required') is True
+         and carrier.get('integration_authority') == source['integration_owner']
+         and all(carrier.get(k) == action.get(k) for k in ('table', 'record_id', 'slug'))
+         and carrier.get('content_fields') == fields and carrier.get('forward_action') == action
+         and carrier.get('inverse_action') == reverse and carrier.get('exact_target_name') == action['candidate_version']
+         and carrier.get('forward_values') == original['forward_values']
+         and carrier.get('inverse_values') == original['conditional_inverse_values']
+         and carrier.get('forward_fields_sha256') == source['desired_fields_sha256']
+         and carrier.get('before_fields_sha256') == source['baseline_only']['before_fields_sha256'],
+         'unchanged single-row carrier/forward/inverse/digests; no runtime or permit claim')
+    record = {'exact_action': action, 'exact_target_name': action['candidate_version'],
+              'baseline_only': source['baseline_only'], 'desired': source['desired'],
+              'desired_fields_sha256': source['desired_fields_sha256'], 'conditional_inverse': reverse,
+              'original_PUB_record': original,
+              'protected_fields': {'non_write39': protection['nonwrite_fields'],
+                 'protected37': protection['stable_fields'], 'MS11': protection['MS_fields'],
+                 'updated_at_version_sent_as_values': False}}
+    human = source['human_and_frozen_source']
+    normalized = {**source, 'publication_integration_owner': source['integration_owner'],
+       'original_goal_contract': human['original_goal_contract'],
+       'original_human_authorization': human['original_goal_authorization'],
+       'latest_HQ_coordination': item.get('original_coordination_action_id'),
+       'current_C1_standing': {'authorization': human['standing_authorization']},
+       'original_SEO2_inputs': source['original_candidate'], 'original_PUB_complete_result': source['original_PUB_result'],
+       'actual_PUB_completed_turn': item.get('executor_completed_identity', {}),
+       'Save_or_permit_or_code_deploy': False, 'production_READY': False, 'record_actions': [record]}
+    target = {'name': record['exact_target_name'], 'action': action, 'inverse': reverse,
+              'forward_values': original['forward_values'], 'inverse_values': original['conditional_inverse_values'],
+              'desired_fields_sha256': source['desired_fields_sha256'],
+              'before_fields_sha256': source['baseline_only']['before_fields_sha256']}
+    return normalized, {**carrier, 'publication_integration_authority': source['integration_owner'],
+            'issuer': carrier['issuer_role'], 'channel_executor': carrier['channel_owner'], 'targets': [target]}, {**pub, 'records': [original]}
+
+
 def _fixed(page, binding, root):
     import department_autonomy as a
     a.require(all(page.get('thread', {}).get(k) == binding.get(v) for k, v in
@@ -26,8 +98,11 @@ def validate(root, snapshot, item):
     import goal_delivery_runtime as g
     import result_coordination as rc
     need = a.require
-    goal = a.participant(root, snapshot, item.get('integration_department'))
     frozen = a.document(root, snapshot['goal_contract'])
+    goal = a.participant(root, snapshot, frozen['primary_owner'])
+    source_pin = item.get('integration_source'); source = a.document(root, source_pin)
+    carrier_pin = item.get('target_input'); carrier = a.document(root, carrier_pin)
+    single = source.get('schema') == 'C1-standing-original-owner-CMS-integration-source/v1'
     owner = goal['primary_owner']; role = item.get('integration_department')
     need(a.current_mode(root) and item.get('schema') == SCHEMA
          and item.get('task_id') == snapshot['task_id']
@@ -36,10 +111,11 @@ def validate(root, snapshot, item):
          and all(goal.get(k) == frozen.get(k) for k in
                  ('primary_owner', 'producer_departments', 'authorized_scope', 'human_authorization',
                   'required_execution_actions', 'collaboration_scopes'))
-         and role in frozen['producer_departments'] and a.professional(root, role),
+         and (role in frozen['producer_departments'] or single) and a.professional(root, role),
          'unchanged original owner/producer/contract and actual professional integrator required')
-    source_pin = item.get('integration_source'); source = a.document(root, source_pin)
-    carrier_pin = item.get('target_input'); carrier = a.document(root, carrier_pin)
+    single_pub = None
+    if single:
+        source, carrier, single_pub = _single_row(root, source, carrier, item)
     owner_source = source.get('schema')=='C1-standing-original-next12-five-record-CMS-integration-carrier/v1'
     if owner_source:
         need(role==owner and source.get('primary_owner')==owner, 'own complete-result codec cannot delegate another role')
@@ -99,14 +175,25 @@ def validate(root, snapshot, item):
                                   'action_id': source.get('latest_HQ_coordination')}.items()),
              'real same-task HQ coordination to this original professional, not metadata')
         expected = '<codex_delegation>\n  <source_thread_id>' + hq['task_id'] + '</source_thread_id>\n  <input>' + body + '</input>\n</codex_delegation>'
-        items = turn.get('items', [])
+        received_turn = turn
+        if single:
+            delivered = g._native_document(root, item.get('delegation_received_native')); _fixed(delivered, fixed, root)
+            matching = [t for t in delivered.get('turns', []) if t.get('id') == item.get('delegation_received_turn_id')]
+            need(len(matching) == 1, 'one actual original delegated receipt turn required')
+            received_turn = matching[0]
+            need(received_turn.get('status') == 'completed' and not received_turn.get('error')
+                 and type(received_turn.get('completedAt')) in {int, float}
+                 and received_turn['completedAt'] <= decided.timestamp(),
+                 'original actual delegated ACK precedes later source creation; no backdated current ACK')
+        items = received_turn.get('items', [])
         received = [i for i, m in enumerate(items) if
                     (m.get('type') == 'userMessage' and m.get('content') == [{'type': 'text', 'text': body}]) or
                     (m.get('type') == 'functionCallOutput' and m.get('namespace') == 'codex_app'
                      and m.get('name') == 'send_message_to_thread' and m.get('output') == {'text': expected, 'truncated': False})]
-        need(len(received) == 1 and received[0] < items.index(command)
+        end = len(items) if single else items.index(command)
+        need(len(received) == 1 and received[0] < end
              and any(m.get('type') == 'agentMessage' and m.get('text', '').strip()
-                     for m in items[received[0]+1:items.index(command)])
+                     for m in items[received[0]+1:end])
              and original.get('startedAt', float('inf')) <= decided.timestamp(),
              'actual exact delivered coordination and nonempty professional ACK before source creation required')
     standing = source.get('current_C1_standing', {}).get('authorization', {})
@@ -136,10 +223,19 @@ def validate(root, snapshot, item):
     evidence = list(evidence.values()) if isinstance(evidence, dict) else evidence
     if owner_source:
         need(source_pin in evidence and carrier_pin in evidence, 'actual committed own complete result must bind this exact source and carrier')
+    elif single:
+        request_pin = item.get('original_business_request'); request = a.document(root, request_pin)
+        deliveries = report.get('deliveries', [])
+        need(request_pin in deliveries and source['original_SEO2_inputs'] in deliveries
+             and request.get('task_id') == snapshot['task_id'] and request.get('scope') == scope
+             and request.get('professional_owner') == owner
+             and request.get('content_candidate') == source['original_SEO2_inputs']
+             and request_pin['path'] in body and request_pin['sha256'] in body,
+             'actual committed original owner request/candidate and exact HQ request pin required')
     else:
         need(all(p in evidence and p['path']in body and p['sha256']in body for p in content_pins),
              'real business result and HQ coordination must bind the same unchanged content input')
-    pub_pin = source.get('original_PUB_complete_result'); pub = a.document(root, pub_pin)
+    pub_pin = source.get('original_PUB_complete_result'); pub = single_pub or a.document(root, pub_pin)
     pub_native = g._native_document(root, item.get('executor_completed_native'))
     details = source.get('actual_PUB_completed_turn', {}); executor = pub.get('actual_executor')
     pt, pm = w._completion_actual_final(root, pub_native, executor, turn_id=details.get('turn_id'), message_id=details.get('final_message_id'))
@@ -214,7 +310,8 @@ def validate(root, snapshot, item):
                          'carrier': carrier_pin, 'desired': desired, 'before': before,
                          'protected_fields': {'not_written_fields': sorted(rest), 'server_CAS_metadata': ['updated_at', 'version'],
                           'stable_business_readback_fields': sorted(rest-{'updated_at','version'})},
-                         'owner_result': q['outbox'], 'actual_HQ_intake': intake['record_id']})
+                         'owner_result': q['outbox'], 'actual_HQ_intake': intake['record_id'],
+                         'baseline_pin': record['baseline_only']['complete_row']})
     if owner_source and item.get('original_message_action') is None:
         return contexts, None
     action = a.document(root, item.get('original_message_action')); payload = action.get('payload', {})
@@ -232,6 +329,27 @@ def validate(root, snapshot, item):
          and all(x['action']['record_id'] in text and x['action']['candidate_version'] in text for x in contexts),
          'unchanged message must bind full exact sources and all target tuples')
     return contexts, action
+
+
+def record_source(root, task, path):
+    """Append source facts only. The integrator records/sends its own message later."""
+    import department_autonomy as a
+    import goal_delivery_runtime as g
+    from professional_cms_execution import records, EVENT
+    pin = w.file_digest(root, path); item = a.document(root, pin)
+    with w.workflow_lock(root):
+        snapshot = g.restore_goal(root, w.read_json(w.snapshot_path(root, task)))
+        contexts, _ = validate(root, snapshot, item)
+        ids = {x['action']['action_id'] for x in contexts}
+        bound = [x for x in records(root, snapshot) if x['action']['action_id'] in ids]
+        if bound:
+            a.require(len(bound) == len(contexts) and all(x['registration'] == pin for x in bound),
+                      'immutable original integration source conflict')
+            return {'result': 'duplicate_ignored', 'registration': pin, 'actual_message_sent': False}
+        w.append_workflow_event(root, task, snapshot['current_state'], {EVENT: pin,
+          'original_business_owner_unchanged': True, 'external_permission_issued': False})
+    return {'result': 'recorded', 'registration': pin, 'exact_CMS_actions': [x['action'] for x in contexts],
+            'actual_message_sent': False, 'production_READY': False, 'external_permission_issued': False}
 
 
 def record(root, task, path):
@@ -258,9 +376,11 @@ def record(root, task, path):
             return {'result': 'duplicate_ignored', 'registration': pin, 'actual_message_sent': False}
         from professional_cms_execution import records, EVENT
         existing = records(root, snapshot)
-        a.require(not {x['action']['action_id'] for x in existing} & {x['action']['action_id'] for x in contexts}, 'ambiguous existing execution action')
+        bound = [x for x in existing if x['action']['action_id'] in {c['action']['action_id'] for c in contexts}]
+        a.require(not bound or (len(bound) == len(contexts) and all(x['registration'] == pin for x in bound)),
+                  'ambiguous existing execution action')
         snapshot['goal_delivery']['approved_actions'] = snapshot['goal_delivery'].get('approved_actions', []) + [action]
-        w.append_workflow_event(root, task, snapshot['current_state'], {EVENT: pin, 'goal_delivery': snapshot['goal_delivery'],
+        w.append_workflow_event(root, task, snapshot['current_state'], {**({} if bound else {EVENT: pin}), 'goal_delivery': snapshot['goal_delivery'],
           'approved_message_prepared': item['original_message_action'], 'original_business_owner_unchanged': True,
           'external_permission_issued': False})
         w.atomic_write_json(w.snapshot_path(root, task), snapshot)
@@ -338,3 +458,24 @@ def record_message(root,task,path):
          'approved_message_prepared':pin,'actual_message_sent':False,'external_permission_issued':False})
         w.atomic_write_json(w.snapshot_path(root,task),snapshot)
     return {'result':'recorded','action_id':action['action_id'],'actual_message_sent':False,'external_permission_issued':False}
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('command', choices=['source-check', 'source-record'])
+    parser.add_argument('--task-id', required=True); parser.add_argument('--input', required=True)
+    args = parser.parse_args(); root = Path(__file__).resolve().parents[1]
+    try:
+        if args.command == 'source-record':
+            result = record_source(root, args.task_id, args.input)
+        else:
+            import department_autonomy as a
+            import goal_delivery_runtime as g
+            snapshot = g.restore_goal(root, w.read_json(w.snapshot_path(root, args.task_id)))
+            contexts, _ = validate(root, snapshot, a.document(root, w.file_digest(root, args.input)))
+            result = {'result': 'validated', 'exact_CMS_actions': [x['action'] for x in contexts],
+                      'actual_message_sent': False, 'production_READY': False}
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    except (w.WorkflowError, KeyError, ValueError) as error:
+        parser.exit(1, str(error) + '\n')

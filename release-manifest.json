@@ -1217,9 +1217,9 @@
     },
     {
       "path": "tools/professional_cms_channel.py",
-      "source_sha256": "9cc0d3ca8a33c32a6fba73902b7286feeb736f7b553b8500167c420bed82c0f0",
-      "release_sha256": "8b095c6e007a59be717ab395a4031ba9102b1d94048daa47de7d1a7b581debb7",
-      "bytes": 33635
+      "source_sha256": "4ff089f5b035c5dfb852e3f07acdc0a9f0ca0bee774ade65b578d2003a477c24",
+      "release_sha256": "7136db22bb15054c8ea7b21455b9717fd891159a5f4dcd91cca86dda7cda239b",
+      "bytes": 33854
     },
     {
       "path": "tools/professional_cms_execution.py",
@@ -1229,15 +1229,15 @@
     },
     {
       "path": "tools/professional_cms_integration.py",
-      "source_sha256": "c1705799630cc7754ea1c667bb8b7d005616a91f35bed57113b36680653e30d2",
-      "release_sha256": "3a66fd2cceb2024f53769edf605a270f567159a89237e3c1b75a2147936838e8",
-      "bytes": 27106
+      "source_sha256": "f8958e065b6105fed34b9a209504dc90941455575c3bfea0ebd7c0921a462707",
+      "release_sha256": "1040a9b103074104e1cf5010357160957ae4be5accb4da555fe0fa82b6541bae",
+      "bytes": 37336
     },
     {
       "path": "tools/professional_cms_issuer.py",
-      "source_sha256": "21d812fe248fffb4b19eb31a2c02ea3631638f1c85783c2c39a3e1dbba29b5ad",
-      "release_sha256": "21d812fe248fffb4b19eb31a2c02ea3631638f1c85783c2c39a3e1dbba29b5ad",
-      "bytes": 13754
+      "source_sha256": "7da3a93604c924cd2c36a5759f7f9a31f74d13b32cff8c11591bb02d0405c47a",
+      "release_sha256": "7da3a93604c924cd2c36a5759f7f9a31f74d13b32cff8c11591bb02d0405c47a",
+      "bytes": 14035
     },
     {
       "path": "tools/professional_cms_pre_main_recovery.py",
@@ -1793,5 +1793,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "de4d6c52105a772d1dcf951a212ca1727d447a1e8edb090d18be7d100163061b"
+  "fingerprint": "d86148b7dfb9ca6dbf489c68032ef6379c25b9e4000126fbb75ef11df60da120"
 }

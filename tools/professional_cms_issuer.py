@@ -24,9 +24,12 @@ def validate_contract(root,snapshot,item):
     x=sources[0];original=a.document(root,x['source']);registry=w.read_json(Path(root)/'data/department-registry.json')
     binding=registry['collaboration_bindings'][x['channel']];web=external(root,item.get('WEB_delivery'),binding)
     action=x['action'];target=web.get('target',{});fields=action['changed_fields']
-    baseline=a.document(root,original['original_source_baseline_only']['complete_row'])
+    from professional_cms_channel import baseline as source_baseline
+    baseline=a.document(root,source_baseline(root,x))
     retained=x['protected_fields']['stable_business_readback_fields']
-    expected={'id':action['record_id'],'slug':action['slug'],'contentType':action['content_type'],'table':action['table'],
+    content_type={'services':'service','blog_posts':'blog'}.get(action['table'])
+    a.require(content_type is not None and action.get('content_type',content_type)==content_type,'exact supported table/content type')
+    expected={'id':action['record_id'],'slug':action['slug'],'contentType':content_type,'table':action['table'],
       'taskId':snapshot['task_id'],'actionId':action['action_id'],'candidateVersion':action['candidate_version'],
       'scope':action['scope'],'changedFields':fields,'baselineProjectionFields':sorted(baseline),
       'baselineFieldsSha256':w.sha256_value(baseline),'desiredFieldsSha256':w.sha256_value(x['desired']),
@@ -81,13 +84,18 @@ def _targets(root):
           'scope':x['business_scope'],'execution_scope':act['scope'],'execution_owner':x['executor'],'record_id':act['record_id'],
           'slug':act['slug'],'table':act['table'],'content_type':t['contentType'],'changed_fields':act['changed_fields'],
           'candidate':(x['source']['path'],x['source']['sha256']),
-          'rollback':(original['original_source_baseline_only']['complete_row']['path'],original['original_source_baseline_only']['complete_row']['sha256']),
+          'rollback':_baseline_tuple(root,x),
           'payload_sha256':t['desiredFieldsSha256'],'baseline_projection_fields':t['baselineProjectionFields'],
           'baseline_fields_sha256':t['baselineFieldsSha256'],'desired_fields_sha256':t['desiredFieldsSha256'],
           'retained_fields_sha256':t['retainedFieldsSha256'],'rollback_fields_sha256':t['rollbackFieldsSha256'],
           'expected_updated_at':t['expectedUpdatedAt'],'rollback_allowed':True,'source_registration':x['registration'],
           'issuer_contract':pin,'physical_target':t}
     return result
+
+def _baseline_tuple(root,source):
+    from professional_cms_channel import baseline
+    pin=baseline(root,source)
+    return pin['path'],pin['sha256']
 
 def exact(root,target):
     current=targets(root).get(target.get('candidate_version'))

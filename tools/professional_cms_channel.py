@@ -101,6 +101,10 @@ returned from this memo. Any changed local source dependency invalidates it.
 
 
 def baseline(root, source):
+    if source.get('baseline_pin') is not None:
+        # This context came from the authenticated source validator, not the caller.
+        a.document(root, source['baseline_pin'])
+        return source['baseline_pin']
     original = a.document(root, source['source'])
     if 'original_source_baseline_only' in original:
         return original['original_source_baseline_only']['complete_row']
