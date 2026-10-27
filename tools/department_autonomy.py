@@ -2365,6 +2365,12 @@ def historical_registry_view(registry):
   if 'historical_coordination_authority'in item:
    item['new_dispatch_enabled']=item.get('historical_new_dispatch_enabled',False)
    item['coordination_authority']=copy.deepcopy(item['historical_coordination_authority'])
+   # Match the original method whitelist as well as its original authority.
+   # Only department_rotation's authenticated, write-prohibited history reader
+   # consumes this projection; current routing/qualification stays unchanged.
+   for field in ('approved_subskills','approved_subskill_paths','review_method_input'):
+    historical='historical_'+field
+    if historical in item:item[field]=copy.deepcopy(item[historical])
  return result
 
 
