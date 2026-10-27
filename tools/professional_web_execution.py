@@ -156,6 +156,9 @@ def validate_source(root,snapshot,item):
     import goal_delivery_runtime as g
     import goal_source_recovery as recovery
     import result_coordination as rc
+    if item.get('schema') == 'original-explicit-production-delivery-source/v1':
+        from original_production_delivery import contexts
+        return contexts(root, snapshot, item)[1]
     if item.get('schema')=='professional-standing-CMS-WEB-channel-source/v1':
         from professional_cms_channel import validate
         return validate(root,snapshot,item)
@@ -314,6 +317,9 @@ def validate_code_recovery(ctx,state):
     need(git(ctx,'merge-base',output['own_candidate_commit'],output['current_main_sha']).decode().strip()==output['own_candidate_commit'], 'real own released source ancestry')
 
 def candidate(ctx,state):
+    if ctx.get('original_production_channel'):
+        from original_production_delivery import candidate as original_candidate
+        return original_candidate(ctx, state)
     if ctx.get('standing_CMS_channel'):
         from professional_cms_channel import candidate as channel_candidate
         return channel_candidate(ctx,state)
@@ -365,7 +371,9 @@ def static_intent(root,request):
     ctx=execution_context(root,request['task_id'],request.get('state',{}));role=request.get('sender_department',request.get('department'))
     need(role==request.get('department',role)==ctx['role']and request.get('source_project_id')==a.PROJECT
       and request.get('execution_project_id')==ctx['binding']['project_id']and request.get('authorization_changes',[])==[]
-      and ((request.get('exact_standing_CMS_channel_source')==ctx['registration'] and not request.get('exact_HQ_production_decision'))
+      and ((request.get('exact_original_production_source')==ctx['registration'] and not request.get('exact_HQ_production_decision') and not request.get('exact_standing_CMS_channel_source'))
+           if ctx.get('original_production_channel') else
+           (request.get('exact_standing_CMS_channel_source')==ctx['registration'] and not request.get('exact_HQ_production_decision'))
            if ctx.get('standing_CMS_channel') else request.get('exact_HQ_production_decision')==ctx['decision']),
          'exact actual external WEB/projects/source; no actor substitution, mislabeled HQ decision or expansion')
     return ctx
@@ -396,7 +404,7 @@ def intent(root,req,check_desired=True):
         need(pr.get('number')==ctx['existing_pull_number']and pr.get('base_branch')=='main'and pr.get('head_branch')==ctx['branch']
              and pr.get('head_sha')in allowed_heads,'same actual existing PR only; no creation or replacement')
         if op=='git_push':need(state.get('remote_branch_sha')in allowed_heads,'fresh original branch effect/CAS; unknown head must be read back')
-    actor=state.get('actor',{});need(not (ctx.get('code_only_release') or ctx.get('standing_CMS_channel')) or actor.get('id')==ctx['actor_id'],'original exact source actor ID')
+    actor=state.get('actor',{});need(not (ctx.get('code_only_release') or ctx.get('standing_CMS_channel') or ctx.get('original_production_channel')) or actor.get('id')==ctx['actor_id'],'original exact source actor ID')
     need(actor.get('login')==ctx['repository'].split('/')[0]and type(actor.get('id'))is int and actor['id']>0,'original authenticated repository account, no substituted actor')
     desired={'repository':ctx['repository'],'branch':ctx['branch'],'head':head,'force':False,'admin_bypass':False}
     if op=='git_push':need(state.get('remote_main_sha')==base,'fresh main advanced; same-semantic source rebase required before first push')
@@ -680,12 +688,13 @@ def authorization_precheck(root,request):
     ctx=static_intent(root,request);op=request.get('operation');need(op in OPS,'known original production operation')
     if request.get('state'):intent(root,request)
     else:
-        need(not ctx.get('code_only_release') and not ctx.get('standing_CMS_channel'),'exact source request, or use normal current-state request-base')
+        need(not ctx.get('code_only_release') and not ctx.get('standing_CMS_channel') and not ctx.get('original_production_channel'),'exact source request, or use normal current-state request-base')
         repair=a.document(root,ctx['repair']);original=a.document(root,repair['actual_failing_request'])
         need(all(request.get(k)==original.get(k)for k in ('action_id','action_class','scope','operation','desired','committed_source')),'exact initial source intent, or use normal current-state request for later stages')
     return {'schema':'goal-authorization-precheck/v1','task_id':ctx['task'],'status':'within_original_authorization',
       'reasons':['verified_original_external_WEB_full_production_source'],'original_authorization':ctx['authorization'],
-      **({'standing_CMS_authority':ctx['decision'],'authority_department':ctx['authority_department']} if ctx.get('standing_CMS_channel')
+      **({'original_production_authority':ctx['contract'],'original_professional_source':ctx['decision']} if ctx.get('original_production_channel') else
+         {'standing_CMS_authority':ctx['decision'],'authority_department':ctx['authority_department']} if ctx.get('standing_CMS_channel')
          else {'HQ_delegated_decision':ctx['decision']}),'source_registration':ctx['registration'],'needs_human_confirmation':False,
       'actual_action_allowed':False,'external_permission_issued':False,'next_owner':ctx['role'],
       'next_action':'fresh normal original-executor preflight/policy and exact actual platform stage; no general approval repeat'}
@@ -712,6 +721,8 @@ def policy(root,requested):
         value={**requested,'status':'preflight_ready_not_a_permit','actual_action_allowed':False,'approval_basis':a.MODE,'original_authority':ctx['authorization'],'delegated_HQ_decision':ctx['decision'],'exact_request':item['request'],'source_preflight':pin,'autonomous_action_key':key,'checked_at':w.utc_timestamp(),'external_execution_department':ctx['role'],'assistant_approval_required':False,'platform_permission_issued':False,**recovery_fields}
         if ctx.get('standing_CMS_channel'):
             value.pop('delegated_HQ_decision');value.update(standing_CMS_authority=ctx['decision'],authority_department=ctx['authority_department'],standing_authorization_id=ctx['standing_authorization_id'])
+        if ctx.get('original_production_channel'):
+            value.pop('delegated_HQ_decision');value.update(original_production_authority=ctx['contract'],original_professional_source=ctx['decision'])
         if requested.get('consume_approval'):
             if recovery:need(0<=(dt.datetime.now(dt.timezone.utc)-observed).total_seconds()<=300,'recovery observations expired during validation; no stale policy consumption')
             if op=='edge_deploy':
@@ -726,8 +737,10 @@ def record_approval(root,**kwargs):
         ctx=records(root,kwargs['task_id'])[0]
         with w.workflow_lock(root):
             old=w.effective_approvals(root).get(kwargs.get('approval_id'))
-            need(old and old.get('status')=='active'and old.get('approval_basis')==('verified_professional_standing_CMS_WEB_source_v1' if ctx.get('standing_CMS_channel') else 'verified_original_goal_external_WEB_source_v1')
-              and old.get('standing_CMS_authority' if ctx.get('standing_CMS_channel') else 'delegated_HQ_decision')==ctx['decision']and all(old.get(k)==kwargs.get(k)for k in ('task_id','action_id','action_class','scope')),'exact original still-active own reference only')
+            basis=('verified_frozen_original_production_delivery_v1' if ctx.get('original_production_channel') else 'verified_professional_standing_CMS_WEB_source_v1' if ctx.get('standing_CMS_channel') else 'verified_original_goal_external_WEB_source_v1')
+            source_key=('original_professional_source' if ctx.get('original_production_channel') else 'standing_CMS_authority' if ctx.get('standing_CMS_channel') else 'delegated_HQ_decision')
+            need(old and old.get('status')=='active'and old.get('approval_basis')==basis
+              and old.get(source_key)==ctx['decision']and all(old.get(k)==kwargs.get(k)for k in ('task_id','action_id','action_class','scope')),'exact original still-active own reference only')
             value={**old,'status':'revoked','changed_at':w.utc_timestamp()};w.append_jsonl_locked(Path(root)/w.APPROVAL_LEDGER,value)
         return {**value,'result':'revoked','platform_allowlist_changed':False},[Path(root)/w.APPROVAL_LEDGER]
     pin=w.file_digest(root,kwargs['source_evidence']);item=a.document(root,pin);req=a.document(root,item.get('request'));ctx,op,state=validate_request(root,req)
@@ -748,6 +761,8 @@ def record_approval(root,**kwargs):
         value={'schema_version':'1.0','approval_id':apr,'task_id':ctx['task'],'action_id':req['action_id'],'action_class':'site_publish','scope':ctx['edge_scope'],'status':'active','single_use':True,'granted_by':'operations','granted_at':w.utc_timestamp(),'source_thread_id':human['source_thread_id'],'source_message_ref':human['message']['id'],'approval_basis':'verified_original_goal_external_WEB_source_v1','original_human_authorization_pin':ctx['authorization'],'delegated_HQ_decision':ctx['decision'],'source_preflight':pin,'execution_department':ctx['role'],'platform_binding':binding,'platform_permission_issued':False}
         if ctx.get('standing_CMS_channel'):
             value.pop('delegated_HQ_decision');value.update(approval_basis='verified_professional_standing_CMS_WEB_source_v1',granted_by=ctx['authority_department'],standing_CMS_authority=ctx['decision'],authority_department=ctx['authority_department'],standing_authorization_id=ctx['standing_authorization_id'])
+        if ctx.get('original_production_channel'):
+            value.pop('delegated_HQ_decision');value.update(approval_basis='verified_frozen_original_production_delivery_v1',granted_by=ctx['owner'],original_production_authority=ctx['contract'],original_professional_source=ctx['decision'])
         w.append_jsonl_locked(Path(root)/w.APPROVAL_LEDGER,value)
     return {**value,'result':'recorded'},[Path(root)/w.APPROVAL_LEDGER]
 
@@ -759,7 +774,8 @@ def request_base(root,task,op,state):
     req={'task_id':task,'sender_department':ctx['role'],'department':ctx['role'],'action_id':action_id(ctx,op,head,main),
       'action_class':OPS[op],'scope':scopes(ctx,op),'source_project_id':a.PROJECT,'execution_project_id':ctx['binding']['project_id'],
       'operation':op,'state':state,'observed_at':state.get('observed_at'),'authorization_changes':[],
-      **({'exact_standing_CMS_channel_source':ctx['registration']} if ctx.get('standing_CMS_channel')
+      **({'exact_original_production_source':ctx['registration']} if ctx.get('original_production_channel') else
+         {'exact_standing_CMS_channel_source':ctx['registration']} if ctx.get('standing_CMS_channel')
          else {'exact_HQ_production_decision':ctx['decision']})}
     req['desired']=intent(root,req,check_desired=False)[3];return req
 
@@ -782,7 +798,7 @@ def build_preflight(root,base_path,facts_native,facts_command,self_native,self_c
     w.atomic_write_json(out,item);return {'state':'prepared_actual_preflight_input_not_a_permission','input':w.file_digest(root,out_path),'request':item['request']}
 
 def source_backup(root,task,state,out_path):
-    ctx=execution_context(root,task,state);need(ctx.get('code_only_release'),'code-only source backup entry')
+    ctx=execution_context(root,task,state);need(ctx.get('code_only_release') or ctx.get('original_production_channel'),'exact original code source backup entry')
     head,base=candidate(ctx,state);working_source(ctx,head)
     directory=w.safe_path(root,out_path);need(not directory.exists(),'preserve original source backups; new actual source directory')
     directory.mkdir(parents=True)
@@ -801,7 +817,8 @@ def describe(root,task):
     need(len(sources)==1,'one actual registered original WEB production source required; issuer contract/local target alone is not that source')
     ctx=sources[0]
     return {'task_id':task,'registered_source':ctx['registration'],'role':ctx['role'],'binding':ctx['binding'],
-      **({'standing_CMS_authority':ctx['decision'],'authority_department':ctx['authority_department'],'standing_authorization_id':ctx['standing_authorization_id']} if ctx.get('standing_CMS_channel') else {'decision':ctx['decision']}),
+      **({'original_production_authority':ctx['contract'],'original_professional_source':ctx['decision'],'required_source_components':ctx['source_components']} if ctx.get('original_production_channel') else
+         {'standing_CMS_authority':ctx['decision'],'authority_department':ctx['authority_department'],'standing_authorization_id':ctx['standing_authorization_id']} if ctx.get('standing_CMS_channel') else {'decision':ctx['decision']}),
       'original_real_head':ctx['commit'],'branch':ctx['branch'],'source_paths':ctx['paths'],
       'operations':{op:{'action_class':kind,'scope':scopes(ctx,op),'facts_required_at_actual_stage':True}for op,kind in OPS.items()if not ctx.get('code_only_release')or op in ctx['allowed_operations']},
       'minimum_platform_guards':({'all_exact_head_required_CI':sorted(CHECKS),'Pages_workflow':PAGES,'fresh_execution_seconds':300,'single_use':True,'excluded_operations':['CMS','R3','Edge','DB','auth','account','Ads']}if ctx.get('code_only_release')else{'all_exact_head_required_CI':sorted(CHECKS),'R3_workflow':R3,'Pages_workflow':PAGES,'R3_run_attempt':1,'environment':'production-supabase','approval_TTL_minutes':15,'single_use':True}),

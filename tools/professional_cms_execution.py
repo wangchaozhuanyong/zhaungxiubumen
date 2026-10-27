@@ -163,8 +163,12 @@ def _records_uncached(root, snapshot):
     for row in rows:
         pin=row['details'][EVENT]; item=a.document(root,pin)
         from professional_cms_integration import SCHEMA as standing_schema, validate as standing_validate
-        contexts=(standing_validate(root,snapshot,item)[0] if item.get('schema')==standing_schema
-                  else [validate(root,snapshot,item)])
+        if item.get('schema') == 'original-explicit-production-delivery-source/v1':
+            from original_production_delivery import contexts as original_contexts
+            contexts = [original_contexts(root, snapshot, item)[0]]
+        else:
+            contexts=(standing_validate(root,snapshot,item)[0] if item.get('schema')==standing_schema
+                      else [validate(root,snapshot,item)])
         for context in contexts:
             key=context['action']['action_id'];a.require(key not in seen,'ambiguous execution source registration')
             seen.add(key);result.append({**context,'registration':pin,'event_id':row['event_id']})
@@ -244,7 +248,8 @@ def _request(root,snapshot,pin):
               'only the registered exact row/content fields/desired effect and both scopes may execute')
     before=a.document(root,req.get('before'));a.require(set(before)==set(x['protected_fields']['not_written_fields'])|set(fields)
               and all(before.get(k)==v for k,v in x['before'].items())
-              and before.get('id')==action['record_id'] and before.get('slug')==action['slug']
+              and before.get('id')==action['record_id']
+              and before.get('page_key' if action['table']=='cms_pages' else 'slug')==action['slug']
               and isinstance(before.get('version'),int) and isinstance(before.get('updated_at'),str)
               and req.get('expected_updated_at')==before['updated_at'] and req.get('expected_version')==before['version'],
               'fresh complete original row/server CAS and unchanged two before fields required')

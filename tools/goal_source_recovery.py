@@ -1519,8 +1519,14 @@ def collaboration_queue_binding(root, snapshot, action):
     binding=_collaboration_binding(root,snapshot,action.get('target_department'))
     source=w.department_registry(root).get(action.get('sender_department'),{}).get('chat_binding',{})
     from goal_delivery_runtime import execution_collaboration_scopes
-    declared=[d for d in execution_collaboration_scopes(root,snapshot)if all(d.get(k)==action.get(k)
+    # A completed original queue must not depend on a later source that itself
+    # consumes that queue. Prefer only an exact immutable contract declaration;
+    # genuinely appended collaborations retain their full source validation.
+    declared=[d for d in contract.get('collaboration_scopes',[])if all(d.get(k)==action.get(k)
               for k in ('sender_department','target_department','scope'))]
+    if not declared:
+        declared=[d for d in execution_collaboration_scopes(root,snapshot)if all(d.get(k)==action.get(k)
+                  for k in ('sender_department','target_department','scope'))]
     from professional_cms_integration import message_context as standing_message
     integration=standing_message(root,snapshot,action)
     if (len(declared)!=1

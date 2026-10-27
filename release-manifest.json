@@ -1016,9 +1016,9 @@
     },
     {
       "path": "tools/department_event_dispatcher.py",
-      "source_sha256": "e94edde3701f62de10fd151f56086e21fc492ac467950e12b286ae5e480126ca",
-      "release_sha256": "e94edde3701f62de10fd151f56086e21fc492ac467950e12b286ae5e480126ca",
-      "bytes": 120419
+      "source_sha256": "d27763f328eb15c010472ffaf6a6355f33510fdc6cbc2cdbc555ef06c93cafaa",
+      "release_sha256": "d27763f328eb15c010472ffaf6a6355f33510fdc6cbc2cdbc555ef06c93cafaa",
+      "bytes": 120464
     },
     {
       "path": "tools/department_next_work.py",
@@ -1076,15 +1076,15 @@
     },
     {
       "path": "tools/goal_delivery_runtime.py",
-      "source_sha256": "f0e7d7d058fbf41315d9ef7e280a03f41d0261568ae189b19cd99c18c393b797",
-      "release_sha256": "912a43cc79950bda86506310c70c1b3d60aa8bf083c3cf18dc5c6be5e107140e",
-      "bytes": 204280
+      "source_sha256": "edf654b7431367bcb955e546e737f02096660023c8e251f8fc690b2a76b223c9",
+      "release_sha256": "464950456b5c52be0707329967275f7f0e332a9f201a3a4c8a1bb9602edf9e94",
+      "bytes": 204467
     },
     {
       "path": "tools/goal_source_recovery.py",
-      "source_sha256": "6cf0ccb09ee84164444682724c2ac2bab918a902ef0e60cb3923f1445b8e0b98",
-      "release_sha256": "5f5d453645b1e8bcc0551f9739fd9411f727cdce2d8f45167cd340bcea245bae",
-      "bytes": 138031
+      "source_sha256": "4d76dfc023ae975721042b84369f38df72fc8ae1686ce80f42fc96bbc17628d7",
+      "release_sha256": "27976128b81d976c159b1e6435b55ce754fdff0fc025219e9d3954b5b02ee085",
+      "bytes": 138466
     },
     {
       "path": "tools/managed_cms_permit_issuer.py",
@@ -1151,6 +1151,12 @@
       "source_sha256": "787640a8a95a983f0d343486c9ef5136e92cb8aa444e2c767274d4d11b17496b",
       "release_sha256": "15d3d7fa9c4a366697b35b0fe1e4574ca5b5a2fa30614648a93771a04463f1ae",
       "bytes": 9356
+    },
+    {
+      "path": "tools/original_production_delivery.py",
+      "source_sha256": "4bbfc26f1f4592cd769fc91453203ad1eebe54563dcfa82f672339932b6538be",
+      "release_sha256": "4caa949a7e118cd7c451da6ea34b45ac3db0bacc8f247d3ff44d4c20492af26d",
+      "bytes": 23467
     },
     {
       "path": "tools/original_task_publisher_handover.py",
@@ -1232,9 +1238,9 @@
     },
     {
       "path": "tools/professional_cms_execution.py",
-      "source_sha256": "3a489d54625226bf586832817d3a67aecb729c67dd39a94dbc0641167126b12e",
-      "release_sha256": "8bbd0fc123363c982a0fccaf1f1271d05724021b0d4ac21f21d094f5bc00261f",
-      "bytes": 24117
+      "source_sha256": "142682577214dd1c5c3446036f24cf921d9e44225b2963b3bdc1de2e4e1b767e",
+      "release_sha256": "6dc6d0356c1b77c2fdf3ef9b912549f3150a347109f722df2a0497762be2a1be",
+      "bytes": 24436
     },
     {
       "path": "tools/professional_cms_integration.py",
@@ -1244,9 +1250,9 @@
     },
     {
       "path": "tools/professional_cms_issuer.py",
-      "source_sha256": "7da3a93604c924cd2c36a5759f7f9a31f74d13b32cff8c11591bb02d0405c47a",
-      "release_sha256": "7da3a93604c924cd2c36a5759f7f9a31f74d13b32cff8c11591bb02d0405c47a",
-      "bytes": 14035
+      "source_sha256": "9fbfc0f520444f814649ef70dbe4c5d5b06033830a27484ba2b7c85bd93ea150",
+      "release_sha256": "9fbfc0f520444f814649ef70dbe4c5d5b06033830a27484ba2b7c85bd93ea150",
+      "bytes": 14338
     },
     {
       "path": "tools/professional_cms_pre_main_recovery.py",
@@ -1256,9 +1262,9 @@
     },
     {
       "path": "tools/professional_web_execution.py",
-      "source_sha256": "655aa2e2b024c0f6bc9e3cfdd5a097f21186d6162c21c0b42c67f9f6acbd4caa",
-      "release_sha256": "905f05d235b11aec13c5d5688e1eaec1350dedb2d11d94fca86a10283a2d3ca8",
-      "bytes": 87366
+      "source_sha256": "13ca69f824af18bb6aef81aac6294b544184c8cc53bb415192b0f2fcd921948f",
+      "release_sha256": "28ec29fc2c33b1e391c1ead0646aad9a4e9c04e762914cc322fa478e3b1615bb",
+      "bytes": 89320
     },
     {
       "path": "tools/professional_web_increment.py",
@@ -1800,5 +1806,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "abd25b40e9cff20fae4206d6dde2d4bd8c326b918660d4e44ee447d7744e805d"
+  "fingerprint": "27dc192835e6d54e838afe10a96e823b588b572872e7ec6dbc895e5885414322"
 }

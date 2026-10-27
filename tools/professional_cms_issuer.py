@@ -22,6 +22,10 @@ def validate_contract(root,snapshot,item):
     a.require(item.get('schema')=='professional-cms-issuer-contract/v1' and item.get('task_id')==snapshot['task_id']
               and len(sources)==1,'one real registered source for issuer contract')
     x=sources[0];original=a.document(root,x['source']);registry=w.read_json(Path(root)/'data/department-registry.json')
+    if x.get('original_explicit_delivery'):
+        a.require(item.get('target_name') == x['action']['candidate_version']
+                  and item.get('original_source_delivery') == x['owner_result'], 'exact original explicit issuer source namespace')
+        return x, original, x['physical_target']
     binding=registry['collaboration_bindings'][x['channel']];web=external(root,item.get('WEB_delivery'),binding)
     action=x['action'];target=web.get('target',{});fields=action['changed_fields']
     from professional_cms_channel import baseline as source_baseline
