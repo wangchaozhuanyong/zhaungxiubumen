@@ -648,7 +648,11 @@ def message_route(root,snapshot,request):
 
 def _owner_message_transport_not_started(root,snapshot,request):
  """No new decision may outrun a durable original intent or partial effect."""
- action=request['action_id'];task=snapshot['task_id']
+ action=request['action_id'];task=request['task_id']
+ require(not snapshot or snapshot.get('task_id')==task,'same original message task required')
+ from chief_assistant_coordination import daily_reply_directory
+ daily_dir=w.safe_path(root,daily_reply_directory(task,action))
+ require(not daily_dir.exists(),'original daily transport intent/effect exists; read original key, never resend')
  for event in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={'task_id':task}):
   for key in ('collaboration_queue_intent','native_queue_intent','dispatch_intent','routine_decision_reply_intent'):
    marker=event.get('details',{}).get(key,{})
@@ -658,7 +662,7 @@ def _owner_message_transport_not_started(root,snapshot,request):
  for row in w.read_jsonl(w.receipts_path(root,task)):
   if row.get('action_id')==action and row.get('receipt_type')in {'dispatch_sent','chat_ack'}:
    raise w.WorkflowError('original owner message already sent/received; read original key, no new policy')
- for pin in snapshot['goal_delivery'].get('collaboration_records',[]):
+ for pin in snapshot.get('goal_delivery',{}).get('collaboration_records',[]):
   record=document(root,pin)
   if record.get('action_id')==action:
    raise w.WorkflowError('original collaboration effect/unknown receipt exists; read original key, no new policy')

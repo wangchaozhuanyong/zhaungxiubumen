@@ -232,7 +232,9 @@ def record_decision(root, request):
 
 
 
-ORDINARY_PURPOSES = {'current_chief_original_owner_followthrough', 'original_professional_report_to_current_chief'}
+DAILY_REPLY_ROOT = 'logs/handoffs/chief-daily-owner-knowledge'
+DAILY_KNOWLEDGE_PURPOSE = 'received_declared_daily_owner_knowledge'
+ORDINARY_PURPOSES = {'current_chief_original_owner_followthrough', 'original_professional_report_to_current_chief', DAILY_KNOWLEDGE_PURPOSE}
 
 
 def ordinary_source_history(root, task):
@@ -254,6 +256,56 @@ def ordinary_source_history(root, task):
         previous = row['receipt_hash']
 
 
+def daily_reply_directory(task_id, action_id):
+    """One durable original transport key, not a task/workflow or new ledger."""
+    w.validate_task_id(task_id)
+    require(isinstance(action_id, str) and action_id.strip(), 'exact daily knowledge action required')
+    return DAILY_REPLY_ROOT + '/' + task_id + '/' + w.sha256_value([task_id, action_id])
+
+
+def daily_knowledge_source(root, snapshot, request):
+    """Read genuine declared source + committed intake; never invent a goal."""
+    marker = request.get('daily_received_knowledge')
+    if marker is None:
+        return None
+    import department_autonomy as a
+    import result_coordination as rc
+    require(isinstance(marker, dict) and set(marker) == {'schema', 'identity', 'received_record_id'}
+            and marker['schema'] == 'received-declared-daily-knowledge/v1', 'exact received daily knowledge source schema required')
+    identity = rc.exact_identity(marker['identity'])
+    require(marker['identity'] == identity and not snapshot
+            and request.get('task_id') == identity['task_id']
+            and request.get('sender_department') == ROLE
+            and request.get('target_department') == identity['sender_department'],
+            'original daily producer is the knowledge recipient, never a substitute goal or actor')
+    source = a.scheduled_delivery_source(root, identity)
+    require(source is not None and source.get('local_delivery_only') is True
+            and source.get('external_upload_authorized') is False and source.get('fees_authorized') is False,
+            'existing declared local daily authority required; no release or fee grant')
+    lane = rc.result_lane(root, identity)  # Real declaration/automation/READY/native/UTF8 still checked.
+    original = rows(root, identity)
+    queued = [r for r in original if r.get('event') == 'notification_queued']
+    require(len(queued) == 1 and lane.get('target_department') in {HQ, ROLE}, 'one frozen original daily delivery required')
+    intake = _committed_intake(root, {**identity, 'coordinator_role': ROLE,
+                                      'received_record_id': marker['received_record_id']})
+    require(intake.get('routine_delegation') == SOURCE and intake.get('handling_actor') == ROLE
+            and intake.get('target_department') == queued[0].get('target_department')
+            and intake.get('source_mode') == queued[0].get('source_mode') == 'scheduled_run'
+            and intake.get('source_automation_id') == queued[0].get('source_automation_id') == source['automation_id'],
+            'actual own committed receipt and unchanged frozen daily receiver/source required')
+    box = doc(root, queued[0]['outbox'])
+    scope = box.get('owner_authorization', {}).get('scope')
+    require(isinstance(scope, str) and scope.strip() and request.get('scope') == scope,
+            'exact original outbox authority scope required; no fabricated business scope')
+    for key in ('owner_direct_authorization', 'owner_native_source'):
+        doc(root, source.get(key))
+    return {'declared_source': source, 'original_outbox': queued[0]['outbox'],
+            'identity': identity, 'received_record_id': intake['record_id'],
+            'committed_receipt_sha256': w.sha256_value(intake), 'scope': scope,
+            'original_professional_owner': identity['sender_department'],
+            'external_permission_issued': False, 'knowledge_only': True}
+
+
 def ordinary_message_route(root, snapshot, request):
     """Current owner-delegated communication, separate from old execution actors."""
     import department_autonomy as a
@@ -272,29 +324,35 @@ def ordinary_message_route(root, snapshot, request):
         'authorization_changes', 'approval_id', 'consume_approval', 'execution_request', 'permission_issued',
         'production_write_allowed', 'qa_verdict', 'result_notification', 'routine_decision_reply')),
         'ordinary communication cannot assign a task, impersonate a receipt or issue execution authority')
-    frozen = doc(root, snapshot.get('goal_contract'))
-    require(snapshot.get('current_state') not in w.TERMINAL_STATES
-            and all(snapshot.get('goal_delivery', {}).get(k) == frozen.get(k) for k in
-                ('primary_owner', 'producer_departments', 'authorized_scope', 'human_authorization', 'required_execution_actions')),
-            'supplied original state and frozen participants cannot change')
-    snapshot = g.restore_goal(root, snapshot); goal = snapshot.get('goal_delivery', {})
-    require(snapshot.get('task_id') == request.get('task_id') == frozen.get('task_id')
-            and snapshot.get('current_state') not in w.TERMINAL_STATES
-            and all(goal.get(k) == frozen.get(k) for k in ('primary_owner', 'producer_departments',
-                     'authorized_scope', 'human_authorization', 'required_execution_actions'))
-            and request.get('scope') in goal.get('authorized_scope', [])
-,
-            'active unchanged original task, authority, owner, scope and intact history required')
-    ordinary_source_history(root, snapshot['task_id'])
-    owner = goal.get('primary_owner')
-    if sender == ROLE:
-        require(target == owner and a.professional(root, target), 'ordinary followthrough returns only to the real original professional owner')
-        purpose = 'current_chief_original_owner_followthrough'
+    daily = daily_knowledge_source(root, snapshot, request)
+    if daily is not None:
+        owner = daily['original_professional_owner']
+        purpose = DAILY_KNOWLEDGE_PURPOSE
+        goal = {}
     else:
-        require(target == ROLE and sender not in a.ASSISTANTS
-                and sender in {owner, *goal.get('producer_departments', [])} and a.professional(root, sender),
-                'original professional report only; retired actors cannot become current senders')
-        purpose = 'original_professional_report_to_current_chief'
+        frozen = doc(root, snapshot.get('goal_contract'))
+        require(snapshot.get('current_state') not in w.TERMINAL_STATES
+                and all(snapshot.get('goal_delivery', {}).get(k) == frozen.get(k) for k in
+                    ('primary_owner', 'producer_departments', 'authorized_scope', 'human_authorization', 'required_execution_actions')),
+                'supplied original state and frozen participants cannot change')
+        snapshot = g.restore_goal(root, snapshot); goal = snapshot.get('goal_delivery', {})
+        require(snapshot.get('task_id') == request.get('task_id') == frozen.get('task_id')
+                and snapshot.get('current_state') not in w.TERMINAL_STATES
+                and all(goal.get(k) == frozen.get(k) for k in ('primary_owner', 'producer_departments',
+                         'authorized_scope', 'human_authorization', 'required_execution_actions'))
+                and request.get('scope') in goal.get('authorized_scope', [])
+    ,
+                'active unchanged original task, authority, owner, scope and intact history required')
+        ordinary_source_history(root, snapshot['task_id'])
+        owner = goal.get('primary_owner')
+        if sender == ROLE:
+            require(target == owner and a.professional(root, target), 'ordinary followthrough returns only to the real original professional owner')
+            purpose = 'current_chief_original_owner_followthrough'
+        else:
+            require(target == ROLE and sender not in a.ASSISTANTS
+                    and sender in {owner, *goal.get('producer_departments', [])} and a.professional(root, sender),
+                    'original professional report only; retired actors cannot become current senders')
+            purpose = 'original_professional_report_to_current_chief'
     payload = request.get('payload')
     require(isinstance(payload, dict) and w.file_digest(root, payload.get('path', '')) == payload
             and request.get('payload_sha256') == payload['sha256'], 'unchanged exact ordinary message bytes required')
@@ -302,6 +360,11 @@ def ordinary_message_route(root, snapshot, request):
     keys = ('task_id', 'scope', 'action_id', 'sender_department', 'target_department') if sender == ROLE else ('task_id', 'scope')
     require(all(re.search(r'(?m)^' + key + '=' + re.escape(str(request.get(key, ''))) + r'\s*$', body) for key in keys),
             'original task/scope and real sender/receiver/action payload relation required')
+    if daily is not None:
+        require(all(re.search(r'(?m)^' + key + '=' + re.escape(value) + r'\s*$', body) for key, value in
+                    {'received_record_id': daily['received_record_id'],
+                     'result_sha256': daily['identity']['result_sha256'], 'no_execution_permission': 'true'}.items()),
+                'receipt knowledge payload must retain original receipt/result and no execution grant')
     registry = w.department_registry(root); source, dest = [registry[x]['chat_binding'] for x in (sender, target)]
     require(source.get('project_id') == dest.get('project_id') == request.get('source_project_id') == request.get('target_project_id') == a.PROJECT
             and Path(source.get('cwd', '')).resolve() == Path(dest.get('cwd', '')).resolve() == Path(root).resolve()
@@ -311,7 +374,8 @@ def ordinary_message_route(root, snapshot, request):
             'exact current fixed sender/receiver/project/directory/sidebar required; no role alias')
     return {'mode': a.MODE, 'purpose': purpose, 'source': payload, 'report': payload, 'scope': request['scope'],
             'sender_department': sender, 'target_department': target, 'owner_source': SOURCE,
-            'goal_contract': snapshot['goal_contract'], 'original_professional_owner': owner,
+            **({'daily_received_source': daily} if daily is not None else {'goal_contract': snapshot['goal_contract']}),
+            'original_professional_owner': owner,
             'historical_responsible_assistant_unchanged': goal.get('responsible_assistant'),
             'external_permission_issued': False, 'business_producer_added': False}
 
@@ -337,7 +401,8 @@ def ordinary_message_facts(root, snapshot, request, route):
                 and page['turns'][0]['startedAt'] <= now.timestamp(),
                 'real current fixed native identity/turn; unknown, failed or substituted role rejected')
         pins[key] = request[key]
-    return {'goal_contract': route['goal_contract'], 'routine_delegation': SOURCE, 'payload': request['payload'],
+    return {**({'daily_received_source': route['daily_received_source']} if route.get('daily_received_source') else
+               {'goal_contract': route['goal_contract']}), 'routine_delegation': SOURCE, 'payload': request['payload'],
             'live_observed_at': request['live_observed_at'], **pins, 'external_permission_issued': False}
 
 
@@ -395,6 +460,9 @@ def reply(root, request_path, directory):
     require(route is not None and request.get('delivery_mode') == 'official_native_queue', 'exact normal routine official reply required')
     destination = w.safe_path(root, directory)
     require(Path(directory).parts[:2] == ('logs', 'handoffs') and not destination.is_symlink(), 'project-owned reply directory required')
+    daily = route.get('purpose') == DAILY_KNOWLEDGE_PURPOSE
+    if daily:
+        require(directory == daily_reply_directory(request['task_id'], request['action_id']), 'one original daily reply directory required')
     with w.workflow_lock(root):
         previous = [e for e in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS)
                     if e.get('task_id') == request['task_id']
@@ -412,11 +480,15 @@ def reply(root, request_path, directory):
         destination.mkdir(parents=True)
         w.atomic_write_json(destination / 'normal-preparation.json', prepared)
         intent = {'action_id': request['action_id'], 'request': request_pin,
-                  'decision_record_id': route.get('decision_record_id'), 'ordinary_message_source': route.get('goal_contract'), 'routine_delegation': SOURCE, 'directory': directory,
+                  'decision_record_id': route.get('decision_record_id'), 'ordinary_message_source': route.get('daily_received_source', route.get('goal_contract')), 'routine_delegation': SOURCE, 'directory': directory,
                   'payload': request['payload'], 'policy_decision_id': prepared['policy_decision']['decision_id'],
                   'handling_actor': request['sender_department'], 'target_department': request['target_department']}
-        w.append_workflow_event(root, request['task_id'], snapshot['current_state'],
-                                {'routine_decision_reply_intent': intent, 'external_permission_issued': False})
+        if daily:
+            # Existing reply intent/result files are transport facts, not a synthetic business workflow.
+            w.atomic_write_json(destination / 'routine-reply-intent.json', intent)
+        else:
+            w.append_workflow_event(root, request['task_id'], snapshot['current_state'],
+                                    {'routine_decision_reply_intent': intent, 'external_permission_issued': False})
     effect = OfficialQueueTransport(root, None).enqueue({'thread_id': request['target_thread_id'],
         'message': w.safe_path(root, request['payload']['path']).read_text(), 'directory': destination,
         'payload_sha256': request['payload_sha256'], 'policy_decision_id': intent['policy_decision_id']})
@@ -426,19 +498,67 @@ def reply(root, request_path, directory):
     return result
 
 
+def _daily_reply_intent_readback(root, intent, request, route):
+    """Authenticate file-only daily intent against its actual normal policy."""
+    require(route.get('purpose') == DAILY_KNOWLEDGE_PURPOSE
+            and intent.get('directory') == daily_reply_directory(request['task_id'], request['action_id'])
+            and intent.get('ordinary_message_source') == route['daily_received_source']
+            and intent.get('payload') == request['payload'] and intent.get('routine_delegation') == SOURCE
+            and intent.get('handling_actor') == request['sender_department'] == ROLE
+            and intent.get('target_department') == request['target_department'],
+            'unchanged authenticated daily intent/source/payload/actor and original directory required')
+    policies = [p for p in w.read_jsonl(Path(root) / w.POLICY_DECISIONS)
+                if p.get('decision_id') == intent.get('policy_decision_id')]
+    fields = ('task_id', 'action_id', 'action_class', 'scope', 'source_project_id', 'target_project_id',
+              'target_department', 'target_thread_id', 'target_thread_title', 'target_cwd',
+              'target_sidebar_section_id', 'payload_sha256')
+    require(len(policies) == 1 and all(policies[0].get(k) == request.get(k) for k in fields)
+            and policies[0].get('department') == ROLE and policies[0].get('status') == 'allow'
+            and policies[0].get('external_permission_issued') is False
+            and not policies[0].get('consume_approval') and not policies[0].get('approval_id')
+            and policies[0].get('routine_message_source', {}).get('daily_received_source') == route['daily_received_source'],
+            'real exact normal daily policy and committed source required; no caller grant')
+    directory = w.safe_path(root, intent['directory'])
+    prepared = w.read_json(directory / 'normal-preparation.json')
+    require(prepared.get('status') == 'ready_to_queue' and prepared.get('policy_decision') == policies[0]
+            and prepared.get('payload') == request['payload'], 'original normal prepared policy/payload required')
+    native = w.read_json(directory / 'native-queue-intent.json')
+    if native:
+        started = w._parse_observed_at(native.get('started_at'))
+        checked = w._parse_observed_at(policies[0].get('checked_at'))
+        require(native.get('thread_id') == request['target_thread_id']
+                and native.get('payload_sha256') == request['payload_sha256']
+                and native.get('policy_decision_id') == intent['policy_decision_id']
+                and native.get('transport') == 'official_codex_queue'
+                and started is not None and checked is not None
+                and checked <= started <= dt.datetime.now(dt.timezone.utc),
+                'real original daily transport intent identity/hash/policy/time required')
+    return native
+
+
 def reply_effect(root, task_id, action_id):
     """Read original effect, including unknown; never sends or changes a receipt."""
     events = [e for e in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS) if e.get('task_id') == task_id
               and e.get('details', {}).get('routine_decision_reply_intent', {}).get('action_id') == action_id]
-    require(len(events) == 1, 'one original routine reply intent required')
-    intent = events[0]['details']['routine_decision_reply_intent']
+    daily_path = w.safe_path(root, daily_reply_directory(task_id, action_id)) / 'routine-reply-intent.json'
+    require(len(events) + int(daily_path.exists()) == 1, 'one original routine reply intent required')
+    intent = json.loads(daily_path.read_text()) if daily_path.exists() else events[0]['details']['routine_decision_reply_intent']
+    require(intent.get('action_id') == action_id, 'original reply action cannot change')
     request = doc(root, intent['request'])
     import goal_delivery_runtime as g
-    message_route(root, g.restore_goal(root, w.read_json(w.snapshot_path(root, task_id))), request)
+    route = message_route(root, g.restore_goal(root, w.read_json(w.snapshot_path(root, task_id))), request)
+    require(request.get('task_id') == task_id and request.get('action_id') == action_id,
+            'original reply request identity required')
+    native = _daily_reply_intent_readback(root, intent, request, route) if daily_path.exists() else None
     path = w.safe_path(root, intent['directory']) / 'native-queue-result.json'
     if not path.exists():
         return {'state': 'effect_unknown', 'repeat_allowed': False, 'intent': intent}
     result = json.loads(path.read_text())
+    if daily_path.exists():
+        finished = w._parse_observed_at(result.get('finished_at'))
+        require(native and all(result.get(k) == native.get(k) for k in native)
+                and finished is not None and w._parse_observed_at(native['started_at']) <= finished <= dt.datetime.now(dt.timezone.utc),
+                'original complete daily transport chronology and intent fields required')
     match = re.fullmatch(r'Queued message ([0-9a-f-]{36}) for thread ([0-9a-f-]{36})\.\s*', result.get('stdout', ''))
     require(result.get('exit_code') == 0 and match and match[2] == request['target_thread_id']
             and result.get('payload_sha256') == request['payload_sha256']

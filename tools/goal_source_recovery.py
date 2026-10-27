@@ -1267,7 +1267,7 @@ def prepare_message(root, request):
         if existing is not None:
             return {**existing, 'authorization_precheck':checked,'external_permission_issued':False}
     registered_collaboration = any(a.get('action_id') == request['action_id']
-        and (a.get('professional_execution_source') or a.get('professional_owner_message_source')) for a in ordinary_snapshot['goal_delivery'].get('approved_actions', []))
+        and (a.get('professional_execution_source') or a.get('professional_owner_message_source')) for a in ordinary_snapshot.get('goal_delivery', {}).get('approved_actions', []))
     if external_target or registered_collaboration:
         from goal_delivery_runtime import restore_goal, approved_action
         snapshot=restore_goal(root,w.read_json(w.snapshot_path(root,request['task_id'])))

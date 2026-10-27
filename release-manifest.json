@@ -932,9 +932,9 @@
     },
     {
       "path": "tools/chief_assistant_coordination.py",
-      "source_sha256": "505d1f49a935a2dfae95c06916572edb84be29df877f605f95dfa708559a7bb2",
-      "release_sha256": "505d1f49a935a2dfae95c06916572edb84be29df877f605f95dfa708559a7bb2",
-      "bytes": 30558
+      "source_sha256": "1f1e6acdc4954c44e174938749b9a1da885597d3eca943d4692ee48974dd32e2",
+      "release_sha256": "1f1e6acdc4954c44e174938749b9a1da885597d3eca943d4692ee48974dd32e2",
+      "bytes": 39348
     },
     {
       "path": "tools/cms_artistic_cas_native_read_contract_v1.py",
@@ -1010,9 +1010,9 @@
     },
     {
       "path": "tools/department_autonomy.py",
-      "source_sha256": "4af49ca9af8d5ecb436aa5a8adbcd02dee9feb5dcb09bae6b4115f197789dc58",
-      "release_sha256": "ea5ca632f0840a0e93e92c311a92dd954fa5d497bc32e91d660eee378edc843a",
-      "bytes": 209466
+      "source_sha256": "3fc09cf8e6e7f2d9ba9d068d2fb70cfbc36b7aa214c5b7b9f37aaf7a560fd926",
+      "release_sha256": "11d21d2343df9b7db4d89ba9efd34c6744835c0fe05006a1014368300f15232c",
+      "bytes": 209808
     },
     {
       "path": "tools/department_event_dispatcher.py",
@@ -1076,15 +1076,15 @@
     },
     {
       "path": "tools/goal_delivery_runtime.py",
-      "source_sha256": "b9d555a9eff1e87bbfc1913ebd570cedfe7375e81b9537efd7318dca2aa6ff18",
-      "release_sha256": "056648400124b0961d94cedd99ccd42c71505bfdb5751049443bba9918dc0983",
-      "bytes": 204819
+      "source_sha256": "e5b762e96ad88eb4a1d6003c83ba40cf458fbbba795339f0cd7b3da9eee7faa1",
+      "release_sha256": "d19dcb191295584768da94b2887b2cb7e0792a1568257076387e72ef522e1d0b",
+      "bytes": 205425
     },
     {
       "path": "tools/goal_source_recovery.py",
-      "source_sha256": "4d76dfc023ae975721042b84369f38df72fc8ae1686ce80f42fc96bbc17628d7",
-      "release_sha256": "27976128b81d976c159b1e6435b55ce754fdff0fc025219e9d3954b5b02ee085",
-      "bytes": 138466
+      "source_sha256": "153d4e6d773c172683dcda4fc904077c91c94aa8f80dabd88c47e6160176d6b6",
+      "release_sha256": "c348323df67935ad718b8d8eb7a0bc188075532d47d648d378d61a19ed2f1206",
+      "bytes": 138474
     },
     {
       "path": "tools/managed_cms_permit_issuer.py",
@@ -1806,5 +1806,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "f116648965f9ceadf969a922bf08fae688e407effe0b8ba2d6e35641cdf172b7"
+  "fingerprint": "10ecd482e82c9cac953dbd22dd53ecdbda7a420c8184510c2e0374d560f4c434"
 }

@@ -259,6 +259,14 @@ def authorization_precheck(root, task_id, request):
         return value
 
     snapshot = w.read_json(w.snapshot_path(root, task_id))
+    if request.get('daily_received_knowledge') is not None:
+        from chief_assistant_coordination import ordinary_message_route, DAILY_KNOWLEDGE_PURPOSE
+        route = ordinary_message_route(root, snapshot, request)
+        if route is None or route.get('purpose') != DAILY_KNOWLEDGE_PURPOSE:
+            raise w.WorkflowError('authenticated received daily knowledge message only')
+        value = outcome('within_original_authorization', ['actual_declared_daily_source_and_own_committed_receipt'])
+        value['original_daily_received_source'] = route['daily_received_source']
+        return value
     if not snapshot or not enabled(root, snapshot):
         return outcome("original_source_binding_required", ["recover_real_original_authority_without_new_dispatch"])
     snapshot = restore_goal(root, snapshot)
