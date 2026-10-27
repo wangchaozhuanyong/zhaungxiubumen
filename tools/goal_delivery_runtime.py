@@ -1007,6 +1007,13 @@ def execution_preflight(root, snapshot, action_id, action_class, scope, departme
     if not enabled(root, snapshot):
         return None
     goal = snapshot["goal_delivery"]
+    if snapshot.get("task_id") == "fc-20261014-builtin-wardrobe-layout-cms-publication-v1" and action_class == "cms_write":
+        from builtin_wardrobe_current_binding import registered as current_W_registration, preflight as current_W_preflight
+        current_W = current_W_registration(root)
+        if current_W is not None:
+            if (action_id, scope, department) != (current_W["action_id"], current_W["scope"], "publishing"):
+                raise w.WorkflowError("Exact registered current-W publisher tuple required")
+            return current_W_preflight(root, snapshot)
     if action_class == "ads_write":
         from professional_ads_execution import execution_context
         context = execution_context(root, snapshot, {"task_id": snapshot["task_id"], "action_id": action_id,
@@ -1286,6 +1293,9 @@ def pending(root, role):
 
 
 def record_preflight(root, task_id, input_path):
+    if w.read_json(w.safe_path(root, input_path)).get("schema") == "builtin-wardrobe-current-publisher-preflight/v1":
+        from builtin_wardrobe_current_binding import record_preflight as current_W_preflight
+        return current_W_preflight(root, task_id, input_path)
     if w.read_json(w.safe_path(root,input_path)).get('schema')=='professional-cms-fresh-preflight/v1':
         from professional_cms_execution import record_preflight as original_CMS_preflight
         return original_CMS_preflight(root,task_id,input_path)
@@ -1439,6 +1449,9 @@ def _condo_faq_v7_post_candidate_preflight(root, task_id, input_path, action):
 def record_approved_action(root, task_id, input_path):
     """Freeze a precise routine decision, or owner action in an original declared collaboration scope."""
     action = w.read_json(w.safe_path(root, input_path))
+    if action.get("schema") == "builtin-wardrobe-current-publisher-binding/v1":
+        from builtin_wardrobe_current_binding import record as current_W_registration
+        return current_W_registration(root, task_id, input_path)
     if action.get("schema") in {"professional-ads-object-source-registration/v1", "professional-ads-plan-object-source-registration/v2", "professional-ads-plan-supplement-source-registration/v3"}:
         from professional_ads_execution import record
         return record(root, task_id, input_path)[0]

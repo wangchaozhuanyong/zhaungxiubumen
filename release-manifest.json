@@ -922,6 +922,12 @@
       "bytes": 14208
     },
     {
+      "path": "tools/builtin_wardrobe_current_binding.py",
+      "source_sha256": "c5e016d6dbc4295501fa9b57d9707143389d1d50ffd34345f26b0d8729baf845",
+      "release_sha256": "c5e016d6dbc4295501fa9b57d9707143389d1d50ffd34345f26b0d8729baf845",
+      "bytes": 19680
+    },
+    {
       "path": "tools/chatgpt_fe689_draft_admission.py",
       "source_sha256": "381e097cd3c969d68ce2ad606886e92b17079472ab89d264de71bcaed273cba7",
       "release_sha256": "e24b54bf578b14b21219baa7dc2357133a8ef26aa175b51575785a71a2bd517d",
@@ -1067,9 +1073,9 @@
     },
     {
       "path": "tools/goal_delivery_runtime.py",
-      "source_sha256": "f62cb98b4eda5183f81618ab9b7bc54a4006d74310fdc96325bc34b3a00f5403",
-      "release_sha256": "3e417b07f3e70a9218e0b495d450edb865372f8bbebf0421a2144fb23b850aee",
-      "bytes": 202541
+      "source_sha256": "7768c8b7d6fdf9712f00dadbb3c2b643252ab734cd33f09634a8db6607de7183",
+      "release_sha256": "6c3e3ab7060869eb393a555537a4aae0671c39e17e6a170657d7d685a2e6fb5d",
+      "bytes": 203633
     },
     {
       "path": "tools/goal_source_recovery.py",
@@ -1079,9 +1085,9 @@
     },
     {
       "path": "tools/managed_cms_permit_issuer.py",
-      "source_sha256": "b7e2ead539a07a38906b9e06c6a41e760481eadbb917bb648eb1c086781787bc",
-      "release_sha256": "c468801d7fa4206b0892a7254d6ff53acda5e263bf679431ce9b1fbb3e06d8f9",
-      "bytes": 136681
+      "source_sha256": "48ba784675159e90605de6374e42ad714cfeb47c15053f4e313cdc19d6938c4c",
+      "release_sha256": "c9589d183a39239d7cd2b8533cea3370abdd02d2e0a15b9d2cfc20ccb1ce45bc",
+      "bytes": 137771
     },
     {
       "path": "tools/native_cms_admission.py",
@@ -1793,5 +1799,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "4b8ed15eaf783d3eba44218d496b86430fba5226f213da16290d5e5c6c0fe77e"
+  "fingerprint": "98ef81c37f4f2872a57071a2afe1157f31af3a251b4885e89ed5a3a0a02e6d2e"
 }

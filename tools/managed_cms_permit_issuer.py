@@ -453,6 +453,10 @@ def validate_condo_faq_v7_candidate(root: Path, candidate: dict, target: dict) -
 def validate_builtin_wardrobe_one_field_candidate(root: Path, candidate: dict, target: dict) -> None:
     """Bind only the owner-approved new batch; neither history nor metadata permits Save."""
     root = Path(root).resolve()
+    if target.get("current_binding_source"):
+        from builtin_wardrobe_current_binding import validate_candidate as current_W_candidate
+        current_W_candidate(root, candidate, target)
+        return
     require(root == ROOT.resolve() and target == BUILTIN_WARDROBE_TARGET,
             "Exact builtin wardrobe project and registered target required")
     binding = json.loads(exact_file(root, BUILTIN_WARDROBE_BINDING).read_text())
@@ -830,6 +834,12 @@ def _current_registered_targets(root: Path) -> dict:
         fresh = loader(root)
         require(not set(fresh) & set(targets), "Current CMS registration collides with another target")
         targets.update(fresh)
+    from builtin_wardrobe_current_binding import registered as current_W_registration
+    import department_rotation as rotation
+    if rotation.validation_registry(root) is None:
+        current_W = current_W_registration(root)
+        if current_W is not None:
+            targets[BUILTIN_WARDROBE_NAME] = current_W
     return targets
 
 
@@ -1221,7 +1231,7 @@ def validate_goal_cms_policy(root: Path, task_id: str, action_id: str, scope: st
                 "Exact current condo FAQ publisher payload and forward action required")
     if target.get("candidate_shape") == BUILTIN_WARDROBE_SHAPE:
         require(name == BUILTIN_WARDROBE_NAME and operation == "publish"
-                and target == BUILTIN_WARDROBE_TARGET
+                and target == registered[BUILTIN_WARDROBE_NAME]
                 and payload_sha256 == target["payload_sha256"],
                 "Only the new builtin wardrobe content_zh payload and forward action required")
     require(operation != "rollback" or target.get("rollback_allowed", True), "Exact target does not allow rollback")
@@ -1689,6 +1699,12 @@ def endpoint_request(control: dict, secret: str, base_url: str) -> dict:
 def validate_new_permit_target(target: dict, *, assistant_acceptance: dict | None = None) -> None:
     """Keep historical evidence readable without reissuing a colliding action."""
     from paid_three_page_bounded_cms import MODEL as bounded_model
+    if target.get("candidate_shape") == BUILTIN_WARDROBE_SHAPE and target.get("current_binding_source"):
+        require(isinstance(assistant_acceptance, dict), "Current W registration is not a permit; actual PUB selfcheck required")
+        from goal_delivery_runtime import restore_goal
+        snapshot = restore_goal(ROOT, wc.read_json(wc.snapshot_path(ROOT, target["task_id"])))
+        require(assistant_acceptance == _authorized_cms_selfcheck(ROOT, snapshot, target, "publish"),
+                "Actual committed current W PUB selfcheck differs")
     if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
         from professional_cms_issuer import acceptance
         require(isinstance(assistant_acceptance,dict) and assistant_acceptance==acceptance(ROOT,target,assistant_acceptance.get('operation')),
