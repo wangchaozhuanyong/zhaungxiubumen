@@ -100,6 +100,67 @@ returned from this memo. Any changed local source dependency invalidates it.
     return result
 
 
+def dependency_supplement(root, selected, item):
+    """Keep a delivered candidate immutable while authenticating later source facts.
+
+    This is not a replacement business result. The original committed callback,
+    its actual completed turn, the command's exact emitted pin and unchanged Git
+    candidate all have to agree before these extra dependency pins can be used.
+    """
+    pin = item.get('source_dependency_supplement')
+    if pin is None:
+        need(item.get('supplement_native') is None and item.get('supplement_command_id') is None,
+             'supplement metadata requires its exact immutable source')
+        return None
+    import goal_delivery_runtime as g
+    from professional_cms_issuer import external
+    report, entry, binding = selected['report'], selected['entry'], selected['binding']
+    custody = a.document(root, entry['C1_source_custody'])
+    original_pin = custody.get('actual_supplement_original')
+    supplement = a.document(root, pin)
+    need(custody.get('actual_supplement_copy') == pin and external(root, original_pin, binding) == supplement
+         and all(pin[k] == original_pin[k] for k in ('sha256', 'size')),
+         'actual receiver byte custody of the exact external supplement required')
+    local = report.get('local_candidate', report.get('local_version', {}))
+    need(supplement.get('schema') in {'original-WEB-immutable-current-source-dependency-supplement/v1',
+                                    'original-WEB-wardrobe15-immutable-current-source-dependency-supplement/v3'}
+         and all(supplement.get(k) == report.get(k) for k in ('task_id', 'scope', 'action_id', 'producer', 'producer_thread'))
+         and supplement.get('original_local_delivery') == custody.get('typed_original')
+         and supplement.get('source_registration') == item.get('source_registration') == report.get('source_registration')
+         and all(supplement.get('original_local_' + k) == local.get(k) for k in ('head', 'parent', 'tree'))
+         and supplement.get('original_local_12_source_files', supplement.get('original_local_source_files')) == local.get('paths')
+         and type(supplement.get('current_edge_version')) is int and supplement['current_edge_version'] > 0,
+         'same original delivered task/role/scope/action/registered source and unchanged full candidate required')
+    native = g._native_document(root, item.get('supplement_native'))
+    need(all(native.get('thread', {}).get(k) == binding[v] for k, v in
+             {'id': 'thread_id', 'title': 'title', 'cwd': 'cwd'}.items()), 'original fixed external source identity')
+    states = [s for s in g._collaboration_wait_states(root,
+              g.restore_goal(root, w.read_json(w.snapshot_path(root, entry['task_id']))),
+              only_action_id=entry['original_action_id'])
+              if s.get('status') == 'result_received' and s.get('proof_state') == 'PROVEN'
+              and s.get('result') == entry['actual_WEB_result'] and s.get('department') == selected['role']]
+    need(len(states) == 1, 'one original committed completed delivery for the supplement')
+    old_native = g._native_document(root, states[0]['native_result'])
+    old_finals = [(t, m) for t in old_native.get('turns', []) for m in t.get('items', [])
+                  if m.get('type') == 'agentMessage' and m.get('phase') == 'final_answer']
+    calls = [(t, m) for t in native.get('turns', []) for m in t.get('items', [])
+             if m.get('id') == item.get('supplement_command_id')]
+    need(len(calls) == len(old_finals) == 1, 'one real successful source command and original final required')
+    turn, command = calls[0]; old_turn, final = old_finals[0]
+    made = w._parse_observed_at(supplement.get('produced_at'))
+    need(turn.get('id') == old_turn.get('id') and turn.get('status') == old_turn.get('status') == 'completed'
+         and not turn.get('error') and command.get('type') == 'commandExecution'
+         and command.get('status') == 'completed' and command.get('exitCode') == 0
+         and Path(command.get('cwd', '')).resolve().is_relative_to(Path(binding['cwd']).resolve())
+         and final in turn.get('items', []) and made is not None
+         and type(turn.get('startedAt')) in {int, float} and type(turn.get('completedAt')) in {int, float}
+         and turn['startedAt'] <= made.timestamp() <= turn['completedAt'],
+         'same real completed WEB turn/final and ordered supplement command; no caller completion flag')
+    output = json.loads(w._completion_execution_output(command))
+    need(output.get('report') == original_pin, 'actual complete native output must emit this exact supplement pin')
+    return supplement
+
+
 def baseline(root, source):
     if source.get('baseline_pin') is not None:
         # This context came from the authenticated source validator, not the caller.
@@ -205,7 +266,11 @@ def validate(root, snapshot, item):
     match = re.fullmatch(r'(?:user-3de132cd98be@example.invalid:|https://github.com/)([\w.-]+/[\w.-]+?)(?:\.git)?',repo)
     need(match, 'original GitHub repository only'); ctx['repository'] = match[1]
     account = a.document(root,item.get('account_source'))
+    supplement = dependency_supplement(root, selected, item)
     all_pins = [p for x in callbacks(root,item['channel_input']) for p in _pins(x['report'])]
+    if supplement is not None:
+        all_pins.extend(_pins(supplement))
+        ctx['source_dependency_supplement'] = item['source_dependency_supplement']
     original_account = item.get('account_original')
     need(original_account in all_pins and web._external_bytes(original_account,binding) == w.safe_path(root,item['account_source']['path']).read_bytes()
          and account.get('full_name') == ctx['repository'] and type(account.get('id')) is int,
@@ -216,7 +281,7 @@ def validate(root, snapshot, item):
     ctx.update(repository_id=account['id'],actor_id=actor['id'])
     backup = a.document(root,ctx['backup'])
     need(backup.get('task_id') == ctx['task'] and backup.get('function') == 'content-publish'
-         and backup.get('version') == report.get('current_edge_version')
+         and backup.get('version') == (supplement['current_edge_version'] if supplement is not None else report.get('current_edge_version'))
          and backup.get('original_WEB_delivery') == entry['actual_WEB_result']
          and backup.get('runtime_files') and backup.get('source_build_archives'), 'real original full source/build backup, not an inverse-only claim')
     for pin in backup['runtime_files']+backup['source_build_archives']:web._external_bytes(pin,binding)
