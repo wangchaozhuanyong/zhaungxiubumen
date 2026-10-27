@@ -1605,6 +1605,82 @@ def queue_collaboration(root, request_path, prepared_path, directory):
             'received':False,'sent_or_mcp_claimed':False}
 
 
+def _collaboration_queue_subprocess_source(root, call, argv, turn, queue_start, queue_finish):
+    """Read the bounded static subprocess wrapper, never execute its source.
+
+    Both the complete AST and emitted argv/cwd/times must bind the same normal
+    CLI. Arbitrary Python, shell tails, extra calls and partial output reject.
+    """
+    import ast
+    parts=shlex.split(call.get('command',''))
+    if len(parts)!=3 or parts[:2]not in (['/bin/zsh','-lc'],['zsh','-lc']):return None
+    body=parts[2]
+    marker=re.search(r"<<'([A-Za-z_][A-Za-z_0-9]*)'\n",body)
+    if marker is None:return None
+    prefix=shlex.split(body[:marker.start()]);tail=body[marker.end():];ending='\n'+marker[1]
+    if not tail.rstrip().endswith(ending):raise w.WorkflowError('exact static queue wrapper heredoc required')
+    script=tail.rstrip()[:-len(ending)]
+    if prefix and prefix[0]in {'env','/usr/bin/env'}:prefix.pop(0)
+    allowed={'PYTHONDONTWRITEBYTECODE=1','PYTHONPATH=.:tools','PYTHONPATH='+str(Path(root))+':'+str(Path(root)/'tools')};seen=set()
+    while prefix and prefix[0]in allowed:
+        name=prefix.pop(0).split('=',1)[0]
+        if name in seen:raise w.WorkflowError('duplicate static wrapper environment')
+        seen.add(name)
+    if len(prefix)!=3 or prefix[1:]!=['-B','-']:raise w.WorkflowError('exact original Python wrapper interpreter required')
+    interpreter=prefix[0]
+    # AST matching is a structural allowlist. No eval, exec, subprocess or
+    # dynamic expression from the stored command is called by this reader.
+    try:
+        tree=ast.parse(script)
+        node=tree.body[10]
+        output_name=node.items[0].context_expr.func.value.right.value
+        newline=node.body[1].value.args[0].value
+        if (len(tree.body)!=12 or not isinstance(output_name,str)or Path(output_name).name!=output_name
+                or not output_name.endswith('.json')or not isinstance(newline,str)
+                or newline not in {'\n','\\n','\\\\n'}):raise ValueError('unknown wrapper output structure')
+        request=Path(argv[3]);prepared=Path(argv[5]);directory=argv[7]
+        if request.parent!=prepared.parent:raise ValueError('same original request/prepared directory required')
+        expected=f"""from pathlib import Path
+import subprocess,json,datetime
+r=Path({str(Path(root).resolve())!r})
+d=r/{str(request.parent)!r}
+out={directory!r}
+assert not(r/out).exists()
+cmd=[{interpreter!r},'-B','tools/goal_source_recovery.py','queue-collaboration','--request',str((d/{request.name!r}).relative_to(r)),'--prepared',str((d/{prepared.name!r}).relative_to(r)),'--directory',out]
+start=datetime.datetime.now(datetime.timezone.utc).isoformat()
+p=subprocess.run(cmd,cwd=r,capture_output=True,text=True)
+j={{'argv':cmd,'started_at':start,'completed_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'exit_code':p.returncode,'stdout':p.stdout,'stderr':p.stderr}}
+with(d/{output_name!r}).open('x')as f:
+ json.dump(j,f,ensure_ascii=False,indent=2)
+ f.write({newline!r})
+print(json.dumps(j,ensure_ascii=False))
+"""
+        if ast.dump(tree,include_attributes=False)!=ast.dump(ast.parse(expected),include_attributes=False):raise ValueError('not the static original queue wrapper')
+    except (SyntaxError,ValueError,IndexError,TypeError,AttributeError)as error:
+        raise w.WorkflowError('exact static original queue subprocess AST required')from error
+    def unique(pairs):
+        value={}
+        for key,item in pairs:
+            if key in value:raise w.WorkflowError('ambiguous queue wrapper output field')
+            value[key]=item
+        return value
+    if turn.get('status')!='completed' or turn.get('error'):raise w.WorkflowError('actual completed original wrapper turn required')
+    value=json.loads(w._source_continuation_execution_output(call),object_pairs_hook=unique)
+    started,finished=(w._parse_observed_at(value.get(k))for k in ('started_at','completed_at'))
+    expected_argv=[interpreter,'-B',*argv]
+    if (set(value)!={'argv','started_at','completed_at','exit_code','stdout','stderr'}or value.get('argv')!=expected_argv
+            or type(value.get('exit_code'))is not int or value['exit_code']!=0 or value.get('stderr')!=''
+            or not isinstance(value.get('stdout'),str)or not value['stdout'].strip()or not started or not finished
+            or not turn.get('startedAt',float('inf'))<=started.timestamp()
+            or not started<=queue_start<=queue_finish<=finished
+            or finished.timestamp()>w._parse_observed_at(w.utc_timestamp()).timestamp()+1
+            or turn.get('status')=='completed'and finished.timestamp()>turn.get('completedAt',0)+1):
+        raise w.WorkflowError('complete successful original wrapper argv/output/time required')
+    output=json.loads(value['stdout'],object_pairs_hook=unique)
+    if not isinstance(output,dict):raise w.WorkflowError('one complete original queue output object required')
+    return {'parts':[interpreter,*argv],'output':output,'source_format':'static_python_subprocess_wrapper'}
+
+
 def collaboration_queue_source(root, snapshot, record):
     """Read genuine CLI/accepted effect, then exact native user/ACK and final independently."""
     from goal_delivery_runtime import _collaboration_native,_collaboration_final_message
@@ -1643,7 +1719,11 @@ def collaboration_queue_source(root, snapshot, record):
         raise w.WorkflowError('actual original owner queue invocation identity required')
     calls=[(t,c)for t in page.get('turns',[])for c in t.get('items',[])if c.get('id')==record.get('queue_command_id')]
     if len(calls)!=1:raise w.WorkflowError('one real original owner queue command required')
-    turn,call=calls[0];parts=shlex.split(call.get('command',''))
+    turn,call=calls[0]
+    argv=['tools/goal_source_recovery.py','queue-collaboration','--request',record['original_prepare_request']['path'],
+          '--prepared',record['original_prepare_result']['path'],'--directory',qdir]
+    wrapper=_collaboration_queue_subprocess_source(root,call,argv,turn,start,finish)
+    parts=wrapper['parts']if wrapper else shlex.split(call.get('command',''))
     if len(parts)==3 and parts[:2]in (['/bin/zsh','-lc'],['zsh','-lc']):parts=shlex.split(parts[2])
     if parts and parts[0] in {'env','/usr/bin/env'}:parts.pop(0)
     allowed_environment={'PYTHONDONTWRITEBYTECODE=1', 'PYTHONPATH=.:tools',
@@ -1669,7 +1749,7 @@ def collaboration_queue_source(root, snapshot, record):
             or type(turn.get('startedAt'))not in {int,float} or turn['startedAt']>start.timestamp()
             or (turn.get('status')=='completed' and (type(turn.get('completedAt'))not in {int,float}or finish.timestamp()>turn['completedAt']+1))):
         raise w.WorkflowError('real successful same-owner exact queue CLI and time required')
-    output=json.loads(w._source_continuation_execution_output(call))
+    output=wrapper['output']if wrapper else json.loads(w._source_continuation_execution_output(call))
     if any(output.get(k)!=v for k,v in {'state':'queue_accepted','message_id':match[1],
             'thread_id':target['thread_id'],'policy_decision_id':policy['decision_id'],
             'payload_sha256':request['payload_sha256'],'received':False,'sent_or_mcp_claimed':False}.items()):
