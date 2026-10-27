@@ -1267,7 +1267,7 @@ def prepare_message(root, request):
         if existing is not None:
             return {**existing, 'authorization_precheck':checked,'external_permission_issued':False}
     registered_collaboration = any(a.get('action_id') == request['action_id']
-        and a.get('professional_execution_source') for a in ordinary_snapshot['goal_delivery'].get('approved_actions', []))
+        and (a.get('professional_execution_source') or a.get('professional_owner_message_source')) for a in ordinary_snapshot['goal_delivery'].get('approved_actions', []))
     if external_target or registered_collaboration:
         from goal_delivery_runtime import restore_goal, approved_action
         snapshot=restore_goal(root,w.read_json(w.snapshot_path(root,request['task_id'])))
@@ -1507,8 +1507,10 @@ def observe_post_qa_source_continuation(root, input_path):
 
 
 def collaboration_queue_binding(root, snapshot, action):
-    """The original declared external actor and frozen message, never a caller exemption."""
-    from goal_delivery_runtime import approved_action, _collaboration_binding
+    """Original external declaration or authenticated internal owner-result message."""
+    from goal_delivery_runtime import approved_action, _collaboration_binding, owner_result_collaboration_binding
+    internal=owner_result_collaboration_binding(root,snapshot,action)
+    if internal is not None:return internal
     goal=snapshot.get('goal_delivery',{});contract=_strict_queue_document(root,snapshot.get('goal_contract'))
     keys=('task_id','sender_department','action_id','action_class','scope','source_project_id',
           'target_project_id','target_department','target_thread_id','target_thread_title',

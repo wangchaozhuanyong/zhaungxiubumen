@@ -793,8 +793,34 @@ def _collaboration_binding(root, snapshot, role):
     return binding
 
 
+def owner_result_collaboration_binding(root, snapshot, requested):
+    """Derive this one registered internal message; never a new declaration.
+
+    The same source is read for preparation, queue and actual callbacks. A
+    caller marker or a role appearing in another action creates no binding.
+    """
+    keys=('task_id','sender_department','action_id','action_class','scope','source_project_id',
+          'target_project_id','target_department','target_thread_id','target_thread_title',
+          'target_cwd','target_sidebar_section_id','payload_sha256')
+    action=approved_action(root,snapshot,{k:requested.get(k)for k in keys})
+    if action is None or not action.get('professional_owner_message_source'):return None
+    if any(k in requested and requested[k]!=action.get(k)for k in ('payload','assignment_record_required','authorization_changes','internal_repairs','professional_owner_message_source')):
+        raise w.WorkflowError('unchanged original owner message inputs required')
+    if any(requested.get(k)for k in ('approval_id','consume_approval','execution_request','goal_responsibility_dispatch','parent_task_id')):
+        raise w.WorkflowError('ordinary owner message binding grants transport only')
+    from department_autonomy import _registered_owner_result_message
+    route=_registered_owner_result_message(root,snapshot,action)
+    if route is None or route.get('purpose')!='original_professional_collaboration_transport_only' or route.get('external_permission_issued')is not False:
+        raise w.WorkflowError('one actual registered original owner-result message source required')
+    registry=w.department_registry(root)
+    source=registry[action['sender_department']]['chat_binding']
+    target=registry[action['target_department']]['chat_binding']
+    return source,{**target,'thread_id':target['task_id']}
+
+
 def collaboration_route(root, snapshot, requested):
-    binding = _collaboration_binding(root, snapshot, requested.get("target_department"))
+    owner_binding=owner_result_collaboration_binding(root,snapshot,requested)
+    binding = owner_binding[1]if owner_binding else _collaboration_binding(root, snapshot, requested.get("target_department"))
     if not isinstance(binding, dict):
         return None
     reasons = []
