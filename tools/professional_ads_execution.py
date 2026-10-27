@@ -753,14 +753,144 @@ def freeze_preflight(root, bundle, output):
     return {'state':'CURRENT_INPUT_FROZEN_NOT_REGISTERED_NOT_A_PERMIT','request':request_pin,'preflight':input_pin,'actual_action_allowed':False}
 
 
+FAILURE_STAGE = 'professional-ads-pre-provider-failure-stage/v1'
+FAILURE_EVENT = 'professional_ads_pre_provider_failure_stage'
+CANONICAL_SESSIONS = Path.home() / '.codex/sessions'
+
+
+def _canonical_failure_calls(root, proof, request, attempt):
+    """Read original platform history, not a caller's zero-effect statement."""
+    import hashlib
+    role = proof['department']; fixed = w.department_registry(root)[role]['chat_binding']
+    relative = Path(proof.get('canonical_log_relative', ''))
+    need(not relative.is_absolute() and relative.parts and '..' not in relative.parts
+         and fixed['task_id'] in relative.name and relative.suffix == '.jsonl', 'exact original canonical actor log path')
+    path = CANONICAL_SESSIONS / relative
+    need(path.is_file() and not any(p.is_symlink() for p in [path,*path.parents])
+         and path.resolve().is_relative_to(CANONICAL_SESSIONS.resolve()), 'original canonical log required; no replacement path')
+    page = native_identity(root, proof['actual_native_source'], role)
+    wanted = (proof.get('failed_call_id'), proof.get('observation_call_id'))
+    need(all(isinstance(x,str) and x for x in wanted) and wanted[0] != wanted[1], 'two exact original native calls required')
+    native = {}
+    for cid in wanted:
+        pairs = [(t,c) for t in page.get('turns',[]) for c in t.get('items',[]) if c.get('id') == cid]
+        need(len(pairs)==1 and pairs[0][1].get('type')=='mcpToolCall'
+             and pairs[0][1].get('server') in {'cua_repl','node_repl'} and pairs[0][1].get('tool')=='js'
+             and pairs[0][0].get('status') in {'inProgress','completed','failed','interrupted'}, 'genuine original UI call, not a writer or summary')
+        native[cid] = pairs[0][1]
+    need(native[wanted[0]].get('status')=='failed' and native[wanted[1]].get('status')=='completed', 'actual failed chooser then completed observation required')
+    rows = []; selected = {cid:[] for cid in wanted}; meta = None
+    reserved = w._parse_observed_at(attempt['at']); need(reserved is not None,'real reservation time')
+    # Canonical path/meta and exact first-party call arguments are both checked.
+    with path.open() as handle:
+        for number, line in enumerate(handle,1):
+            raw = json.loads(line); payload = raw.get('payload',{})
+            if raw.get('type')=='session_meta':
+                need(meta is None,'one canonical session identity');meta=payload
+            stamp = w._parse_observed_at(raw.get('timestamp'))
+            if payload.get('call_id') in selected:
+                selected[payload['call_id']].append((number,raw,hashlib.sha256(line.encode()).hexdigest()))
+            if stamp is not None and stamp >= reserved and raw.get('type')=='response_item' and payload.get('type')in {'function_call','custom_tool_call'}:
+                rows.append((stamp,payload))
+            if len(selected[wanted[1]])==2: break
+    need(meta and meta.get('id')==fixed['task_id'] and meta.get('cwd')==str(Path(root).resolve()), 'actual canonical actor/project, never proxy metadata')
+    result = []
+    for cid in wanted:
+        entries = selected[cid]
+        need(len(entries)==2 and [r[1]['payload'].get('type')for r in entries]==['function_call','function_call_output'], 'complete original call/output pair; no summary substitute')
+        call, output = [r[1] for r in entries]; cp=call['payload'];op=output['payload']
+        need(cp.get('name')=='js' and cp.get('namespace') in {'mcp__cua_repl','mcp__node_repl'}
+             and json.loads(cp.get('arguments','null'))==native[cid].get('arguments'), 'canonical and first-party native call must match byte-valued arguments')
+        start=w._parse_observed_at(call.get('timestamp'));end=w._parse_observed_at(output.get('timestamp'))
+        need(start is not None and end is not None and reserved<=start<=end<=dt.datetime.now(dt.timezone.utc), 'original reservation/call/output order; no rewritten timestamps')
+        text=op.get('output');need(isinstance(text,list)and text and all(isinstance(v,dict)and v.get('type')=='input_text'and isinstance(v.get('text'),str)for v in text),'complete actual first-party output text')
+        result.append({'call_id':cid,'code':native[cid]['arguments'].get('code',''),'start':start,'end':end,
+                       'text':'\n'.join(v['text']for v in text),'canonical_lines':[r[0]for r in entries], 'canonical_line_sha256':[r[2]for r in entries]})
+    need(result[0]['end']<=result[1]['start'],'failure output precedes actual observation')
+    relevant=[p for at,p in rows if at<=result[1]['end']]
+    return result,relevant
+
+
+def failure_stage_check(root, proof):
+    """No provider call, no permit and no clearing of an original UNKNOWN."""
+    need(proof.get('schema')==FAILURE_STAGE and proof.get('action_class')=='ads_write','bounded pre-provider failure schema')
+    snapshot=w.read_json(w.snapshot_path(root,proof['task_id']));context=match(root,snapshot,proof)
+    need(context and context.get('plan_objects') and context['object_spec'].get('operation')=='upload_reference_image','original registered upload object only')
+    request=doc(root,proof['original_request']);need(same(request,proof)and request.get('source_registration')==context['registration'],'same original request/source/action, never new nonce')
+    key=w.sha256_value([proof[k]for k in IDENTITY]);path=Path(root)/'logs/professional-ads-object-attempts'/(key+'.jsonl')
+    need(w.file_digest(root,str(path.relative_to(root)))==proof.get('original_attempt'),'exact frozen original attempt bytes; no clearing or replacing')
+    attempts=w.read_jsonl(path);policies=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('decision_id')==proof.get('policy_decision_id')]
+    need(len(attempts)==len(policies)==1 and attempts[0].get('state')=='reserved_before_native_effect'
+         and attempts[0].get('policy_decision_id')==policies[0]['decision_id']and policies[0].get('status')=='allow'
+         and policies[0].get('autonomous_action_key')==key and policies[0].get('exact_request')==proof['original_request']==attempts[0].get('request')
+         and attempts[0].get('source_registration')==context['registration'],'original consumed policy and one exact reservation')
+    need(not _effect_rows(root,context['registration'],proof['action_id']),'real successful effect cannot be reclassified or replayed')
+    from chatgpt_fe689_draft_admission import BROWSER_PROFILE,BROWSER_EXTENSION
+    facts=doc(root,request['facts']);channel=facts['channel'];inventory=doc(root,facts['native_inventory'])
+    need(proof.get('account_id')==request.get('account_id')==context['plan']['account_id']
+         and proof.get('parent_campaign_id')==request.get('parent_campaign_id')==context['plan']['campaign_id']
+         and proof.get('profile')==channel.get('profile')==inventory.get('channel',{}).get('profileName')==BROWSER_PROFILE
+         and proof.get('stable_extension')==channel.get('stable_extension')==BROWSER_EXTENSION
+         and parse_qs(urlsplit(channel.get('account_url','')).query).get('act')==[proof['account_id']], 'real same account/profile/extension/parent, never a caller waiver')
+    pairs,calls=_canonical_failure_calls(root,proof,request,attempts[0]);failed,observed=pairs
+    # Only a pure wait and pure DOM input getter are provably non-invoking.
+    # A selector click/setFiles/Upload, mixed code, dynamic helper, or unknown call
+    # is deliberately NOT certified by a timeout or an empty input afterwards.
+    tab=json.dumps(channel['runtime_tab']);browser=json.dumps(channel['runtime_browser'])
+    pure_wait='var t=await cua.getTab('+tab+',{browser:'+browser+'});await t.playwright.waitForEvent("filechooser",{timeoutMs:10000});'
+    pure_read="""nodeRepl.write(await t.playwright.locator('input[type="file"]').evaluate(el=>({value:el.value,files:Array.from(el.files).map(f=>({name:f.name,size:f.size,type:f.type}))})));"""
+    compact=lambda value:re.sub(r'\s+','',value)
+    blockers=[]
+    if compact(failed['code'])!=compact(pure_wait):blockers.append('failed_call_contains_UI_trigger_or_unclassified_capability; provider boundary not proven')
+    if compact(observed['code'])!=compact(pure_read):blockers.append('observation_is_not_a_pure_input_getter; caller no-click flags are not evidence')
+    if {c.get('call_id')for c in calls}!={failed['call_id'],observed['call_id']}:
+        blockers.append('additional_native_calls_in_reserved_interval_require_original_invocation_boundary')
+    if 'Timed out after 10000ms waiting for file chooser.' not in failed['text']:blockers.append('exact_original_wait_failure_output_missing_or_ambiguous')
+    # The supported pure getter emits this exact JSON; never use agent booleans.
+    value=None
+    for line in observed['text'].splitlines():
+        try: parsed=json.loads(line)
+        except ValueError:continue
+        if isinstance(parsed,dict):
+            if value is not None:blockers.append('ambiguous_observation_output')
+            value=parsed
+    if value!={'value':'','files':[]}:blockers.append('exact_actual_empty_input_output_missing_or_has_asset_or_success')
+    return {'state':'BLOCKED_EVIDENCE_INSUFFICIENT'if blockers else'VERIFIED_PRE_PROVIDER_FAILURE_STAGE_ONLY',
+            **{k:proof[k]for k in IDENTITY},'policy_decision_id':proof['policy_decision_id'],
+            'original_request':proof['original_request'],'original_attempt':proof['original_attempt'],
+            'failed_call_id':failed['call_id'],'observation_call_id':observed['call_id'],
+            'canonical_call_lines':[{k:p[k]for k in ('call_id','canonical_lines','canonical_line_sha256')}for p in pairs],
+            'provider_not_invoked_in_verified_interval':not blockers,'blockers':blockers,
+            'scope_of_any_stage_record':'only original reserved non-invoking preparation interval; never account/server zero-effect certificate',
+            'original_attempt_provider_effect':'UNKNOWN','original_policy_or_attempt_released':False,
+            'actual_action_allowed':False,'retry_authorized':False,'new_permission_issued':False}
+
+
+def record_failure_stage(root, proof, pin):
+    """Append verified local stage only; existing policy/attempt guards remain."""
+    with w.workflow_lock(root):
+        need(doc(root,pin)==proof,'exact immutable failure-stage input bytes')
+        checked=failure_stage_check(root,proof)
+        need(checked['state']=='VERIFIED_PRE_PROVIDER_FAILURE_STAGE_ONLY','original provider boundary is not proven; keep UNKNOWN; use failure-check blockers')
+        prior=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if same(e.get('details',{}).get(FAILURE_EVENT,{}),proof)]
+        need(not prior,'failure stage already recorded; no duplicate closure or concurrent retry')
+        snapshot=w.read_json(w.snapshot_path(root,proof['task_id']))
+        need(snapshot.get('current_state')not in w.TERMINAL_STATES,'closed goal is historical only')
+        event=w.append_workflow_event(root,proof['task_id'],snapshot['current_state'],{FAILURE_EVENT:{**checked,'proof':pin}})
+    return {'result':'recorded_stage_only','event_id':event['event_id'],'original_attempt_provider_effect':'UNKNOWN',
+            'old_policy_request_attempt_unchanged':True,'actual_action_allowed':False,'retry_authorized':False}
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--root', default=str(Path(__file__).resolve().parents[1]))
-    p.add_argument('command', choices=['source-check', 'status', 'reserve','derive','effect-record','freeze-preflight','preflight','policy-check','issue'])
+    p.add_argument('command', choices=['source-check', 'status', 'reserve','derive','effect-record','failure-check','failure-record','freeze-preflight','preflight','policy-check','issue'])
     p.add_argument('--input', required=True); p.add_argument('--decision-id')
     p.add_argument('--key');p.add_argument('--kind',choices=['group','upload','ad','budget']);p.add_argument('--output')
     args = p.parse_args(); root = Path(args.root).resolve(); item = w.read_json(w.safe_path(root, args.input))
-    if args.command=='derive':
+    if args.command in {'failure-check','failure-record'}:
+        out=(failure_stage_check(root,item)if args.command=='failure-check'else record_failure_stage(root,item,w.file_digest(root,args.input)))
+    elif args.command=='derive':
         out=derive(root,w.file_digest(root,args.input),args.key,args.kind)
         if args.output:
             target=w.safe_path(root,args.output);need(not target.exists(),'immutable derived request output')
@@ -788,6 +918,7 @@ def main():
     else:
         out = source_status(root,item,w.file_digest(root,args.input))
     print(json.dumps(out, ensure_ascii=False, indent=2))
+    if args.command=='failure-check' and out.get('state')=='BLOCKED_EVIDENCE_INSUFFICIENT':raise SystemExit(2)
 
 
 if __name__ == '__main__':
