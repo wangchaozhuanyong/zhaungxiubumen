@@ -9,7 +9,149 @@ import workflow_control as w
 SCHEMA = 'professional-cms-execution-source-registration/v1'
 EVENT = 'professional_cms_execution_source'
 
+# This codec consumes original required actions and received professional sources;
+# it creates no business task, execution grant, current CAS or WEB completion.
+INCREMENT_SCHEMA = 'original-received-CMS-content-increment-source/v1'
+
+def _original_increment_delta(before, desired, fragment, row):
+    import department_autonomy as a
+    from html import unescape
+    need = a.require
+    need(set(desired) == {'content_zh'} and isinstance(desired['content_zh'],str)
+         and fragment and fragment not in before['content_zh'] and desired['content_zh'].count(fragment) == 1
+         and desired['content_zh'].replace(fragment,'',1) == before['content_zh']
+         and w.sha256_value(before['content_zh']) == row['before_digest']
+         and w.sha256_value(desired) == row['desired_digest']
+         and row['expected_title'] in fragment and row['expected_CTA_text'] in fragment
+         and row['expected_CTA_href'] in unescape(fragment),
+         'only the actual original missing fragment may be inserted; no whole-field rewrite or duplicate')
+    return True
+
+
+def received_increment_context(root, snapshot, item):
+    import department_autonomy as a
+    import goal_delivery_runtime as g
+    import result_coordination as rc
+    from html import unescape
+    need = a.require
+    goal = a.participant(root, snapshot, snapshot['goal_delivery']['primary_owner'])
+    frozen = a.document(root, snapshot['goal_contract'])
+    need(a.current_mode(root) and not a.autonomous_goal(frozen)
+         and item.get('schema') == INCREMENT_SCHEMA
+         and set(item) == {'schema','task_id','source_action_id','owner_input','action_id'}
+         and item.get('task_id') == snapshot['task_id']
+         and all(goal.get(k) == frozen.get(k) for k in ('primary_owner','producer_departments',
+                    'authorized_scope','human_authorization','required_execution_actions','completion_criteria')),
+         'unchanged active original professional contract and exact increment source required')
+    owner = goal['primary_owner']; request_pin = item['owner_input']; request = a.document(root, request_pin)
+    scope = request.get('scope')
+    need(a.professional(root, owner) and request.get('task_id') == snapshot['task_id']
+         and request.get('original_owner') == owner and scope in frozen['authorized_scope']
+         and request.get('original_goal_contract') == snapshot['goal_contract']
+         and request.get('original_authorization') == goal['authorization_pin'],
+         'actual original owner/input/task/scope/human and contract required')
+    human = a.document(root, goal['authorization_pin'])
+    native = g._native_document(root, human.get('native_evidence'))
+    auth = frozen['human_authorization']; message = human.get('message', {})
+    originals = [(t,m) for t in native.get('turns',[]) for m in t.get('items',[])
+                 if m.get('id') == auth.get('message_id') and m.get('type') == 'userMessage']
+    need(message.get('type') == 'userMessage' and message.get('id') == auth.get('message_id')
+         and human.get('source_thread_id') == auth.get('source_thread_id') == native.get('thread',{}).get('id')
+         and len(originals) == 1 and originals[0][1].get('content') == message.get('content')
+         and auth.get('executor') == owner and auth.get('scope') == scope,
+         'unchanged actual original human native message, never a caller authorization label')
+    states = g._collaboration_wait_states(root, snapshot, only_action_id=item['source_action_id'])
+    need(len(states) == 1 and states[0].get('status') in {'message_received','result_received'}
+         and states[0].get('received') is True, 'real original owner-to-SYS receipt and nonempty ACK required')
+    order = states[0]['approved_action']; body = w.safe_path(root, order['payload']['path']).read_text()
+    need(all(order.get(k) == v for k,v in {'task_id':snapshot['task_id'],'sender_department':owner,
+         'target_department':'system-development','action_class':'thread_message','scope':scope}.items())
+         and w.file_digest(root, order['payload']['path']) == order['payload']
+         and request_pin['path'] in body and request_pin['sha256'] in body,
+         'actual frozen owner transport must bind the whole exact input')
+    report_pin = request['actual_PUB_result']; report = a.document(root, report_pin)
+    box_pin = request['actual_PUB_outbox']; box = a.document(root, box_pin)
+    identity = rc.exact_identity({'task_id':snapshot['task_id'],'sender_department':'publishing',
+                                 'candidate_version':box['candidate_version'],'result_sha256':box_pin['sha256']})
+    received = rc._received_delivery(root, identity, {'target_department':owner})
+    need(received is not None and received.get('outbox') == box_pin
+         and box.get('department') == report.get('department') == 'publishing'
+         and box.get('task_id') == report.get('task_id') == snapshot['task_id']
+         and box.get('scope') == report.get('scope') == scope
+         and report.get('original_business_owner') == owner and report_pin in box.get('evidence',[]),
+         'one actual committed SQL/native PUB result in original owner custody required')
+    actions = [x for x in frozen['required_execution_actions'] if x.get('action_id') == item['action_id']]
+    rows = [x for x in report.get('rows',[]) if x.get('original_action') == item['action_id']]
+    need(len(actions) == len(rows) == 1 and actions[0].get('action_class') == 'cms_write'
+         and actions[0].get('department') == 'publishing' and actions[0].get('scope') in frozen['authorized_scope'],
+         'one original required CMS action and independently received row only')
+    row = rows[0]
+    need(any(isinstance(v,dict) and v == row for v in request.values())
+         and row.get('field') == 'content_zh' and row.get('stable38_MS11_required') is True
+         and all(type(row.get(k)) is int and row[k] == 0 for k in
+                 ('own_permit_or_Saved_count','active_or_unknown_permits','actual_Save','actual_preview','actual_policy_or_permit')),
+         'exact independently requested row with no known pending/unknown effect; held rows cannot be promoted')
+    fragment_pin = row['existing_HTML_fragment_reused_no_recreation']; fragment_path = w.safe_path(root, fragment_pin['path'])
+    need(w.file_digest(root,str(fragment_path)) == fragment_pin and row['MD_source'] in frozen.get('existing_results',[]),
+         'original frozen content source and received unchanged native fragment required')
+    md_path = w.safe_path(root,row['MD_source']['path'])
+    need(w.file_digest(root,str(md_path)) == row['MD_source'] and md_path.suffix == '.md', 'exact original MD bytes')
+    before_pin = row['independent_before_backup']; before = a.document(root,before_pin)
+    observed = a.document(root,row['current_authenticated_full41'])
+    need(observed.get('rows') == [{'record':before}], 'actual authenticated full41 and independent full backup must agree')
+    stable = sorted(set(before)-{'content_zh','updated_at','version'}); ms = sorted(k for k in before if k.endswith('_ms'))
+    need(len(before) == 41 and len(stable) == 38 and len(ms) == 11
+         and before.get('id') == row['record_id'] and before.get('slug') == row['slug']
+         and before.get('status') == 'published' and type(before.get('version')) is int
+         and before['version'] == row['version'] and before['updated_at'] == row['observed_rawCAS']
+         and w._parse_observed_at(before['updated_at']) is not None,
+         'full41/stable38/MS11 and exact existing published record/rawCAS required as dated source only')
+    effects = a.document(root,row['original_key_and_same_record_effects'])
+    need(isinstance(effects.get('rows'),list) and len(effects['rows']) == row['other_completed_same_record_permits']
+         and all(x.get('record_id') == row['record_id'] and x.get('slug') == row['slug']
+                 and x.get('task_id') != snapshot['task_id'] and x.get('status') == 'completed' for x in effects['rows']),
+         'original-key and same-row pending/unknown effects must remain absent in the actual source observation')
+    # A shoe/other held row has no actual current one-field merge. No synthetic
+    # default or W baseline is accepted in place of that future own source.
+    desired = a.document(root,row.get('current_one_field_patch'))
+    fragment = fragment_path.read_text()
+    _original_increment_delta(before, desired, fragment, row)
+    observed_at = w._parse_observed_at(observed.get('observed_at')); reported_at = w._parse_observed_at(report.get('actual_at'))
+    requested_at = w._parse_observed_at(request.get('at'))
+    need(observed_at and reported_at and requested_at and observed_at <= reported_at <= requested_at,
+         'real dated source/report/request chronology; this does not refresh execution facts')
+    pub = w.department_registry(root)['publishing']['chat_binding']
+    returned = g._native_document(root,received['actual_native_completion'])
+    need(all(returned.get('thread',{}).get(k) == pub[v] for k,v in
+             {'id':'task_id','title':'title','cwd':'cwd'}.items()) and pub['project_id'] == a.PROJECT,
+         'actual current original PUB completion identity/project/directory required')
+    channel = w.read_json(Path(root)/'data/department-registry.json')['collaboration_bindings'].get('designated-development')
+    need(channel and channel['project_id'] != a.PROJECT and channel['cwd'] != str(Path(root).resolve()),
+         'registered original external WEB channel remains separate')
+    act = actions[0]; version = act['action_id']
+    action = {'task_id':snapshot['task_id'],'action_id':act['action_id'],'action_class':'cms_write',
+              'scope':act['scope'],'business_scope':scope,'candidate_version':version,'table':'services',
+              'record_id':before['id'],'slug':before['slug'],'changed_fields':['content_zh'],'execution_department':'publishing'}
+    target = {'id':before['id'],'slug':before['slug'],'contentType':'service','table':'services','taskId':snapshot['task_id'],
+              'actionId':act['action_id'],'candidateVersion':version,'scope':act['scope'],'changedFields':['content_zh'],
+              'baselineProjectionFields':sorted(before),'baselineFieldsSha256':w.sha256_value(before),
+              'desiredFieldsSha256':w.sha256_value(desired),'rollbackFieldsSha256':w.sha256_value({'content_zh':before['content_zh']}),
+              'expectedUpdatedAt':before['updated_at'],'retainedProjectionFields':stable,
+              'retainedFieldsSha256':w.sha256_value({k:before[k]for k in stable}), 'rollbackAllowed':True,'requiresParentRun':True}
+    need(not w.validate_workflow_events(root,snapshot['task_id']) and not w._validate_receipt_chain(root,snapshot['task_id'])[1],
+         'intact original workflow and receipt chains')
+    return {'action':action,'source':request_pin,'baseline_pin':before_pin,'owner':owner,'business_scope':scope,
+            'executor':'publishing','channel':'designated-development','carrier':request_pin,'desired':desired,
+            'before':{'content_zh':before['content_zh']},'protected_fields':{'not_written_fields':sorted(set(before)-{'content_zh'}),
+                'server_CAS_metadata':['updated_at','version'],'stable_business_readback_fields':stable},
+            'owner_result':box_pin,'original_explicit_delivery':True,'physical_target':target,
+            'dated_source_not_execution_CAS':True,'current_PUB_binding':pub,'external_WEB_binding':channel,
+            'business_contract_unchanged':True,'permission_issued':False}
+
+
 def validate(root, snapshot, item):
+    if item.get('schema') == INCREMENT_SCHEMA:
+        return received_increment_context(root, snapshot, item)
     import department_autonomy as a
     import goal_delivery_runtime as g
     import result_coordination as rc

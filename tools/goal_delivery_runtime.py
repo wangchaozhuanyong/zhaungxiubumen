@@ -1480,7 +1480,7 @@ def record_approved_action(root, task_id, input_path):
     if action.get("schema") == "professional-standing-CMS-integration-source/v1":
         from professional_cms_integration import record
         return record(root, task_id, input_path)
-    if action.get("schema") == "professional-cms-execution-source-registration/v1":
+    if action.get("schema") in {"professional-cms-execution-source-registration/v1", "original-received-CMS-content-increment-source/v1"}:
         from professional_cms_execution import record
         return record(root, task_id, input_path)
     if action.get("schema") == "professional-owner-result-message-source/v1":
