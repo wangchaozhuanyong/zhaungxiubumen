@@ -160,7 +160,7 @@ python3 tools/flashcast_ops.py receipt-record \
   --idempotency-key fc-YYYYMMDD-example-content-outbox-v1
 ```
 
-`thread_message`、`automation_create` 和 `automation_update` 都必须提供来源/目标项目、目标部门、固定任务 ID、标题、`cwd`、登记的侧边栏分组 ID 和正文 SHA-256。任一身份不匹配即返回 `blocked_cross_project` 或 `blocked_route_invalid`。路由日志只保存哈希，不保存消息或计划任务提示词正文。角色、能力、固定绑定和可派状态从当前 `data/department-registry.json` 动态读取，不以固定部门数量判断；总部给完整目标，结果由原专业负责人自检并作已授权常规接续后直接报HQ知悉。模糊请求只补齐相关目标输入，不广播或恢复QA1/QA2新派工。
+`thread_message`、`automation_create` 和 `automation_update` 都必须提供来源/目标项目、目标部门、固定任务 ID、标题、`cwd`、登记的侧边栏分组 ID 和正文 SHA-256。任一身份不匹配即返回 `blocked_cross_project` 或 `blocked_route_invalid`。路由日志只保存哈希，不保存消息或计划任务提示词正文。角色、能力、固定绑定和可派状态从当前 `data/department-registry.json` 动态读取，不以固定部门数量判断；总部给完整目标，结果由原专业负责人自检并作已授权常规接续，普通收口与协调按共同正文由总助理优先、HQ补位。模糊请求只补齐相关目标输入，不广播或恢复QA1/QA2新派工。
 
 ### 历史兼容（非当前运行模板）：旧QA裁决与阶段许可恢复
 
@@ -523,7 +523,7 @@ python3 tools/flashcast_ops.py workspace-maintenance \
 
 ## 现行完整目标与专业自主交付
 
-现行入口只按 `AGENTS.md` 与 `playbooks/department-system-current.md`：专业主负责人独立制作、自检、执行原授权效果并真实读回，结果直报HQ。A1仅待命，A2/A3退役历史，不作认领/审批/验收门禁。历史controller事件保留原真实actor，当前消息不借历史字段冒签。
+现行入口只按 `AGENTS.md` 与 `playbooks/department-system-current.md`：专业主负责人独立制作、自检、执行原授权效果并真实读回，协作结果回本任务原owner；总助理优先普通收口和协调，HQ补位。A2/A3及旧QA只读历史，不设逐步技术审批。历史controller事件保留原真实actor，当前消息不借历史字段冒签。
 
 ### 历史兼容（非当前运行模板）：旧QA日检及旧阶段链读回
 
@@ -563,4 +563,4 @@ python3 tools/flashcast_ops.py result-handoff-pending
 
 ## 总控结束前进度检查
 
-`python3 tools/controller_progress.py --live-proof <项目内真实现场快照> --json-output data/controller-current-progress.json --report-output reports/company-current-work-status.md` 汇总全部注册角色、原业务主账及准确结果/决策后待办。现场快照须含真实 observed_at/threads/sections；缺 projectId 不补造，超过5分钟重读现场（不建立五分钟排程）。退出码0仅表示本次无待接续控制项；2表示仍需接续/事件等待；3表示证据读取阻断。它不发送消息、不改业务主账、不授予权限，不是应用硬锁或结束后自动唤醒功能。配套规则见 `playbooks/department-system-current.md` 的当前任务与连续接续、收尾与规则维护章节。
+`python3 tools/controller_progress.py --live-proof <项目内真实现场快照> --json-output data/controller-current-progress.json --report-output reports/company-current-work-status.md` 汇总全部注册角色、原业务主账及准确结果/决策后待办。现场快照须含真实 observed_at/threads/sections；缺 projectId 不补造，超过5分钟重读现场（不建立五分钟排程）。退出码0仅表示本次无待接续控制项；2表示仍需接续/事件等待；3表示证据读取阻断。它不发送消息、不改业务主账、不授予权限，不是应用硬锁或结束后自动唤醒功能。配套规则见 `playbooks/department-system-current.md` 的“完整目标收尾”和“在途迁移和安全清理”章节。

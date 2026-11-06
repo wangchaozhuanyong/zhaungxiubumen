@@ -110,11 +110,13 @@
       "department_readme": "departments/content-organic-website/README.md",
       "approved_subskills": [
         "renovation-seo-geo",
-        "ai-seo"
+        "ai-seo",
+        "seo-audit"
       ],
       "approved_subskill_paths": [
         "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md",
-        "<CODEX_HOME>/skills/ai-seo/SKILL.md"
+        "<CODEX_HOME>/skills/ai-seo/SKILL.md",
+        "<CODEX_HOME>/skills/seo-audit/SKILL.md"
       ],
       "input_paths": [
         "company-context.md",
@@ -243,11 +245,13 @@
       "department_readme": "departments/seo-content-research/README.md",
       "approved_subskills": [
         "renovation-seo-geo",
-        "ai-seo"
+        "ai-seo",
+        "seo-audit"
       ],
       "approved_subskill_paths": [
         "<CODEX_HOME>/skills/renovation-seo-geo/SKILL.md",
-        "<CODEX_HOME>/skills/ai-seo/SKILL.md"
+        "<CODEX_HOME>/skills/ai-seo/SKILL.md",
+        "<CODEX_HOME>/skills/seo-audit/SKILL.md"
       ],
       "input_paths": [
         "company-context.md",

@@ -1,7 +1,9 @@
 """Owner-approved independent delivery. Scope checks grant no external operation."""
 from pathlib import Path
+from contextvars import ContextVar
 import json, datetime as dt
 import workflow_control as w
+_MATERIAL_QUEUE_SOURCE_MEMO = ContextVar("exact_material_queue_source_memo", default=None)
 MODE='department_autonomous_delivery_v1'
 OWNER = {'path': 'logs/local-setup/owner-autonomous-authority.json', 'sha256': '0000000000000000000000000000000000000000000000000000000000000000', 'size': 0}
 PROJECT='<LOCAL_PROJECT_ID>'
@@ -78,8 +80,114 @@ def _chief_readonly_source(action):
  return action.get('chief_coordination_source') or {}
 
 
+def _chief_raw_readonly_refusal(root,snapshot,source,original,capture,failed,intake):
+ """The committed original raw CLI precheck, not a fabricated prepare reply."""
+ import sys
+ argv=capture.get('argv',[]);expected_argv=['-B','tools/goal_delivery_runtime.py','--project-root',str(Path(root).resolve()),
+  'authorization-precheck','--task-id',snapshot['task_id'],'--input',source['original_request']['path']]
+ require(isinstance(argv,list)and len(argv)==len(expected_argv)+1 and isinstance(argv[0],str)
+  and Path(argv[0]).resolve()==Path(sys.executable).resolve()and argv[1:]==expected_argv
+  and capture.get('exit_code')==0 and capture.get('stderr')=='',
+  'canonical successful original authorization-precheck command/task/input required')
+ import goal_delivery_runtime as g
+ delegation=g._owner_decision_delegation(root)
+ expected={'schema':'goal-authorization-precheck/v1','task_id':snapshot['task_id'],'action_class':'thread_message','scope':original['scope'],
+  'writes_performed':False,'external_permission_issued':False,'actual_action_allowed':False,'replaces_policy_check':False,
+  'required_internal_checks':['exact_current_identity_and_health','exact_policy_check','deduplicate_actual_effects','existing_production_channel'],
+  'original_authorization':snapshot['goal_delivery']['authorization_pin'],'status':'authorization_change_required','reasons':['new_department'],
+  'needs_human_confirmation':False,'next_owner':'operations','next_action':'coordinate_exact_nonpayment_change_preserve_action_gates',
+  'decision_delegation':delegation,'decision_owner':'operations','blocks_only_dependent_action':True}
+ at=w._parse_observed_at(capture.get('actual_at'));observed=w._parse_observed_at(original.get('live_observed_at'));received=w._parse_observed_at(intake.get('created_at'))
+ require(delegation is not None and failed==expected and 'message_sent'not in failed
+  and all(failed.get(k)is False for k in ('writes_performed','external_permission_issued','actual_action_allowed','replaces_policy_check','needs_human_confirmation'))
+  and failed.get('blocks_only_dependent_action')is True
+  and w.file_digest(root,source['original_request']['path'])==source['original_request']
+  and at and observed and received and observed<=at<=received,
+  'exact original nonpayment raw precheck/delegation/input and causal time; no caller status or production grant')
+
+
+def _chief_received_result_readonly(root,snapshot,action):
+ """Exact received professional source + real delegated decision; transport only."""
+ import re
+ import chief_assistant_coordination as chief,goal_delivery_runtime as g,result_coordination as rc,department_rotation as rotation
+ chief.authority(root);authority(root)
+ goal=participant(root,snapshot,action.get('sender_department'));frozen=document(root,snapshot.get('goal_contract'))
+ immutable=('primary_owner','producer_departments','authorized_scope','human_authorization','required_execution_actions','parent_task_id','collaboration_scopes')
+ require(all(goal.get(k)==frozen.get(k)for k in immutable)and action.get('goal_contract')==snapshot['goal_contract']
+  and snapshot.get('current_state')not in w.TERMINAL_STATES
+  and action.get('schema')=='current-autonomous-readonly-coordination-action/v1'
+  and action.get('task_id')==snapshot['task_id']and action.get('scope')in frozen.get('authorized_scope',[])
+  and action.get('sender_department')==frozen.get('primary_owner')and professional(root,action['sender_department'])
+  and action.get('action_class')=='thread_message'and action.get('assignment_record_required')is False
+  and action.get('delivery_mode')=='official_native_queue'
+  and not any(action.get(k)for k in ('authorization_changes','internal_repairs','approval_id','consume_approval','execution_request','professional_execution_source','parent_task_id','hq_coordination_source')),
+  'unchanged original professional readonly transport; no role, scope or execution grant')
+ chief.ordinary_source_history(root,snapshot['task_id'])
+ source=_chief_readonly_source(action);identity=rc.exact_identity(source.get('result_identity',{}))
+ require(identity['task_id']==snapshot['task_id']and identity['sender_department']==action['sender_department'],'same actually received professional result')
+ intake=chief._committed_intake(root,{**identity,'received_record_id':source.get('received_record_id'),'coordinator_role':chief.ROLE})
+ report=document(root,intake['outbox']);evidence=report.get('evidence',[]);decision=document(root,source.get('decision'))
+ require(decision.get('schema')=='routine-original-result-decision/v1'and decision.get('decision')=='coordinate_original_scope'
+  and decision.get('external_permission_issued')is False and decision.get('owner_delegation')==chief.SOURCE
+  and decision.get('scope')==action['scope']and decision.get('next_owner')==action['sender_department']
+  and source.get('original_request')in evidence and source.get('actual_refusal')in evidence,
+  'actual original received action/refusal and bounded current routine decision required')
+ checked=chief.decision(root,{**{k:decision[k]for k in (*rc.IDENTITY_FIELDS,'scope','decision','next_owner','next_action')},
+  'event':'controller_decision','received_record_id':intake['record_id'],'coordinator_role':chief.ROLE,
+  'coordinator_owner':intake['coordinator_owner'],'routine_delegation':chief.SOURCE,'logical_receiver':intake['target_department'],
+  'decision_source':source['decision'],'actual_decision_native':source['native'],'actual_decision_message_id':source['message_id']})
+ require(checked['external_permission_issued']is False,'ordinary coordination cannot issue an execution permit')
+ decisions=[r for r in chief.rows(root,identity)if r.get('event')=='controller_decision']
+ require(len(decisions)<=1 and all(r.get('decision_source')==source['decision']for r in decisions),'a different actual decision supersedes this transport source')
+ for row in decisions:rc._committed_result(root,row)
+ original=document(root,source['original_request']);capture=document(root,source['actual_refusal'])
+ require(set(action)==set(original)|{'schema','goal_contract','chief_coordination_source'}
+  and all(action.get(k)==v for k,v in original.items()),'same original frozen request/body; fresh observations use the normal observation entry')
+ if capture.get('exit_code')==0:
+  try:failed=json.loads(capture.get('stdout',''))
+  except (TypeError,ValueError)as error:raise w.WorkflowError('actual original normal refusal JSON required')from error
+  if failed.get('schema')=='goal-authorization-precheck/v1':
+   _chief_raw_readonly_refusal(root,snapshot,source,original,capture,failed,intake)
+  else:
+   require(failed.get('status')=='blocked'and failed.get('message_sent')is False
+    and failed.get('authorization_precheck',{}).get('reasons')==['new_department']
+    and failed['authorization_precheck'].get('needs_human_confirmation')is False,'only exact nonpayment new-department refusal')
+ else:
+  refused=document(root,source.get('refused_source'))
+  require(source['refused_source']in evidence and refused.get('schema')=='professional-owner-result-message-source/v1'
+   and refused.get('original_action')==source['original_request']and refused.get('task_id')==snapshot['task_id']
+   and capture.get('exit_code')==1 and not capture.get('stderr')
+   and json.loads(capture.get('stdout','{}'))=={'status':'blocked','reason':'autonomous delivery: original declared owner/external collaboration/scope required; not a new department','external_permission_issued':False}
+   and capture.get('argv',[])[-2:]==['--input',source['refused_source']['path']]and 'approved-action-record'in capture.get('argv',[]),
+   'only the original owner-source declaration refusal; never a production denial')
+ payload=action['payload'];require(w.file_digest(root,payload['path'])==payload and payload['sha256']==action['payload_sha256'],'exact immutable ordinary payload')
+ body=(Path(root)/payload['path']).read_text()
+ require(all(re.search(r'(?m)^'+k+'='+re.escape(str(action[k]))+r'\s*$',body)for k in ('task_id','scope','action_id','sender_department','target_department')),'original readonly task/scope/party headers')
+ prior=document(root,source.get('original_source_context'))
+ require(prior.get('task_id')==snapshot['task_id']and (prior.get('scope')==action['scope']or action['scope']in prior.get('business_scopes',[]))
+  and source['original_source_context']['path']in body and source['original_source_context']['sha256']in body,
+  'same original already delivered source context named by this exact request, not a borrowed task')
+ role=action['target_department'];registry=w.department_registry(root);fixed=g._collaboration_binding(root,snapshot,role)
+ require(role not in registry and fixed and fixed.get('existing_authorization_required')is True
+  and fixed.get('runtime_goal_authorization_required')is True and fixed.get('generic_cross_project_access_allowed')is False
+  and fixed.get('company_role_health_inherited')is False and fixed.get('host_id')=='local'
+  and fixed.get('project_id')!=PROJECT and Path(fixed.get('cwd','')).resolve()!=Path(root).resolve()
+  and all(action.get(k)==fixed.get(v)for k,v in {'target_project_id':'project_id','target_thread_id':'thread_id','target_thread_title':'title','target_cwd':'cwd'}.items())
+  and action.get('source_project_id')==registry[action['sender_department']]['chat_binding']['project_id']==PROJECT,
+  'exact existing external role/project/directory and professional owner; never generic newdepartment access')
+ rotated=document(root,fixed.get('rotation_record'));require(rotated in rotation._records(root)and rotated.get('role')==role
+  and rotation._id(rotated['new_binding'])==fixed['thread_id'],'real current same-role external rotation')
+ return {**authority(root),'source':payload,'report':intake['outbox'],'scope':action['scope'],
+  'sender_department':action['sender_department'],'target_department':role,'purpose':'original_professional_collaboration_transport_only',
+  'business_producer_added':False,'current_assignment_changed':False,'external_permission_issued':False,
+  'registered_readonly_coordination_source':source,
+  'formal_controller_decision_recorded':bool(decisions),'actual_decision_native_proven':True}
+
+
 def _chief_readonly_coordination(root,snapshot,action):
  """Current delegated ordinary decision over an exact original external source request."""
+ if _chief_readonly_source(action).get('decision') and document(root,_chief_readonly_source(action)['decision']).get('schema')=='routine-original-result-decision/v1':
+  return _chief_received_result_readonly(root,snapshot,action)
  import re,hashlib
  import chief_assistant_coordination as chief,goal_delivery_runtime as g,result_coordination as rc,department_rotation as rotation
  chief.authority(root);authority(root)
@@ -276,7 +384,8 @@ def _professional_readonly_coordination(root, snapshot, action):
   and policy.get('department')=='operations'and policy.get('approval_basis')==MODE
   and policy.get('external_permission_issued')is False
   and all(policy.get(k)==notice.get(k)for k in ('task_id','scope','action_id','action_class','target_department','target_thread_id','payload_sha256'))
-  and len([p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p==policy])==1,
+  and len([p for p in w.read_jsonl(Path(root) / w.POLICY_DECISIONS,
+   where={'decision_id': policy.get('decision_id')}) if p == policy]) == 1,
   'actual normal HQ-to-original-owner policy and prepared source required')
  require(w.file_digest(root,notice_payload.get('path',''))==notice_payload
   and notice_payload['sha256']==notice.get('payload_sha256'),'unchanged actual HQ notice required')
@@ -308,10 +417,14 @@ def _professional_readonly_coordination(root, snapshot, action):
   'business_producer_added':False,'current_assignment_changed':False,'external_permission_issued':False}
 
 
-def _original_declared_external_owner_message(root,snapshot,action):
+def _original_declared_external_owner_message(root,snapshot,action,message_source=None):
  """Only an original frozen cross-project collaboration, never a new role."""
  role=action.get('target_department');registry=w.department_registry(root)
  if role in registry:return None
+ import reviewed_web_release
+ # A current source supplements the old empty declaration; no frozen field is changed.
+ current=reviewed_web_release.message_binding(root,snapshot,action,message_source)
+ if current is not None:return current
  import goal_delivery_runtime as g
  import department_rotation as rotation
  goal=snapshot['goal_delivery'];frozen=document(root,snapshot['goal_contract'])
@@ -358,12 +471,76 @@ def _original_declared_external_owner_message(root,snapshot,action):
  return {**fixed,'task_id':fixed['thread_id']}
 
 
+def received_peer_readonly_body(action,result,mapping_pin,identity):
+ """Canonical transport of existing source bytes, no new content or permission."""
+ headers='\n'.join(k+'='+str(action[k])for k in ('task_id','scope','action_id','sender_department','target_department'))
+ pins=[mapping_pin,result['fresh_backup'],result['actual_read_context'],result['actual_native'],result['semantic_input_reused'],result['historical_NEXT12_snapshot_reused_only_as_comparison']]
+ return headers+'\nassignment_record_required=false\n\n原专业owner已实收的完整行仅归已映射standing integrator核现成G01/G02两段语义，原producer/合同保持。\nresult_sha256='+identity['result_sha256']+'\n'+'\n'.join(p['path']+' SHA256='+p['sha256']for p in pins)+'\n\n'+result['C1_handoff_scope']+'\n原准备合同无write key；35 UNKNOWN/HOLD不归零。只读现有源，不写CMS、不新制内容、不授Save/permit/发布；缺事实准确DATA_MISSING。原有权owner收到真实ACK/完成结果再沿原阶段接续。\n'
+
+
+def received_peer_readonly_source(root,snapshot,item):
+ """A committed owner source and genuine mapped standing peer, not a producer grant."""
+ import chief_assistant_coordination as chief,goal_delivery_runtime as g,result_coordination as rc
+ authority(root);frozen=document(root,snapshot['goal_contract']);goal=participant(root,snapshot,goal_owner:=snapshot['goal_delivery']['primary_owner'])
+ require(item.get('schema')=='professional-received-source-peer-readonly-message/v1'
+  and item.get('task_id')==snapshot['task_id']and item.get('goal_contract')==snapshot['goal_contract']and item.get('authorization')==goal['authorization_pin']
+  and all(goal.get(k)==frozen.get(k)for k in ('primary_owner','producer_departments','authorized_scope','human_authorization','required_execution_actions','collaboration_scopes'))
+  and frozen.get('completion_kind')=='internal_delivery'and frozen.get('required_execution_actions')==[]
+  and frozen.get('production_write_allowed')is False and frozen.get('CMS_Save_authorized')is False,'unchanged original internal preparation owner/scope; no write authority')
+ source_input=document(root,item['maintenance_input']);repair=w.read_json(w.snapshot_path(root,source_input['maintenance_task_id']))
+ require(source_input.get('related_original_task_id')==snapshot['task_id']and source_input.get('related_original_scope')==item.get('scope')in goal['authorized_scope']
+  and item.get('maintenance_goal_contract')==repair['goal_contract']and repair['goal_delivery']['primary_owner']=='system-development'
+  and repair['current_state']not in w.TERMINAL_STATES,'same original active SYS maintenance and exact related source scope')
+ identity=rc.exact_identity(item.get('result_identity',{}));require(identity==source_input['actual_result_identity']and identity['task_id']==snapshot['task_id']and identity['sender_department']==goal_owner,'actual original professional producer, not a role alias')
+ intake=chief._committed_intake(root,{**identity,'received_record_id':source_input['actual_A1_receipt_id'],'coordinator_role':chief.ROLE});box=document(root,intake['outbox']);result=document(root,source_input['actual_new_complete_read_source'])
+ require(source_input['actual_new_complete_read_source']in box['evidence']and result.get('task_id')==snapshot['task_id']and result.get('scope')==item['scope']
+  and result.get('owner')==result.get('producer')==goal_owner,'actual committed owner outbox and exact readonly source report')
+ decisions=[r for r in chief.rows(root,identity)if r.get('event')=='controller_decision'];require(len(decisions)==1,'one actual same-result ordinary coordination decision')
+ d=decisions[0];rc._committed_result(root,d)
+ require(d.get('decision_source')==source_input['ordinary_decision']and d.get('decision')=='coordinate_original_scope'and d.get('next_owner')==goal_owner,'actual original-scope decision, never production permission')
+ chief.decision(root,{k:d[k]for k in (*rc.IDENTITY_FIELDS,'scope','decision','next_owner','next_action','event','received_record_id','coordinator_role','coordinator_owner','routine_delegation','logical_receiver','decision_source','actual_decision_native','actual_decision_message_id')})
+ mapping=document(root,item['related_mapping']);require(item['related_mapping']in source_input['source_pins']and mapping.get('schema')=='HQ-original-three-goals-bounded-continuation-and-standing-source-mapping/v1','genuine already declared related-source mapping, not caller participants')
+ decision=document(root,mapping['source_owner_complete_all']);native=g._native_document(root,mapping['source_owner_native']);human=decision['source_human'];hq=w.department_registry(root)['operations']['chat_binding']
+ pairs=[(t,m)for t in native.get('turns',[])if t.get('id')==human['turn_id']for m in t.get('items',[])if m.get('id')==human['message_id']]
+ require(native.get('thread',{}).get('id')==human['thread_id']==hq['task_id']and native['thread'].get('cwd')==hq['cwd']==str(Path(root).resolve())
+  and decision.get('project_root')==str(Path(root).resolve())and len(pairs)==1 and pairs[0][1].get('type')=='userMessage'
+  and len(pairs[0][1].get('content',[]))==1 and pairs[0][1]['content'][0].get('type')=='text'
+  and pairs[0][1]['content'][0].get('text','').strip()==human['exact_text']
+  and type(pairs[0][0].get('startedAt'))in {int,float}and pairs[0][0]['startedAt']<=dt.datetime.now(dt.timezone.utc).timestamp(),'real unchanged owner human source; original inProgress capture is not rewritten')
+ rows=[r for r in mapping.get('work',[])if r.get('task_id')==snapshot['task_id']and r.get('business_owner_and_original_producer')==goal_owner]
+ require(len(rows)==1,'one same original owner/source mapping');row=rows[0];peer=row.get('standing_integration_owner');registry=w.department_registry(root)
+ require(peer!=goal_owner and professional(root,peer)and peer not in goal['producer_departments'],'only original mapped professional reader, never a new producer')
+ live=[s for s in w.read_json(Path(root)/'data/action-policy.json').get('standing_authorizations',[])if s.get('authorization_id')==mapping['standing_authorization']['authorization_id']]
+ require(len(live)==1 and live[0]==mapping['standing_authorization']and live[0].get('department')==peer and live[0].get('status')=='active'and live[0].get('granted_by')=='owner'and live[0].get('site')=='company.example','actual current own standing holder only; no standing transfer')
+ raw=document(root,result['fresh_backup']);observed=document(root,result['actual_read_context']);baseline=document(root,result['historical_NEXT12_snapshot_reused_only_as_comparison']);old=[r['record']for r in baseline.get('rows',[])if r.get('record',{}).get('id')==row['record']['id']]
+ require(all(result[p]in box['evidence']for p in ('fresh_backup','actual_read_context','actual_native'))and raw.get('id')==result['record']['id']==row['record']['id']
+  and result['record']['table']==row['record']['table']=='services'and len(raw)==result['record']['field_count']==41 and len([k for k in raw if k.endswith('_ms')])==11
+  and raw.get('updated_at')==observed.get('updated_at')==result['record']['raw_server_CAS']and raw.get('version')==observed.get('version')==result['record']['server_version']
+  and observed.get('authenticated_admin_UI')is True and observed.get('http_status')==200 and observed.get('preview')==observed.get('save')==0
+  and len(old)==1 and old[0]==raw,'actual authenticated full41 and unchanged NEXT12/metadata/11MS; no new CAS or zero-effect inference')
+ page=g._native_document(root,result['actual_native']);pub=registry[goal_owner]['chat_binding']
+ require(all(page.get('thread',{}).get(k)==pub[v]for k,v in {'id':'task_id','title':'title','cwd':'cwd'}.items()),'actual fixed original professional read source')
+ effects=result.get('effects',{});require(all(effects.get(k)==0 for k in ('preview','Save','restore','policy_issued_or_consumed','permit_issued_or_consumed','Git_push_or_deploy'))and effects.get('settings_or_auth_changed')is False,'readonly source effects only, never an action request')
+ action=document(root,item['original_action']);target=registry[peer]['chat_binding'];expected_id=goal_owner+'-received-'+identity['result_sha256'][:12]+'-source-to-'+peer+'-readonly-v1'
+ require(action.get('task_id')==snapshot['task_id']and action.get('scope')==item['scope']and action.get('action_id')==expected_id and action.get('sender_department')==goal_owner and action.get('target_department')==peer
+  and action.get('action_class')=='thread_message'and action.get('assignment_record_required')is False and action.get('delivery_mode')=='official_native_queue'
+  and not any(action.get(k)for k in ('authorization_changes','internal_repairs','execution_request','approval_id','consume_approval','parent_task_id','permission_issued')),'one source-derived readonly peer invitation, no caller action/permission flags')
+ require(action.get('source_project_id')==action.get('target_project_id')==pub['project_id']==target['project_id']==PROJECT
+  and all(Path(b['cwd']).resolve()==Path(root).resolve()for b in (pub,target))
+  and all(action.get(k)==target[v]for k,v in {'target_thread_id':'task_id','target_thread_title':'title','target_cwd':'cwd','target_sidebar_section_id':'sidebar_section_id'}.items()),'exact current same-project fixed owner/reader identities')
+ payload=action['payload'];require(w.file_digest(root,payload['path'])==payload and action.get('payload_sha256')==payload['sha256']
+  and (Path(root)/payload['path']).read_text()==received_peer_readonly_body(action,result,item['related_mapping'],identity),'exact canonical existing source/semantic-only body; no caller prose or extra actions')
+ return action,{'mode':MODE,'source':payload,'report':intake['outbox'],'scope':item['scope'],'sender_department':goal_owner,'target_department':peer,
+  'purpose':'original_professional_collaboration_transport_only','external_permission_issued':False,'business_producer_added':False,'current_assignment_changed':False}
+
+
 def owner_result_message_source(root,snapshot,item):
  """An authenticated owner's exact ordinary collaboration, never a permit.
 
  A caller label is insufficient: the complete real native result must bind the
  unchanged action file and its payload. External actions retain their own gates.
  """
+ if item.get('schema')=='professional-received-source-peer-readonly-message/v1':return received_peer_readonly_source(root,snapshot,item)
  import re
  goal=participant(root,snapshot,snapshot['goal_delivery']['primary_owner'])
  frozen=document(root,snapshot['goal_contract']);owner=goal['primary_owner']
@@ -375,13 +552,20 @@ def owner_result_message_source(root,snapshot,item):
  action=document(root,item.get('original_action'));source=document(root,item.get('professional_result_request'))
  native_result(root,source,w.department_registry(root)[owner]['chat_binding']['task_id'])
  report=document(root,w.file_digest(root,source['outbox_path']))
+ legacy_owner=(not autonomous_goal(goal) and source.get('source_mode')=='approved_dispatch'
+  and report.get('delivery_model') is None and report.get('schema')=='flashcast-department-outbox/v2'
+  and action.get('target_department') in frozen.get('producer_departments',[])
+  and action.get('target_department')!=owner)
+ if legacy_owner:
+  _legacy_parent_owner_report(root,snapshot,source,[])
+  original_assignment_ready(root,snapshot,action['target_department'])
  require(source.get('task_id')==snapshot['task_id']and source.get('sender_department')==owner
   and report.get('primary_owner')==report.get('department')==owner
   and report.get('scope')==item.get('scope')in goal['authorized_scope']
-  and item['original_action']in report.get('evidence',[])and report.get('delivery_model')==MODE,
+  and item['original_action']in report.get('evidence',[])and (report.get('delivery_model')==MODE or legacy_owner),
   'actual complete original owner result must bind this exact action source')
  target=action.get('target_department');registry=w.department_registry(root)
- external=_original_declared_external_owner_message(root,snapshot,action)
+ external=_original_declared_external_owner_message(root,snapshot,action,item)
  require(action.get('task_id')==snapshot['task_id']and action.get('scope')==item['scope']
   and action.get('sender_department')==owner and target!=owner and (professional(root,target) or external is not None)
   and action.get('action_class')=='thread_message'and action.get('assignment_record_required')is False
@@ -391,7 +575,8 @@ def owner_result_message_source(root,snapshot,item):
  payload=action.get('payload');require(w.file_digest(root,payload.get('path',''))==payload
   and payload['sha256']==action.get('payload_sha256'),'unchanged original professional message bytes required')
  text=(Path(root)/payload['path']).read_text()
- require(all(re.search(r'(?m)^'+k+'='+re.escape(str(action[k]))+r'\s*$',text)for k in ('task_id','scope','action_id','sender_department','target_department')),
+ header_keys=('task_id','scope','sender_department','target_department') if legacy_owner else ('task_id','scope','action_id','sender_department','target_department')
+ require(all(re.search(r'(?m)^'+k+'='+re.escape(str(action[k]))+r'\s*$',text)for k in header_keys),
   'exact source payload task/scope/participants required')
  dest=external or registry[target]['chat_binding'];sender=registry[owner]['chat_binding']
  require(sender.get('project_id')==action.get('source_project_id')==PROJECT
@@ -419,6 +604,13 @@ def record_owner_result_message(root,task,input_path):
   if previous:
    require(previous==[prepared],'original message action already frozen to different bytes')
    return {'result':'duplicate_ignored','actual_message_sent':False,'external_permission_issued':False}
+  if item.get('schema')=='professional-received-source-peer-readonly-message/v1':_owner_message_transport_not_started(root,snapshot,action)
+  validation=w._VALIDATION_CONTEXT.get()
+  if validation is not None:
+   from paid_three_page_bounded_cms import _historical_proofs_recheck
+   validation.recheck();_historical_proofs_recheck(validation)
+   _owner_message_transport_not_started(root,snapshot,action)
+   validation.recheck();_historical_proofs_recheck(validation)
   snapshot['goal_delivery']={**snapshot['goal_delivery'],'approved_actions':snapshot['goal_delivery'].get('approved_actions',[])+[prepared]}
   w.append_workflow_event(root,task,snapshot['current_state'],{'goal_delivery':snapshot['goal_delivery'],
    'professional_owner_message_source':pin,'approved_message_prepared':item['original_action'],'actual_message_sent':False,'external_permission_issued':False})
@@ -432,11 +624,21 @@ def _registered_owner_result_message(root,snapshot,request):
   and all(a.get(k)==request.get(k)for k in keys)]
  if not rows:return None
  require(len(rows)==1,'one original registered professional message required')
- action=rows[0];pin=action['professional_owner_message_source'];original,route=owner_result_message_source(root,snapshot,document(root,pin))
+ action=rows[0];pin=action['professional_owner_message_source']
+ from paid_three_page_bounded_cms import _HISTORICAL_SOURCE_EVENT
+ memo=_MATERIAL_QUEUE_SOURCE_MEMO.get() if _HISTORICAL_SOURCE_EVENT.get() is None else None
+ if memo is not None:
+  import copy
+  key=w.sha256_value([str(Path(root).resolve()),snapshot,action])
+  if key not in memo:
+   memo[key]=copy.deepcopy(owner_result_message_source(root,snapshot,document(root,pin)))
+  original,route=copy.deepcopy(memo[key])
+ else:
+  original,route=owner_result_message_source(root,snapshot,document(root,pin))
  require(action=={**original,'professional_owner_message_source':pin}
   and all(request.get(k)==v for k,v in original.items()),'unchanged registered message and exact transport inputs required')
- events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==snapshot['task_id']
-  and e.get('details',{}).get('professional_owner_message_source')==pin]
+ events=w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={
+  'task_id':snapshot['task_id'],('details','professional_owner_message_source'):pin})
  require(len(events)==1,'one real normal professional coordination registration required')
  return route
 
@@ -449,9 +651,10 @@ def _registered_professional_readonly_route(root,snapshot,request):
  if not actions:return None
  require(len(actions)==1,'one exact registered professional readonly coordination required')
  action=actions[0];route=_professional_readonly_coordination(root,snapshot,action)
- events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==snapshot['task_id']
-  and e.get('details',{}).get('action_id')==action['action_id']
-  and e.get('details',{}).get('actual_chief_coordination_source'if _chief_readonly_source(action)else'actual_HQ_coordination_source')==(action.get('chief_coordination_source')or action['hq_coordination_source'])['native']
+ events=[e for e in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS, where={
+  'task_id': snapshot['task_id'], ('details', 'action_id'): action['action_id'],
+ })
+  if e.get('details',{}).get('actual_chief_coordination_source'if _chief_readonly_source(action)else'actual_HQ_coordination_source')==(action.get('chief_coordination_source')or action['hq_coordination_source'])['native']
   and e.get('details',{}).get('approved_message_prepared')]
  require(len(events)==1 and document(root,events[0]['details']['approved_message_prepared'])==action,
   'one real normal readonly registration event with exact source required')
@@ -516,6 +719,7 @@ def record_readonly_coordination(root, task, input_path):
   if previous:
    require(len(previous)==1 and previous[0]==action,'original coordination action identity already differs')
    return {'result':'duplicate_ignored','task_id':task,'action_id':action['action_id'],'actual_message_sent':False}
+  _owner_message_transport_not_started(root,snapshot,action)
   snapshot['goal_delivery']={**goal,'approved_actions':goal.get('approved_actions',[])+[action]}
   w.atomic_write_json(w.snapshot_path(root,task),snapshot)
   w.append_workflow_event(root,task,snapshot['current_state'],{'goal_delivery':snapshot['goal_delivery'],'action_id':action['action_id'],
@@ -615,14 +819,25 @@ def _hq_readonly_result_return(root,snapshot,request):
 
 
 def readonly_result_return_route(root,snapshot,request):
+ from owner_reviewed_brand_web_source import readonly_return as reviewed_brand_return
+ brand_return=reviewed_brand_return(root,snapshot,request)
+ if brand_return is not None:return brand_return
  peer=_hq_readonly_result_return(root,snapshot,request)
  if peer is not None:return peer
  """Authenticate a return of the original readonly collaboration, never a producer."""
  source=request.get('readonly_result_return')
  if source is None:return None
+ # A genuine newly registered owner invitation can retain its historical internal contract.
+ peer_invitation=None
+ candidates=[x for x in snapshot.get('goal_delivery',{}).get('approved_actions',[])if isinstance(source,dict)
+  and x.get('action_id')==source.get('original_action_id')and x.get('sender_department')==snapshot['goal_delivery']['primary_owner']
+  and x.get('target_department')==request.get('sender_department')and x.get('scope')==request.get('scope')]
+ if len(candidates)==1 and candidates[0].get('professional_owner_message_source'):
+  stored_source=document(root,candidates[0]['professional_owner_message_source'])
+  if stored_source.get('schema')=='professional-received-source-peer-readonly-message/v1':peer_invitation=_registered_owner_result_message(root,snapshot,candidates[0])
  import re
  import goal_delivery_runtime as g
- require(isinstance(source,dict)and current_mode(root)and autonomous_goal(snapshot.get('goal_delivery'))
+ require(isinstance(source,dict)and current_mode(root)and (autonomous_goal(snapshot.get('goal_delivery'))or peer_invitation is not None)
   and snapshot.get('current_state')not in w.TERMINAL_STATES and request.get('action_class')=='thread_message'
   and request.get('assignment_record_required')is False and not request.get('authorization_changes')
   and not any(request.get(k)for k in ('execution_request','approval_id','consume_approval')),
@@ -634,7 +849,7 @@ def readonly_result_return_route(root,snapshot,request):
  actions=[a for a in goal.get('approved_actions',[])if a.get('action_id')==source.get('original_action_id')
   and a.get('sender_department')==owner and a.get('target_department')==sender and a.get('scope')==request['scope']]
  require(len(actions)==1,'one actual registered original readonly invitation required');action=actions[0]
- require(_registered_professional_readonly_route(root,snapshot,action)is not None,'normal original readonly source registration required')
+ require(peer_invitation is not None or _registered_professional_readonly_route(root,snapshot,action)is not None,'normal original readonly source registration required')
  registry=w.department_registry(root);fixed=registry[sender]['chat_binding'];dest=registry[owner]['chat_binding']
  require(all(b.get('project_id')==PROJECT and Path(b.get('cwd','')).resolve()==Path(root).resolve()for b in (fixed,dest))
   and request.get('source_project_id')==request.get('target_project_id')==PROJECT
@@ -722,6 +937,19 @@ def _registered_execution_source_message(root,snapshot,request):
 
 def message_route(root,snapshot,request):
  if not isinstance(request,dict)or request.get('action_class')!='thread_message':return None
+ from hq_pub_health_probe import route as original_pub_health_route
+ pub_health=original_pub_health_route(root,snapshot,request)
+ if pub_health is not None:return pub_health
+ from professional_cms_single_field_admission import message_route as exact_PUB_workorder_route
+ pub_route=exact_PUB_workorder_route(root,snapshot,request)
+ if pub_route is not None:return pub_route
+ if request.get('publication_deadline_event') is not None:
+  require((Path(root)/'tools/publication_deadline_runtime.py').is_file(), 'publication deadline route is not adopted; no permission issued')
+  from publication_deadline_runtime import event_route
+  return event_route(root,snapshot,request)
+ if request.get('receipt_obligation') is not None:
+  from receipt_obligation_consumer import event_route
+  return event_route(root,snapshot,request)
  from chief_assistant_coordination import message_route as routine_reply
  direct=routine_reply(root,snapshot,request)
  if direct is not None:return direct
@@ -729,7 +957,9 @@ def message_route(root,snapshot,request):
  # the declared collaboration, exact approved payload, original authority and
  # fresh native identity; the internal autonomous lane grants none of these.
  if request.get('target_department')not in w.department_registry(root):
-  return _registered_owner_result_message(root,snapshot,request)or _registered_professional_readonly_route(root,snapshot,request)
+  from hq_en2_readonly_source import message_route as hq_en2_route
+  from hq_web_health_probe import message_route as hq_probe_route
+  return hq_probe_route(root,snapshot,request)or hq_en2_route(root,snapshot,request)or _registered_owner_result_message(root,snapshot,request)or _registered_professional_readonly_route(root,snapshot,request)
  payload=request.get('payload')
  if not isinstance(payload,dict):return None
  require(w.file_digest(root,payload.get('path',''))==payload,'exact payload bytes required')
@@ -794,7 +1024,7 @@ def _owner_message_transport_not_started(root,snapshot,request):
  daily_dir=w.safe_path(root,daily_reply_directory(task,action))
  require(not daily_dir.exists(),'original daily transport intent/effect exists; read original key, never resend')
  for event in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={'task_id':task}):
-  for key in ('collaboration_queue_intent','native_queue_intent','dispatch_intent','routine_decision_reply_intent'):
+  for key in ('collaboration_queue_intent','native_queue_intent','dispatch_intent','routine_decision_reply_intent','receipt_obligation_intent','publication_deadline_coordination_intent','hq_web_health_probe_direct_intent'):
    marker=event.get('details',{}).get(key,{})
    require(isinstance(marker,dict),'malformed original transport intent; exact original effect readback required')
    if marker.get('action_id')==action:
@@ -887,6 +1117,12 @@ def _fresh_owner_message_policy_source(root,snapshot,request,route):
  action=g.approved_action(root,snapshot,{k:request.get(k)for k in keys if k!='delivery_mode'})
  source_key=('chief_coordination_source'if route.get('registered_readonly_coordination_source')is not None else
   'professional_execution_source'if route.get('registered_execution_message_source') is not None else'professional_owner_message_source')
+ if action and (action.get('HQ_original_PUB_singlefield_source') or action.get('HQ_original_PUB_singlefield_continuation_source')):
+  from professional_cms_single_field_admission import registered_bridge
+  original_PUB=registered_bridge(root,snapshot,action)
+  require(original_PUB is not None and route.get('report')==original_PUB['registration']
+   and route.get('external_permission_issued') is False,'exact registered HQ-to-original-PUB transport source required')
+  source_key=('HQ_original_PUB_singlefield_continuation_source' if action.get('HQ_original_PUB_singlefield_continuation_source') else 'HQ_original_PUB_singlefield_source')
  require(action and action.get(source_key),'real original owner-message registration required')
  observation=snapshot['goal_delivery'].get('current_route_observations',{}).get(action['action_id'])
  live=document(root,observation)
@@ -900,16 +1136,36 @@ def _fresh_owner_message_policy_source(root,snapshot,request,route):
   'actual_live_inventory':request['actual_live_inventory'],'live_observed_at':request['live_observed_at']}
 
 
+def _owner_message_commit_freshness(root,request):
+ # Input bytes are request-local; a decision/authorization/effect is never memoized.
+ from goal_source_recovery import _normal_prepare_sql_scope
+ observed=w._parse_observed_at(request.get('live_observed_at'))
+ require(observed is not None and 0<=(dt.datetime.now(dt.timezone.utc)-observed).total_seconds()<=300,
+  'fresh actual owner-message observation before final dependency replay required')
+ scope=_normal_prepare_sql_scope(root)
+ if scope is not None:scope.final(root,request)
+ validation=w._VALIDATION_CONTEXT.get()
+ if validation is not None:validation.recheck()
+ committing=dt.datetime.now(dt.timezone.utc)
+ require(observed is not None and 0<=(committing-observed).total_seconds()<=300,
+  'fresh actual owner-message observation immediately before policy append required')
+
+
 def message_policy(root,request):
  # A fresh real final can repair a stale health cache before the normal gate.
  from flashcast_ops import refresh_department_health
  import goal_delivery_runtime as g
  snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,request['task_id'])))
  external_health=None
+ from hq_web_health_probe import registered as registered_hq_health_probe
+ from hq_pub_health_probe import ACTION as PUB_HEALTH_ACTION, PURPOSE as PUB_HEALTH_PURPOSE
+ probe=registered_hq_health_probe(root,snapshot,request)
  for key,role in (('actual_sender_state',request.get('sender_department')),('actual_target_state',request.get('target_department'))):
   if request.get(key):
+   if request.get('action_id')==PUB_HEALTH_ACTION and key=='actual_target_state' and role=='publishing':continue
    if role in w.department_registry(root):refresh_department_health(root,role,request[key],only_if_stale=True)
-   else:external_health=_external_message_health(root,snapshot,request,role,request[key])
+   elif not (probe is not None and key=='actual_target_state' and role=='designated-development'):
+    external_health=_external_message_health(root,snapshot,request,role,request[key])
  fields=('task_id','action_id','action_class','scope','source_project_id','target_project_id','target_department',
          'target_thread_id','target_thread_title','target_cwd','target_sidebar_section_id','payload_sha256')
  with w.workflow_lock(root):
@@ -941,24 +1197,52 @@ def message_policy(root,request):
      and checked>w._parse_observed_at(previous['checked_at'])and row.get('message_policy_source'),
      'one ordered authentic original policy successor; no ambiguity or branch')
    ids.add(identifier);previous=row
-  if (route.get('purpose')=='original_professional_collaboration_transport_only' or ordinary_facts is not None) and request.get('delivery_mode')=='official_native_queue':
+  if (route.get('purpose')in {'original_professional_collaboration_transport_only','committed_receipt_system_continuation_event','publication_deadline_ordinary_coordination'} or ordinary_facts is not None) and request.get('delivery_mode')=='official_native_queue':
    _owner_message_transport_not_started(root,snapshot,request)
+  if route.get('purpose')=='hq_external_health_probe_transport':
+   _owner_message_transport_not_started(root,snapshot,request)
+   require(probe is not None and request.get('delivery_mode')=='mcp_direct_send'
+    and g.collaboration_route(root,snapshot,request)==[],
+    'fresh exact HQ identity and idle original WEB required for health probe policy')
+  if route.get('purpose')=='hq_en2_registered_readonly_transport':
+   _owner_message_transport_not_started(root,snapshot,request)
+   require(request.get('delivery_mode')=='mcp_direct_send'
+    and g.collaboration_route(root,snapshot,request)==[],
+    'fresh original HQ and idle external WEB route required before readonly policy')
+  if route.get('purpose')==PUB_HEALTH_PURPOSE:
+   _owner_message_transport_not_started(root,snapshot,request)
+   require(not previous,'PUB health probe already prepared; reconcile the one original policy')
+   _owner_message_commit_freshness(root,request)
   source=None
   if previous:
    age=(now-w._parse_observed_at(previous['checked_at'])).total_seconds()
    if age<=300:return previous
-   source=ordinary_facts if ordinary_facts is not None else _fresh_owner_message_policy_source(root,snapshot,request,route)
+   if route.get('purpose')=='hq_external_health_probe_transport':
+    from hq_web_health_probe import renewal_source
+    source=renewal_source(root,snapshot,request,previous,probe['registration'])
+   else:
+    source=route if route.get('purpose')in {'committed_receipt_system_continuation_event','publication_deadline_ordinary_coordination'} else ordinary_facts if ordinary_facts is not None else _fresh_owner_message_policy_source(root,snapshot,request,route)
    # Re-read original effect under the same workflow lock immediately before append.
    _owner_message_transport_not_started(root,snapshot,request)
+  if route.get('purpose')=='original_professional_collaboration_transport_only'and request.get('delivery_mode')=='official_native_queue':
+   _owner_message_commit_freshness(root,request)
+  if source is not None and route.get('purpose')=='hq_external_health_probe_transport':
+   _owner_message_commit_freshness(root,request)
   checked_at=w.utc_timestamp()
   value={k:request[k]for k in fields};value.update(department=request['sender_department'],status='allow',approval_basis=MODE,
    checked_at=checked_at,approval_id='',consume_approval=False,reason=['actual_owner_delegation_original_task_report_only'],
    routing_status='routing_allowed',required_receipts=['normal_fixed_native_transport_and_effect_readback'],external_permission_issued=False)
   if ordinary_facts is not None:value.update(routine_delegation=ordinary_facts['routine_delegation'],routine_message_source=ordinary_facts)
+  if route.get('purpose')=='committed_receipt_system_continuation_event':value['receipt_obligation_source']={k:route[k]for k in ('received_record_id','logical_receiver','handling_actor','handling_owner','service_origin','owner_delegation','system_event_only')}
+  if route.get('purpose')=='publication_deadline_ordinary_coordination':
+   value['publication_deadline_source']={k:route[k]for k in ('purpose','source','report','owner_delegation','event_key')};value['service_origin']='existing_owned_department_event_dispatcher'
   if external_health is not None:value['actual_external_collaboration_health']=external_health
+  if route.get('purpose')==PUB_HEALTH_PURPOSE:
+   value.update(delivery_mode='mcp_direct_send',pub_health_owner_native=route['source'])
   if previous:value.update(supersedes_message_policy={'decision_id':previous['decision_id'],'sha256':w.sha256_value(previous)},
    message_policy_generation=len(existing),message_policy_root_id=existing[0]['decision_id'],
-   renewal_reason='expired_original_policy_no_transport_effect',message_policy_source=source,delivery_mode='official_native_queue')
+   renewal_reason='expired_original_policy_no_transport_effect',message_policy_source=source,
+   delivery_mode='mcp_direct_send' if route.get('purpose')=='hq_external_health_probe_transport' else 'official_native_queue')
   value['decision_id']='pol-'+w.sha256_value([value,checked_at])[:20]
   w.append_jsonl_locked(Path(root)/w.POLICY_DECISIONS,value)
  return value
@@ -1211,7 +1495,9 @@ def record_completion(root,task,input_path,role,rid):
   snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)));require(effective_mode(root,snapshot),'open autonomous task required')
   rows=requirement_rows(snapshot['goal_delivery']);matches=[x for x in rows if x['requirement_id']==rid]
   require(len(matches)==1 and matches[0]['producer_department']==role,'original professional records its own actual effect only')
-  original_assignment_ready(root,snapshot,role)
+  from frontend_completion_responsibility import registered as direct_frontend_completion_registered
+  if not direct_frontend_completion_registered(root,snapshot,role,proof_pin):
+   original_assignment_ready(root,snapshot,role)
   checked=validate_effect(root,snapshot,matches[0],proof_pin)
   events=[e['details']['autonomous_completion_proof']for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)
    if e.get('task_id')==task and e.get('details',{}).get('autonomous_completion_proof',{}).get('requirement_id')==rid]
@@ -1457,18 +1743,90 @@ def professional_local_completion_view(root,snapshot):
   'requirements':results,'missing':missing,'blockers':blocked,'business_goal_closed':False,'closed_scope_only':not missing and not blocked,'assistant_approval_required':False}
 
 
+def _historical_selection_sql(root,ident,change):
+ """The original full audit-chain and exact selection reader, shared with final readback."""
+ import hashlib,sqlite3
+ db=Path(root)/'logs/result-coordination.sqlite3'
+ require(db.is_file()and not db.is_symlink(),'original selection audit database required')
+ previous='';found=[];audit=[]
+ with sqlite3.connect(db.as_uri()+'?mode=ro',uri=True)as connection:
+  for raw,prior,recorded in connection.execute('SELECT payload_json,previous_hash,record_hash FROM coordination_audit ORDER BY seq'):
+   payload=json.loads(raw);digest=hashlib.sha256(json.dumps([prior,payload],sort_keys=True,ensure_ascii=True,separators=(',',':')).encode()).hexdigest()
+   require(prior==previous and recorded==digest,'intact historical selection SQL audit chain required')
+   previous=recorded;audit.append((raw,prior,recorded))
+   if payload.get('event')=='initial_assistant_selection'and payload.get('identity')==ident and payload.get('details')==change:found.append(payload)
+ require(len(found)==1,'one exact committed historical selection SQL record required')
+ result=w.sha256_value(audit)
+ from goal_source_recovery import _normal_prepare_note_sql
+ _normal_prepare_note_sql(root,'historical_selection',[ident,change],result)
+ return result
+
+
 def historical_professional_workflow_reviewer(root, snapshot):
  """Frozen history identity only; never qualifies a new reviewer or verdict."""
  goal=snapshot.get('goal_delivery',{})
  if (autonomous_goal(goal)or not current_mode(root)or not goal
   or not snapshot.get('goal_contract')or not professional(root,goal.get('primary_owner'))):return None
  from qa_review_plan import _binding
- if _binding(root,snapshot)is not None:return None  # Existing bound history keeps its exact reviewer.
  frozen=document(root,snapshot.get('goal_contract'))
- reviewer=frozen.get('responsible_assistant')
- if reviewer not in ASSISTANTS or goal.get('responsible_assistant')!=reviewer:return None
+ reviewer=goal.get('responsible_assistant'); original_reviewer=frozen.get('responsible_assistant')
+ if reviewer not in ASSISTANTS or original_reviewer not in ASSISTANTS:return None
  require(all(goal.get(k)==frozen.get(k)for k in ('primary_owner','producer_departments','authorized_scope','human_authorization')),
   'unchanged professional contract required for historical workflow reading')
+ binding=_binding(root,snapshot)
+ if binding is not None and reviewer==original_reviewer:return None  # Preserve the existing bound-plan validator.
+ if binding is None and reviewer!=original_reviewer:return None
+ if binding is not None:
+  # The event reader needs the original historical reviewer identity, not a
+  # currently eligible reviewer. Authenticate the immutable binding and its
+  # actual pre-migration event; this never authorizes a review or new verdict.
+  if reviewer!=original_reviewer:
+   import hashlib,sqlite3
+   changes=goal.get('assignment_history',[])
+   require(isinstance(changes,list)and len(changes)==1 and isinstance(changes[0],dict),
+    'one original historical reviewer selection required')
+   change=changes[0]; ident=change.get('identity',{})
+   require(change.get('previous_assistant')==original_reviewer and change.get('target_assistant')==reviewer
+    and ident.get('task_id')==snapshot['task_id'] and ident.get('sender_department')in frozen.get('producer_departments',[])
+    and change.get('acceptance_created')is False and change.get('review_plan_transfer') is None,
+    'exact historical selection identity and unchanged acceptance required')
+   document(root,change.get('live_identity'));notice=document(root,change.get('notification_source'))
+   require(notice.get('identity')==ident and notice.get('state')in {'queued','deferred','unknown_target'}
+    and not notice.get('attempts') and notice.get('delivered') is False,
+    'exact original unstarted notification at historical selection required')
+   selection_events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={'task_id':snapshot['task_id']})if e.get('task_id')==snapshot['task_id']
+    and e.get('details',{}).get('resource_selection')==change]
+   require(len(selection_events)==1,'one exact committed historical selection event required')
+   _historical_selection_sql(root,ident,change)
+  require(isinstance(binding,dict)and binding.get('reviewer_department')==reviewer,
+   'exact frozen historical reviewer binding required')
+  plan=document(root,binding.get('pin'));candidate=plan.get('candidate')
+  require(plan.get('schema_version')==1 and plan.get('task_id')==snapshot['task_id'] and plan.get('reviewer_department')==reviewer
+   and plan.get('producer_department')in frozen.get('producer_departments',[])
+   and plan.get('producer_department')!=reviewer and plan.get('scope')in frozen.get('authorized_scope',[])
+   and isinstance(plan.get('action_id'),str)and plan['action_id'].strip()
+   and plan.get('action_class')=='read_only_candidate' and plan.get('risk_level')=='R0'
+   and isinstance(plan.get('candidate_version'),str)and plan['candidate_version'].strip()
+   and plan.get('single_final_reviewer') is True
+   and isinstance(candidate,dict)and w.file_digest(root,candidate.get('path',''))==candidate
+   and plan.get('candidate_sha256')==candidate.get('sha256')
+   and plan.get('production_write_allowed')is False and plan.get('external_permission_issued')is False,
+   'actual frozen historical plan, candidate, task, scope and producer required')
+  planned=[x for x in snapshot.get('departments',[])if x.get('department')==reviewer]
+  producers=[x for x in snapshot.get('departments',[])if x.get('department')==plan.get('producer_department')]
+  require(len(planned)==len(producers)==1 and planned[0].get('chat_task_id')==plan.get('reviewer_thread_id')
+   and producers[0].get('chat_task_id')!=plan.get('reviewer_thread_id')
+   and plan.get('controller_department')==reviewer and plan.get('controller_thread_id')==plan.get('reviewer_thread_id')
+   and binding.get('goal_identity',{}).get('responsible_assistant')==reviewer
+   and all(binding.get('goal_identity',{}).get(k)==frozen.get(k)for k in
+    ('objective','completion_criteria','primary_owner','producer_departments','authorized_scope','acceptance_capability')),
+   'exact original planned reviewer, producer and frozen goal identity required')
+  events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={'task_id':snapshot['task_id']})if e.get('task_id')==snapshot['task_id']
+   and e.get('details',{}).get('qa_review_plan_bound')==binding]
+  mode=document(root,OWNER);started=next(t['startedAt']for t in mode['turns']if t['id']==OWNER_TURN)
+  require(len(events)==1 and w._parse_observed_at(events[0].get('created_at')) is not None
+   and w._parse_observed_at(events[0]['created_at']).timestamp()<started,
+   'one actual pre-migration historical plan binding event required')
  return reviewer
 
 
@@ -1717,6 +2075,87 @@ def _legacy_parent_owner_report(root,snapshot,identity,queued):
    'same original project and fixed professional/HQ directory required')
  return 'operations'
 
+def _legacy_coproducer_owner_return(root,snapshot,identity,queued):
+ """An unqueued declared legacy producer returns to this task's real owner."""
+ role=identity['sender_department'];goal=participant(root,snapshot,role)
+ frozen=document(root,snapshot['goal_contract']);owner=frozen.get('primary_owner')
+ require(not queued and not autonomous_goal(goal)and professional(root,role)and professional(root,owner)
+  and role!=owner and role in frozen.get('producer_departments',[])
+  and all(goal.get(k)==frozen.get(k)for k in ('primary_owner','parent_task_id','producer_departments','authorized_scope')),
+  'original unqueued declared legacy producer and unchanged professional owner/scope/parent required')
+ human=frozen.get('human_authorization',{});auth=document(root,goal.get('authorization_pin'));message=auth.get('message',{})
+ require(human.get('executor')==owner and human.get('scope')in goal['authorized_scope']
+  and human.get('evidence_path')==goal['authorization_pin']['path']
+  and auth.get('source_thread_id')==human.get('source_thread_id')
+  and message.get('id')==human.get('message_id')and message.get('type')=='userMessage',
+  'unchanged original owner human source for legacy producer return required')
+ mode=document(root,OWNER);started=next(t['startedAt']for t in mode['turns']if t['id']==OWNER_TURN)
+ bindings=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==snapshot['task_id']
+  and e.get('details',{}).get('goal_contract')==snapshot['goal_contract']]
+ require(not w.validate_workflow_events(root,snapshot['task_id'])
+  and len(bindings)==1 and w._parse_observed_at(bindings[0].get('created_at'))is not None
+  and w._parse_observed_at(bindings[0]['created_at']).timestamp()<started
+  and all(bindings[0]['details'].get('goal_delivery',{}).get(k)==frozen.get(k)
+   for k in ('primary_owner','parent_task_id','producer_departments','authorized_scope')),
+  'intact original pre-migration binding required for declared legacy producer')
+ original_assignment_ready(root,snapshot,role)
+ for actor in (role,owner):
+  fixed=w.department_registry(root)[actor]['chat_binding']
+  require(fixed.get('project_id')==PROJECT and Path(fixed.get('cwd','')).resolve()==Path(root).resolve(),
+   'same original project and fixed producer/owner directory required')
+ return owner
+
+def _initialized_owner_direct_result_task(root,snapshot,identity,frozen):
+ """Read the external task identity of one normal initialized owner-direct goal.
+
+ A missing field is not a default task ID. Authenticate the actual initialized
+ snapshot/event/source and exact outbox without changing the frozen contract.
+ """
+ if 'task_id' in frozen:return frozen['task_id']
+ import goal_delivery_runtime as g
+ from goal_source_recovery import validate as original_source
+ task=w.validate_task_id(identity.get('task_id',''));role=identity['sender_department']
+ actual=w.read_json(w.snapshot_path(root,task));goal=snapshot['goal_delivery']
+ require(actual==snapshot and actual.get('task_id')==task
+  and goal.get('source_mode')==frozen.get('source_mode')=='owner_direct'
+  and role==goal.get('primary_owner')==frozen.get('primary_owner')
+  and w.SHA256_PATTERN.fullmatch(str(actual.get('request_hash',''))) is not None,
+  'actual normal initialized owner-direct result snapshot required')
+ events=w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={'task_id':task})
+ bindings=[e for e in events if e.get('details',{}).get('goal_contract')==snapshot['goal_contract']]
+ require(not w.validate_workflow_events(root,task) and len(bindings)==1 and events
+  and bindings[0]==events[0] and bindings[0].get('state')=='planned'
+  and bindings[0]['details'].get('request_hash')==actual['request_hash']
+  and bindings[0]['details'].get('goal_delivery')==g.validate_goal(root,frozen,task_id=task)
+  and bindings[0]['details'].get('departments')==actual.get('departments'),
+  'one intact original normal initialization and exact frozen goal binding required')
+ path='logs/department-outbox/'+task+'-'+role+'-'+identity['candidate_version']+'.json'
+ pin=w.file_digest(root,path);box=document(root,pin);fixed=w.department_registry(root)[role]['chat_binding']
+ require(pin['sha256']==identity['result_sha256'] and box.get('task_id')==task
+  and box.get('department')==box.get('sender_department')==role
+  and box.get('candidate_version')==identity['candidate_version']
+  and box.get('fixed_chat_task_id')==fixed['task_id']
+  and box.get('scope')in frozen['authorized_scope'] and box.get('delivery_model')==MODE,
+  'exact original initialized task/owner/version/fixed-chat/outbox bytes required')
+ w.validate_outbox(root,[pin],role,task)
+ lineage=box.get('source_lineage',{});sources=[e for e in events if e.get('event_id')==lineage.get('source_event_id')
+  and isinstance(e.get('details',{}).get('native_source_recovery'),dict)]
+ require(len(sources)==1 and events.index(sources[0])>events.index(bindings[0]),
+  'one original committed owner-direct recovery before this result required')
+ source=sources[0]['details']['native_source_recovery']
+ require(source.get('schema')=='goal-current-assignment/v2' and source.get('source_kind')=='owner_direct_native'
+  and source.get('task_id')==source.get('original_task_id')==task
+  and source.get('department')==source.get('sender_department')==role
+  and source.get('scope')==box['scope'] and source.get('goal_contract')==snapshot['goal_contract']
+  and source.get('authorization_pin')==goal.get('authorization_pin')
+  and lineage.get('source_mode')=='owner_direct',
+  'unchanged original external-task recovery, owner/scope/source and contract required')
+ recovered,proof=original_source(root,source,require_record=True)
+ require(recovered.get('task_id')==task and proof.get('recovery_event_id')==sources[0]['event_id']
+  and proof.get('recovery_key')==sources[0]['details'].get('native_source_recovery_key'),
+  'actual original native owner-direct source must validate without replacement')
+ return task
+
 def _autonomous_result_current_owner(root,snapshot,identity):
  """A new professional subtask retains its own frozen owner and ancestry."""
  role=identity['sender_department']
@@ -1725,7 +2164,7 @@ def _autonomous_result_current_owner(root,snapshot,identity):
  completed_owner=(snapshot.get('current_state')=='closed'and role==snapshot.get('goal_delivery',{}).get('primary_owner'))
  goal=participant(root,snapshot,role,allow_completed_report=completed_owner)
  frozen=document(root,snapshot['goal_contract'])
- require(autonomous_goal(goal)and autonomous_goal(frozen)and frozen.get('task_id')==snapshot['task_id']==identity['task_id']
+ require(autonomous_goal(goal)and autonomous_goal(frozen)and _initialized_owner_direct_result_task(root,snapshot,identity,frozen)==snapshot['task_id']==identity['task_id']
   and all(goal.get(k)==frozen.get(k)for k in ('primary_owner','parent_task_id','producer_departments','authorized_scope','human_authorization','collaboration_scopes')),
   'unchanged original autonomous task/owner/scope/parent/source required')
  owner=goal['primary_owner'];require(professional(root,owner)and professional(root,role)and role in frozen['producer_departments'], 'current original professional owner and producer required')
@@ -1798,8 +2237,7 @@ def autonomous_result_route(root,identity):
   if identity['sender_department']==original_owner:
    target=_legacy_parent_owner_report(root,snapshot,identity,queued)
   else:
-   parent=w.read_json(w.snapshot_path(root,w.validate_task_id(parent_id)));owner=parent.get('goal_delivery',{}).get('primary_owner')
-   target=owner if parent and owner and professional(root,owner)else _legacy_parent_owner_report(root,snapshot,identity,queued)
+   target=_legacy_coproducer_owner_return(root,snapshot,identity,queued)
  producer=[r for r in w.read_jsonl(w.receipts_path(root,identity['task_id']))if r.get('receipt_type')=='outbox_received'and r.get('department')==identity['sender_department']and any(p.get('sha256')==identity['result_sha256']for p in r.get('evidence',[]))]
  if producer:
   pins=[p for p in producer[-1]['evidence']if p.get('sha256')==identity['result_sha256']];require(len(pins)==1,'exact original producer outbox');source=document(root,pins[0])
@@ -1852,26 +2290,46 @@ def register_preflight(root,task,input_path):
  return {'result':'recorded','input':pin,'assistant_approval_required':False,'external_permission_issued':False}
 
 def policy(root,requested):
+ from professional_cms_single_field_admission import preview_policy as original_PUB_preview_policy
+ preview=original_PUB_preview_policy(root,requested)
+ if preview is not None:return preview
  from professional_web_execution import applies as original_WEB,policy as original_WEB_policy
  if original_WEB(root,requested.get('task_id'),requested.get('action_class')):return original_WEB_policy(root,requested)
  from tools.shop_office_web_execution import applies as web_applies, policy as web_policy
  if web_applies(requested.get("task_id"),requested.get("action_class")):return web_policy(root,requested)
  snapshot=w.read_json(w.snapshot_path(root,requested['task_id']))
- if not autonomous_goal(snapshot.get('goal_delivery')):
+ en2_forward=requested.get('task_id')=='fc-20261011-english-kitchen-actual-publication-goal-v1' and requested.get('action_class')=='cms_write'
+ if en2_forward:
+  require(requested.get('source_project_id')==PROJECT and w.SHA256_PATTERN.fullmatch(str(requested.get('payload_sha256') or '')) is not None,
+          'exact project and pinned original PUB request required for EN2 policy')
+ if not en2_forward and not autonomous_goal(snapshot.get('goal_delivery')):
   from professional_ads_execution import match
   if match(root,snapshot,requested)is None:
    from professional_cms_execution import match as registered_CMS
    if requested.get('action_class')!='cms_write' or registered_CMS(root,snapshot,requested)is None:return None
  if requested['action_class']not in w.EXTERNAL_ACTION_CLASSES:return None
  require(not requested.get('approval_id')and not requested.get('target_project_id')and not requested.get('target_department'), 'ordinary exact task execution, not a borrowed permit or cross-project route')
- context=action_authority(root,snapshot,requested);role=context['department']
+ if en2_forward:
+  # The exact EN2 execution context already proves source, role, authority and
+  # both providers. Do it once here, instead of doing it first as a route probe.
+  with w.request_validation_context():
+   context=action_authority(root,snapshot,requested)
+ else:
+  context=action_authority(root,snapshot,requested)
+ role=context['department']
  if requested.get('actual_executor_state'):
   from flashcast_ops import refresh_department_health
   refresh_department_health(root,role,requested['actual_executor_state'],only_if_stale=True)
  binding=w.department_registry(root)[role]['chat_binding']
  require(binding.get('project_id')==PROJECT and Path(binding.get('cwd','')).resolve()==Path(root).resolve()
   and w._chat_binding_healthy(binding,verification_ttl_hours=26),'current professional executor identity/health required')
- request=context['request'];observed=w._parse_observed_at(request.get('observed_at'))
+ request=context['request']
+ observed_value=request.get('observed_at')
+ if en2_forward:
+  observed_value=document(root,request.get('facts')).get('observed_at')
+  require(request.get('observed_at') is None or w._parse_observed_at(request.get('observed_at'))==w._parse_observed_at(observed_value),
+          'EN2 request observation must match original pinned PUB facts')
+ observed=w._parse_observed_at(observed_value)
  require(observed is not None and 0<=(dt.datetime.now(dt.timezone.utc)-observed).total_seconds()<=300,'fresh actual execution observation required; reports do not expire')
  key=w.sha256_value([requested[k]for k in ('task_id','department','action_id','action_class','scope')])
  instance=None
@@ -1885,7 +2343,21 @@ def policy(root,requested):
   require('execution_instance'not in requested or requested['execution_instance']==instance,'instance derives only from authenticated current professional request')
  if instance is not None:key=w.sha256_value([key,instance['recovery_event_id'],instance['recovery_source']])
  with w.workflow_lock(root):
-  prior=[x for x in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if x.get('autonomous_action_key')==key and x.get('status')=='allow']
+  if en2_forward:
+   from en2_preview_history import live_cms_policy_rows
+   prior=live_cms_policy_rows(root)
+   if requested.get('consume_approval') is True:
+    preflights=w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={
+     'task_id':requested['task_id'],('details','professional_cms_preflight','request'):context['pin']})
+    require(len(preflights)==1,'one exact registered EN2 forward preflight required')
+    provider=preflights[0]['details']['professional_cms_preflight']['provider_origin_evidence']
+    preview_at=w._parse_observed_at(provider['preview_receipt_checked_at'])
+    moment=dt.datetime.now(dt.timezone.utc)
+    require(preview_at and 0<=(moment-min(preview_at,observed)).total_seconds()<=225,
+            'EN2 needs 75 seconds remaining before consuming the original single-write policy')
+  else:
+   rows=w.read_jsonl(Path(root)/w.POLICY_DECISIONS)
+   prior=[x for x in rows if x.get('autonomous_action_key')==key and x.get('status')=='allow']
   require(not prior,'original exact action already issued; read actual/unknown effect before any recovery, never replay')
   value={**requested,'status':'preflight_ready_not_a_permit','actual_action_allowed':False,'approval_basis':MODE,
    'original_authority':context['authorization'],'mode_authorization':OWNER,'exact_request':context['pin'],
@@ -2228,12 +2700,7 @@ def validate_owner_continuation_source(root,snapshot,item,*,historical=False):
  # This authenticates responsibility provenance, not an old assistant verdict.
  # Revalidating a historical CMS plan with today's project-only QA schema would
  # manufacture a new review prerequisite. Its original bytes/hash chain stay exact.
- previous=''
- for event in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS):
-  require(event.get('previous_event_hash','')==previous
-   and event.get('event_hash')==w.sha256_value({k:v for k,v in event.items()if k!='event_hash'}),
-   'original immutable workflow hash chain changed')
-  previous=event['event_hash']
+ require(not w.workflow_global_chain_errors(root),'original immutable workflow hash chain changed')
  require(not w._validate_receipt_chain(root,snapshot['task_id'])[1],
   'original immutable receipt chain must remain intact')
  return {'department':role,'task_id':snapshot['task_id'],'current_thread_id':fixed['task_id'],
@@ -2260,7 +2727,7 @@ def record_owner_continuation_source(root,path):
 
 def registered_owner_continuation(root,snapshot,role):
  import goal_delivery_runtime as g
- events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)
+ events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={('details',OWNER_CONTINUATION_EVENT,'target_task_id'):snapshot['task_id']})
   if e.get('details',{}).get(OWNER_CONTINUATION_EVENT,{}).get('target_task_id')==snapshot['task_id']]
  if not events:return None
  require(len(events)==1,'one exact immutable original-owner continuation source required')
@@ -2445,7 +2912,12 @@ def work_boundary(root,role,assignment=None,read_assignment=True):
    if position=='current':
     from goal_continuity import _dispatch_source
     _dispatch_source(root,source);view['source_verified_for_execution']=True;current={**source,'source':pin,'resume_required':snapshot.get('current_state')not in w.TERMINAL_STATES}
-   if snapshot.get('current_state')in w.TERMINAL_STATES:completed.append(view)
+   from chief_assistant_coordination import notification_task_pause
+   paused=notification_task_pause(root,task)
+   if paused:
+    if position=='current':current.update(resume_required=False,resume_before_old_automation_or_summary=False,owner_pause=paused)
+    waiting.append({**view,'kind':'original_task_paused','owner_pause':paused,'next_action':'await_explicit_owner_resume'})
+   elif snapshot.get('current_state')in w.TERMINAL_STATES:completed.append(view)
    elif position=='suspended':waiting.append({**view,'kind':'original_suspended_assignment','next_action':'resume only at original work boundary with fresh exact execution source'})
    else:ready.append({**view,'kind':'original_current_assignment','next_action':'continue_authorized_original_professional_goal'})
   except (w.WorkflowError,ValueError,KeyError,OSError,TypeError)as error:
@@ -2461,24 +2933,40 @@ def work_boundary(root,role,assignment=None,read_assignment=True):
     if not task or task in seen:continue
     snap=w.read_json(w.snapshot_path(root,task));goal=snap.get('goal_delivery',{})
     if goal.get('primary_owner')!=role or snap.get('current_state')in w.TERMINAL_STATES:continue
-    seen.add(task);ready.append({'task_id':task,'owner':role,'kind':'original_owner_after_assistant_retirement','source':pin,'position':'original_owner_continuation','source_verified_for_execution':False,'next_action':'continue_original_authorized_goal_with_fresh_execution_checks_no_new_assistant'})
+    seen.add(task)
+    from chief_assistant_coordination import notification_task_pause
+    paused=notification_task_pause(root,task)
+    detail={'task_id':task,'owner':role,'source':pin,'position':'original_owner_continuation','source_verified_for_execution':False}
+    if paused:waiting.append({**detail,'kind':'original_task_paused','owner_pause':paused,'next_action':'await_explicit_owner_resume'})
+    else:ready.append({**detail,'kind':'original_owner_after_assistant_retirement','next_action':'continue_original_authorized_goal_with_fresh_execution_checks_no_new_assistant'})
    except (w.WorkflowError,ValueError,KeyError,OSError,TypeError)as error:errors.append({'source':pin,'owner':role,'reason':str(error),'blocks_other_tasks':False})
  # Queue state is a distinct live input. A committed intake is checked against
  # its original frozen route; historical assistant queues never become new work.
  for path in sorted((Path(root)/'logs/result-notifications').glob('*.json')):
   if path.is_symlink():continue
   record=w.read_json(path);identity=record.get('identity',{});target=record.get('route',{}).get('target_department')
-  if role not in {identity.get('sender_department'),target}:continue
-  if target in ASSISTANTS or identity.get('sender_department')in ASSISTANTS:
-   historical.append({**identity,'kind':'historical_assistant_transport','target_department':target,
-    'source':w.file_digest(root,w.rel_path(root,path)),'delivery_state':record.get('native_queue_transport',{}).get('state'),
-    'not_current_work':True,'new_dispatch_allowed':False,'receipt_status':'read original committed ledger; not inferred here'})
-   continue
   try:
+   if role not in {identity.get('sender_department'),target}:
+    # An authenticated delegated actor/current original owner may differ from
+    # the immutable logical recipient; cheap candidate filtering grants nothing.
+    candidate_snapshot=w.read_json(w.snapshot_path(root,identity.get('task_id','')))
+    if role!='operations-assistant' and role!=candidate_snapshot.get('goal_delivery',{}).get('primary_owner'):continue
    import result_coordination as rc
-   intake=rc.received_notification(root,record)
-   if intake is not None:
-    completed.append({**identity,'kind':'committed_original_intake','record_id':intake['record_id']});continue
+   from chief_assistant_coordination import notification_boundary
+   boundary=notification_boundary(root,record)
+   if boundary['state']=='committed_original_intake':
+    # Transport is complete; the original task's next obligation is separate.
+    from receipt_obligation_consumer import project as receipt_obligation
+    obligation=receipt_obligation(root,record,boundary['intake'])
+    if role in {obligation.get('handling_actor'),obligation.get('original_owner'),target}:
+     (ready if obligation.get('actionable') else waiting).append(obligation)
+    continue
+   if not boundary['new_dispatch_allowed']:
+    detail={**identity,**boundary,'kind':boundary['state'],'target_department':target,
+     'source':w.file_digest(root,w.rel_path(root,path)),'not_current_work':True}
+    if boundary['state']=='original_task_paused':waiting.append(detail)
+    else:historical.append(detail)
+    continue
    if record.get('delivered'):continue
    state=record.get('native_queue_transport',{}).get('state')
    detail={**identity,'owner':role,'kind':'original_result_transport','queue_acceptance_is_receipt':False}

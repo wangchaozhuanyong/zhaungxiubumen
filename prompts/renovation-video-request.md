@@ -1,5 +1,7 @@
 # 六类装修视频：统一调用入口
 
+当前100期默认请求为：`$full-house-custom-ad`制作S001—S100下一期全屋／空间设计展示，使用实际下一个轮换风格，无旁白，背景音乐＋简短双语注释，22—30秒，直接交成片及两份描述与话题合并文案。唯一排期见`data/knowledge/space-showcase-100-episodes-v1.json`；旧E系列已取消。下方配音示例仅在老板对准确新任务明确要求讲解时启用。
+
 用户统一调用 `$full-house-custom-ad`，不分别调用旧选题提示词。项目规则唯一入口是 `departments/visual-design-video/SKILL.md`；知识、文字、封面和音乐分别按其引用执行，此处只提供调用示例，不维护第二套规则。
 
 ```text

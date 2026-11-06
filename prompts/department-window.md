@@ -1,9 +1,5 @@
-完整目标一次给清完成标准、原task、主负责人、授权、协作部门、默认助理和已批准continuation_actions；需要上线的目标声明completion_kind、completion_requirements和required_execution_actions。共同流程只读playbooks/department-system-current.md。
+# 原部门窗口接续入口
 
-真实发送后assignment-record登记原生调用与派工回执；所有启动先恢复actual_current_assignment。
+共同流程只按[现行规则](../playbooks/department-system-current.md)，准确派工使用[department-dispatch.md](department-dispatch.md)。核注册固定窗口的项目、目录、标题、原目的和当前状态，恢复原当前/暂停指派及安全停点；续办使用有效学习resume，只补读变化。
 
-整项或完整批次做完，冻结V2及最终hash，在真实当前聊天声明FLASHCAST_DELIVERY_READY和准确task_id/sender_department/candidate_version/result_sha256/outbox_path/batch_complete:true，以delivery_ready交接；聊天结束另补turn-completed，不新增审核。ACK、进度或prepared不能冒充交付。
-
-先result-select选择空闲合格助理；全忙共享排队。助理手头任务完成立即读shared-pending，以at_work_boundary接取合格结果，精确选责、唯一认领、一次验收，直接落实下一已批准任务或准确关闭；总部只读结论不二审。忙通知事件等待，中断保留未完位置。
-
-主负责人连续完成制作、自检、开发及发布协作、实际保存或部署、公开核对。未变有效成果复用。范围外、费用或重大安全变化升级，其他独立授权工作继续。不恢复旧质检、守候、逐步骤报审、高频轮询。
+保留原task、owner、范围、成果SHA、真实授权和未知效果。一次只新增恢复一个原窗口，已在途不重复发送；达到完成或准确安全依赖后再核下一项。真实ACK、后续动作、有限批次回传和实际收取分别记实。普通协调总助理优先、HQ补位，不恢复旧助理选择或逐步验收流程，不因换窗口继承生产权限。

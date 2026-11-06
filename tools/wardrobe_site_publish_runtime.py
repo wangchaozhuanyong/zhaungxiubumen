@@ -35,9 +35,9 @@ WEB_TITLE = "FLASH CAST｜专用开发部｜网站与部门系统"
 WEB_CWD = "<WEBSITE_PROJECT_ROOT>"
 SELF_CHECK_MARKER = "FLASHCAST_WARDROBE_R3_SELFCHECK_READY "
 A2 = "operations-assistant-2"
-OBJECT = "rbsnyexjifounogswrjp/content-publish"
-SCOPE = "company.example:edge:rbsnyexjifounogswrjp:content-publish"
-REPOSITORY = "wangchaozhuanyong/zhuangxiuwangzhan"
+OBJECT = "exampleproject000000/content-publish"
+SCOPE = "company.example:edge:exampleproject000000:content-publish"
+REPOSITORY = "example-owner/example-website"
 WEBSITE_ROOT = Path("<WEBSITE_PROJECT_ROOT>")
 CMS_ACTION = {"action_class": "cms_write", "action_id": "publish-builtin-wardrobe-layout-20261014-v1",
               "department": "publishing",
@@ -79,8 +79,8 @@ def _remote_main():
                                 capture_output=True, text=True, timeout=5, check=True).stdout.strip()
     except (OSError, subprocess.SubprocessError) as error:
         raise w.WorkflowError("current original website repository unavailable") from error
-    if origin not in {"user-3de132cd98be@example.invalid:wangchaozhuanyong/zhuangxiuwangzhan.git",
-                      "https://github.com/wangchaozhuanyong/zhuangxiuwangzhan.git"}:
+    if origin not in {"user-3de132cd98be@example.invalid:example-owner/example-website.git",
+                      "https://github.com/example-owner/example-website.git"}:
         raise w.WorkflowError("original website repository remote required")
     try:
         result = subprocess.run(["git", "ls-remote", "origin", "refs/heads/main"],

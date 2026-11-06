@@ -29,6 +29,9 @@ from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 from xml.etree import ElementTree
 
+if __name__ == "__main__" and not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 import workflow_control as workflow
 import department_reply
 
@@ -2493,6 +2496,29 @@ def learning_freshness(review_after: str, last_verified_at: str) -> str:
     return "stale" if deadline < now_utc().astimezone(BUSINESS_TZ).date() else "current"
 
 
+def assignment_context_notice(assignment, boundary):
+    """Describe view differences; never select work or grant permission."""
+    assignment = assignment if isinstance(assignment, dict) else {}
+    boundary = boundary if isinstance(boundary, dict) else {}
+    current = boundary.get('actual_current_assignment')
+    current = current if isinstance(current, dict) else {}
+    historic = assignment.get('resumed_suspended_assignment') is True
+    task, boundary_task = assignment.get('task_id'), current.get('task_id')
+    comparable = isinstance(task, str) and bool(task) and isinstance(boundary_task, str) and bool(boundary_task)
+    return {
+        'assignment_view_task_id': task,
+        'work_boundary_current_task_id': boundary_task,
+        'assignment_view_is_suspended_fallback': historic,
+        'identity_comparison': ('match' if task == boundary_task else 'mismatch') if comparable else 'incomplete',
+        'live_message_identity_is_verified_by_this_view': False,
+        'execution_authority_granted': False,
+        'existing_execution_authority_revoked': False,
+        'next_step': ('compare the exact current message and its original source before choosing work; '
+                      'preserve the suspended candidate for its existing authorized recovery') if historic or (comparable and task != boundary_task)
+                     else 'use the current message and existing source/policy checks',
+    }
+
+
 def department_learning_effective(root: Path, department: str, **kwargs):
     import workflow_control as workflow
     from readonly_work_view_cache import inventory_session
@@ -2592,6 +2618,7 @@ def _department_learning_effective_view(root: Path, department: str, *, phase: s
     payload = {"status": "department_learning_effective_read_only", "department": department,
                "actual_current_assignment": actual_current_assignment,
                "work_boundary": boundary,
+               "assignment_context_notice": assignment_context_notice(actual_current_assignment, boundary),
                "authorization_precheck_entry": {
                    "command": "python3 tools/goal_delivery_runtime.py authorization-precheck --task-id <原任务ID> --input <准确动作JSON>",
                    "routine_message_entry": "python3 tools/goal_source_recovery.py prepare-message --input <准确消息JSON>",
@@ -3183,27 +3210,41 @@ def chat_binding_is_stale(binding: dict[str, Any], verification_ttl_hours: int) 
     )
 
 
+def _health_observation_may_replace(binding, observed_time):
+    prior_keys = ["last_verified_at", "last_success_at"]
+    if binding.get("last_run_status") not in {None, "", "success"}:
+        prior_keys.append("last_health_check_at")
+    for key in prior_keys:
+        value = binding.get(key)
+        if value:
+            prior = workflow._parse_observed_at(value)
+            if prior is None or observed_time < prior:
+                raise OpsError("older health evidence cannot overwrite a newer success or failure")
+
+
+def _health_role_active(item, department):
+    return (item.get("new_dispatch_enabled") is True and
+            (item.get("mode") in {"worker", "coordinator"} or
+             department == "operations" and item.get("mode") == "controller"))
+
+
 def refresh_department_health(root, department, native_pin, *, check_only=False, only_if_stale=False):
     """Revalidate real final bytes and original time; never turn old replies into now."""
     from goal_delivery_runtime import _native_document
     rows = read_json(root / "data/department-registry.json").get("departments", [])
     role = next((row for row in rows if row.get("id") == department), None)
-    if not role or role.get("new_dispatch_enabled") is not True or not (role.get("mode") in {"worker", "coordinator"} or department == "operations" and role.get("mode") == "controller"):
+    if not role or not _health_role_active(role, department):
         raise OpsError("health refresh requires a current active professional/HQ; standby and retired roles excluded")
     binding = role["chat_binding"]
     if only_if_stale and workflow._chat_binding_healthy(binding, verification_ttl_hours=26):
         return {"status": "current_health_preserved", "department": department}
     page = _native_document(root, native_pin)
-    finals = [(turn, message) for turn in page.get("turns", [])
-              if turn.get("status") == "completed" and not turn.get("error")
-              for message in turn.get("items", [])
-              if message.get("type") == "agentMessage" and message.get("phase") in {"final_answer", "final"}]
-    if not finals:
-        raise OpsError("actual successful nonempty completed reply required; notLoaded alone is not health")
-    def completed_time(pair):
-        value = pair[0].get("completedAt")
-        return dt.datetime.fromtimestamp(value, dt.timezone.utc) if type(value) in {int, float} else workflow._parse_observed_at(value) or dt.datetime.min.replace(tzinfo=dt.timezone.utc)
-    turn, message = max(finals, key=completed_time)
+    turn = workflow.latest_native_health_completion(page)
+    finals = [message for message in turn.get("items", [])
+              if message.get("type") == "agentMessage" and message.get("phase") == "final_answer"]
+    if len(finals) != 1:
+        raise OpsError("one actual latest nonempty final required; notLoaded alone is not health")
+    message = finals[0]
     stamp = turn.get("completedAt")
     observed = dt.datetime.fromtimestamp(stamp, dt.timezone.utc) if type(stamp) in {int, float} else workflow._parse_observed_at(stamp)
     text = message.get("text", "")
@@ -3215,6 +3256,7 @@ def refresh_department_health(root, department, native_pin, *, check_only=False,
     ttl = int(read_json(root / "data/department-registry.json").get("health_policy", {}).get("verification_ttl_hours", 26))
     if not dt.timedelta(0) <= dt.datetime.now(dt.timezone.utc) - observed <= dt.timedelta(hours=ttl):
         raise OpsError("actual reply expired; obtain one real authorized reply, never extend its timestamp")
+    _health_observation_may_replace(binding, observed)
     if check_only:
         return {"status": "actual_health_reply_verified", "department": department, **proof}
     args = argparse.Namespace(department=department, **{k:binding[k] for k in ("task_id", "project_id", "cwd", "title", "sidebar_section_id")},
@@ -3260,6 +3302,8 @@ def department_health_record(root: Path, args: argparse.Namespace) -> tuple[dict
         raise OpsError("--reply-ref 只能保存消息或轮次标识，不能保存聊天正文")
     run_status = str(args.last_run_status or "success").strip().lower()
     reply_nonempty = bool(args.reply_nonempty)
+    if run_status == "success" and not _health_role_active(item, department):
+        raise OpsError("retired or disabled role cannot regain dispatch health")
     if run_status == "success":
         if not reply_nonempty or not re.fullmatch(r"[0-9a-f]{64}", reply_sha256):
             raise OpsError("健康恢复必须提供非空回复证明和 64 位 SHA-256")
@@ -3282,7 +3326,7 @@ def department_health_record(root: Path, args: argparse.Namespace) -> tuple[dict
     if run_status == "success":
         ttl = int((registry.get("health_policy", {}) or {}).get("verification_ttl_hours", 26))
         now = dt.datetime.now(dt.timezone.utc)
-        if observed_time is None or not dt.timedelta(minutes=-5) <= now - observed_time <= dt.timedelta(hours=ttl):
+        if observed_time is None or not dt.timedelta(0) <= now - observed_time <= dt.timedelta(hours=ttl):
             raise OpsError("回复证据过期或时间无效，不能刷新为当前健康")
     event = {
         "schema_version": "1.0",
@@ -3317,6 +3361,10 @@ def department_health_record(root: Path, args: argparse.Namespace) -> tuple[dict
         current_binding = current_item.setdefault("chat_binding", {})
         if any(str(current_binding.get(key) or "") != value for key, value in expected.items()):
             raise OpsError("登记期间部门绑定已变化，禁止覆盖")
+        if run_status == "success":
+            if not _health_role_active(current_item, department):
+                raise OpsError("role retired or disabled during health validation; preserve it")
+            _health_observation_may_replace(current_binding, observed_time)
         same_observation = (
             bool(reply_ref) and current_binding.get("last_reply_ref") == reply_ref
             and current_binding.get("last_run_status") == run_status
@@ -3952,6 +4000,18 @@ def dispatch_plan(root: Path, args: argparse.Namespace) -> tuple[dict[str, Any],
     return payload, [artifact_path, report_path]
 
 
+def department_status_with_health(root: Path, evidence_path: str = ""):
+    """An explicit write command may consume existing evidence before status gates."""
+    outcome = None
+    if evidence_path:
+        from department_flow_reconcile import sync_health
+        outcome = sync_health(root, workflow.file_digest(root, evidence_path), check_only=False)
+    payload, artifacts = department_status(root)
+    if outcome is not None:
+        payload["health_evidence_consumption"] = outcome
+    return payload, artifacts
+
+
 def department_status(root: Path) -> tuple[dict[str, Any], list[Path]]:
     """Validate local department configuration and recorded chat bindings."""
 
@@ -4249,6 +4309,7 @@ def print_artifacts(payload: dict[str, Any], artifacts: list[Path], root: Path) 
         "current_rule_sources",
         "actual_current_assignment",
         "work_boundary",
+        "assignment_context_notice",
         "authorization_precheck_entry",
         "rule_context",
         "reference_loading_policy",
@@ -4519,7 +4580,8 @@ def build_parser() -> argparse.ArgumentParser:
     global_audit_parser.set_defaults(handler=lambda root, args: global_routing_audit(root, args))
 
     status_parser = sub.add_parser("department-status", help="检查部门配置和独立聊天绑定记录")
-    status_parser.set_defaults(handler=lambda root, args: department_status(root))
+    status_parser.add_argument("--health-evidence", default="", help="先消费已取得的真实完成回复清单；不请求新回复")
+    status_parser.set_defaults(handler=lambda root, args: department_status_with_health(root, args.health_evidence))
 
     handoff_parser = sub.add_parser("handoff", help="记录部门之间的任务交接")
     handoff_parser.add_argument("--task-id", required=True)

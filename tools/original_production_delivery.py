@@ -221,6 +221,13 @@ def contexts(root, snapshot, item):
 
 def candidate(ctx, state):
     """Only the exact disjoint original contributions on an actual later base."""
+    if ctx.get('reviewed_peer_successor'):
+        if (ctx.get('increment_source_mode')=='current_reviewed_causal_custody_successor'
+                and state.get('candidate_commit')!=ctx['commit']):
+            from material_causal_successor import clean_disjoint_successor
+            return clean_disjoint_successor(ctx,state)
+        from reviewed_web_release import peer_candidate
+        return peer_candidate(ctx, state)
     import professional_web_execution as web
     head, base = state.get('candidate_commit'), state.get('candidate_base', ctx['base'])
     mode = state.get('source_mode', 'forward')

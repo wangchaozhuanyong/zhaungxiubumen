@@ -174,6 +174,7 @@ class RequestValidationContext:
         self.proofs = {}
         self.read_counts = {}
         self.strict_unchanged = False
+        self.git_object_inputs = {}
 
     def bytes(self, path):
         path = Path(path).resolve()
@@ -217,25 +218,77 @@ class RequestValidationContext:
                 cached[mode] = value
         value = cached[mode]
         if where is not None:
-            if not lines or not isinstance(where, dict) or not where or any(not isinstance(k, str) for k in where):
+            if not lines:
                 raise WorkflowError("exact JSONL field selector required")
+            _validate_jsonl_selector(where)
             # Select data before copying, not a PASS/authority/latest/effect memo.
             # Fresh bytes/version checks above run on every call. Keep duplicates
             # and order; existing caller identity/chain/role checks still run.
-            value = [row for row in value if all(row.get(k) == v for k, v in where.items())]
+            if all(item is None or type(item) is str for item in where.values()):
+                selections = cached.setdefault("jsonl_selected_bytes", {})
+                selector = tuple(where.items())
+                if selector not in selections:
+                    selected = [row for row in value if _jsonl_matches(row, where)]
+                    selections[selector] = json.dumps(selected, ensure_ascii=True, separators=(",", ":"))
+                return json.loads(selections[selector])
+            selected = [row for row in value if _jsonl_matches(row, where)]
+            return json.loads(json.dumps(selected, ensure_ascii=True, separators=(",", ":")))
         # Cached inputs were parsed from JSON, so they contain JSON values only.
         # Preserve an independent mutable return value without recursively
         # copying millions of Python nodes on every same-request source read.
         # Validators still run each time; bytes/version invalidation is unchanged.
-        return json.loads(json.dumps(value, ensure_ascii=True, separators=(",", ":")))
+        if not lines:
+            # Clone the exact already-parsed input directly. Re-encoding the
+            # same large native/registry document is not a validator.
+            return json.loads(raw)
+        if "jsonl_clone_bytes" not in cached:
+            cached["jsonl_clone_bytes"] = json.dumps(value, ensure_ascii=True, separators=(",", ":"))
+        return json.loads(cached["jsonl_clone_bytes"])
 
-    def recheck(self):
+    def strict_json(self, path):
+        # Reuse parsed immutable INPUTS only. Every caller still verifies its
+        # pin/role/authority/effect and receives its own mutable object.
+        key = str(Path(path).resolve())
+        raw = self.bytes(path)
+        cached = self.parsed.setdefault(key, {})
+        if "strict_evidence" not in cached:
+            def unique(pairs):
+                value = {}
+                for name, item in pairs:
+                    if name in value:
+                        raise WorkflowError("ambiguous JSON field")
+                    value[name] = item
+                return value
+            def nonfinite(_):
+                raise WorkflowError("nonfinite JSON number")
+            value = json.loads(raw, object_pairs_hook=unique, parse_constant=nonfinite)
+            if not isinstance(value, dict):
+                raise WorkflowError("object evidence required")
+            cached["strict_evidence"] = value
+        # Full duplicate/finite/type validation above runs on each new byte
+        # version. Clone the same input bytes; never retain an allow/effect.
+        return json.loads(raw)
+
+    def recheck(self, *, reconcile_change=None):
         # Under the original commit lock, hash each dependency once. Parsing
         # and professional review are not repeated when bytes are unchanged.
         for name, entry in list(self.files.items()):
             raw = Path(name).read_bytes()
             if hashlib.sha256(raw).hexdigest() != entry["sha256"] or len(raw) != len(entry["raw"]):
-                raise WorkflowError("request dependency changed before commit: " + name)
+                if reconcile_change is None or not reconcile_change(name, entry["raw"], raw):
+                    raise WorkflowError("request dependency changed before commit: " + name)
+        batches = {}
+        for name, entry in self.git_object_inputs.items():
+            if 'batch_blob' in entry:
+                cwd, object_name = entry['batch_blob']
+                batches.setdefault(cwd, []).append((object_name, entry['raw']))
+                continue
+            if entry["reread"]() != entry["raw"]:
+                raise WorkflowError("immutable Git input changed before commit: " + repr(name))
+        if batches:
+            from professional_web_execution import recheck_historical_git_blobs
+            for cwd, entries in batches.items():
+                recheck_historical_git_blobs(cwd, entries)
         return True
 
 
@@ -273,6 +326,30 @@ def read_json(path: Path) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _validate_jsonl_selector(where):
+    # An exact nested input field selector, not an authority/validation cache.
+    if not isinstance(where, dict) or not where or any(
+        not (isinstance(key, str) or isinstance(key, tuple) and key
+             and all(isinstance(part, str) and part for part in key)) for key in where
+    ):
+        raise WorkflowError("exact JSONL field selector required")
+
+
+def _jsonl_matches(row, where):
+    for key, expected in where.items():
+        value = row
+        for part in ((key,) if isinstance(key, str) else key):
+            if not isinstance(value, dict):
+                raise WorkflowError("nested JSONL selector requires an object")
+            if part not in value:
+                value = None
+                break
+            value = value[part]
+        if value != expected:
+            return False
+    return True
+
+
 def read_jsonl(path: Path, *, where=None) -> list[dict[str, Any]]:
     from readonly_work_view_cache import note_read
     note_read(path)
@@ -292,9 +369,8 @@ def read_jsonl(path: Path, *, where=None) -> list[dict[str, Any]]:
         if isinstance(value, dict):
             rows.append(value)
     if where is not None:
-        if not isinstance(where, dict) or not where or any(not isinstance(k, str) for k in where):
-            raise WorkflowError("exact JSONL field selector required")
-        return [row for row in rows if all(row.get(k) == v for k, v in where.items())]
+        _validate_jsonl_selector(where)
+        return [row for row in rows if _jsonl_matches(row, where)]
     return rows
 
 def atomic_write_text(path: Path, content: str) -> None:
@@ -388,6 +464,12 @@ def _parse_observed_at(value: object) -> dt.datetime | None:
         return None
     if raw.endswith("Z"):
         raw = raw[:-1] + "+00:00"
+    # PostgreSQL emits hour-only offsets and variable-width fractional seconds.
+    # Older system Python versions reject those valid server timestamps.
+    pg = re.fullmatch(r"(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?([+-]\d{2})(?::?(\d{2}))?", raw)
+    if pg:
+        clock, fraction, hours, minutes = pg.groups()
+        raw = clock + ("." + fraction.ljust(6, "0") if fraction else "") + hours + ":" + (minutes or "00")
     try:
         observed = dt.datetime.fromisoformat(raw)
     except ValueError:
@@ -893,19 +975,63 @@ def append_workflow_event(root: Path, task_id: str, state: str, details: dict[st
     return event
 
 
-def validate_workflow_events(root: Path, task_id: str) -> list[str]:
-    events = read_jsonl(root / WORKFLOW_EVENTS)
-    invalid: list[str] = []
-    previous = ""
-    for index, event in enumerate(events, start=1):
-        if event.get("previous_event_hash", "") != previous:
-            invalid.append(f"event_{index}:previous_hash_mismatch")
-        calculated = sha256_value({key: value for key, value in event.items() if key != "event_hash"})
+def _workflow_global_chain_errors_from_rows(events):
+    errors=[]; previous=""
+    for index,event in enumerate(events,start=1):
+        if event.get("previous_event_hash","") != previous:
+            errors.append(f"event_{index}:previous_hash_mismatch")
+        calculated=sha256_value({key:value for key,value in event.items() if key!="event_hash"})
         if event.get("event_hash") != calculated:
-            invalid.append(f"event_{index}:event_hash_mismatch")
-        previous = str(event.get("event_hash", ""))
+            errors.append(f"event_{index}:event_hash_mismatch")
+        previous=str(event.get("event_hash",""))
+    return errors
 
-    task_events = [event for event in events if event.get("task_id") == task_id]
+
+def workflow_global_chain_errors(root: Path) -> list[str]:
+    """Pure complete ledger chain errors; reuse only the current input version."""
+    path=Path(root)/WORKFLOW_EVENTS
+    context=_VALIDATION_CONTEXT.get()
+    if not path.exists():
+        if context is not None and str(path.resolve()) in context.files:
+            raise WorkflowError("workflow event chain disappeared during validation")
+        return []
+    if context is None:
+        with request_validation_context():
+            return workflow_global_chain_errors(root)
+    from readonly_work_view_cache import note_read
+    note_read(path)
+    key=str(path.resolve());raw=context.bytes(path);cached=context.parsed.setdefault(key,{})
+    if "workflow_global_chain_errors" not in cached:
+        events=context.json(path,lines=True)
+        errors=_workflow_global_chain_errors_from_rows(events)
+        if context.bytes(path)!=raw:
+            raise WorkflowError("workflow event chain changed during validation")
+        cached["workflow_global_chain_errors"]=tuple(errors)
+    if context.bytes(path)!=raw:
+        raise WorkflowError("workflow event chain changed during validation")
+    return list(cached["workflow_global_chain_errors"])
+
+
+def validate_workflow_events(root: Path, task_id: str) -> list[str]:
+    # Only global chain computation over the exact same immutable input is
+    # reusable in this request. Task-specific state, identity, authorization,
+    # receipts, freshness and effects below are still evaluated on each call.
+    path = root / WORKFLOW_EVENTS
+    context = _VALIDATION_CONTEXT.get()
+    if context is None or not isinstance(task_id, str) or not path.exists():
+        events = read_jsonl(path)
+        invalid = _workflow_global_chain_errors_from_rows(events)
+        task_events = [event for event in events if event.get("task_id") == task_id]
+    else:
+        from readonly_work_view_cache import note_read
+        note_read(path)
+        key = str(path.resolve())
+        raw = context.bytes(path)
+        cached = context.parsed.setdefault(key, {})
+        invalid = workflow_global_chain_errors(root)
+        task_events = context.json(path, lines=True, where={"task_id": task_id})
+        if context.bytes(path) != raw:
+            raise WorkflowError("workflow event chain changed during validation")
     from original_task_publisher_handover import binding
     try:
         binding(root, task_id)
@@ -2706,6 +2832,40 @@ def _completion_actual_final(root, native, role, *, turn_id=None, message_id=Non
     return turn,message
 
 
+def latest_native_health_completion(document):
+    """Use the newest terminal turn; an old success cannot hide a later failure."""
+    turns = document.get("turns")
+    if not isinstance(turns, list):
+        turns = [document.get("turn") or {
+            "id": document.get("turn_id"), "status": document.get("status"),
+            "completedAt": document.get("completedAt")}]
+    terminal = []
+    for turn in turns:
+        if not isinstance(turn, dict):
+            raise WorkflowError("native health turn object required")
+        if turn.get("status") not in {"completed", "failed", "interrupted"}:
+            continue
+        stamp = turn.get("completedAt")
+        try:
+            observed = (dt.datetime.fromtimestamp(stamp, dt.timezone.utc)
+                        if type(stamp) in {int, float} else _parse_observed_at(stamp))
+        except (ValueError, OverflowError, OSError) as error:
+            raise WorkflowError("original terminal completion time required") from error
+        if observed is None:
+            raise WorkflowError("original terminal completion time required")
+        terminal.append((observed, turn))
+    if not terminal:
+        raise WorkflowError("actual terminal health evidence required")
+    newest = max(at for at, turn in terminal)
+    matches = [turn for at, turn in terminal if at == newest]
+    if len(matches) != 1:
+        raise WorkflowError("one unambiguous latest terminal health turn required")
+    turn = matches[0]
+    if turn.get("status") != "completed" or turn.get("error"):
+        raise WorkflowError("latest terminal reply failed; old success cannot restore health")
+    return turn
+
+
 def validate_health_reply(root, *, department, native_pin, reply_ref, reply_sha256, reply_observed_at):
     from goal_delivery_runtime import _native_document, _collaboration_final_message
     if not isinstance(native_pin,dict):
@@ -2715,7 +2875,17 @@ def validate_health_reply(root, *, department, native_pin, reply_ref, reply_sha2
     thread = document.get("thread",{})
     if any(thread.get(k)!=fixed[v] for k,v in (("id","task_id"),("title","title"),("cwd","cwd"))):
         raise WorkflowError("actual native health fixed identity differs")
-    turn,message = _completion_actual_final(root,document,department,reply_ref=reply_ref)
+    latest = latest_native_health_completion(document)
+    # Select the newest authenticated original turn, retaining the immutable
+    # native pin. An older failed turn is historical; a newer failure was
+    # already rejected above and can never be hidden by this projection.
+    selected = {**document, "turns": [latest]} if isinstance(document.get("turns"), list) else document
+    try:
+        turn,message = _completion_actual_final(root,selected,department,reply_ref=reply_ref)
+    except (ValueError, TypeError, KeyError) as error:
+        raise WorkflowError("complete latest native health final required") from error
+    if turn.get("id") != latest.get("id"):
+        raise WorkflowError("health reply must be the latest terminal turn")
     completed = turn.get("completedAt")
     actual_time = (dt.datetime.fromtimestamp(completed,dt.timezone.utc)
                    if isinstance(completed,(int,float)) and not isinstance(completed,bool)
@@ -3985,11 +4155,34 @@ def policy_check(
 ) -> tuple[dict[str, Any], list[Path]]:
     from department_rotation import prohibit_validation_write
     prohibit_validation_write()
+    if task_id is None and original_message is not None and original_message.get('pre_goal_source') is not None:
+        from chief_assistant_coordination import pre_goal_policy
+        expected=dict(task_id=None,department=department,action_id=action_id,action_class=action_class,scope=scope,
+            source_project_id=source_project_id,target_project_id=target_project_id,target_department=target_department,
+            target_thread_id=target_thread_id,target_thread_title=target_thread_title,target_cwd=target_cwd,
+            target_sidebar_section_id=target_sidebar_section_id,payload_sha256=payload_sha256,delivery_mode=delivery_mode)
+        if approval_id or consume_approval or draft_admission is not None or skill or target_automation_status or retry_blocked_execution_receipt_id or any(
+                original_message.get('sender_department') != v if k=='department' else original_message.get(k) != v for k,v in expected.items()):
+            raise WorkflowError('exact original heartbeat normal policy input only; no execution permission')
+        return pre_goal_policy(root,original_message),[root/POLICY_DECISIONS]
     task_id = validate_task_id(task_id)
     if delivery_mode not in ('', 'mcp_direct_send', 'official_native_queue') or (delivery_mode and action_class != 'thread_message'):
         raise WorkflowError('known message transport only; never an execution exemption')
     if original_message is not None and action_class != 'thread_message':
         raise WorkflowError('original-result observation cannot authorize an execution action')
+    if original_message is not None and original_message.get('scheduled_queue_resume') is not None:
+        expected = dict(task_id=task_id, sender_department=department, action_id=action_id,
+            action_class=action_class, scope=scope, source_project_id=source_project_id,
+            target_project_id=target_project_id, target_department=target_department,
+            target_thread_id=target_thread_id, target_thread_title=target_thread_title,
+            target_cwd=target_cwd, target_sidebar_section_id=target_sidebar_section_id,
+            payload_sha256=payload_sha256, delivery_mode=delivery_mode)
+        if (approval_id or consume_approval or draft_admission is not None or skill
+                or target_automation_status or retry_blocked_execution_receipt_id
+                or any(original_message.get(k) != v for k, v in expected.items())):
+            raise WorkflowError('exact transport-only original daily activation policy input required')
+        from department_event_dispatcher import scheduled_activation_policy
+        return scheduled_activation_policy(root, original_message), [root / POLICY_DECISIONS]
     if original_message is not None and action_class == 'thread_message':
         from department_autonomy import message_route,message_policy
         if message_route(root,read_json(snapshot_path(root,task_id)),original_message) is not None:
@@ -4725,6 +4918,10 @@ def policy_check(
         "project_layer_only": True,
         "checked_at": utc_timestamp(),
     }
+    if (allow and action_class == "thread_message"
+            and "exact_result_notification:current_prepared_claim_and_target" in required_receipts
+            and not routing_reasons):
+        result["external_permission_issued"] = False
     if delivery_mode:
         result["delivery_mode"] = delivery_mode
     if cms_goal_context is not None and cms_goal_context.get("acceptance_model") == "condo_faq_v7_candidate_scope_only_v1":

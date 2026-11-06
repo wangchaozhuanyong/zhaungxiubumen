@@ -265,7 +265,10 @@ def _committed_result(root, record):
     if (not row or row[0] != 'committed' or json.loads(row[2] or 'null') != record
             or _native_readback(root, json.loads(row[1])) != record):
         _fail('exact committed SQL and native result readback required')
-    return _sha([record, row[1]])
+    result = _sha([record, row[1]])
+    from goal_source_recovery import _normal_prepare_note_sql
+    _normal_prepare_note_sql(root, 'committed_result', [record], result)
+    return result
 
 
 def committed_original_a3_conclusion(root, identity):
@@ -411,7 +414,12 @@ def validate_actual_delegation_input(root,locator,native,payload):
 
 def current_assignment_for_role(root,role):
     """Expose a proven live assignment after compaction; never infer completion."""
-    w=_w();config=w.read_json(Path(root)/'data/department-current-assignment.json')
+    w=_w()
+    registered=w.department_registry(root).get(role,{})
+    if registered.get('mode')=='retired_history' or registered.get('new_dispatch_enabled') is False:
+        return {'resume_required':False,'role_retired':True,'permissions_inherited':False,
+                'unfinished_assignment_queue':[],'assignment_errors':[]}
+    config=w.read_json(Path(root)/'data/department-current-assignment.json')
     pin=config.get('assignments',{}).get(role)
     from goal_continuity import current_assignment
     pending=[];errors=[];seen=[]
@@ -428,11 +436,15 @@ def current_assignment_for_role(root,role):
             if old and old.get('resume_required'):pending.append(old)
         except (w.WorkflowError,OSError,ValueError,KeyError,TypeError,AttributeError) as error:
             errors.append({'source':prior,'reason':str(error),'blocks_other_tasks':False})
+    def pending_view(**flags):
+        # A suspended source is a preserved candidate, never a new selection.
+        # Selecting it requires an explicit current message/source at a safe
+        # boundary; queue order or a completed/invalid current is insufficient.
+        return {'resume_required':False,'permissions_inherited':False,
+                'resumed_suspended_assignment':False,'resume_selection_required':bool(pending),
+                'unfinished_assignment_queue':pending,'assignment_errors':errors,**flags}
     if pin is None:
-        if not pending:
-            return {'resume_required':False,'assignment_errors':errors} if errors else None
-        return {**pending.pop(),'resumed_suspended_assignment':True,
-                'unfinished_assignment_queue':pending,'assignment_errors':errors}
+        return pending_view() if pending or errors else None
     try:
         original = w.safe_path(root,pin['path'])
         source = w.read_json(original)
@@ -448,12 +460,10 @@ def current_assignment_for_role(root,role):
     except (w.WorkflowError,OSError,ValueError,KeyError,TypeError,AttributeError) as error:
         errors.append({'source':pin,'reason':str(error),'blocks_other_tasks':False})
         if not pending:return {'resume_required':False,'assignment_errors':errors,'current_assignment_invalid':True}
-        return {**pending.pop(),'resumed_suspended_assignment':True,'current_assignment_invalid':True,
-                'unfinished_assignment_queue':pending,'assignment_errors':errors}
+        return pending_view(current_assignment_invalid=True)
     if generic is not None:
-        if not generic.get('resume_required') and pending:
-            generic={**pending.pop(),'resumed_suspended_assignment':True}
-        return {**generic,'unfinished_assignment_queue':pending,'assignment_errors':errors}
+        return {**generic,'unfinished_assignment_queue':pending,'assignment_errors':errors,
+                'resume_selection_required':bool(pending) and not generic.get('resume_required')}
     try:
         import direct_system_repair as direct
         from qa_review_plan import _review_same_goal_send_wrapper
@@ -475,8 +485,7 @@ def current_assignment_for_role(root,role):
     except (w.WorkflowError,OSError,ValueError,KeyError,TypeError,AttributeError) as error:
         errors.append({'source':pin,'reason':str(error),'blocks_other_tasks':False})
         if not pending:return {'resume_required':False,'assignment_errors':errors,'current_assignment_invalid':True}
-        return {**pending.pop(),'resumed_suspended_assignment':True,'current_assignment_invalid':True,
-                'unfinished_assignment_queue':pending,'assignment_errors':errors}
+        return pending_view(current_assignment_invalid=True)
 
 
 def hq_knowledge_source(root, identity, *, require_transport=False):
@@ -1363,6 +1372,35 @@ class CoordinationStore:
                 self.conn.rollback()
                 raise
 
+    def claim_decision(self,identity,role,owner,request_id,received_record_id,reason,ttl_seconds=900):
+        """Continue only the undecided effect of one already received result."""
+        from chief_assistant_coordination import decision_claim_preflight
+        identity=exact_identity(identity);_role(self.root,role,owner,identity)
+        request={**identity,'coordinator_role':role,'coordinator_owner':owner,'request_id':request_id,
+                 'received_record_id':received_record_id,'recovery_reason':reason,'ttl_seconds':ttl_seconds}
+        with coordination_lock(self.root):
+            _goal_actor(self.root,identity,role);_validate_queued(self.root,identity)
+            marker=decision_claim_preflight(self.root,request)['source']
+            self._begin()
+            try:
+                old=self._row(identity)
+                if old and old['owner']and old['expires']>self._now():
+                    if (old['role'],old['owner'],old['request_id'])==(role,owner,request_id)and old['precheck_json']and json.loads(old['precheck_json'])==marker:
+                        self.conn.commit();return self._view(old,True)
+                    _fail('result already claimed; retain the real current lease')
+                # Same lock protects receipt/decision/reservation checks and the new fence.
+                fence=old['fence']+1 if old else 1
+                self.conn.execute("""INSERT INTO claims VALUES(?,?,?,?,?,?,?,?,?)
+                    ON CONFLICT(result_key)DO UPDATE SET role=excluded.role,owner=excluded.owner,
+                    token=excluded.token,fence=excluded.fence,expires=excluded.expires,
+                    request_id=excluded.request_id,precheck_json=excluded.precheck_json""",
+                    (_key(identity),_canonical(identity),role,owner,uuid.uuid4().hex,fence,
+                     self._now()+ttl_seconds,request_id,_canonical(marker)))
+                self._audit(identity,'ordinary_postreceipt_decision_claim',{'role':role,'owner':owner,
+                    'fence':fence,'reason':reason,'received_record_id':received_record_id,'no_reintake':True})
+                result=self._view(self._row(identity));self.conn.commit();return result
+            except BaseException:self.conn.rollback();raise
+
     def recover(self, identity, role, owner, request_id, reason, ttl_seconds=900):
         if not isinstance(reason, str) or not reason.strip():
             _fail("explicit interruption recovery reason required")
@@ -1376,6 +1414,9 @@ class CoordinationStore:
             self._begin()
             try:
                 row = self._lease(identity, role, owner, claim)
+                marker=json.loads(row['precheck_json'])if row['precheck_json']else{}
+                if marker.get('purpose')=='ordinary_decision_only'and event not in {'renew','release'}:
+                    _fail('postreceipt decision lease cannot precheck, transfer or re-intake')
                 details = mutate(row, box)
                 self._audit(identity, event, details)
                 result = self._view(self._row(identity))
@@ -1708,6 +1749,14 @@ def _autonomous_intake_readback(root, payload, row):
 def _native_readback(root, payload):
     w = _w()
     request, pins = payload["request"], payload["pins"]
+    if not isinstance(pins, dict) or not isinstance(pins.get('evidence'), list):
+        _fail('frozen native evidence pins required')
+    # Readback authenticates the frozen bytes as well as the recorded pins.
+    # A committed SQL row cannot make deleted or edited evidence valid.
+    for pin in [pins.get('outbox'),*pins['evidence'],*([pins['linked_outbox']] if 'linked_outbox' in pins else [])]:
+        if (not isinstance(pin,dict) or set(pin)!={'path','sha256','size'}
+                or w.file_digest(root,pin.get('path',''))!=pin):
+            _fail('native readback payload/evidence differs: frozen bytes changed or missing')
     from readonly_work_view_cache import inventory_handoff_rows
     rows = inventory_handoff_rows(root, request["task_id"])
     matches = [row for row in rows if row.get("idempotency_key") == request.get("idempotency_key")]
@@ -1719,7 +1768,10 @@ def _native_readback(root, payload):
     expected = {key: request.get(key) for key in (*IDENTITY_FIELDS, "event", "idempotency_key")}
     expected.update(pins)
     # All native preserved request fields are compared; path inputs map to pins.
-    skipped = {"evidence_paths", "outbox_path", "linked_outbox_path", *IDENTITY_FIELDS, "event", "idempotency_key"}
+    # Native append derives evidence only from evidence_paths and stores the
+    # resulting frozen pins. A legacy unused raw 'evidence' field must not
+    # overwrite those pins in the readback projection.
+    skipped = {"evidence", "evidence_paths", "outbox_path", "linked_outbox_path", *IDENTITY_FIELDS, "event", "idempotency_key"}
     # The native operations verifier converts this path input into a digest.
     # Compare the same frozen bytes, rather than a path string with a pin dict.
     if "control_applied_proof" in request and "control_applied_proof" in row:
@@ -1846,6 +1898,8 @@ def handoff_guard(root, request):
                 store._lease(identity, role, request.get("coordinator_owner"), request.get("coordination_claim"))
             elif request.get("coordination_claim"):
                 _fail("claim was released or does not own this exact result")
+            if row and row['precheck_json']and json.loads(row['precheck_json']).get('purpose')=='ordinary_decision_only'and request['event']!='controller_decision':
+                _fail('postreceipt decision lease cannot create another intake or acceptance')
             payload = _payload(root, request)
             effect = _sha([request["event"], request.get("idempotency_key")])
             store._begin()
@@ -2090,6 +2144,13 @@ _INTAKE_ACTOR_MEMO = {}
 
 
 def _committed_intake_actor(root, record):
+    from goal_source_recovery import _normal_prepare_note_sql
+    result = _committed_intake_actor_reader(root, record)
+    _normal_prepare_note_sql(root, 'intake_actor', [record], result)
+    return result
+
+
+def _committed_intake_actor_reader(root, record):
     """Authenticate historical handling role from the original SQL audit chain."""
     database = _w().safe_path(root, str(DATABASE))
     def version(path):
@@ -2098,7 +2159,8 @@ def _committed_intake_actor(root, record):
         s = path.stat()
         return (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
     stamp = (str(database), version(database), version(Path(str(database) + '-wal')))
-    if stamp not in _INTAKE_ACTOR_MEMO:
+    from goal_source_recovery import _normal_prepare_sql_scope
+    if _normal_prepare_sql_scope(root) is not None or stamp not in _INTAKE_ACTOR_MEMO:
         connection = sqlite3.connect(database.as_uri() + '?mode=ro', uri=True)
         try:
             audit = connection.execute('SELECT payload_json,previous_hash,record_hash FROM coordination_audit ORDER BY seq').fetchall()
@@ -2143,6 +2205,38 @@ def _committed_intake_actor(root, record):
                 or (supplied is not None and (not isinstance(supplied, str) or supplied.split(':', 1)[0] != owner))):
             _fail('actual autonomous committed receiver/owner differs')
         return role, supplied or owner
+    if not actors and record.get('event') == 'controller_decision' and record.get('mode_authorization') == OWNER:
+        from chief_assistant_coordination import SOURCE, _committed_intake, receiver_context, decision
+        if record.get('routine_delegation') == SOURCE:
+            # Normal postreceipt decision claims commit without the historical
+            # effect_reserved audit entry. Authenticate the existing SQL/native
+            # decision first, then its one original receipt and real actor.
+            # Only controller_received is recursed into; no decision cycle or
+            # new audit/compatibility row can be created here.
+            _committed_result(root, record)
+            intake = _committed_intake(root, record)
+            if (intake.get('event') != 'controller_received'
+                    or intake.get('mode_authorization') != OWNER or intake.get('routine_delegation') != SOURCE
+                    or intake.get('record_id') != record.get('received_record_id')
+                    or intake.get('record_id') == record.get('record_id')
+                    or exact_identity(intake) != exact_identity(record)):
+                _fail('one original autonomous routine receipt required for committed decision actor')
+            role, owner = _committed_intake_actor(root, intake)
+            logical = intake.get('target_department')
+            if (not role or not owner or not logical
+                    or record.get('coordinator_role') != role or record.get('coordinator_owner') != owner
+                    or record.get('handling_actor') != role
+                    or record.get('outbox') != intake.get('outbox')
+                    or record.get('target_department') != logical or record.get('logical_receiver') != logical
+                    or intake.get('logical_receiver') != logical):
+                _fail('committed routine decision must retain original real actor/owner/identity/outbox/receiver')
+            receiver_context(root, record, logical)
+            # This existing pure validator checks exact decision source bytes,
+            # original result scope/next owner and the actual handler's native
+            # message naming that path/SHA. Discard its generated return row;
+            # never append it or pretend it is a second committed decision.
+            decision(root, record)
+            return role, owner
     if len(actors) != 1:
         _fail('one original committed intake actor required')
     return next(iter(actors))
@@ -2452,6 +2546,18 @@ def notification_plan(root, role=None):
                                  'resolution': 'exact_responsible_native_intake_committed',
                                  'record_id': intake['record_id'], 'native_notification_sent': record.get('delivered', False)})
                 continue
+            from chief_assistant_coordination import notification_task_pause
+            paused=notification_task_pause(root,identity['task_id'])
+            if paused:
+                frozen_notification_route(root,record)
+                exact=record['delivery_identity'];key=_delivery_key(exact)
+                if key in seen:_fail('notification delivery identity appears more than once')
+                seen.add(key)
+                pending.append({'identity':identity,'delivery_identity':exact,'dedupe_key':key,
+                                'state':'original_task_paused','pause_source':paused,
+                                'actionable':False,'delivered':False,'queue_acceptance_is_intake':False,
+                                'next_action':'await_explicit_owner_resume'})
+                continue
             route = inventory_result_lane(root, identity, path)
             if route['lane']=='historical_read_only':
                 received.append({'identity':identity,'resolution':'historical_source_preserved_no_new_assistant_wakeup','native_notification_sent':record.get('delivered',False)})
@@ -2526,8 +2632,16 @@ def notification_plan(root, role=None):
             safe_record = record if isinstance(record, dict) else {}
             safe_identity = identity if isinstance(identity, dict) and identity else safe_record.get('identity', {})
             safe_identity = safe_identity if isinstance(safe_identity, dict) else {}
+            exact = safe_record.get('delivery_identity')
+            exact = exact if isinstance(exact, dict) else {}
+            # Error display only: preserve the frozen receiver/purpose so a
+            # different receiver's intake cannot be mistaken for this notice.
+            delivery = {k: exact.get(k) for k in (*IDENTITY_FIELDS, 'target_department', 'target_thread_id', 'purpose')}
+            queue = safe_record.get('native_queue_transport')
+            queue_state = queue.get('state') if isinstance(queue, dict) else None
             errors.append({'task_id': safe_identity.get('task_id'),
                            'identity': safe_identity, 'path': _w().rel_path(root, path),
+                           'delivery_identity': delivery, 'native_queue_state': queue_state,
                            'owner': safe_identity.get('sender_department'), 'block_reason': str(error),
                            'unblock_condition': 'repair this exact source/identity; preserve other valid results',
                            'next_check_at': safe_record.get('next_check_at', 'next_existing_legal_opportunity')})

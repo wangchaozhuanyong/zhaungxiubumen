@@ -416,7 +416,7 @@ def web_context(root, snapshot, source):
     name = account.get('full_name'); actor = account.get('authenticated_actor', {})
     require(at.get('status') == 'completed' and not at.get('error') and ac.get('status') == 'completed' and ac.get('exitCode') == 0
             and Path(ac.get('cwd', '')).resolve().is_relative_to(Path(binding['cwd']).resolve()) and outputs == [account]
-            and name == 'wangchaozhuanyong/zhuangxiuwangzhan' and type(account.get('id')) is int
+            and name == 'example-owner/example-website' and type(account.get('id')) is int
             and type(actor.get('id')) is int and actor['id'] > 0 and actor.get('login') == name.split('/')[0]
             and web.git(gitctx, 'config', '--get', 'remote.origin.url').decode().strip() in
                 {'user-3de132cd98be@example.invalid:' + name + '.git', 'https://github.com/' + name, 'https://github.com/' + name + '.git'},

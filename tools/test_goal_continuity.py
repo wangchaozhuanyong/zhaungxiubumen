@@ -679,6 +679,11 @@ class ContinuationFaultTests(unittest.TestCase):
         config={'assignments':{'sales':{'path':'current'}} if current else {},
                 'suspended_assignments':{'sales':[{'path':'bad'},{'path':'older'},{'path':'older'}]}}
         path=self.root/'data/department-current-assignment.json';w.atomic_write_json(path,config)
+        # Current assignments are now inspected before invoking the source
+        # reader; provide the actual source and snapshot required by that path.
+        if current:
+            w.atomic_write_json(self.root/'current', {'task_id':'current'})
+            w.atomic_write_json(w.snapshot_path(self.root,'current'), {'task_id':'current','current_state':'dispatch_ready'})
         def read(root,role,pin):
             if pin['path']=='bad':raise w.WorkflowError('intact original receipt chain required')
             return {'task_id':pin['path'],'resume_required':True,'permissions_inherited':False}
@@ -702,7 +707,11 @@ class ContinuationFaultTests(unittest.TestCase):
                 return read(root,role,pin)
             with self.subTest(current=current),mock.patch.object(c,'current_assignment',side_effect=read_bad_current):
                 actual=r.current_assignment_for_role(self.root,'sales')
-                self.assertEqual(actual['task_id'],'older')
+                self.assertNotIn('task_id',actual)
+                self.assertFalse(actual['resume_required'])
+                self.assertFalse(actual['resumed_suspended_assignment'])
+                self.assertTrue(actual['resume_selection_required'])
+                self.assertEqual([x['task_id'] for x in actual['unfinished_assignment_queue']],['older'])
                 self.assertFalse(actual['permissions_inherited'])
                 self.assertEqual(len(actual['assignment_errors']),2 if current else 1)
 

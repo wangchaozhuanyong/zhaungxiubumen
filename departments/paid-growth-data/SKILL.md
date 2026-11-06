@@ -23,4 +23,4 @@ source-manifest/conversion-reconcile/ads-daily/action-queue/run-ledger/handoff�
 
 运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department <当前窗口注册ID> --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。
 
-当前流程只按[共同正文](../../playbooks/department-system-current.md)；专业部门独立交付并直报HQ，A1仅待命、A2/A3退役历史，不作本部门前置审批。原技术质量、平台本人和准确业务授权边界保留。
+当前流程只按[共同正文](../../playbooks/department-system-current.md)；专业部门独立制作、自检和执行原准确授权，协作结果回本任务原owner，普通成果收口及协调由总助理优先、HQ补位。A2/A3与旧QA只读历史，不设置逐步技术审批。原质量、平台本人和准确业务授权边界保留。

@@ -6,7 +6,7 @@ import json,hashlib,datetime as dt,re,subprocess,argparse
 import workflow_control as w
 from tools import shop_office_six_field_execution as cms
 TASK=cms.TASK;SCOPE=cms.SCOPE;AUTH=cms.AUTH;CONTRACT=cms.CONTRACT
-ROLE='designated-development';OWNER='seo-content-research';REPO='wangchaozhuanyong/zhuangxiuwangzhan';REPO_ID=1248188229
+ROLE='designated-development';OWNER='seo-content-research';REPO='example-owner/example-website';REPO_ID=1248188229
 SITE=Path('<WEBSITE_PROJECT_ROOT>')
 WORKTREE=SITE/'.worktrees/shop-office-six-and-five-release-20261025-v1'
 BRANCH='codex/shop-office-six-and-five-release-20261025-v1';COMMIT='865037f7a8a1a9b4aa5d831f42d40198c032a52c';ORIGINAL_COMMIT='a21e9ea442e8584cbd95f32a79bfffb8281b3fec'
@@ -14,7 +14,7 @@ PARENT='1f1c9903601cb9d767239221eb1af69f22310ebe';TREE='4d48e5cc3d9a102c07a530eb
 TYPED=SITE/'reports/shop-office-six-and-five-implementation-release-20261025-v1/CANDIDATE-DELIVERY-TYPED-v2.json'
 TYPED_SHA='b6d9b04dcbadc1593099779c1f4be1612a40ec14678b0d501b7aed1ad0d0e0e2'
 ORIGINAL_REGISTRATION={'path':'logs/handoffs/2026-10-25-shop-office-six-field-execution-wiring-v1/exact-WEB-production-registration-v4/EXACT-ORIGINAL-WEB-PRODUCTION-SOURCE-REGISTRATION.json','sha256':'a7febc0c14c9040ed2f825dd6c25f30beea6b36a60955b0e81f4c2040d11030f','size':3043}
-R3_SCOPE='company.example:edge:rbsnyexjifounogswrjp:content-publish'
+R3_SCOPE='company.example:edge:exampleproject000000:content-publish'
 PAGES_SCOPE='company.example:shop-office:zh-en:four-pages'
 R3_WORKFLOW='.github/workflows/supabase-content-publish-r3.yml'
 OPS={'git_push':('site_ci_prepare',SCOPE),'pull_request':('site_ci_prepare',SCOPE),'official_ci':('site_ci_prepare',SCOPE),'merge':('site_ci_prepare',SCOPE),'r3_dispatch':('site_ci_prepare',R3_SCOPE),'edge_deploy':('site_publish',R3_SCOPE),'pages_deploy':('site_publish',PAGES_SCOPE)}

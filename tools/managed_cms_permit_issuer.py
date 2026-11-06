@@ -22,14 +22,26 @@ from urllib.request import Request, urlopen
 from urllib.parse import urlparse
 from uuid import uuid4
 
+# Help is an argument-documentation request, not an issuer invocation. Parse it
+# before importing workflow/catalog code that reads unrelated task evidence.
+# The executable path below still obtains and validates the live target choices.
+if __name__ == "__main__" and any(arg in {"-h", "--help"} for arg in sys.argv[1:]):
+    if __package__:
+        from .managed_cms_cli import build_parser
+    else:
+        from managed_cms_cli import build_parser
+    build_parser(__doc__).parse_args()
+
 if __package__:
     from . import workflow_control as wc
 else:
+    if __name__ == "__main__":
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     import workflow_control as wc
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE_ROOT = Path("<WEBSITE_PROJECT_ROOT>")
-REPOSITORY = "wangchaozhuanyong/zhuangxiuwangzhan"
+REPOSITORY = "example-owner/example-website"
 SUPABASE_HOST = 'example-project.supabase.co'
 KEYCHAIN_SERVICE = "com.flashcast.managed-cms-permit-issuer"
 KEYCHAIN_ACCOUNT = 'example-project'
@@ -85,11 +97,13 @@ else:
 if __package__:
     from .paid_three_page_bounded_cms import (english_kitchen_en2_targets,
         validate_english_kitchen_en2_candidate, two_original_material_targets,
-        validate_two_original_material_candidate)
+        validate_two_original_material_candidate, MATERIAL_PUBLICATION_TASK, MATERIAL_ROWS)
 else:
     from paid_three_page_bounded_cms import (english_kitchen_en2_targets,
         validate_english_kitchen_en2_candidate, two_original_material_targets,
-        validate_two_original_material_candidate)
+        validate_two_original_material_candidate, MATERIAL_PUBLICATION_TASK, MATERIAL_ROWS)
+
+MATERIAL_TARGET_NAMES = frozenset('two-original-material-body-' + slug for slug, *_ in MATERIAL_ROWS)
 
 
 TARGETS = {}
@@ -162,11 +176,6 @@ def _available_two_original_material_targets(root: Path) -> dict:
     except (OSError, ValueError, TypeError, KeyError, wc.WorkflowError):
         return {}
 
-
-TWO_ORIGINAL_MATERIAL_TARGETS = {}
-if set(TARGETS) & set(TWO_ORIGINAL_MATERIAL_TARGETS):
-    raise ValueError("Two original material targets collide with historical targets")
-TARGETS.update(TWO_ORIGINAL_MATERIAL_TARGETS)
 
 # One new original publisher action. This registration only makes the exact
 # namespace discoverable; existing assistant QA, policy and protected permit
@@ -573,8 +582,16 @@ def validate_builtin_wardrobe_one_field_candidate(root: Path, candidate: dict, t
 
 def validate_candidate_binding(candidate: dict, target: dict, *, root: Path | None = None) -> None:
     """Bind newly added targets to one approved row and its exact field set."""
+    require(target.get('candidate_shape') != 'professional_cms_current_stage_pending_v1',
+            'current-stage metadata is not an executable candidate')
+    require(target.get('candidate_shape') != 'professional_en2_full41_source_only_v1',
+            'EN2 source-only observation is not an executable candidate')
     evidence_root = Path(root) if root is not None else ROOT
     shape = target.get("candidate_shape")
+    if shape == 'professional_en2_forward_selfcheck_v1':
+        from en2_forward_issuer import candidate as en2_candidate
+        en2_candidate(evidence_root,candidate,target)
+        return
     if shape == 'professional_cms_source_selfcheck_v1':
         from professional_cms_issuer import candidate as validate_professional
         validate_professional(evidence_root, candidate, target)
@@ -813,11 +830,10 @@ def structured_qa_outbox_matches(row: dict, target: dict) -> bool:
     )
 
 
-def _current_registered_targets(root: Path) -> dict:
+def _current_registered_targets(root: Path, *, selected_en2: bool = False, exact_en2: bool = False) -> dict:
     """Read current registrations; an import-time cache cannot prove a new tuple."""
-    targets = dict(TARGETS)
+    targets = dict(_BASE_CMS_TARGETS)
     from professional_cms_issuer import targets as professional_targets
-    for name in PROFESSIONAL_CMS_TARGETS:targets.pop(name,None)
     for name,target in professional_targets(root).items():
         require(name not in targets, "Professional target collision")
         targets[name]=target
@@ -825,9 +841,12 @@ def _current_registered_targets(root: Path) -> dict:
                load_wave234_body_registration, load_remaining186_blog_registration,
                load_shop_children_body_registration, load_five_source_projection_registration,
                load_publisher_exact_registration, load_sparse_publisher_targets,
-               _available_english_kitchen_en2_targets,
-               _available_two_original_material_targets, _available_shop_office_six_targets)
-    dynamic_names = set(NATIVE_TARGETS) | set(REPAIR_FAQ_TARGETS) | set(WAVE234_BODY_TARGETS) | set(REMAINING186_BLOG_TARGETS) | set(SHOP_CHILDREN_BODY_TARGETS) | set(FIVE_PROJECTION_TARGETS) | set(PUBLISHER_EXACT_TARGETS) | set(SPARSE_PUBLISHER_TARGETS) | set(ENGLISH_KITCHEN_EN2_TARGETS) | set(TWO_ORIGINAL_MATERIAL_TARGETS) | set(SHOP_OFFICE_SIX_TARGETS)
+               _available_english_kitchen_en2_targets, _available_shop_office_six_targets)
+    # Material targets have a fixed disjoint two-original-material-body- prefix.
+    # Only the exact EN2 invocation can defer their unrelated causal history.
+    if not exact_en2:
+        loaders += (_available_two_original_material_targets,)
+    dynamic_names = set(NATIVE_TARGETS) | set(REPAIR_FAQ_TARGETS) | set(WAVE234_BODY_TARGETS) | set(REMAINING186_BLOG_TARGETS) | set(SHOP_CHILDREN_BODY_TARGETS) | set(FIVE_PROJECTION_TARGETS) | set(PUBLISHER_EXACT_TARGETS) | set(SPARSE_PUBLISHER_TARGETS) | set(ENGLISH_KITCHEN_EN2_TARGETS) | set(SHOP_OFFICE_SIX_TARGETS)
     for name in dynamic_names:
         targets.pop(name, None)
     for loader in loaders:
@@ -840,7 +859,21 @@ def _current_registered_targets(root: Path) -> dict:
         current_W = current_W_registration(root)
         if current_W is not None:
             targets[BUILTIN_WARDROBE_NAME] = current_W
+    if selected_en2:
+        from en2_forward_issuer import NAME as en2_name
+        targets[en2_name] = _selected_en2_target(root, targets)
     return targets
+
+
+def _selected_en2_target(root, checked_catalog):
+    from en2_forward_issuer import NAME, TASK, target
+    old = checked_catalog.get(NAME)
+    require(isinstance(old,dict) and old.get('candidate_shape')=='english_kitchen_en2_exact'
+            and old.get('task_id')==TASK, 'exact immutable historical EN2 namespace required')
+    fresh = target(root)
+    require(all(old.get(k)==fresh.get(k) for k in ('task_id','action_id','candidate_version','scope','record_id','slug','table','changed_fields','execution_owner')),
+            'current forward target must retain exact original EN2 tuple')
+    return fresh
 
 
 CONDO_FAQ_CANDIDATE_ACCEPTANCE_MODEL = "condo_faq_v7_candidate_scope_only_v1"
@@ -1068,8 +1101,15 @@ def _authorized_cms_selfcheck(root: Path, snapshot: dict, target: dict, operatio
     require(len(matches)==1,"One actual committed current execution selfcheck required")
     event,pin=matches[0]
     check=wc.read_json(wc.safe_path(root,preflight["self_check"]["path"]))
+    expected_updated_at = target['expected_updated_at']
+    if target.get('candidate_shape') == 'two_original_material_body_registration_only_v1':
+        from paid_three_page_bounded_cms import MATERIAL_CURRENT_PROOF, doc, material_current_row
+        if check.get('source_verification'):
+            source = doc(root, check['source_verification'])
+            if source.get('schema') == MATERIAL_CURRENT_PROOF:
+                expected_updated_at = material_current_row(source, target, candidate)['updated_at']
     require(check.get("candidate") == candidate_pin and check.get("payload_sha256")==payload_digest
-            and check.get("expected_updated_at")==target["expected_updated_at"]
+            and check.get("expected_updated_at")==expected_updated_at
             and check.get("record_id")==target["record_id"]
             and check.get("changed_fields")==target["changed_fields"]
             and check.get("executor_department")=="publishing"
@@ -1093,6 +1133,9 @@ def validate_goal_cms_acceptance(root: Path, target: dict, operation: str,
     account access, approval, permit, or production write.
     """
     from goal_delivery_runtime import enabled, restore_goal, validate_goal
+    if target.get('candidate_shape') == 'professional_en2_forward_selfcheck_v1':
+        from en2_forward_issuer import acceptance as en2_acceptance
+        return en2_acceptance(root,target,operation)
     if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
         from professional_cms_issuer import acceptance
         return acceptance(root,target,operation)
@@ -1197,10 +1240,16 @@ def validate_goal_cms_policy(root: Path, task_id: str, action_id: str, scope: st
     """Exact registered namespace for the actual policy consumer; no fallback."""
     from goal_delivery_runtime import restore_goal, execution_preflight
     require(department == "publishing", "CMS goal policy executor must be publishing")
+    if task_id == 'fc-20261011-english-kitchen-actual-publication-goal-v1':
+        from en2_forward_issuer import NAME as en2_name, policy_context as en2_policy
+        target = _current_registered_targets(root, selected_en2=True)[en2_name]
+        require(action_id==target['action_id'] and scope==target['scope'], 'exact original EN2 forward policy tuple required')
+        return en2_policy(root,target,'publish',payload_sha256)
     from professional_cms_issuer import MODEL as professional_model, policy_context
-    matching=[x for x in _current_registered_targets(root).values() if x.get('candidate_shape')==professional_model
-              and x['task_id']==task_id and x['scope']==scope
-              and action_id in {x['action_id'],'rollback-'+x['candidate_version']}]
+    matching = [] if task_id == MATERIAL_PUBLICATION_TASK else [
+        x for x in _current_registered_targets(root).values() if x.get('candidate_shape') == professional_model
+        and x['task_id'] == task_id and x['scope'] == scope
+        and action_id in {x['action_id'], 'rollback-' + x['candidate_version']}]
     if matching:
         require(len(matching)==1, "One exact professional namespace")
         op='publish' if action_id==matching[0]['action_id'] else 'rollback'
@@ -1212,6 +1261,8 @@ def validate_goal_cms_policy(root: Path, task_id: str, action_id: str, scope: st
     if task_id == "fc-20261025-shop-office-existing-six-and-five-implementation-release-v1":
         from tools.shop_office_six_field_execution import targets as original_six_targets
         registered = original_six_targets(root)
+    elif task_id == MATERIAL_PUBLICATION_TASK:
+        registered = two_original_material_targets(root)
     else:
         registered = bounded_targets(root) if task_id == bounded_task else _current_registered_targets(Path(root))
     for name, target in registered.items():
@@ -1262,6 +1313,9 @@ def validate_goal_cms_decision(root: Path, decision: dict, target: dict, operati
                                payload_sha256: str, acceptance: dict, now: datetime) -> dict:
     """Reuse the real assigned-assistant decision; do not invent a HQ review."""
     from paid_three_page_bounded_cms import MODEL as bounded_model, decision as bounded_decision
+    if target.get('candidate_shape') == 'professional_en2_forward_selfcheck_v1':
+        from en2_forward_issuer import decision as en2_decision
+        return en2_decision(root,decision,target,operation,payload_sha256,acceptance,now)
     if acceptance.get("acceptance_model") == bounded_model:
         require(operation == acceptance.get("operation"), "Publish proof cannot grant rollback permission")
         return bounded_decision(root, decision, target, payload_sha256, acceptance, now)
@@ -1329,9 +1383,14 @@ def validate_goal_cms_decision(root: Path, decision: dict, target: dict, operati
 
 
 def validate_qa(root: Path, target: dict, operation: str, *, allow_blocked_retry: bool = False) -> dict:
+    require(target.get('candidate_shape') != 'professional_cms_current_stage_pending_v1',
+            'current-stage target requires actual runtime/key and PUB execution gates')
     # Presence of a modern goal is fail-closed even if its global switch is off;
     # a broken new contract must never be laundered through a legacy QA PASS.
     snapshot = wc.read_json(wc.snapshot_path(root, target["task_id"]))
+    if target.get('candidate_shape') == 'professional_en2_forward_selfcheck_v1':
+        require(isinstance(snapshot.get('goal_delivery'), dict), 'original EN2 autonomous goal required')
+        return validate_goal_cms_acceptance(root, target, operation, allow_blocked_retry=allow_blocked_retry)
     if isinstance(snapshot.get("goal_delivery"), dict):
         return validate_goal_cms_acceptance(root, target, operation, allow_blocked_retry=allow_blocked_retry)
     task_id = target["task_id"]
@@ -1469,6 +1528,9 @@ def validate_operations(decision: dict, target: dict, operation: str, payload_sh
 
 
 def validate_policy(row: dict, target: dict, operation: str, payload_sha256: str, operations: dict, now: datetime) -> dict:
+    if target.get('candidate_shape') == 'professional_en2_forward_selfcheck_v1':
+        from en2_forward_issuer import consumed as en2_consumed
+        return en2_consumed(ROOT,row,target,operation,payload_sha256,operations,now)
     if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
         from professional_cms_issuer import consumed
         result = consumed(ROOT,row,target,operation,payload_sha256,operations,now)
@@ -1512,6 +1574,11 @@ def validate_policy(row: dict, target: dict, operation: str, payload_sha256: str
 
 
 def validate_retry_state(root: Path, target: dict, operation: str, policy: dict) -> None:
+    if target.get('candidate_shape') == 'professional_en2_forward_selfcheck_v1':
+        snapshot=wc.read_json(wc.snapshot_path(root,target['task_id']))
+        require(operation=='publish' and snapshot.get('current_state') not in wc.TERMINAL_STATES | {'blocked','paused','suspended'},
+                'exact open original EN2 forward action only; no implicit retry')
+        return
     if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
         snapshot=wc.read_json(wc.snapshot_path(root,target['task_id']))
         require(snapshot.get('current_state') not in {'blocked','closed','blocked_evidence_invalid'},
@@ -1556,16 +1623,22 @@ def gh_json(*args: str) -> dict:
     return json.loads(result.stdout)
 
 
-def validate_artifact_run_identity(run_id: int, target_name: str, run: dict, workflow: dict | None = None) -> None:
+def validate_artifact_run_identity(run_id: int, target_name: str, run: dict, workflow: dict | None = None, *, en2_target=None) -> None:
     """One freshly registered target and the real original workflow, never a suffix grant."""
-    current = _current_registered_targets(ROOT)
-    target = current.get(target_name)
-    professional = bool(target and target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1')
+    target = _artifact_target(target_name, en2_target)
+    professional = bool(target and target.get('candidate_shape') in {'professional_cms_source_selfcheck_v1','professional_en2_forward_selfcheck_v1'})
     exact_dynamic = bool(target and target.get('candidate_shape') == 'owner_authorized_shop_office_six_field_v4')
+    material = bool(target and target.get('candidate_shape') == 'two_original_material_body_registration_only_v1')
     valid_name = run.get("name") == "Approved website content publish"
-    if professional or (not valid_name and exact_dynamic):
-        require(target_name == target.get('candidate_version'), "Exact freshly registered target version required")
-        if professional:
+    if professional or (not valid_name and (exact_dynamic or material)):
+        registered_name = ('two-original-material-body-' + target['slug'] if material else
+                           target.get('namespace') if target.get('candidate_shape') == 'professional_en2_forward_selfcheck_v1'
+                           else target.get('candidate_version'))
+        require(target_name == registered_name, "Exact freshly registered target version required")
+        if target.get('candidate_shape')=='professional_en2_forward_selfcheck_v1':
+            from en2_forward_issuer import exact as en2_exact
+            en2_exact(ROOT,target)
+        elif professional:
             from professional_cms_issuer import exact
             exact(ROOT, target)
         require(isinstance(workflow,dict)
@@ -1589,15 +1662,29 @@ def validate_artifact_run_identity(run_id: int, target_name: str, run: dict, wor
                 "Exact professional preview source head required")
 
 
-def artifact_for_run(run_id: int, target_name: str, folder: Path) -> tuple[dict, dict, dict, Path]:
+def _artifact_target(target_name, en2_target):
+    if target_name in MATERIAL_TARGET_NAMES:
+        return two_original_material_targets(ROOT).get(target_name)
+    if en2_target is None:
+        return _current_registered_targets(ROOT, selected_en2=(target_name=='english-kitchen-en2-exact-v1')).get(target_name)
+    from en2_forward_issuer import NAME, exact
+    require(target_name==NAME, 'selected artifact target is restricted to EN2')
+    return exact(ROOT,en2_target)
+
+
+def artifact_for_run(run_id: int, target_name: str, folder: Path, *, en2_target=None) -> tuple[dict, dict, dict, Path]:
     run = gh_json("api", f"repos/{REPOSITORY}/actions/runs/{run_id}")
     workflow = None
-    target = _current_registered_targets(ROOT).get(target_name)
-    if target and (target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1'
+    target = _artifact_target(target_name,en2_target)
+    if target and (target.get('candidate_shape') in {'professional_cms_source_selfcheck_v1','professional_en2_forward_selfcheck_v1'}
                   or (run.get('name') != 'Approved website content publish'
-                      and target.get('candidate_shape') == 'owner_authorized_shop_office_six_field_v4')):
+                      and target.get('candidate_shape') in {'owner_authorized_shop_office_six_field_v4',
+                                                            'two_original_material_body_registration_only_v1'})):
         workflow = gh_json("api", f"repos/{REPOSITORY}/actions/workflows/content-publish-approved.yml")
-    validate_artifact_run_identity(run_id, target_name, run, workflow)
+    if en2_target is None:
+        validate_artifact_run_identity(run_id, target_name, run, workflow)
+    else:
+        validate_artifact_run_identity(run_id, target_name, run, workflow, en2_target=en2_target)
     subprocess.run(["gh", "run", "download", str(run_id), "-R", REPOSITORY,
                     "-n", f"approved-content-publish-{run_id}", "-D", str(folder)], check=True, capture_output=True)
     target_dir = folder / target_name
@@ -1617,7 +1704,7 @@ def artifact_for_run(run_id: int, target_name: str, folder: Path) -> tuple[dict,
             and identity.get("actorId") == run.get("actor", {}).get("id")
             and len(str(identity.get("workflowSha", ""))) == 40,
             "Server-verified OIDC identity probe does not match the dry-run run")
-    if target and target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
+    if target and target.get('candidate_shape') in {'professional_cms_source_selfcheck_v1','professional_en2_forward_selfcheck_v1'}:
         require(identity.get('workflowSha') == run.get('head_sha'),
                 "Professional OIDC workflow head differs from exact preview source")
     return run, receipt, digest, target_dir / "backup.json"
@@ -1698,6 +1785,15 @@ def endpoint_request(control: dict, secret: str, base_url: str) -> dict:
 
 def validate_new_permit_target(target: dict, *, assistant_acceptance: dict | None = None) -> None:
     """Keep historical evidence readable without reissuing a colliding action."""
+    require(target.get('candidate_shape') != 'professional_cms_current_stage_pending_v1',
+            'pending current-stage metadata cannot issue a permit')
+    require(target.get('candidate_shape') != 'professional_en2_full41_source_only_v1',
+            'EN2 source-only observation cannot issue a permit')
+    if target.get('candidate_shape') == 'professional_en2_forward_selfcheck_v1':
+        from en2_forward_issuer import acceptance as en2_acceptance
+        require(isinstance(assistant_acceptance,dict) and assistant_acceptance==en2_acceptance(ROOT,target,'publish'),
+                'actual current original PUB selfcheck required; source-only is not a permit')
+        return
     from paid_three_page_bounded_cms import MODEL as bounded_model
     if target.get("candidate_shape") == BUILTIN_WARDROBE_SHAPE and target.get("current_binding_source"):
         require(isinstance(assistant_acceptance, dict), "Current W registration is not a permit; actual PUB selfcheck required")
@@ -1809,6 +1905,9 @@ def exact_execution_scope(root: Path, target: dict) -> str:
     if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
         from professional_cms_issuer import exact
         return exact(root,target)['execution_scope']
+    if target.get('candidate_shape') == 'professional_en2_forward_selfcheck_v1':
+        from en2_forward_issuer import exact as en2_exact
+        return en2_exact(root,target)['execution_scope']
     if target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4":
         from tools.shop_office_six_field_execution import physical_scope
         return physical_scope(root, target)
@@ -1819,25 +1918,33 @@ def main() -> None:
     # Reuse parsing/native proofs only inside this invocation. No disk PASS,
     # policy or permit cache; all observed bytes are fenced before HTTP issue.
     raise ValueError("public_template_has_no_native_authorization")
-    with wc.request_validation_context() as validation:
+    from en2_forward_issuer import issuer_request_reads
+    with wc.request_validation_context() as validation, issuer_request_reads():
         _main(validation)
 
 
 def _main(validation) -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
+    if __package__:
+        from .managed_cms_cli import build_parser
+    else:
+        from managed_cms_cli import build_parser
     from paid_three_page_bounded_cms import ROWS as bounded_rows, MODEL as bounded_model, targets as bounded_targets
     bounded_names = {f"paid-three-page-{slug}-exact-fields-v1" for slug, _, _ in bounded_rows}
-    parser.add_argument("--target", choices=sorted(set(_current_registered_targets(ROOT)) | bounded_names), required=True)
-    parser.add_argument("--operation", choices=["publish", "rollback"], required=True)
-    parser.add_argument("--dry-run-run-id", type=int, required=True)
-    parser.add_argument("--operations-decision", required=True)
-    parser.add_argument("--policy-decision-id", required=True)
-    parser.add_argument("--github-actor-id", type=int, required=True)
-    parser.add_argument("--parent-permit-id")
-    parser.add_argument("--parent-run-id", type=int)
-    parser.add_argument("--issue-and-dispatch", action="store_true")
+    parser = build_parser(__doc__)
     args = parser.parse_args()
-    target = bounded_targets(ROOT)[args.target] if args.target in bounded_names else _current_registered_targets(ROOT)[args.target]
+    en2_base_url = None
+    if args.target=='english-kitchen-en2-exact-v1':
+        if args.issue_and_dispatch:
+            from en2_forward_issuer import project_url
+            en2_base_url = project_url(os.environ.get('SUPABASE_URL', ''))
+        catalog = _current_registered_targets(ROOT,exact_en2=True)
+        target = _selected_en2_target(ROOT,catalog)
+    elif args.target in MATERIAL_TARGET_NAMES:
+        target = two_original_material_targets(ROOT)[args.target]
+    else:
+        target = bounded_targets(ROOT)[args.target] if args.target in bounded_names else _current_registered_targets(ROOT)[args.target]
+    require(target.get('candidate_shape') != 'professional_cms_current_stage_pending_v1',
+            'current-stage metadata is not an execution or permit grant')
     if target.get("candidate_shape") == "owner_authorized_shop_office_six_field_v4":
         from tools.shop_office_six_field_execution import target_for
         target = target_for(ROOT, target["action_id"])
@@ -1859,7 +1966,8 @@ def _main(validation) -> None:
     artifact_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="managed-cms-", dir=artifact_root) as temporary:
         folder = Path(temporary)
-        run, receipt, digest, backup_path = artifact_for_run(args.dry_run_run_id, args.target, folder)
+        artifact_options = {'en2_target':target} if target.get('candidate_shape')=='professional_en2_forward_selfcheck_v1' else {}
+        run, receipt, digest, backup_path = artifact_for_run(args.dry_run_run_id, args.target, folder, **artifact_options)
         require(run.get("actor", {}).get("id") == args.github_actor_id, "Dry-run GitHub actor does not match the intended publisher")
         require(now - timedelta(minutes=30) <= timestamp(run["updated_at"]) <= now,
                 "Protected dry-run is stale or future-dated")
@@ -1887,6 +1995,9 @@ def _main(validation) -> None:
                     "Rollback readback does not contain the target record")
 
         exact_reverse_binding = None
+        if target.get('candidate_shape') == 'professional_en2_forward_selfcheck_v1':
+            from en2_forward_issuer import artifacts as en2_artifacts
+            en2_artifacts(ROOT,target,args.operation,qa,run,receipt,digest,json.loads(backup_path.read_text()))
         if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
             from professional_cms_issuer import artifacts
             artifacts(ROOT,target,args.operation,qa,receipt,digest,json.loads(backup_path.read_text()),args.parent_permit_id,args.parent_run_id)
@@ -1914,9 +2025,13 @@ def _main(validation) -> None:
         require(decision_path.is_relative_to(ROOT) and decision_path.is_file(), "Operations decision file is missing")
         decision = json.loads(decision_path.read_text())
         if qa.get("acceptance_model") in {"goal_delivery_assistant_v1", SELF_CHECK_EXECUTION_MODEL, bounded_model,
-                                          CONDO_FAQ_CANDIDATE_ACCEPTANCE_MODEL, "professional_cms_source_selfcheck_v1"}:
-            validate_goal_cms_policy(ROOT, target["task_id"], expected_action, target["scope"],
-                                     target.get("execution_owner", ""), payload_sha256)
+                                          CONDO_FAQ_CANDIDATE_ACCEPTANCE_MODEL, "professional_cms_source_selfcheck_v1", "professional_en2_forward_selfcheck_v1"}:
+            if artifact_options:
+                from en2_forward_issuer import policy_context as en2_policy
+                en2_policy(ROOT,target,args.operation,payload_sha256)
+            else:
+                validate_goal_cms_policy(ROOT, target["task_id"], expected_action, target["scope"],
+                                         target.get("execution_owner", ""), payload_sha256)
             operations = validate_goal_cms_decision(ROOT, decision, target, args.operation,
                                                     payload_sha256, qa, now)
         else:
@@ -1946,6 +2061,9 @@ def _main(validation) -> None:
         if target.get('candidate_shape') == 'professional_cms_source_selfcheck_v1':
             evidence.update(physical_scope_carrier=target['issuer_contract'],business_scope=target['scope'],
                             execution_scope=exact_execution_scope(ROOT,target))
+        if target.get('candidate_shape') == 'professional_en2_forward_selfcheck_v1':
+            evidence.update(physical_scope_carrier=target['source_registration'],business_scope=target['scope'],
+                            execution_scope=exact_execution_scope(ROOT,target))
         if exact_reverse_binding is not None:
             evidence["exact_original_reverse_binding"] = exact_reverse_binding
         evidence_sha256 = hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -1955,6 +2073,10 @@ def _main(validation) -> None:
             from professional_cms_pre_main_recovery import verify_policy
             validation.recheck()
             verify_policy(ROOT, policy)
+        if target.get('candidate_shape') == 'professional_en2_forward_selfcheck_v1':
+            from en2_forward_issuer import consumed as en2_consumed
+            validation.recheck()
+            en2_consumed(ROOT,policy,target,args.operation,payload_sha256,operations,datetime.now(timezone.utc))
         request = {"controlAction": "issue", "permitId": str(uuid4()), "taskId": target["task_id"],
                    "actionId": action_id, "actionClass": "cms_write", "operation": args.operation,
                    "scope": exact_execution_scope(ROOT, target), "candidateVersion": candidate_version,
@@ -1979,7 +2101,9 @@ def _main(validation) -> None:
         require(current_main.get("sha") == run["head_sha"],
                 "Main changed after the protected dry-run; obtain fresh QA and dry-run evidence")
         secret = load_protected_issuer_secret()
-        base_url = os.environ.get("SUPABASE_URL", "")
+        base_url = en2_base_url or os.environ.get("SUPABASE_URL", "")
+        if target.get('candidate_shape') == 'two_original_material_body_registration_only_v1':
+            base_url = base_url or f'https://{SUPABASE_HOST}'
         if args.operation == "rollback" and args.target in PARENT_RUN_TARGETS:
             parent_status = endpoint_request({"controlAction": "status", "permitId": args.parent_permit_id},
                                              secret, base_url)
@@ -1997,6 +2121,9 @@ def _main(validation) -> None:
             from tools.shop_office_six_field_execution import final_instance_check
             validation.recheck()
             final_instance_check(ROOT, policy, target)
+        if target.get('candidate_shape') == 'professional_en2_forward_selfcheck_v1':
+            from en2_forward_issuer import reserve as en2_reserve
+            en2_reserve(ROOT,target,policy,args.operation,payload_sha256,operations,request,validation,datetime.now(timezone.utc))
         issued = endpoint_request(request, secret, base_url)
         require(issued.get("status") == "issued" and issued.get("permitId") == request["permitId"],
                 "Permit issue receipt mismatch; inspect status before retry")
@@ -2012,12 +2139,41 @@ def _main(validation) -> None:
                           "evidence_sha256": evidence_sha256, "production_write": "pending-run-result"}))
 
 
+# Defer the full professional catalog until a caller actually needs it.
+# A catalog read or issue still authenticates every source and rejects collisions.
+from collections.abc import Mapping as _Mapping, Set as _Set
 from professional_cms_issuer import targets as _professional_cms_targets
+
+class _LazyCMSMapping(_Mapping):
+    def __init__(self, loader):
+        self._loader = loader
+        self._value = None
+    def _read(self):
+        if self._value is None:
+            self._value = self._loader()  # Errors propagate; no empty fallback.
+        return self._value
+    def __getitem__(self, key): return self._read()[key]
+    def __iter__(self): return iter(self._read())
+    def __len__(self): return len(self._read())
+
+class _LazyCMSParentSet(_Set):
+    def __init__(self, initial, professional):
+        self._initial, self._professional = frozenset(initial), professional
+    def _read(self): return self._initial | frozenset(self._professional)
+    def __contains__(self, value): return value in self._read()
+    def __iter__(self): return iter(self._read())
+    def __len__(self): return len(self._read())
+
+_BASE_CMS_TARGETS = {}
 PROFESSIONAL_CMS_TARGETS = {}
-if set(PROFESSIONAL_CMS_TARGETS)&set(TARGETS):
-    raise ValueError('Professional CMS target collides with existing identity')
-TARGETS.update(PROFESSIONAL_CMS_TARGETS)
-PARENT_RUN_TARGETS = frozenset()
+def _combined_cms_targets():
+    professional = dict(PROFESSIONAL_CMS_TARGETS)
+    materials = _available_two_original_material_targets(ROOT)
+    if set(materials) & (set(professional) | set(_BASE_CMS_TARGETS)) or set(professional) & set(_BASE_CMS_TARGETS):
+        raise ValueError('Professional CMS target collides with existing identity')
+    return {**_BASE_CMS_TARGETS, **materials, **professional}
+TARGETS = {}
+PARENT_RUN_TARGETS = {}
 
 if __name__ == "__main__":
     try:

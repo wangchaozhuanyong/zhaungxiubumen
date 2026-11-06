@@ -53,8 +53,10 @@ def document(root, pin):
         for key,item in pairs:
             require(key not in value, 'ambiguous JSON field');value[key]=item
         return value
-    value=json.loads(path.read_text(),object_pairs_hook=unique,
-                     parse_constant=lambda _: require(False,'nonfinite JSON number'))
+    context = w._VALIDATION_CONTEXT.get()
+    value = context.strict_json(path) if context is not None else json.loads(
+        path.read_text(), object_pairs_hook=unique,
+        parse_constant=lambda _: require(False,'nonfinite JSON number'))
     require(isinstance(value,dict), 'object evidence required')
     return value
 

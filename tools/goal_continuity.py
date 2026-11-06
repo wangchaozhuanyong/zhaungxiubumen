@@ -178,6 +178,13 @@ def current_assignment(root, role, pin):
         if not complete['missing'] and not complete['blockers']:
             return {'task_id':item['task_id'],'state':'completed_exact_scope',
                     'resume_required':False,'business_goal_closed':complete['business_goal_closed']}
+    from chief_assistant_coordination import notification_task_pause
+    paused=notification_task_pause(root,item['task_id'])
+    if paused:
+        return {**item,'source':pin,'actual_message_delivered':True,'resume_required':False,
+                'resume_before_old_automation_or_summary':False,'permissions_inherited':False,
+                'native_workflow_state':snapshot.get('current_state'),'owner_pause':paused,
+                'execution_state':'original_task_paused'}
     return {**item,'source':pin,'actual_message_delivered':True,'resume_required':True,
             'resume_before_old_automation_or_summary':True,'permissions_inherited':False,
             'native_workflow_state':snapshot.get('current_state'),

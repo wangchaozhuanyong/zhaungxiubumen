@@ -233,7 +233,7 @@ class BoundedCMSFixture(unittest.TestCase):
             "issuer_source": next(p for p in self.source_pins if p["path"] == "tools/managed_cms_permit_issuer.py"),
             "github_actor_id": origin["existing_actor_id"], "repository": origin["repository"],
             "workflow_id": origin["workflow_id"], "workflow_path": origin["workflow_path"], "repository_id": 1248188229,
-            "workflow_ref": "wangchaozhuanyong/zhuangxiuwangzhan/.github/workflows/content-publish-approved.yml@refs/heads/main",
+            "workflow_ref": "example-owner/example-website/.github/workflows/content-publish-approved.yml@refs/heads/main",
             "run_id": run_id, "run_attempt": 1, "workflow_sha": "2" * 40, "main_sha": "1" * 40}
         run = {"id": machine["run_id"], "run_attempt": 1, "actor": {"id": machine["github_actor_id"]},
             "workflow_id": machine["workflow_id"], "path": machine["workflow_path"], "head_sha": machine["main_sha"],
@@ -1834,7 +1834,7 @@ class V5SourceMachineFixture(unittest.TestCase):
         self.refresh_delta()
         original_v2 = self.doc('evidence/original-v2.json', {'task_id': self.b.TASK})
         self.origin = self.doc('evidence/original-machine.json', {'actual_original_machine_channel_metadata': {
-            'existing_actor_id': 276684684, 'repository': 'wangchaozhuanyong/zhuangxiuwangzhan',
+            'existing_actor_id': 276684684, 'repository': 'example-owner/example-website',
             'workflow_id': 351424533, 'workflow_path': self.b.WORKFLOW_CLI[0]}})
         original_v3 = self.doc('evidence/original-v3.json', {'task_id': self.b.TASK,
             'candidate_version': self.b.VERSION, 'evidence': {'original_V2': original_v2,
@@ -2028,8 +2028,8 @@ class V5MachineBindingFocusedTests(V5SourceMachineFixture):
             'workflow_id': 351424533, 'path': self.b.WORKFLOW_CLI[0], 'head_sha': V5_NEW_HEAD,
             'head_branch': 'main', 'event': 'workflow_dispatch', 'status': 'completed', 'conclusion': 'success',
             'updated_at': (now - dt.timedelta(minutes=1)).isoformat(),
-            'repository': {'id': 1248188229, 'full_name': 'wangchaozhuanyong/zhuangxiuwangzhan'}}
-        workflow_ref = 'wangchaozhuanyong/zhuangxiuwangzhan/.github/workflows/content-publish-approved.yml@refs/heads/main'
+            'repository': {'id': 1248188229, 'full_name': 'example-owner/example-website'}}
+        workflow_ref = 'example-owner/example-website/.github/workflows/content-publish-approved.yml@refs/heads/main'
         self.identity = {'runId': self.run['id'], 'runAttempt': 1, 'actorId': 276684684,
             'repositoryId': 1248188229, 'workflowRef': workflow_ref, 'workflowSha': V5_NEW_HEAD}
         self.probe = {'ok': True, 'dry_run': True, 'performed_write': False, 'identity': self.identity}
@@ -2043,7 +2043,7 @@ class V5MachineBindingFocusedTests(V5SourceMachineFixture):
             'issuer_source': self.issuer, 'task_id': self.b.TASK, 'candidate_version': self.b.VERSION,
             'department': self.b.PRODUCER, 'action_id': self.item['action_id'], 'scope': self.item['scope'],
             'action_class': 'cms_write', 'record_id': record, 'payload_sha256': self.item['payload_sha256'],
-            'github_actor_id': 276684684, 'repository': 'wangchaozhuanyong/zhuangxiuwangzhan',
+            'github_actor_id': 276684684, 'repository': 'example-owner/example-website',
             'workflow_id': 351424533, 'workflow_path': self.b.WORKFLOW_CLI[0], 'repository_id': 1248188229,
             'workflow_ref': workflow_ref, 'run_id': self.run['id'], 'run_attempt': 1,
             'workflow_sha': V5_NEW_HEAD, 'main_sha': V5_NEW_HEAD}

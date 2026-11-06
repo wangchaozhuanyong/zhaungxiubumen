@@ -662,6 +662,24 @@ def validate_published_deferred_component(root,base,parent,item):
 
 
 def _validate_item(root,base,item,values):
+    if item.get('schema') == 'current-owner-original-custody-causal-merge-successor/v1':
+        from material_causal_successor import validate as material_causal_validate
+        return material_causal_validate(root,base,item),ORD_EVENT
+    from frontend_test_successor import SCHEMA as FRONTEND_TEST_SCHEMA, validate as frontend_test_validate
+    if item.get('schema')==FRONTEND_TEST_SCHEMA:
+        return frontend_test_validate(root,base,item),ORD_EVENT
+    from reviewed_web_release import REGISTRY_TEST_SCHEMA, registry_test_successor
+    if item.get('schema') == REGISTRY_TEST_SCHEMA:
+        parents=[v for v in values if same(root,v.get('increment_registration'),item.get('parent_increment_source'))]
+        need(len(parents)==1,'one actual registered reviewed clean predecessor')
+        return registry_test_successor(root,base,parents[0],item),ORD_EVENT
+    from reviewed_web_release import PEER_SCHEMA, peer_successor
+    from reviewed_web_release import CLEAN_SCHEMA, clean_successor
+    if item.get('schema') == CLEAN_SCHEMA:
+        parents=[v for v in values if same(root,v.get('increment_registration'),item.get('parent_increment_source'))]
+        need(len(parents)==1,'one actual registered reviewed clean predecessor')
+        return clean_successor(root,base,parents[0],item),ORD_EVENT
+    if item.get('schema') == PEER_SCHEMA:return peer_successor(root,base,item),ORD_EVENT
     from original_production_delivery import OVERLAP_SCHEMA, OVERLAP_EVENT, overlap_context
     if item.get('schema') == OVERLAP_SCHEMA:return overlap_context(root,base,item),OVERLAP_EVENT
     if item.get('schema')==ORD_SCHEMA and item.get('kind')=='registered_protected_alias_CI_repair':
@@ -694,7 +712,7 @@ def _validate_item(root,base,item,values):
 def sources(root,base):
     from original_production_delivery import OVERLAP_EVENT
     keys=(EVENT,CI_EVENT,ORD_EVENT,OVERLAP_EVENT)
-    rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('task_id')==base['task']and any(e.get('details',{}).get(k)for k in keys)]
+    rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={'task_id':base['task']})if e.get('task_id')==base['task']and any(e.get('details',{}).get(k)for k in keys)]
     values=[];seen=set()
     for e in rows:
         pins=[e['details'][k]for k in keys if e['details'].get(k)];need(len(pins)==1,'one source per event');pin=pins[0]
@@ -702,7 +720,17 @@ def sources(root,base):
     return values
 def select(root,base,state):
     import professional_web_execution as web
-    values=sources(root,base);matches=[x for x in values if x['commit']==state.get('candidate_commit')]
+    values=sources(root,base)
+    if 'material_reviewed_rebase_source' in state:
+        from material_causal_successor import reviewed_rebase
+        from material_causal_successor import material_registry_test_state, material_registry_test_successor
+        predecessor = material_registry_test_state(root, base, state)
+        reviewed_state = predecessor if predecessor is not None else state
+        parents=[value for value in values if value['commit']==reviewed_state.get('candidate_parent')]
+        need(len(parents)==1,'one actual adopted material rebase predecessor required')
+        reviewed = reviewed_rebase(root, parents[0], reviewed_state)
+        return material_registry_test_successor(root, reviewed, state) if predecessor is not None else reviewed
+    matches=[x for x in values if x['commit']==state.get('candidate_commit')]
     if not matches:
         for ctx in values:
             if not ctx.get('ordinary_increment'):continue

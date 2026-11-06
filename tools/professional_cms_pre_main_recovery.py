@@ -13,6 +13,8 @@ EVENT='professional_cms_pre_main_recovery'
 SCHEMA='professional-cms-consumed-pre-main-zero-effect-recovery/v1'
 PREISSUE_EVENT='professional_cms_preissue_recovery'
 PREISSUE_SCHEMA='professional-cms-consumed-artifact-preissue-zero-effect-recovery/v1'
+INTERRUPTED_METADATA_EVENT='professional_cms_interrupted_artifact_metadata'
+INTERRUPTED_METADATA_SCHEMA='professional-cms-interrupted-artifact-metadata-source/v1'
 def event_pin(event):
     details=event.get('details',{});pins=[details[k]for k in (EVENT,PREISSUE_EVENT)if details.get(k)]
     need(len(pins)==1,'one original recovery event kind');return pins[0]
@@ -178,6 +180,40 @@ def _source_uncached(root,pin):
     value=doc(root,pin);schema=value.get('schema');need(schema in {SCHEMA,PREISSUE_SCHEMA},'known exact failure-stage source')
     derived=draft(root,value.get('failure_report'),value.get('original_issuer_source'))if schema==SCHEMA else draft_artifact(root,value.get('failure_report'),value.get('original_issuer_source'))
     need(value==derived,'immutable authenticated recovery source, not caller flags');return value
+def interrupted_metadata_source(root,pin):
+    """Authenticate source-only interruption metadata; never qualify an instance."""
+    import interrupted_artifact_recovery_candidate as interrupted
+    value=doc(root,pin)
+    need(value.get('schema')==INTERRUPTED_METADATA_SCHEMA,'exact interrupted metadata schema')
+    derived=interrupted.draft_metadata(root,value.get('evidence'))
+    need(value==derived and value.get('effect_state')=='UNKNOWN'
+         and value.get('execution_instance_created') is False and value.get('actual_action_allowed') is False,
+         'immutable authenticated source-only metadata; no execution instance')
+    return value
+def interrupted_metadata_events(root,task):
+    return [e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)
+            if e.get('task_id')==task and e.get('details',{}).get(INTERRUPTED_METADATA_EVENT)]
+def register_interrupted_metadata(root,path):
+    """Append original-source metadata only under the existing workflow lock."""
+    import goal_delivery_runtime as g
+    pin=w.file_digest(root,path)
+    with w.workflow_lock(root):
+        value=interrupted_metadata_source(root,pin);task=value['task_id']
+        need(not w.validate_workflow_events(root,task),'intact original workflow event chain')
+        events=interrupted_metadata_events(root,task)
+        for event in events:
+            prior=interrupted_metadata_source(root,event['details'][INTERRUPTED_METADATA_EVENT])
+            if (prior['action_id'],prior['predecessor_policy_id'])==(value['action_id'],value['predecessor_policy_id']):
+                need(event['details'][INTERRUPTED_METADATA_EVENT]==pin,'original interrupted source cannot be replaced or forked')
+                return {'result':'duplicate_ignored','event_id':event['event_id'],'effect_state':'UNKNOWN','permit_issued':False,'execution_instance_created':False}
+        need(not recovery_events(root,task),'existing executable recovery chain requires its own original protocol')
+        snap=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)))
+        need(snap.get('current_state') and snap['current_state'] not in w.TERMINAL_STATES,'active original goal required; no synthetic snapshot')
+        event=w.append_workflow_event(root,task,snap['current_state'],{INTERRUPTED_METADATA_EVENT:pin,
+            'old_policy_unchanged':True,'effect_state':'UNKNOWN','permit_issued':False,'execution_instance_created':False})
+    return {'result':'recorded','event_id':event['event_id'],'source':pin,'effect_state':'UNKNOWN',
+            'permit_issued':False,'execution_instance_created':False,'actual_action_allowed':False,
+            'next':'original publisher reads exact original key; existing fresh recovery gates remain required'}
 def register(root,path):
     import goal_delivery_runtime as g
     pin=w.file_digest(root,path);value=source(root,pin)
@@ -237,6 +273,9 @@ def instance(root,req):
 def verify_policy(root,row):
  req=doc(root,row['exact_request']);events=recovery_events(root,req['task_id'])
  need(not any(source(root,event_pin(e)).get('predecessor_policy_id')==row['decision_id']for e in events),'reconciled predecessor stays spent; never execute/reset/reconsume it')
+ metadata=interrupted_metadata_events(root,req['task_id'])
+ need(not any(interrupted_metadata_source(root,e['details'][INTERRUPTED_METADATA_EVENT]).get('predecessor_policy_id')==row['decision_id'] for e in metadata),
+      'interrupted predecessor remains spent and UNKNOWN; never replay')
  value=instance(root,req);need(row.get('execution_instance')==value,'normal consumed policy must bind actual derived instance')
  if value is not None:
   rows=[p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS)if p.get('decision_id')==row['decision_id']];need(rows==[row],'actual single policy changed before UUID/HTTP')
@@ -253,10 +292,17 @@ def status(root,task):
   'sequence':'fresh original-key SELECT/native zero, complete row/CAS and workflow readback; add execution_instance before intent/four-doc hashes; normal new preflight/readiness and distinct policy once; issuer only by original PUB',
   'historical_preview_is_not_future_freshness':True,'permit_issued':False,'old_policy_reset_or_reconsumed':False}
 if __name__=='__main__':
- p=argparse.ArgumentParser();p.add_argument('command',choices=['draft','draft-artifact','record','status']);p.add_argument('--failure-report');p.add_argument('--issuer-source');p.add_argument('--input');p.add_argument('--output');p.add_argument('--task-id');args=p.parse_args();root=Path(__file__).resolve().parents[1]
+ p=argparse.ArgumentParser();p.add_argument('command',choices=['draft','draft-artifact','record','status','draft-interrupted-metadata','record-interrupted-metadata']);p.add_argument('--failure-report');p.add_argument('--issuer-source');p.add_argument('--input');p.add_argument('--output');p.add_argument('--task-id');args=p.parse_args();root=Path(__file__).resolve().parents[1]
  try:
   if args.command in {'draft','draft-artifact'}:
    result=(draft if args.command=='draft'else draft_artifact)(root,w.file_digest(root,args.failure_report),w.file_digest(root,args.issuer_source));need(args.output,'new project-local immutable output required');q=w.safe_path(root,args.output);need(not q.exists(),'preserve prior recovery source');w.atomic_write_json(q,result);result={'source':w.file_digest(root,args.output),'permit_issued':False}
+  elif args.command=='draft-interrupted-metadata':
+   import interrupted_artifact_recovery_candidate as interrupted
+   need(args.input and args.output,'pinned evidence input and new project-local output required')
+   evidence=doc(root,w.file_digest(root,args.input));result=interrupted.draft_metadata(root,evidence)
+   q=w.safe_path(root,args.output);need(not q.exists(),'preserve original evidence and prior metadata');w.atomic_write_json(q,result)
+   result={'source':w.file_digest(root,args.output),'effect_state':'UNKNOWN','permit_issued':False,'execution_instance_created':False}
+  elif args.command=='record-interrupted-metadata':result=register_interrupted_metadata(root,args.input)
   elif args.command=='record':result=register(root,args.input)
   else:result=status(root,w.validate_task_id(args.task_id))
   print(json.dumps(result,ensure_ascii=False,indent=2))

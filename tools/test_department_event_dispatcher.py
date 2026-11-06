@@ -19,8 +19,6 @@ class Transport:
         self.state = 'idle'
         self.calls = []
         self.effects = {}
-        self.fail_after_effect = False
-        self.become_busy = False
 
     def status(self, role):
         return self.state
@@ -29,12 +27,8 @@ class Transport:
         return self.effects.get(event)
 
     def wake(self, role, event, value):
-        if self.become_busy:
-            return None
         self.calls.append((role, event, value))
         self.effects[event] = 'actual-turn-1'
-        if self.fail_after_effect:
-            raise ConnectionError('response lost after acceptance')
         return self.effects[event]
 
 
@@ -46,6 +40,7 @@ class QueueTransport:
         self.fail_prepare = False
         self.fail_after_effect = False
         self.effects = {}
+        self.busy = False
 
     def status(self, role):
         raise AssertionError('queue transport must not guess busy/idle')
@@ -70,46 +65,92 @@ class DispatcherTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        (self.root / 'data').mkdir()
+        (self.root / d.CONFIG).write_text(json.dumps({
+            'schema': 'flashcast-event-dispatcher-pilot/v1',
+            'pilot_results': [RESULT],
+            'shared_proxy_command': ['/fixture/codex', 'app-server', 'proxy'],
+        }))
         self.store = d.Store(self.root)
         self.event = self.store.put(RESULT, 'assistant')
         self.transport = Transport()
+        # These tests exercise dispatch after source and capacity admission.
+        # The fixture owns neither a real department binding nor a live window.
+        admission = mock.patch('receipt_obligation_consumer.notification_queue_admission',
+            side_effect=lambda root, identity, target, transport, **kw: {
+                'queue_allowed': not getattr(transport, 'busy', False),
+                'requires_reservation': False})
+        reserve = mock.patch('receipt_obligation_consumer.reserve_notification_serial',
+            return_value={'queue_allowed': True, 'requires_reservation': False})
+        self.addCleanup(admission.stop)
+        self.addCleanup(reserve.stop)
+        admission.start()
+        reserve.start()
 
     def tearDown(self):
         self.store.close()
         self.temp.cleanup()
 
-    def test_idle_one_wakeup_and_duplicate_resume(self):
-        worker = d.Dispatcher(self.store, self.transport)
-        worker.pump()
+    def activation_status(self):
+        return self.store.db.execute('SELECT status FROM activation_recovery WHERE event_key=?',
+                                     (self.event,)).fetchone()[0]
+
+    def test_one_queue_and_duplicate_resume(self):
+        transport = QueueTransport()
+        worker = d.Dispatcher(self.store, transport)
+        worker.pump(valid_events={self.event})
         self.store.put(RESULT, 'assistant')
-        worker.pump()
-        self.assertEqual(len(self.transport.calls), 1)
-        self.assertEqual(self.store.rows()[0]['state'], 'wake_acknowledged')
+        worker.pump(valid_events={self.event})
+        self.assertEqual(len(transport.calls), 1)
+        self.assertEqual(self.store.rows()[0]['state'], 'native_queue_accepted')
 
     def test_busy_then_completion_event_continues(self):
-        self.transport.state = 'active'
-        worker = d.Dispatcher(self.store, self.transport)
-        worker.pump()
-        self.assertFalse(self.transport.calls)
-        self.assertEqual(self.store.rows()[0]['state'], 'waiting_recipient')
-        self.transport.state = 'idle'
-        worker.pump()  # supplied native completion event, not a timer
-        self.assertEqual(len(self.transport.calls), 1)
+        transport = QueueTransport()
+        transport.busy = True
+        worker = d.Dispatcher(self.store, transport)
+        worker.pump(valid_events={self.event})
+        self.assertFalse(transport.calls)
+        self.assertEqual(self.store.rows()[0]['state'], 'pending')
+        self.assertEqual(self.activation_status(), 'waiting_original_serial_boundary')
+        transport.busy = False
+        worker.pump(valid_events={self.event}, only_events={self.event})
+        self.assertEqual(len(transport.calls), 1)
 
     def test_transport_absent_retains_pending(self):
         d.Dispatcher(self.store).pump()
         self.assertEqual(self.store.rows()[0]['state'], 'waiting_transport')
         self.assertFalse(self.transport.calls)
 
+    def test_active_direct_handoff_defers_new_receipt_and_publication_dispatch(self):
+        worker = d.Dispatcher(self.store, self.transport)
+        worker.activation_attempted = False
+        guard = {'new_activation_allowed': True, 'assigned_next_original_window': 'original-window'}
+        publication = mock.Mock()
+        publication.serial_pending.return_value = None
+        publication.consume_due.return_value = []
+        with mock.patch('receipt_obligation_consumer.observe_root_serial', return_value={}), \
+             mock.patch('receipt_obligation_consumer.shared_serial_guard', return_value=guard), \
+             mock.patch('receipt_obligation_consumer.pump', return_value=[]) as receipts, \
+             mock.patch('direct_handoff_readback.observe') as direct, \
+             mock.patch.object(d, 'publication_deadline_runtime', return_value=publication):
+            direct.return_value = {'state': 'direct_input_observed', 'turn_status': 'inProgress'}
+            worker._consume_current()
+            self.assertFalse(receipts.call_args.kwargs['allow_new'])
+            publication.consume_due.assert_called_with(self.root, None)
+
+            worker.activation_attempted = False
+            direct.return_value = {'state': 'direct_final_observed', 'turn_status': 'completed'}
+            worker._consume_current()
+            self.assertTrue(receipts.call_args.kwargs['allow_new'])
+            publication.consume_due.assert_called_with(self.root, self.transport)
+
     def test_disconnect_after_send_recovers_without_second_send(self):
-        self.transport.fail_after_effect = True
-        d.Dispatcher(self.store, self.transport).pump()
-        self.assertEqual(self.store.rows()[0]['state'], 'uncertain')
-        self.store.close()
-        self.store = d.Store(self.root)
+        self.transport.effects[self.event] = 'actual-turn-1'
+        self.store.set(self.event, 'uncertain')
         d.Dispatcher(self.store, self.transport).pump()
         self.assertEqual(self.store.rows()[0]['state'], 'wake_acknowledged')
-        self.assertEqual(len(self.transport.calls), 1)
+        self.assertEqual(self.store.rows()[0]['turn_id'], 'actual-turn-1')
+        self.assertFalse(self.transport.calls)
 
     def test_crash_after_intent_no_blind_retry(self):
         self.store.set(self.event, 'sending')
@@ -117,10 +158,10 @@ class DispatcherTests(unittest.TestCase):
         self.assertEqual(self.store.rows()[0]['state'], 'uncertain')
         self.assertFalse(self.transport.calls)
 
-    def test_race_becomes_busy_retains_original(self):
-        self.transport.become_busy = True
-        d.Dispatcher(self.store, self.transport).pump()
-        self.assertEqual(self.store.rows()[0]['state'], 'waiting_recipient')
+    def test_legacy_transport_cannot_start_a_new_wake(self):
+        d.Dispatcher(self.store, self.transport).pump(valid_events={self.event})
+        self.assertEqual(self.store.rows()[0]['state'], 'pending')
+        self.assertEqual(self.activation_status(), 'shared_wake_capacity_adapter_DATA_MISSING')
         self.assertFalse(self.transport.calls)
 
     def test_target_change_refused(self):
@@ -133,17 +174,24 @@ class DispatcherTests(unittest.TestCase):
         self.assertFalse(self.transport.calls)
 
     def test_invalid_or_deleted_source_does_not_wake_stored_event(self):
-        d.Dispatcher(self.store, self.transport).pump(valid_events=set())
-        self.assertEqual(self.store.rows()[0]['state'], 'waiting_valid_source')
-        self.assertFalse(self.transport.calls)
-        d.Dispatcher(self.store, self.transport).pump(valid_events={self.event})
-        self.assertEqual(len(self.transport.calls), 1)
+        transport = QueueTransport()
+        worker = d.Dispatcher(self.store, transport)
+        worker.pump(valid_events=set())
+        self.assertEqual(self.store.rows()[0]['state'], 'pending')
+        self.assertEqual(self.activation_status(), 'notification_source_DATA_MISSING')
+        self.assertFalse(transport.calls)
+        worker.pump(valid_events={self.event})
+        self.assertEqual(len(transport.calls), 1)
 
     def test_one_invalid_event_does_not_block_other_result(self):
         other = self.store.put({**RESULT, 'candidate_version': 'second-valid'}, 'assistant')
-        d.Dispatcher(self.store, self.transport).pump(valid_events={other})
-        self.assertEqual(len(self.transport.calls), 1)
-        self.assertEqual(self.transport.calls[0][1], other)
+        transport = QueueTransport()
+        worker = d.Dispatcher(self.store, transport)
+        worker.pump(valid_events={other}, only_events={self.event})
+        self.assertFalse(transport.calls)
+        worker.pump(valid_events={other}, only_events={other})
+        self.assertEqual(len(transport.calls), 1)
+        self.assertEqual(transport.calls[0][1], other)
 
     def test_real_workflow_validation_failure_is_isolated_during_ingest(self):
         import workflow_control as workflow
@@ -152,9 +200,18 @@ class DispatcherTests(unittest.TestCase):
         bad = {**RESULT, 'candidate_version': 'bad-source'}
         (directory / 'bad.json').write_text(json.dumps({'identity': bad}))
         (directory / 'good.json').write_text(json.dumps({'identity': RESULT}))
-        with mock.patch.object(d, 'validate_notification', side_effect=[
-                workflow.WorkflowError('exact source mismatch'), (RESULT, 'assistant', False)]):
-            valid, errors = d.ingest(self.root, self.store, {d.key(bad): bad, self.event: RESULT})
+        # Isolate this test's notification-validation error after the newer
+        # historical-receipt and route admission stages have been evaluated.
+        with mock.patch('result_coordination.received_notification', return_value=None), \
+                mock.patch('chief_assistant_coordination.notification_boundary', return_value={'new_dispatch_allowed': True}), \
+                mock.patch.object(d, 'admitted_result', return_value=True), \
+                mock.patch.object(d, 'validate_notification', side_effect=[
+                    workflow.WorkflowError('exact source mismatch'), (RESULT, 'assistant', False)]):
+            allowed = {d.key(bad): bad, self.event: RESULT}
+            rejected, errors = d.ingest(self.root, self.store, allowed, only_events={d.key(bad)})
+            valid, good_errors = d.ingest(self.root, self.store, allowed, only_events={self.event})
+        self.assertFalse(rejected)
+        self.assertFalse(good_errors)
         self.assertEqual(valid, {self.event})
         self.assertEqual(len(errors), 1)
         self.assertFalse(errors[0]['blocks_other_events'])
@@ -162,7 +219,6 @@ class DispatcherTests(unittest.TestCase):
     def test_future_admission_uses_native_queue_time_not_edited_transport_time(self):
         import workflow_control as workflow
         import result_coordination as rc
-        (self.root/'data').mkdir()
         (self.root/d.CONFIG).write_text(json.dumps({'admit_new_goal_results_since':'2026-10-16T00:00:00Z'}))
         record={'identity':RESULT,'queued_at':'2026-10-16T00:01:00Z'}
         original={**RESULT,'event':'notification_queued','created_at':'2026-10-15T00:01:00Z'}
@@ -185,11 +241,17 @@ class DispatcherTests(unittest.TestCase):
                     pass
 
     def test_partial_failed_and_rework_all_keep_identity(self):
+        events = {self.event}
         for version in ['complete', 'partial', 'rework', 'blocked', 'failed']:
-            self.store.put({**RESULT, 'candidate_version': version}, 'assistant')
-        d.Dispatcher(self.store, self.transport).pump()
-        self.assertEqual(len(self.transport.calls), 6)
-        self.assertTrue(all(call[2]['task_id'] == RESULT['task_id'] for call in self.transport.calls))
+            events.add(self.store.put({**RESULT, 'candidate_version': version}, 'assistant'))
+        transport = QueueTransport()
+        worker = d.Dispatcher(self.store, transport)
+        worker.pump(valid_events=events)
+        for _ in range(len(events) - 1):
+            worker.pump(valid_events=events, only_events={d.INPUT_CONTINUE})
+        self.assertEqual({call[1] for call in transport.calls}, events)
+        self.assertEqual(len(transport.calls), len(events))
+        self.assertTrue(all(call[2]['task_id'] == RESULT['task_id'] for call in transport.calls))
 
     def test_official_queue_retains_message_not_turn_and_never_checks_idle(self):
         transport = QueueTransport()
@@ -219,7 +281,7 @@ class DispatcherTests(unittest.TestCase):
         transport = QueueTransport()
         transport.fail_after_effect = True
         worker = d.Dispatcher(self.store, transport)
-        worker.pump()
+        worker.pump(valid_events={self.event})
         self.assertEqual(self.store.rows()[0]['state'], 'uncertain')
         worker.pump()
         self.assertEqual(len(transport.calls), 1)
@@ -237,7 +299,7 @@ class DispatcherTests(unittest.TestCase):
     def test_refused_policy_never_queues_and_other_results_continue(self):
         transport = QueueTransport()
         transport.fail_prepare = True
-        d.Dispatcher(self.store, transport).pump()
+        d.Dispatcher(self.store, transport).pump(valid_events={self.event})
         self.assertFalse(transport.calls)
         self.assertEqual(self.store.rows()[0]['state'], 'waiting_policy_or_source')
 

@@ -15,6 +15,7 @@ from department_system_package import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+PUBLIC_AUTONOMOUS_VERSION = "2026.11.07.autonomous-current-v1"
 POLICIES = (
     "department-routing-rules.json", "task-contract.json", "delegation-policy.json",
     "agent-role-policy.json",
@@ -117,6 +118,14 @@ def public_text(text, root=None):
     text = text.replace(str(Path.home()), "<USER_HOME>")
     text = text.replace("company.example", "company.example")
     text = text.replace(r"company\.example", r"company\.example")
+    for live, example in (
+        ("example-owner/example-website", "example-owner/example-website"),
+        ("example-owner", "example-owner"),
+        ("exampleproject000000", "exampleproject000000"),
+        ("00000000-0000-4000-8000-000000000101", "00000000-0000-4000-8000-000000000101"),
+        ("00000000-0000-4000-8000-000000000102", "00000000-0000-4000-8000-000000000102"),
+    ):
+        text = text.replace(live, example)
     # Native message/turn/thread IDs and the local Ads account are never a
     # portable authority. Synthetic values cannot bind to a real chat.
     text = re.sub(r"(?<![0-9a-f])01a[0-9a-f]{5}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9a-f])",
@@ -554,7 +563,7 @@ def prepare(root: Path, target: Path):
     validate_payloads(payloads, ids, retired_roles, historical)
     manifest = seal_manifest({
         "schema_version": SCHEMA, "runtime_model": json.loads(payloads["examples/task-contract.example.json"])["goal_delivery_runtime"]["model"], "non_runtime_files": historical,
-        "version": "2026.10.24.autonomous-current-v1" if json.loads(payloads["examples/task-contract.example.json"])["goal_delivery_runtime"]["model"]==MODEL else "2026.10.23.adopted-runtime-v1", "artifact_type": "department_system_source",
+        "version": PUBLIC_AUTONOMOUS_VERSION if json.loads(payloads["examples/task-contract.example.json"])["goal_delivery_runtime"]["model"]==MODEL else "2026.10.23.adopted-runtime-v1", "artifact_type": "department_system_source",
         "roles": ids, "files": sorted(tracked, key=lambda row: row["path"]),
         "retired_roles": retired_roles,
         "live_bindings_exported": False, "live_health_exported": False, "live_ledgers_exported": False,

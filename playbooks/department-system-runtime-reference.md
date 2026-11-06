@@ -4,7 +4,7 @@
 
 ## messages
 
-正常prepare-message沿原task/scope、真实固定身份、原授权及完整payload；专业部门直报operations和协作回原owner。完整当前目标的专业owner回operations知悉；明确协作回原owner，历史parent的当前owner不自动替换本目标接收者，已有队列目标保持冻结。
+正常prepare-message沿原task/scope、真实固定身份、原授权及完整payload；接收与协调责任只按共同正文。协作结果回本任务真实原owner；新未冻结普通收口总助理优先、HQ补位，历史parent的owner不自动替换本任务接收者，已有队列目标保持冻结。
 
 声明外协的官方队列：`python3 tools/goal_source_recovery.py prepare-message --input <真实当前request>`；仅`delivery_mode=official_native_queue`且正常返回`ready_to_queue`后，原发送方用`python3 -B tools/goal_source_recovery.py queue-collaboration --request <request> --prepared <prepared> --directory <本项目原唯一logs/handoffs目录>`。真实active窗口可排队；普通直接send仍须idle，unknown不能填idle。
 
@@ -76,10 +76,10 @@ dispatch-plan --goal；receipt-record实际派送/ACK；`python3 tools/goal_deli
 
 ## authority-change
 
-真实老板新授权改变模式，原合同/业务权限不扩大。
+真实老板新授权按[共同正文当前决策委托](department-system-current.md#当前决策委托)及其原生来源恢复，由现有实名委托/普通决定入口正常采用；不改旧授权pin或冻结合同，不造actor/recipient/许可。原目标内普通确认由受委托HQ/总助理决定；具体平台本人或真实资料缺口保留准确依赖。
 
 
-维护接线读回：`python3 tools/department_autonomy.py maintenance-preflight`。原flash-cast-20-00由SYS承接本项目检查，平台状态和绑定以准确实际读回为准；该命令不清理文件、不继承A3许可。实际清理仍须准确使用/引用、任务结束事实、精确清单和当前授权，不可恢复范围另向老板确认。
+维护接线读回：`python3 tools/department_autonomy.py maintenance-preflight`。原flash-cast-20-00由SYS承接本项目检查，平台状态和绑定以准确实际读回为准；该命令不清理文件、不继承A3许可。实际清理仍须准确使用/引用、任务结束事实、精确清单和当前授权，已获准确授权的旧规则清理按共同正文及精确清单执行；其他未获准确授权的不可恢复动作核真实来源、准确对象和范围，不借清规则删除业务数据。
 
 ### 已消费实例的artifact身份拒绝接续
 
@@ -118,3 +118,12 @@ professional 动态 `target | dry-run` 名称仅沿真实登记目标和 active 
 ## 总助理普通决定实名委托
 
 当前入口：`python3 tools/chief_assistant_coordination.py authority`；普通结果原身份沿现有`result_coordination.py claim`领取，正常result-handoff记录实际controller_received/controller_decision，逻辑receiver不变、actor实名。直接回复及未知效果读回见该CLI的`reply`、`reply-effect`和[共享角色方法](../departments/operations-assistant/SKILL.md)。新完整结果默认总助理，协作仍回owner；历史实收不重收，专业执行不新增技术审批。
+
+
+### 已实收后的普通决定与回传
+
+已有`controller_received`先复用它的真实`received_record_id`，读取同结果现有决定、回传意图及原键效果。只有确有未记录的普通决定时，用现有`result_coordination.CoordinationStore.claim_decision(identity, role, owner, request_id, received_record_id, reason, ttl_seconds=900)`领取仅决定租约；它不能重收原结果。冻结`routine-original-result-decision/v1`及自己的真实native源后，沿`chief_assistant_coordination.record_decision`提交，再按同token/fence正常释放。
+
+决定已存在时不再生成一个决定。沿现有`chief_assistant_coordination.reply(root, request_path, directory)`运输该真实决定；request的`routine_decision_reply`绑定原结果身份和唯一`decision_record_id`，sender保持真实决定actor，target保持原next_owner，正文绑定原result SHA与决定path/SHA。补齐本动作真实新鲜sender/target/inventory后，由该入口正常prepare/policy、锁内按decision及action防重、先持久意图再单次官方queue。后台技术运行者可以运输已认证的原决定，须另记运行者事实，不能冒充actor作新决定、改recipient或增加业务许可。
+
+回传accepted仍未实收；按`reply-effect`查原意图、原owner非空ACK与后续效果。只有这些效果或正常具名依赖记录成立才销对应接续范围。状态文件里写“下一owner／10点再查”不能代替真实派送或正常`controller_followthrough`；也不能为补这个字段造历史或兼容行。

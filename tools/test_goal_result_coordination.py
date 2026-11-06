@@ -410,14 +410,14 @@ class GoalReviewPlanTests(unittest.TestCase):
         path = "logs/department-outbox/goal-reviewer.json"; self.write(path, box)
         pin = w.file_digest(self.root, path)
         stamp = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=1)).isoformat()
-        dispatch = {"receipt_type": "dispatch_sent", "department": reviewer, "chat_task_id": "fixed-" + reviewer,
+        dispatch = {"receipt_id": "fixture-reviewer-dispatch", "receipt_type": "dispatch_sent", "department": reviewer, "chat_task_id": "fixed-" + reviewer,
                     "scope": self.plan["scope"], "evidence": [self.snapshot["qa_review_plan"]["pin"], self.pin], "created_at": stamp}
         ack = {"receipt_type": "chat_ack", "department": reviewer, "chat_task_id": "fixed-" + reviewer,
                "ack_nonempty": True, "created_at": stamp}
         outbox = {"receipt_type": "outbox_received", "department": reviewer, "evidence": [pin], "created_at": stamp}
         producer_receipt = {"receipt_type": "outbox_received", "department": "content-organic-website",
                             "evidence": [producer_pin], "created_at": stamp}
-        producer_dispatch = {"receipt_type": "dispatch_sent", "department": "content-organic-website",
+        producer_dispatch = {"receipt_id": "fixture-producer-dispatch", "receipt_type": "dispatch_sent", "department": "content-organic-website",
                              "chat_task_id": "fixed-content-organic-website", "created_at": stamp}
         producer_ack = {"receipt_type": "chat_ack", "department": "content-organic-website",
                         "chat_task_id": "fixed-content-organic-website", "ack_nonempty": True, "created_at": stamp}
@@ -431,6 +431,15 @@ class GoalReviewPlanTests(unittest.TestCase):
         review.validate_verdict(self.root, self.snapshot, receipts, verdict)
         with self.assertRaisesRegex(w.WorkflowError, "single-reviewer"):
             review.validate_verdict(self.root, self.snapshot, receipts, {**verdict, "department": ASSISTANTS[0]})
+
+    def test_ordinary_events_do_not_match_missing_or_wrong_dispatch_id(self):
+        receipts, _, _, _ = self.review_receipts()
+        dispatch = next(r for r in receipts if r.get('receipt_id') == 'fixture-reviewer-dispatch')
+        ordinary = {'task_id': self.snapshot['task_id'], 'details': {}}
+        unrelated = {'task_id': self.snapshot['task_id'], 'details': {'post_qa_source_continuation': {'dispatch_receipt_id': 'another'}}}
+        with mock.patch.object(review, '_prepared_original_result_continuation', return_value=None), mock.patch.object(w, 'read_jsonl', return_value=[ordinary, unrelated]):
+            self.assertIsNone(review.original_source_continuation(self.root, self.snapshot, receipts, dispatch, self.plan))
+            self.assertIsNone(review.original_source_continuation(self.root, self.snapshot, receipts, {**dispatch, 'receipt_id': None}, self.plan))
 
     def test_new_verdict_rejects_missing_actual_ack_or_changed_outbox(self):
         receipts, verdict, path, box = self.review_receipts()

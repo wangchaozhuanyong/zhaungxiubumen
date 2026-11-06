@@ -15,6 +15,8 @@ SCHEMA = 'professional-ads-object-source-registration/v1'
 PREFLIGHT = 'professional-ads-object-preflight/v1'
 PLAN_SCHEMA = 'professional-ads-plan-object-source-registration/v2'
 SUPPLEMENT_SCHEMA = 'professional-ads-plan-supplement-source-registration/v3'
+IMAGE_ONLY_SCHEMA = 'professional-ads-image-only-source-registration/v4'
+PLAN_SCHEMAS = {PLAN_SCHEMA, SUPPLEMENT_SCHEMA, IMAGE_ONLY_SCHEMA}
 OBJECT_PREFLIGHT = 'professional-ads-planned-object-preflight/v2'
 EVENT = 'professional_ads_object_source'
 IDENTITY = ('task_id', 'department', 'action_id', 'action_class', 'scope')
@@ -47,6 +49,8 @@ def native_identity(root, pin, role):
 
 
 def source(root, item):
+    if item.get('schema') == IMAGE_ONLY_SCHEMA:
+        return image_only_source(root, item)
     if item.get('schema') == SUPPLEMENT_SCHEMA:
         return supplement_source(root, item)
     if item.get('schema') == PLAN_SCHEMA:
@@ -143,6 +147,13 @@ def record(root, task, input_path):
         if matches:
             need(len(matches) == 1 and matches[0]['details'][EVENT] == pin, 'preserve exact source; no replacement')
             return {'result': 'duplicate_ignored', 'source_event_id': matches[0]['event_id'], 'source_registration': pin, 'external_permission_issued': False}, []
+        if item.get('schema') == IMAGE_ONLY_SCHEMA:
+            _image_only_unused(root, context)
+            actions=set(operation_specs(root,context))
+            for e in events:
+                old=doc(root,e['details'][EVENT])
+                if old.get('schema')==IMAGE_ONLY_SCHEMA:
+                    need(not(actions&set(operation_specs(root,source(root,old)))), 'one immutable image successor; no ambiguous competing registration')
         event = w.append_workflow_event(root, task, context['snapshot']['current_state'],
                                        {EVENT: pin, 'original_contract_unchanged': True, 'external_permission_issued': False})
     return {'result': 'recorded', 'source_event_id': event['event_id'], 'source_registration': pin, 'external_permission_issued': False}, [Path(root) / w.WORKFLOW_EVENTS]
@@ -154,14 +165,14 @@ def match(root, snapshot, requested):
     events = [e for e in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS)
               if e.get('task_id') == snapshot.get('task_id') and e.get('details', {}).get(EVENT)]
     rows = [(e, doc(root, e['details'][EVENT])) for e in events]
-    exact_old = [(e,x) for e,x in rows if x.get('schema') not in {PLAN_SCHEMA,SUPPLEMENT_SCHEMA} and same(x,requested)]
+    exact_old = [(e,x) for e,x in rows if x.get('schema') not in PLAN_SCHEMAS and same(x,requested)]
     if exact_old:
         need(len(exact_old)==1,'one immutable original object source')
         event,item=exact_old[0]
         return {**source(root,item),'registration':event['details'][EVENT],'source_event_id':event['event_id']}
     selected = []
     for event, item in rows:
-        if item.get('schema') in {PLAN_SCHEMA,SUPPLEMENT_SCHEMA}:
+        if item.get('schema') in PLAN_SCHEMAS:
             context = source(root, item)
             specs = operation_specs(root, context)
             spec = specs.get(requested.get('action_id'))
@@ -169,6 +180,7 @@ def match(root, snapshot, requested):
                 selected.append((event, item, context, spec))
         elif same(item, requested):
             selected.append((event, item, None, None))
+    selected=_image_only_select_source(selected,requested)
     rows = selected
     if not rows:
         return None
@@ -260,6 +272,8 @@ def record_preflight(root, task, input_path):
     need(registered is not None, 'registered original source first')
     checked_preflight(root, item, registered)
     with w.workflow_lock(root):
+        if registered.get('image_only_rows'):
+            _image_only_occupied_assets(root,registered,registered['registration'])
         # Never refresh after an issued/uncertain action by adding another observation.
         key = w.sha256_value([item[k] for k in IDENTITY])
         need(not any(p.get('autonomous_action_key') == key and p.get('status') == 'allow'
@@ -286,7 +300,7 @@ def execution_context(root, snapshot, requested):
     req = checked_preflight(root, item, registered)
     need(requested.get('payload_sha256', item['request']['sha256']) == item['request']['sha256'], 'exact fresh request SHA')
     return {'action': {k: req[k] for k in IDENTITY}, 'request': req, 'pin': item['request'],
-            'authorization': registered.get('authority70', registered['authorization']), 'department': req['department'],
+            'authorization': registered.get('current_image_human_native', registered.get('authority70', registered['authorization'])), 'department': req['department'],
             'preflight': item, 'source_registration': registered['registration']}
 
 
@@ -298,6 +312,10 @@ def reserve(root, item, decision_id):
     key = w.sha256_value([item[k] for k in IDENTITY])
     path = Path(root) / 'logs/professional-ads-object-attempts' / (key + '.jsonl')
     with w.workflow_lock(root):
+        current=match(root,snapshot,item)
+        need(current and current['registration']==context['source_registration'], 'same fresh source at reservation CAS')
+        if current.get('image_only_rows'):
+            _image_only_occupied_assets(root,current,current['registration'])
         decisions = [d for d in w.read_jsonl(Path(root) / w.POLICY_DECISIONS) if d.get('decision_id') == decision_id]
         need(len(decisions) == 1 and decisions[0].get('status') == 'allow'
              and decisions[0].get('autonomous_action_key') == key
@@ -475,8 +493,172 @@ def supplement_source(root, item):
     return result
 
 
+def _actual_command_pin(page, command_id, field, pin):
+    pairs=[(t,m)for t in page.get('turns',[])for m in t.get('items',[])if m.get('id')==command_id]
+    need(len(pairs)==1,'one actual original source production command')
+    turn,call=pairs[0]
+    need(turn.get('status')=='completed'and not turn.get('error')and call.get('type')=='commandExecution'
+         and call.get('status')=='completed'and call.get('exitCode')==0 and not call.get('commandTruncated')
+         and call.get('output',{}).get('truncated')is False,'complete genuine source command, not a caller summary')
+    values=[]
+    for line in call['output'].get('text','').splitlines():
+        try:value=json.loads(line)
+        except ValueError:continue
+        if isinstance(value,dict)and value.get(field)==pin:values.append(value)
+    need(len(values)==1,'actual original command must emit this exact source pin')
+    return turn
+
+
+def image_only_source(root, item):
+    """Authenticate only Image successors of existing, independently gated ad keys."""
+    parent=doc(root,item['original_plan_source']);need(parent.get('schema')==PLAN_SCHEMA,'original plan source, no successor cycles')
+    base=plan_source(root,parent)
+    proposal=doc(root,item['original_proposal']);packet=doc(root,item['professional_packet'])
+    need(same(item,parent,('task_id','department','action_class','scope','source_project_id','original_goal_contract'))
+         and same(item,proposal,(*IDENTITY,'source_project_id','original_goal_contract','original_plan_source'))
+         and proposal.get('schema')=='professional-ads-distinct-assets-source-successor/v1'
+         and packet.get('exact_new_source_proposal')==item['original_proposal']
+         and same(packet,item,('task_id','scope'))and item.get('actual_action_allowed')is False,
+         'same original professional/task/contract and authentic nonexecuting asset proposal')
+    page=native_identity(root,item['professional_native'],item['department'])
+    produced=_actual_command_pin(page,item['professional_packet_command_id'],'complete_packet',item['professional_packet'])
+    human=doc(root,proposal['actual_human_source']);method=doc(root,proposal['HQ_ordinary_method'])
+    hq=native_identity(root,item['actual_human_native'],'operations')
+    pairs=[(t,m)for t in hq.get('turns',[])if t.get('id')==human.get('turn')
+           for m in t.get('items',[])if m.get('id')==human.get('human_message')and m.get('type')=='userMessage']
+    need(len(pairs)==1 and human.get('thread')==hq['thread']['id']
+         and pairs[0][1].get('content')==[{'type':'text','text':human.get('exact_text')}]
+         and isinstance(human.get('exact_text'),str)and human['exact_text'].strip()
+         and pairs[0][0].get('startedAt',float('inf'))<=produced.get('completedAt',produced.get('startedAt',0)),
+         'real ordered current human source; no actor/text substitution')
+    _actual_command_pin(hq,item['HQ_method_command_id'],'ordinary_decision',proposal['HQ_ordinary_method'])
+    relation={k:v for k,v in human.items()if k!='recorded_at_UTC'}
+    need(method.get('schema')=='HQ-ordinary-remaining-four-asset-alternative-execution-choice/v1'
+         and method.get('decision_actor')=='operations'and method.get('professional_owner')==item['department']
+         and same(method,item,('task_id','scope'))and method.get('based_on_current_owner_source')==relation
+         and method.get('does_not_issue_platform_policy_or_permit')is True
+         and method.get('does_not_expand_account_budget_deadline_payment_or_website')is True,
+         'actual bounded HQ method, not platform permission')
+    plan=doc(root,proposal['asset_supplement_plan']);manifest=doc(root,proposal['asset_manifest']);check=doc(root,proposal['professional_self_check'])
+    prior=doc(root,proposal['original_four_source']);original_specs=operation_specs(root,base)
+    need(all(same(x,item,('task_id','department','action_class','scope','source_project_id'))for x in (plan,manifest,check))
+         and same(prior,item,('task_id','scope'))and plan.get('original_four_source_unchanged')==proposal['original_four_source']
+         and plan.get('original_plan_source')==item['original_plan_source']
+         and plan.get('asset_manifest')==check.get('asset_manifest')==proposal['asset_manifest']
+         and check.get('plan')==proposal['asset_supplement_plan']
+         and packet.get('image_only_plan')==proposal['asset_supplement_plan']
+         and packet.get('asset_manifest')==proposal['asset_manifest']and packet.get('professional_selfcheck')==proposal['professional_self_check']
+         and check.get('status')=='PASS_LOCAL_ASSET_AND_BUSINESS_MAPPING_ONLY'and check.get('checks')
+         and all(x is True for x in check['checks'].values()),'exact immutable professional plan/manifest/selfcheck lineage')
+    need(plan.get('account_id')==base['plan']['account_id']and plan.get('campaign_id')==base['plan']['campaign_id']
+         and plan.get('shared_average_MYR_day')==method['preserve']['shared_budget_MYR_day']==base['budget_limit']
+         and plan.get('end_MYT')==method['preserve']['end_MYT']==base['plan']['end_MYT']
+         and plan.get('geo')==base['plan']['geo']and plan.get('new_groups')==0
+         and plan.get('new_ads_target')==len(plan.get('items',[]))==len(method.get('exact_business_objects',[]))==4
+         and plan.get('creative_enhancement')=='Off inherited; noCampaignchange'
+         and plan.get('bid')=='Clicks/MaximizeResults inherited'
+         and plan.get('actual_action_allowed')is False,'unchanged account/campaign/budget/end/geography and four existing ads only')
+    rows=plan['items'];need(len({x.get('key')for x in rows})==4 and set(x['key']for x in rows)==set(method['creative_scope']),
+                           'one original object per actual bounded method')
+    need({x.get('original_ad_action_id')for x in rows}==set(method['exact_business_objects'])
+         and len(manifest.get('assets',[]))==4,'exact method actions and four real assets')
+    decoded=doc(root,manifest['asset_validation']);doc(root,manifest['occupied_image_comparison'])
+    hashes=[];upload_ids=[];upload_keys=[]
+    for row in rows:
+        old=original_specs.get(row['original_ad_action_id']);request=doc(root,row['original_ad_request'])
+        need(old and old['operation']=='create_ad_only'and row['key']==old['object_key']
+             and same(request,old,(*IDENTITY,'source_project_id','account_id','parent_campaign_id','object_key','operation','desired'))
+             and request.get('source_registration')==item['original_plan_source']and row.get('group_new')is False
+             and row.get('parent_group_name')==old['parent_group_name'],'existing original ad and parent; never a new group')
+        original=[x for x in prior.get('exact_four',[])if x.get('key')==row['key']]
+        need(len(original)==1 and original[0].get('original_approved_ad_request')==row['original_ad_request']
+             and original[0].get('exact_desired')==old['desired'],'original four-object preparation preserved')
+        desired=row.get('desired',{});image=desired.get('Image',{});fields=set(old['desired'])-{'Image'}
+        need(set(desired)==set(old['desired'])and len(fields)==7
+             and all(desired[k]==old['desired'][k]for k in fields),'only Image may change; preserve seven exact fields')
+        assets=[x for x in manifest['assets']if x.get('key')==row['key']]
+        need(len(assets)==1 and assets[0].get('new_image')==image
+             and assets[0].get('original_image_unchanged')==old['desired']['Image']
+             and assets[0].get('genuinely_different_content_professional_review')is True,'real original/new image provenance and professional visual review')
+        asset=assets[0];path=Path(image.get('local_path',''))
+        need(path.is_absolute()and path.resolve().is_relative_to(Path(root).resolve())and not path.is_symlink()
+             and str(path.relative_to(root))==asset.get('path')and str(path)==asset.get('absolute_path')
+             and w.file_digest(root,str(path.relative_to(root)))=={'path':asset['path'],'sha256':image.get('sha256'),'size':image.get('size')}
+             and image.get('sha256')==asset.get('sha256')and image.get('size')==asset.get('bytes'), 'project-owned exact new image bytes')
+        meta=[x for x in decoded.get('assets',[])if x.get('path')==asset['path']]
+        need(len(meta)==1 and meta[0].get('sha256')==image['sha256']and meta[0].get('bytes')==image['size']
+             and meta[0].get('actual_decode_verify_and_load')is True and meta[0].get('format')in {'JPEG','PNG'}
+             and meta[0].get('frames')==1 and min(meta[0].get('width',0),meta[0].get('height',0))>=256
+             and 0<image['size']<=10*1024*1024,'original local static decode evidence; not an official/provider acceptance')
+        need(image['sha256']not in {x.get('image',{}).get('sha256')for x in base['plan']['items']},'new content SHA cannot reuse any original image/UNKNOWN')
+        need(re.fullmatch(r'[a-z][a-z0-9_-]+',row.get('new_upload_action_id',''))
+             and re.fullmatch(r'[a-z][a-z0-9_-]+',row.get('new_upload_logical_object_key',''))
+             and row['new_upload_action_id']not in original_specs,'one independent new image action/key; original actions untouched')
+        hashes.append(image['sha256']);upload_ids.append(row['new_upload_action_id']);upload_keys.append(row['new_upload_logical_object_key'])
+    need(len(set(hashes))==len(set(upload_ids))==len(set(upload_keys))==4,'four distinct asset hashes/action keys/logical objects')
+    return {**base,'source_item':item,'image_only_rows':rows,'image_only_parent':item['original_plan_source'],
+            'asset_plan':proposal['asset_supplement_plan'],'current_image_human_native':item['actual_human_native']}
+
+
+def _image_only_select_source(selected, requested):
+    successors=[row for row in selected if row[1].get('schema')==IMAGE_ONLY_SCHEMA]
+    if successors:
+        need(len(successors)==1, 'one exact image-only successor, never multiple candidates')
+        current=successors[0];parent=current[2]['image_only_parent']
+        need(all(row is current or (row[0]['details'][EVENT]==parent and row[1].get('schema')==PLAN_SCHEMA)for row in selected),
+             'image successor may only supersede its exact original plan action')
+        selected=[current]
+        if requested.get('source_registration')is not None:
+            need(requested['source_registration']==current[0]['details'][EVENT], 'superseded image action source; use the exact registered successor')
+    return selected
+
+
+def _image_only_key_unused(spec, policies, reserved, events):
+    key=w.sha256_value([spec[k]for k in IDENTITY])
+    need(not any((p.get('autonomous_action_key')==key or same(p,spec))and p.get('status')=='allow'for p in policies)
+         and not reserved and not any(same(e.get('details',{}).get('professional_ads_object_effect',{}),spec)for e in events),
+         'image successor requires every exact ad/image logical key unused; issued/unknown/effect cannot be replaced')
+
+
+def _image_only_unused(root, context):
+    """Fresh admission under the workflow lock; old upload reservations stay UNKNOWN."""
+    specs=operation_specs(root,context);policies=w.read_jsonl(Path(root)/w.POLICY_DECISIONS)
+    events=w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)
+    for spec in specs.values():
+        key=w.sha256_value([spec[k]for k in IDENTITY])
+        _image_only_key_unused(spec,policies,(Path(root)/'logs/professional-ads-object-attempts'/(key+'.jsonl')).exists(),events)
+    _image_only_occupied_assets(root,context)
+
+
+def _image_only_occupied_assets(root, context, registration=None):
+    """Recheck local reservations, permitting only this source's own asset/ad pair."""
+    specs=operation_specs(root,context);hashes={s['desired']['Image']['sha256']for s in specs.values()}
+    for path in (Path(root)/'logs/professional-ads-object-attempts').glob('*.jsonl'):
+        for attempt in w.read_jsonl(path):
+            request=doc(root,attempt['request']);image=request.get('desired',{}).get('Image',{})
+            if request.get('account_id')!=context['plan']['account_id']or not isinstance(image,dict)or image.get('sha256')not in hashes:continue
+            _image_only_asset_owner(specs,registration,request,attempt)
+
+
+def _image_only_asset_owner(specs, registration, request, attempt):
+    spec=specs.get(request.get('action_id'))
+    need(registration is not None and attempt.get('source_registration')==request.get('source_registration')==registration
+         and spec and same(request,spec,(*IDENTITY,'account_id','parent_campaign_id','object_key','operation','desired')),
+         'new asset already occupied by another/UNKNOWN source; no image nonce or mixed source')
+
+
 def operation_specs(root, context):
     """Derive only the unchanged approved map; never accept caller desire labels."""
+    if context.get('image_only_rows'):
+        original=operation_specs(root,{k:v for k,v in context.items()if k!='image_only_rows'});result={}
+        for row in context['image_only_rows']:
+            old=original[row['original_ad_action_id']]
+            upload_key=row['new_upload_logical_object_key']
+            result[old['action_id']]={**old,'desired':row['desired'],'upload_key':upload_key}
+            fields={k:v for k,v in old.items()if k not in {'action_id','operation','desired','object_key','upload_key'}}
+            result[row['new_upload_action_id']]={**fields,'action_id':row['new_upload_action_id'],'object_key':upload_key,
+                'operation':'upload_reference_image','desired':{'Image':row['desired']['Image']},'upload_key':upload_key}
+        return result
     plan = context['plan']; fields = {k:plan[k] for k in ('task_id','department','action_class','scope','source_project_id')}
     days = re.findall(r'20\d{6}', plan['action_id']); need(len(days) == 1, 'original plan action date')
     day = days[0]; result = {}; image_keys = {}
@@ -650,6 +832,9 @@ def _effect_rows(root, source_pin, action_id):
 def planned_preflight(root, item, context, *, fresh=True):
     need(item.get('schema')==OBJECT_PREFLIGHT and item.get('source_registration')==context['registration'], 'same normal plan/object preflight')
     request = doc(root,item['request']); spec = context['object_spec']
+    need(request.get('source_registration')==context['registration'], 'same exact request source; never mix old/new image intent')
+    if context.get('image_only_rows'):
+        _image_only_occupied_assets(root,context,context['registration'])
     need(same(item,request) and same(request,spec,(*IDENTITY,'source_project_id','account_id','parent_campaign_id','object_key','operation','desired')),
          'exact derived original object/intent; no caller label or changed field')
     at=w._parse_observed_at(request.get('observed_at'));now=dt.datetime.now(dt.timezone.utc)
@@ -722,14 +907,18 @@ def planned_preflight(root, item, context, *, fresh=True):
 
 
 def derive(root, registration, key, kind):
-    item=doc(root,registration);need(item.get('schema')in {PLAN_SCHEMA,SUPPLEMENT_SCHEMA},'one registered original plan source')
+    item=doc(root,registration);need(item.get('schema')in PLAN_SCHEMAS,'one registered original plan source')
     snapshot=w.read_json(w.snapshot_path(root,item['task_id']));context=source(root,item)
     events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('details',{}).get(EVENT)==registration]
     need(len(events)==1,'actual plan source registration before deriving actions')
     names={'group':'create_ad_group_only','upload':'upload_reference_image','ad':'create_ad_only','budget':'set_shared_daily_budget'}
     need(kind in names,'supported bounded operation kind')
     specs=operation_specs(root,context)
-    if kind=='upload':
+    if kind=='upload' and context.get('image_only_rows'):
+        rows=[x for x in context['image_only_rows']if x['key']==key]
+        need(len(rows)==1,'one exact image successor object')
+        key=rows[0]['new_upload_logical_object_key']
+    elif kind=='upload':
         selected=next((x for x in context['plan']['items']if x['key']==key),None);need(selected and selected.get('image'),'planned reference image')
         key=next(x['key']for x in context['plan']['items']if x.get('image',{}).get('sha256')==selected['image']['sha256'])
     wanted=[s for s in specs.values()if s['operation']==names[kind]and s['object_key']==('shared_budget'if kind=='budget'else key)]
@@ -828,7 +1017,7 @@ def record_effect(root, proof, *, check_only=False):
 
 
 def source_status(root, item, pin):
-    if item.get('schema')in {PLAN_SCHEMA,SUPPLEMENT_SCHEMA}:
+    if item.get('schema')in PLAN_SCHEMAS:
         context=source(root,item)
         events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('details',{}).get(EVENT)==pin]
         return {'state':'PLAN_SOURCE_REGISTERED_NOT_A_PERMIT'if len(events)==1 else'PLAN_SOURCE_NOT_REGISTERED',
@@ -1151,6 +1340,146 @@ def _native_completed_call_windows(page,calls):
     return [{'turn_id':t['id'],'status':t['status']}for t in selected]
 
 
+def _native_source_string(calls, variable, before, seen=()):
+    """Resolve literal source paths, never JS evaluation or a guessed variable name."""
+    need(variable not in seen and len(seen)<8,'unambiguous finite original source variable')
+    definitions=[]
+    for row,code in calls:
+        at=w._parse_observed_at(row.get('timestamp'))
+        if not at or at>before:continue
+        declared=list(re.finditer(r'\b(?:var|let|const)\s+'+re.escape(variable)+r'\s*=\s*([^;\n]+)',code))
+        need(len(re.findall(r'\b'+re.escape(variable)+r'\s*=(?!=)',code))==len(declared),
+             'non-declared source path rebinding is unknown, not a literal original source')
+        for match in declared:
+            definitions.append((at,match[1].strip()))
+    need(definitions,'actual original path declaration required')
+    values=[]
+    for at,expression in definitions:
+        literal=re.fullmatch(r"(['\"])([^'\"]*)\1",expression)
+        joined=re.fullmatch(r"([A-Za-z_$][\w$]*)\s*\+\s*(['\"])([^'\"]*)\2",expression)
+        need(literal or joined,'only literal or original literal-concatenation source path')
+        values.append(literal[2] if literal else _native_source_string(calls,joined[1],at,(*seen,variable))+joined[3])
+    need(len(set(values))==1,'rebound original source directory rejected')
+    return values[0]
+
+
+def _native_ad_dialog(text, desired, account, tab, *, filled, container_id=None, link_id=None):
+    """Bind fields to one actual Create Ad subtree; AX attribute order is not a value."""
+    need('Browser tab: '+tab+','in text and 'act='+account in text,'actual retained tab/account AX source')
+    lines=text.splitlines();containers=[i for i,line in enumerate(lines)if re.fullmatch(r'\s*\d+ container Create Ad, ID: [^,\s]+',line)]
+    need(len(containers)==1,'one actual Create Ad container, not metadata or a truncated tail')
+    i=containers[0];indent=len(lines[i])-len(lines[i].lstrip());end=i+1
+    while end<len(lines) and (not lines[end].strip()or len(lines[end])-len(lines[end].lstrip())>indent):end+=1
+    body='\n'.join(lines[i:end]);identity=lines[i].split('ID: ',1)[1]
+    need(container_id is None or identity==container_id,'same original Create Ad dialog identity')
+    need(len(re.findall(r'(?m)^\s*\d+ heading Create Ad,',body))==1
+         and all(len(re.findall(r'pop up button[^\n]*'+re.escape(desired[k])+r', ID:',body))==1 for k in ('Parent Campaign','Parent Ad Group')),
+         'one exact same-account dialog with original campaign/group')
+    if not filled:
+        need(len(re.findall(r'(?m)^\s*\d+ button(?: \(disabled\))? Create(?:, ID: [^,\s]+)?$',body))==1,'one actual Create control in this exact original before-form dialog')
+        links=[line for line in body.splitlines()if re.match(r'\s*\d+ text field',line)and 'Description: Link,'in line]
+        ids=re.findall(r'\bID: ([^,\s]+)',links[0])if len(links)==1 else []
+        need(len(ids)==1,'one actual original Link node ID in this dialog')
+        return {'container_id':identity,'link_id':ids[0]}
+    need(all(len(re.findall(r'text field(?: \((?:disabled|settable)\))? Value: '+re.escape(desired[k])+r', ID:',body))==1 for k in ('Ad Name','Title','Description')),
+         'original exact name/title/description in the same dialog')
+    link=[line for line in body.splitlines()if re.match(r'\s*\d+ text field',line)and 'Description: Link,'in line]
+    need(len(link)==1 and re.fullmatch(r'\s*\d+ text field(?: \((?:disabled|settable)\))? Description: Link, (?:Value: '+re.escape(desired['Link'])+r', ID: [^,\s]+|ID: [^,\s]+, Value: '+re.escape(desired['Link'])+r')',link[0]),
+         'one exact Link node/ID/value; no value borrowed from another AX field')
+    need(link_id is not None and re.findall(r'\bID: ([^,\s]+)',link[0])==[link_id],
+         'same original Link widget ID, not a different node with a copied value')
+    return identity
+
+
+def _native_created_source_chain(root,client,issued,attempt,call,create_code,page,proof):
+    """Trace a real request load/fill and original saved AX; never invent past counts."""
+    calls=client['canonical_calls'];outputs=client['canonical_outputs'];tab=client['tab_variable']
+    start=w._parse_observed_at(call['timestamp']);reserved=w._parse_observed_at(attempt['at'])
+    facts=doc(root,issued['facts']);channel=facts['channel'];desired=issued['desired']
+    need(channel['runtime_tab']==client['form_tab'] and issued['parent_group_id']==client['parent_group_id']
+         and issued['account_id']==client['context']['plan']['account_id'],'same original account/parent/retained form')
+    variables=re.findall(r'Date\.parse\((\w+)\.observed_at\)',create_code)
+    need(len(variables)==1,'one original request variable used by the actual Create freshness guard')
+    variable=variables[0];loads=[]
+    pattern=r'\bvar\s+'+re.escape(variable)+r"=JSON\.parse\(await (\w+)\.readFile\((\w+)\+'/input/CURRENT-EXECUTION-REQUEST.json','utf8'\)\)"
+    for row,code in calls:
+        at=w._parse_observed_at(row.get('timestamp'))
+        if at and reserved<=at<=start:
+            matches=list(re.finditer(pattern,code))
+            loads.extend((row,code,m[1],m[2])for m in matches)
+    need(len(loads)==1,'one original immutable request loading call, no variable alias or later reassignment')
+    row,fill,fsvar,dirvar=loads[0];loaded=w._parse_observed_at(row['timestamp']);result=outputs.get(row['payload']['call_id'])
+    need(result and loaded<=w._parse_observed_at(result['timestamp'])<=start,'completed field-fill output before the single Create')
+    raw=result['payload'].get('output',[])
+    need(raw and all(x.get('type')in {'input_text','input_image'}for x in raw)
+         and not re.search(r'(?m)^(?:Error:|Script error:|Traceback|Tool call failed)', '\n'.join(x.get('text','')for x in raw)),
+         'original field-fill call must finish successfully, never an ambiguous failed fill')
+    folder=_native_source_string(calls,dirvar,loaded)
+    request_path=str(Path(folder)/'input/CURRENT-EXECUTION-REQUEST.json')
+    need(w.file_digest(root,request_path)==attempt['request'] and doc(root,attempt['request'])==issued,
+         'actual original request path/SHA, not a variable name or future value')
+    imports=[(r,c)for r,c in calls if (at:=w._parse_observed_at(r.get('timestamp')))and at<=loaded
+             and re.search(r'\bvar\s+'+re.escape(fsvar)+r"\s*=\s*await import\(['\"]node:fs/promises['\"]\)",c)]
+    need(imports,'real original Node filesystem source, not caller-provided file data')
+    imported=w._parse_observed_at(imports[-1][0]['timestamp'])
+    for other,code in calls:
+        at=w._parse_observed_at(other.get('timestamp'))
+        if at and imported<=at<=start:
+            clean=re.sub(r'\bvar\s+'+re.escape(fsvar)+r"\s*=\s*await import\(['\"]node:fs/promises['\"]\)",'',code)
+            need(not re.search(r'\b'+re.escape(fsvar)+r'\s*=(?!=)',clean),'no replaced filesystem source before the original request read')
+    assignments={
+        'Ad Name':"getByPlaceholder('Enter ad name',{exact:true}).fill("+variable+".desired['Ad Name'])",
+        'Title':"getByPlaceholder('Enter ad title',{exact:true}).fill("+variable+'.desired.Title)',
+        'Description':"getByPlaceholder('Enter ad description',{exact:true}).fill("+variable+'.desired.Description)',
+        'Link':"getByPlaceholder('Enter target URL',{exact:true}).fill("+variable+'.desired.Link)',
+        'Tracking parameters':"getByRole('textbox',{name:'Tracking parameters',exact:true}).fill("+variable+".desired['Tracking parameters'])"}
+    need(all(fill.count('await '+tab+'.playwright.'+value+';')==1 for value in assignments.values())
+         and len(re.findall(re.escape(tab)+r'\.playwright[^;\n]*\.fill\(',fill))==len(assignments),
+         'exact original same-form five field fills from this immutable request')
+    residual=fill
+    for value in assignments.values():residual=residual.replace('await '+tab+'.playwright.'+value+';','',1)
+    need(not re.search(re.escape(tab)+r'\.(?:playwright|goto|reload|back|forward)',residual),
+         'no extra same-form UI action inside the original filling call')
+    clicked=tab+".playwright.getByRole('dialog').getByRole('button',{name:'Create',exact:true}).click()"
+    need(create_code.count(clicked)==1 and not re.search(re.escape(tab)+r'\.(?:playwright|goto|reload|back|forward)',create_code.replace(clicked,'',1)),
+         'only the exact scoped Create and native reads in the original Create call')
+    for other,code in calls:
+        at=w._parse_observed_at(other.get('timestamp'))
+        if not at or not loaded<=at<=start:continue
+        clean=re.sub(pattern,'',code)if other is row else code
+        need(not re.search(r'\b'+re.escape(variable)+r'(?:\.\w+|\[[^\]]+\])*\s*=(?!=)|Object\.assign\(\s*'+re.escape(variable),clean),
+             'original request variable must not be rebound or mutated')
+        need(not re.search(r'\b'+re.escape(fsvar)+r'\s*=(?!=)',code),'original filesystem module cannot be rebound during the reserved call chain')
+        need(not re.search(r'\b'+re.escape(tab)+r'\s*=(?!=)',code),'retained tab cannot be rebound')
+        if other not in (row,call):
+            need(not re.search(re.escape(tab)+r'\.(?:playwright|goto|reload|back|forward)',code),
+                 'no unbound same-form change between original filling and Create')
+    need(proof['policy_decision_id']in create_code and ('action:'+variable+'.action_id'in create_code
+         or attempt['request']['sha256']in create_code),'original policy/action/request binding in actual Create')
+    native=client['context']['object_spec'];need(desired==native['desired'],'original source-derived desired fields')
+    original=facts['crop_preview']['native_evidence'];need(original in facts['raw_evidence']and w.file_digest(root,original['path'])==original,'pinned original before-form source')
+    identity=_native_ad_dialog(w.safe_path(root,original['path']).read_text(),desired,issued['account_id'],client['form_tab'],filled=False)
+    # The actual Create command either writes the direct native response or its
+    # one locally assigned AX variable. Success metadata alone is insufficient.
+    direct='await '+fsvar+".writeFile("+dirvar+"+'/actual-single-Create-result.txt',await "+tab+'.getAXState({disableDiffing:true,emit:false}))'
+    via=re.search(r'var (\w+)=await '+re.escape(tab)+r'\.getAXState\(\{disableDiffing:true,emit:false\}\)',create_code)
+    indirect=('await '+fsvar+'.writeFile('+dirvar+"+'/actual-single-Create-result.txt',"+via[1]+')')if via else None
+    need(create_code.count(direct)==1 or indirect and create_code.count(indirect)==1,
+         'actual Create call must persist its full original native AX, not metadata/tail alone')
+    writers=[r for r,c in calls if (at:=w._parse_observed_at(r.get('timestamp')))and at>=loaded
+             and re.search(r'\.writeFile\(\s*'+re.escape(dirvar)+r"\+'/actual-single-Create-result.txt',",c)]
+    need(len(writers)==1 and writers[0]['payload']['call_id']==proof['native_create_call_id'],
+         'unique original saved native AX writer; a later replacement is not original evidence')
+    saved=Path(folder)/'actual-single-Create-result.txt';pin=w.file_digest(root,str(saved));text=w.safe_path(root,pin['path']).read_text()
+    _native_ad_dialog(text,desired,issued['account_id'],client['form_tab'],filled=True,**identity)
+    selected=[t for t in page['turns']if any(m.get('id')==proof['native_create_call_id']for m in t['items'])]
+    need(len(selected)==1 and row['payload'].get('internal_chat_message_metadata_passthrough',{}).get('turn_id')==selected[0]['id']
+         and call['payload'].get('internal_chat_message_metadata_passthrough',{}).get('turn_id')==selected[0]['id'],
+         'real original request loading and Create belong to the same actual owner turn')
+    return text,{'original_request_load_call_id':row['payload']['call_id'],'saved_AX_current_custody_pin':pin,
+                 'past_exact_button_counts':'NOT_EMITTED','source_is_not_new_provider_effect':True}
+
+
 def _native_client_created_readback(root, client, issued, attempt, observation, page, native_call, proof):
     """After-write evidence uses the historical image, never the pre-click ban."""
     tab=client['tab_variable'];create_id=proof.get('native_create_call_id')
@@ -1182,23 +1511,26 @@ def _native_client_created_readback(root, client, issued, attempt, observation, 
             need(len(counts)==1,'one unambiguous actual native count result')
             counted.append((row,result,tuple(map(int,counts[0]))))
     need(len(counted)<=1,'ambiguous original button-count sources')
-    if scoped or counted:
+    chain=None
+    if scoped and not counted:
+        scoped_text,chain=_native_created_source_chain(root,client,issued,attempt,call,create_code,page,proof)
+    elif scoped or counted:
         need(len(counted)==1 and counted[0][2][1]==1 and counted[0][2][0]>=1
              and (scoped or counted[0][2][0]==1),'one actual Create in this dialog; ambiguous global Create cannot close')
         row,result,_=counted[0];count_window=[(row['payload']['call_id'],row,result)]
     if scoped:
         need(output and issued.get('desired')==client['context']['object_spec']['desired']
-             and proof['policy_decision_id']in create_code and attempt['request']['sha256']in create_code,
+             and proof['policy_decision_id']in create_code and (chain or attempt['request']['sha256']in create_code),
              'scoped Create must bind this original exact policy/request/object')
         raw=output['payload'].get('output',[])
         need(raw and all(x.get('type')=='input_text'and isinstance(x.get('text'),str)for x in raw),'complete actual scoped Create output required')
-        text='\n'.join(x['text']for x in raw);desired=issued['desired']
+        text=scoped_text if chain else '\n'.join(x['text']for x in raw);desired=issued['desired']
         need(len(re.findall(r'(?m)^\s*\d+ heading Create Ad,',text))==1
              and len(re.findall(r'(?m)^\s*\d+ container Create Ad,',text))==1
              and 'act='+client['context']['plan']['account_id']in text
              and all(re.search(r'pop up button[^\n]*'+re.escape(desired[k])+r', ID:',text)for k in ('Parent Campaign','Parent Ad Group'))
              and all(re.search(r'text field(?: \(disabled\))? Value: '+re.escape(desired[k])+r', ID:',text)for k in ('Ad Name','Title','Description'))
-             and re.search(r'text field(?: \(disabled\))? Description: Link, Value: '+re.escape(desired['Link'])+r', ID:',text),
+             and any(re.fullmatch(r'\s*\d+ text field(?: \(disabled\))? Description: Link, (?:Value: '+re.escape(desired['Link'])+r', ID: [^,\s]+|ID: [^,\s]+, Value: '+re.escape(desired['Link'])+r')',line)for line in text.splitlines()),
              'exact Create Ad dialog/account/parent and original fields, never another dialog or object')
     observations=[(row,code)for row,code in client['canonical_calls']if row['payload'].get('call_id')==native_call['id']]
     need(output and len(observations)==1,'complete original canonical Create/observation outputs')
@@ -1214,7 +1546,8 @@ def _native_client_created_readback(root, client, issued, attempt, observation, 
     _native_completed_call_windows(page,count_window+[(create_id,call,output),(native_call['id'],obsrow,obsout)])
     reserved=w._parse_observed_at(attempt['at']);start=w._parse_observed_at(call.get('timestamp'));end=w._parse_observed_at(output.get('timestamp'));read_at=w._parse_observed_at(obsrow.get('timestamp'));read_end=w._parse_observed_at(obsout.get('timestamp'));at=w._parse_observed_at(observation.get('observed_at'))
     need(all(x is not None for x in (reserved,start,end,read_at,read_end,at))and reserved<=start<=end<=read_at<=read_end<=at<=dt.datetime.now(dt.timezone.utc),'actual reserved action -> one Create -> full native result chronology')
-    return {'create_call_id':create_id,'readback_call_id':native_call['id'],'reserved_at':attempt['at'],'Create_at':call['timestamp'],'readback_at':obsout['timestamp'],'one_provider_Create_effect_only':True}
+    return {'create_call_id':create_id,'readback_call_id':native_call['id'],'reserved_at':attempt['at'],'Create_at':call['timestamp'],'readback_at':obsout['timestamp'],'one_provider_Create_effect_only':True,
+            **({'original_source_chain':chain}if chain else{})}
 
 
 def _native_client_image_binding(root, context, spec, stage_pin, facts):
@@ -1389,9 +1722,9 @@ def main():
         out=w.policy_check(root,**q,payload_sha256=item['request']['sha256'],consume_approval=args.command=='issue')[0]
     elif args.command == 'source-check':
         c = source(root, item)
-        out = ({'state':'PLAN_SOURCE_VALID_NOT_A_PERMIT','plan':item['supplement_plan']if item.get('schema')==SUPPLEMENT_SCHEMA else c['coordination']['exact_professional_plan'],
+        out = ({'state':'PLAN_SOURCE_VALID_NOT_A_PERMIT','plan':c['asset_plan']if item.get('schema')==IMAGE_ONLY_SCHEMA else item['supplement_plan']if item.get('schema')==SUPPLEMENT_SCHEMA else c['coordination']['exact_professional_plan'],
                 'planned_actions':list(operation_specs(root,c)),'budget_limit':c['budget_limit'],'actual_action_allowed':False}
-               if item.get('schema')in {PLAN_SCHEMA,SUPPLEMENT_SCHEMA} else
+               if item.get('schema')in PLAN_SCHEMAS else
                {'state': 'SOURCE_VALID_NOT_A_PERMIT', 'request': c['packet']['request'], 'actual_action_allowed': False})
     elif args.command == 'reserve':
         out = reserve(root, item, args.decision_id)

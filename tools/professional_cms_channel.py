@@ -574,11 +574,6 @@ def original_body_context(root, snapshot, item):
     need(manifest.get('task_id') == snapshot['task_id'] and manifest.get('report',{}).get('sha256') == data['original_complete_WEB_result']['sha256']
          and external(root,manifest['report'],binding) == report and manifest.get('source_packet') == report['source_packet']
          and manifest.get('count') == len(manifest.get('pins',[])), 'actual producer evidence manifest, not permission')
-    for pin in manifest['pins']:
-        path=Path(pin['path'])
-        if path.is_absolute() and not path.resolve().is_relative_to(root): web._external_bytes(pin,binding)
-        else:
-            actual=w.file_digest(root,pin['path']);need(all(actual[k] == pin[k] for k in ('sha256','size')), 'immutable original evidence pin')
     native = g._native_document(root,data['real_completed_WEB_native'])
     need(all(native.get('thread',{}).get(k) == binding[v] for k,v in {'id':'thread_id','title':'title','cwd':'cwd'}.items()), 'same actual fixed WEB source identity')
     turns = [t for t in native.get('turns',[]) if t.get('id') == packet.get('original_WEB_turn')]
@@ -599,7 +594,9 @@ def original_body_context(root, snapshot, item):
     need(report['original_materials_delivery']==packet['original_delivery'] and delivery.get('task_id')==snapshot['task_id']
          and all(meta.get(k)==delivery.get(v)for k,v in [('commit','head'),('parent','parent'),('base','base'),('tree','tree'),('worktree','worktree'),('branch','branch')]), 'original immutable delivery/head/base/tree')
     wt=Path(meta['worktree']).resolve();need(wt.is_relative_to(Path(binding['cwd']).resolve()),'actual original website worktree')
-    ctx={'worktree':str(wt)};paths={str(Path(p['path']).relative_to(wt)):p['sha256']for p in delivery['files']}
+    ctx,source_worktree_missing = _immutable_en2_git_reader(wt,binding,meta['commit'],meta['parent'],meta['tree'],
+                                                           historical_material=True)
+    paths={str(Path(p['path']).relative_to(wt)):p['sha256']for p in delivery['files']}
     need(len(paths)==len(delivery['files'])==len(meta['paths']) and set(paths)==set(meta['paths'])
          and web.git(ctx,'show','-s','--format=%H %P %T',meta['commit']).decode().strip()==' '.join([meta['commit'],meta['parent'],meta['tree']])
          and meta['base']==meta['parent'] and set(web.git(ctx,'diff','--name-only',meta['base'],meta['commit']).decode().splitlines())==set(paths), 'complete exact original Git contribution')
@@ -610,7 +607,19 @@ def original_body_context(root, snapshot, item):
     pair=delivery['backup_recovery'];delta=web._patch_effect(web._delta({**ctx,'paths':paths},meta['base'],meta['commit']))
     need(web._patch_effect(web._patch_delta(web._external_bytes(pair['forward'],binding)))==delta
          and web._patch_effect(web._patch_delta(web._external_bytes(pair['inverse'],binding)))=={p:(v[1],v[0])for p,v in delta.items()},'exact original own forward/inverse source, never production recovery permission')
-    exact=external(root,delivery['frozen_source'],binding)
+    if source_worktree_missing:
+        source_pin = delivery['frozen_source']
+        original_path = Path(source_pin.get('path','')).resolve(strict=False)
+        need(not original_path.exists() and original_path.is_relative_to(wt), 'absent original source path in original worktree required')
+        rel = original_path.relative_to(wt).as_posix()
+        need(rel in paths and paths[rel] == source_pin.get('sha256') and type(source_pin.get('size')) is int,
+             'exact original delivered source pin required for immutable Git custody')
+        original_bytes = web.git(ctx,'show',meta['commit']+':'+rel)
+        need(len(original_bytes) == source_pin['size'] and hashlib.sha256(original_bytes).hexdigest() == source_pin['sha256'],
+             'exact original frozen source bytes required in Git custody')
+        exact = json.loads(original_bytes)
+    else:
+        exact=external(root,delivery['frozen_source'],binding)
     need(exact['task_id']==snapshot['task_id'] and exact['execution_department']==owner and exact['registration_grants_write_authority']is False
          and len(exact['entries'])==len(targets),'exact original two body source, no added target')
     tuples={};physical={}
@@ -625,18 +634,45 @@ def original_body_context(root, snapshot, item):
         physical[entry['cli_namespace']]=runtime;tuples[entry['cli_namespace']]={k:target[k]for k in ['task_id','action_id','candidate_version','scope','table','record_id','slug','changed_fields','execution_owner','execution_thread_id']}
     need(len(physical)==len(delivery['targets'])==2 and delivery['API_contract']['request'] and packet['writer_contract']['p_images']is None
          and packet['writer_contract']['existing_RPC']=='publish_material_atomic' and packet['writer_contract']['rollback_allowed']is False,'unchanged atomic two-row writer contract')
-    from managed_cms_permit_issuer import SUPABASE_HOST
+    SUPABASE_HOST=_issuer_source_host(root)
     backup=packet['current_Functions_backup'];closed=external(root,backup['closed_source_manifest'],binding);expected={p['repo_path']:p for p in backup['runtime_files']}
     need(backup['project_ref']==SUPABASE_HOST.split('.')[0] and backup['function']=='content-publish' and backup.get('actual_platform_compiled_ESZIP_or_restore_proven')is False,'exact existing protected function/project; source archive is not compiled restore')
     need(len(expected)==len(backup['runtime_files'])==backup['complete_runtime_modules'] and set(expected)=={'supabase/functions/'+p['path']for p in closed['files']},'complete real runtime source closure')
     for f in closed['files']:
         pin=expected['supabase/functions/'+f['path']];need(pin['sha256']==f['sha256'] and pin['size']==f['bytes'],'closed source manifest and returned source agree');web._external_bytes(pin,binding)
+    candidate_archive_bytes = {}
     for key,source in [('raw_source_archive',expected),('candidate_source_archive',{p:{'sha256':s,'size':len(web.git(ctx,'show',meta['commit']+':'+p))}for p,s in paths.items()})]:
         web._external_bytes(backup[key],binding)
         with tarfile.open(backup[key]['path'])as tar:
             members=tar.getmembers();files={m.name:m for m in members if m.isfile()}
             need(all(not Path(m.name).is_absolute() and '..'not in Path(m.name).parts and (m.isdir()or m.isfile())for m in members)and len(files)==len([m for m in members if m.isfile()])and set(files)==set(source),'safe exact source archive, no missing/extra/alias entries')
-            for path,pin in source.items():raw=tar.extractfile(files[path]).read();need(len(raw)==pin['size']and hashlib.sha256(raw).hexdigest()==pin['sha256'],'all archived source bytes match')
+            for path,pin in source.items():
+                raw=tar.extractfile(files[path]).read()
+                need(len(raw)==pin['size']and hashlib.sha256(raw).hexdigest()==pin['sha256'],'all archived source bytes match')
+                if key=='candidate_source_archive':candidate_archive_bytes[path]=raw
+    # Only paths already in the authenticated original delivery may use the
+    # original immutable archive. All other frozen pins use the old reader.
+    original_files = {str(Path(row['path'])):row for row in delivery['files']}
+    need(len(original_files)==len(delivery['files']),'unique original delivery paths')
+    for pin in manifest['pins']:
+        path=Path(pin['path']); row=original_files.get(str(path))
+        if row is not None:
+            need(path.is_absolute() and path.is_relative_to(wt),'original source path must remain in fixed worktree')
+            rel=path.relative_to(wt).as_posix()
+            need(set(row) >= {'path','sha256','size','git_blob'} and rel in candidate_archive_bytes
+                 and all(pin.get(k)==row.get(k) for k in ('sha256','size')),
+                 'frozen manifest pin must exactly match original delivered source')
+            raw=candidate_archive_bytes[rel]
+            tree=web.git(ctx,'ls-tree',meta['commit'],'--',rel).decode().split()
+            need(len(tree)==4 and tree[0] in {'100644','100755'} and tree[1]=='blob'
+                 and tree[2]==row['git_blob'] and tree[3]==rel
+                 and web.git(ctx,'show',meta['commit']+':'+rel)==raw
+                 and len(raw)==pin['size'] and hashlib.sha256(raw).hexdigest()==pin['sha256'],
+                 'authenticated original Git blob, mode and archived bytes must match frozen pin')
+        elif path.is_absolute() and not path.resolve().is_relative_to(root):
+            web._external_bytes(pin,binding)
+        else:
+            actual=w.file_digest(root,pin['path']);need(all(actual[k] == pin[k] for k in ('sha256','size')), 'immutable original evidence pin')
     web._external_bytes(backup['build_dependency_archive'],binding)
     with tarfile.open(backup['build_dependency_archive']['path'])as tar:
         members=tar.getmembers();files=[m for m in members if m.isfile()]
@@ -659,7 +695,215 @@ def original_body_context(root, snapshot, item):
     return {'root':str(root),'task':snapshot['task_id'],'scope':scope,'owner':owner,'role':role,'binding':binding,'contract':snapshot['goal_contract'],
             'authorization':item['authorization'],'decision':item['owner_input'],'worktree':str(wt),'site':binding['cwd'],'branch':meta['branch'],'commit':meta['commit'],'base':meta['base'],'tree':meta['tree'],'paths':paths,'source_components':components,
             'backup':item['owner_input'],'rollback':item['owner_input'],'repository':repo,'repository_id':account['id'],'actor_id':actor['id'],
+            'original_source_worktree_missing':source_worktree_missing,
             'original_production_channel':True,'local_source_stage_only':True,'protected_body_source_custody':True,'prefix':snapshot['task_id']+'-original-body',
+            'edge_scope':'company.example:edge:'+backup['project_ref']+':content-publish','pages_scope':'company.example:pages:production','project_ref':backup['project_ref'],
+            'registered_protected_body_targets':physical,'original_PUB_tuples':tuples,'current_source_backup':backup,'normal_recovery_runbook':packet['recovery_runbook'],
+            'production_authority_dependency':'Original CMS contract explicitly grants no code deployment/site_publish; original WEB must bind its own exact authorized per-stage source before external consumption. This registration is source custody only.'}
+
+
+def _issuer_source_host(root):
+    """Read the same literal without executing unrelated live target factories."""
+    import ast
+    tree = ast.parse(w.validation_bytes(Path(root)/'tools/managed_cms_permit_issuer.py'))
+    declarations = [n for n in tree.body if isinstance(n, ast.Assign)
+                    and any(isinstance(t, ast.Name) and t.id == 'SUPABASE_HOST' for t in n.targets)]
+    stores = [n for n in ast.walk(tree) if isinstance(n, ast.Name)
+              and n.id == 'SUPABASE_HOST' and isinstance(n.ctx, ast.Store)]
+    need(len(declarations) == len(stores) == 1 and len(declarations[0].targets) == 1
+         and isinstance(declarations[0].value, ast.Constant)
+         and isinstance(declarations[0].value.value, str)
+         and re.fullmatch(r'[a-z0-9]+\.supabase\.co', declarations[0].value.value),
+         'one unchanged literal issuer project host required; no dynamic or alternate account')
+    return declarations[0].value.value
+
+
+def _immutable_en2_git_reader(original_worktree, binding, head, parent, tree, *, historical_material=False):
+    """Find immutable Git objects without representing a deleted worktree as present."""
+    import professional_web_execution as web
+    wt=Path(original_worktree).resolve(strict=False)
+    allowed=Path(binding['cwd']).resolve(strict=True)
+    need(wt.is_relative_to(allowed), 'original worktree must remain inside the original WEB project')
+    if wt.is_dir():
+        return {'worktree':str(wt),'historical_material_custody':historical_material},False
+    need(not wt.exists() and wt.parent.name=='.worktrees', 'only an absent original project worktree may use Git custody')
+    repo=wt.parent.parent.resolve(strict=True)
+    need(repo.is_relative_to(allowed) and repo.is_dir(), 'exact original website repository required')
+    reader = {'worktree':str(repo),'historical_material_custody':historical_material}
+    need(Path(web.git(reader,'rev-parse','--show-toplevel').decode().strip()).resolve()==repo,
+         'original Git repository root required')
+    need(web.git(reader,'show','-s','--format=%H %P %T',head).decode().strip().split()==[head,parent,tree],
+         'original immutable commit, parent and tree required in actual Git custody')
+    return reader,True
+
+
+def original_en2_context(root, snapshot, item):
+    """Read the original EN2 source and current full41 tuple; custody grants no production action."""
+    import datetime as dt
+    import goal_delivery_runtime as g
+    import professional_web_execution as web
+    import paid_three_page_bounded_cms as legacy
+    from professional_cms_issuer import external
+    root = Path(root).resolve(); goal = snapshot['goal_delivery']
+    frozen = a.document(root, snapshot['goal_contract'])
+    need(item.get('schema') == 'original-protected-EN2-fields-WEB-source/v1' and item.get('task_id') == snapshot['task_id'] == legacy.EN2_TASK
+         and item.get('goal_contract') == snapshot['goal_contract'] and item.get('authorization') == goal['authorization_pin']
+         and all(goal.get(k) == frozen.get(k) for k in ('primary_owner','producer_departments','human_authorization','authorized_scope','required_execution_actions'))
+         and snapshot.get('current_state') not in w.TERMINAL_STATES, 'unchanged active original body contract and authority')
+    targets = legacy.english_kitchen_en2_targets(root)
+    need(len(targets) == 1 and goal['primary_owner'] == 'publishing', 'one already authorized original EN2 tuple')
+    owner = goal['primary_owner']; scope = item.get('scope'); role = item.get('WEB_role')
+    need(scope in goal['authorized_scope'] and role not in goal['producer_departments'], 'original EN2 scope and external source role')
+    binding = g._collaboration_binding(root, snapshot, role)
+    need(binding and binding['project_id'] != a.PROJECT, 'original external project binding')
+    data = a.document(root, item['owner_input'])
+    need(data.get('schema') == 'PUB-original-EN2-b65ddc8e-complete-source-consumer-input/v1'
+         and data.get('task_id') == snapshot['task_id'] and data.get('department') == owner and data.get('scope') == scope,
+         'exact professional owner source, never an unrelated producer')
+    states = [s for s in g._collaboration_wait_states(root,snapshot,only_action_id=item.get('original_WEB_action'))
+              if s.get('department') == role and s.get('status') == 'result_received' and s.get('proof_state') == 'PROVEN'
+              and s.get('result') == data['WEB_original_result']]
+    need(len(states) == 1, 'one real normally received original WEB source supplement')
+    report = a.document(root,data['WEB_original_result']); packet = a.document(root,data['WEB_original_packet'])
+    need(external(root,report['packet'],binding) == packet
+         and all(report.get(k) == packet.get(k) == value for k,value in [('task_id',snapshot['task_id']),('scope',scope)])
+         and report.get('action_id')==packet.get('in_reply_to_action_id')==item['original_WEB_action']
+         and report['packet']['sha256'] == data['WEB_original_packet']['sha256'], 'exact original external packet and owner byte custody')
+    manifest = a.document(root,data['WEB_original_frozen55'])
+    need(manifest.get('task_id')==snapshot['task_id'] and manifest.get('action_id')==item['original_WEB_action']
+         and manifest.get('count')==len(manifest.get('pins',[]))
+         and all(any(all(p.get(k)==wanted[k]for k in ('sha256','size'))for p in manifest['pins'])for wanted in (data['WEB_original_result'],data['WEB_original_packet'])),
+         'real frozen complete source report and packet, not permission')
+    for pin in manifest['pins']:
+        path=Path(pin['path'])
+        if path.is_absolute() and not path.resolve().is_relative_to(root): web._external_bytes(pin,binding)
+        else:
+            actual=w.file_digest(root,pin['path']);need(all(actual[k] == pin[k] for k in ('sha256','size')), 'immutable original evidence pin')
+    native = g._native_document(root,data['actual_completed_WEB_same_download_turn'])
+    need(all(native.get('thread',{}).get(k) == binding[v] for k,v in {'id':'thread_id','title':'title','cwd':'cwd'}.items()), 'same actual fixed WEB source identity')
+    turns = [t for t in native.get('turns',[]) if t.get('id') == packet['fresh_download_native']['current_turn']]
+    need(len(turns)==1 and turns[0].get('status')=='completed' and not turns[0].get('error'), 'actual completed source turn, never rewritten inProgress metadata')
+    turn=turns[0];now=dt.datetime.now(dt.timezone.utc).timestamp()
+    need(type(turn.get('startedAt'))in {int,float} and type(turn.get('completedAt'))in {int,float}
+         and turn['startedAt']<=turn['completedAt']<=now,'real completed original EN2 source time')
+    old_native=g._native_document(root,states[0]['native_result'])
+    old_finals=[m for t in old_native.get('turns',[])if t.get('id')==turn['id'] for m in t['items']if m.get('type')=='agentMessage'and m.get('phase')=='final_answer']
+    need(len(old_finals)==1 and old_finals[0] in turn['items'] , 'unchanged normally received completed final')
+    account_native=g._native_document(root,web.code_pin(root,data['account_original_completed_native']))
+    need(data['account_original_completed_native']==packet['account_native']
+         and all(account_native.get('thread',{}).get(k)==binding[v]for k,v in {'id':'thread_id','title':'title','cwd':'cwd'}.items()),
+         'same original WEB account identity evidence; no other task permission')
+    account_turns=[t for t in account_native.get('turns',[])if t.get('id')==packet['account_actual_turn']]
+    need(len(account_turns)==1 and account_turns[0].get('status')=='completed'and not account_turns[0].get('error')
+         and type(account_turns[0].get('startedAt'))in {int,float}and type(account_turns[0].get('completedAt'))in {int,float}
+         and account_turns[0]['startedAt']<=account_turns[0]['completedAt']<=turn['startedAt'], 'actual earlier completed account command, never relabeled as this turn')
+    account=external(root,packet['account_source'],binding);calls=[c for c in account_turns[0]['items']if c.get('id')==packet.get('account_command')]
+    need(len(calls)==1 and calls[0].get('type')=='commandExecution'and calls[0].get('status')=='completed'and calls[0].get('exitCode')==0
+         and Path(calls[0].get('cwd','')).resolve().is_relative_to(Path(binding['cwd']).resolve()),'genuine completed original account identity command')
+    raw=w._completion_execution_output(calls[0]);stdout=w.safe_path(root,data['account_exact143byte_stdout']['path']).read_bytes()
+    need(w.file_digest(root,data['account_exact143byte_stdout']['path'])==data['account_exact143byte_stdout'] and raw==stdout
+         and json.loads(raw)==account==packet['account_values'], 'native exact stdout and parsed original account; formatting is not identity')
+    delivery=external(root,packet['original_delivery'],binding);original_meta=packet['original_candidate'];meta={**original_meta,'commit':original_meta['head'],'paths':original_meta['full_range']['paths']}
+    need(report['original_delivery']==packet['original_delivery'] and delivery.get('task_id')==snapshot['task_id']
+         and all(meta.get(k)==delivery.get(v)for k,v in [('commit','head'),('parent','parent'),('base','base'),('tree','tree'),('worktree','worktree'),('branch','branch')]), 'original immutable delivery/head/base/tree')
+    wt=Path(meta['worktree']).resolve();need(wt.is_relative_to(Path(binding['cwd']).resolve()),'actual original website worktree')
+    ctx,source_worktree_missing=_immutable_en2_git_reader(wt,binding,meta['commit'],meta['parent'],meta['tree'])
+    paths={str(Path(p['path']).relative_to(wt)):p['sha256']for p in delivery['files']}
+    need(len(paths)==len(delivery['files'])==len(meta['paths']) and set(paths)==set(meta['paths'])
+         and web.git(ctx,'show','-s','--format=%H %P %T',meta['commit']).decode().strip()==' '.join([meta['commit'],meta['parent'],meta['tree']])
+         and meta['base']==meta['parent'] and set(web.git(ctx,'diff','--name-only',meta['base'],meta['commit']).decode().splitlines())==set(paths), 'complete exact original Git contribution')
+    for path,sha in paths.items():need(hashlib.sha256(web.git(ctx,'show',meta['commit']+':'+path)).hexdigest()==sha,'original Git blob drift')
+    repo=account.get('full_name');actor=account.get('authenticated_actor',{})
+    need(isinstance(repo,str)and type(account.get('id'))is int and type(actor.get('id'))is int and actor['id']>0
+         and actor.get('login')==repo.split('/')[0]and web.git(ctx,'config','--get','remote.origin.url').decode().strip()in{'https://github.com/'+repo,'https://github.com/'+repo+'.git','user-3de132cd98be@example.invalid:'+repo+'.git'},'actual original repository and actor')
+    pair=delivery['backup_recovery'];delta=web._patch_effect(web._delta({**ctx,'paths':paths},meta['base'],meta['commit']))
+    need(web._patch_effect(web._patch_delta(web._external_bytes(pair['forward'],binding)))==delta
+         and web._patch_effect(web._patch_delta(web._external_bytes(pair['inverse'],binding)))=={p:(v[1],v[0])for p,v in delta.items()},'exact original own forward/inverse source, never production recovery permission')
+    frozen_pin=delivery['frozen_source'];frozen_path=Path(frozen_pin['path'])
+    if source_worktree_missing and not frozen_path.exists():
+        need(frozen_path.is_absolute() and frozen_path.resolve(strict=False).is_relative_to(wt)
+             and set(frozen_pin)=={'path','sha256','size'}, 'exact missing original frozen source required')
+        relative=frozen_path.relative_to(wt).as_posix()
+        raw_frozen=web.git(ctx,'show',meta['commit']+':'+relative)
+        git_entry=web.git(ctx,'ls-tree',meta['commit'],'--',relative).decode().strip().split()
+        need(len(raw_frozen)==frozen_pin['size'] and hashlib.sha256(raw_frozen).hexdigest()==frozen_pin['sha256']
+             and len(git_entry)==4 and git_entry[0]=='100644' and git_entry[1]=='blob' and git_entry[3]==relative,
+             'exact original frozen Git blob, mode, hash and size required')
+        exact=json.loads(raw_frozen)
+    else:
+        exact=external(root,frozen_pin,binding)
+    need(exact['task_id']==snapshot['task_id'] and exact['execution_department']==owner and exact['registration_grants_write_authority']is False
+         and len(exact['entries'])==len(targets),'exact original two body source, no added target')
+    tuples={};physical={}
+    for entry in exact['entries']:
+        target=targets.get(entry['cli_namespace']);need(target is not None,'only original declared row namespace')
+        row=entry['before'];desired=entry['desired'];runtime=entry['runtime_target'];fields=target['changed_fields'];execution_scope='company.example:'+target['table']+':'+target['record_id']+':'+','.join(fields);retained=sorted(set(row)-set(fields)-{'updated_at','version'})
+        candidate=legacy.doc(root,{'path':target['candidate'][0],'sha256':target['candidate'][1],'size':w.file_digest(root,target['candidate'][0])['size']})
+        need(len(row)==41 and len(retained)==37 and len([p for p in retained if p.endswith('_ms')])==11 and desired=={k:candidate['desired_fields'][k]for k in fields}
+             and runtime in delivery['targets'] and row['id']==target['record_id'] and row['slug']==target['slug']
+             and all(runtime.get(k)==v for k,v in {'taskId':snapshot['task_id'],'actionId':target['action_id'],'candidateVersion':target['candidate_version'],'scope':execution_scope,'table':target['table'],'contentType':target['content_type'],'changedFields':fields,'baselineProjectionFields':sorted(row),'baselineFieldsSha256':w.sha256_value(row),'desiredFieldsSha256':w.sha256_value(desired),'rollbackFieldsSha256':w.sha256_value({k:row[k]for k in fields}),'retainedProjectionFields':retained,'retainedFieldsSha256':w.sha256_value({k:row[k]for k in retained}),'expectedUpdatedAt':row['updated_at'],'rollbackAllowed':False,'requiresParentRun':True}.items())
+             and entry['inverse_authorized']is False,'full41/protect37/MS11/exact original two English fields/physical carrier/no inverse')
+        physical[entry['cli_namespace']]=runtime;tuples[entry['cli_namespace']]={k:target[k]for k in ['task_id','action_id','candidate_version','scope','table','record_id','slug','changed_fields','execution_owner','execution_thread_id']}
+    expected_tuple={'task_id':snapshot['task_id'],'action_id':target['action_id'],'candidate_version':target['candidate_version'],
+                    'business_scope':scope,'physical_scope':execution_scope,'table':target['table'],'record_id':target['record_id'],
+                    'slug':target['slug'],'changed_fields':fields,'sole_CMS_executor':owner,'current_PUB_thread':target['execution_thread_id'],
+                    'full41':True,'protect37':True,'MS11':True,'rollbackAllowed':False}
+    need(len(physical)==len(delivery['targets'])==1 and delivery['API_contract']['request']
+         and all(data['execution_tuple'].get(k)==packet['execution_tuple'].get(k)==v for k,v in expected_tuple.items())
+         and exact.get('business_scope')==scope and exact.get('current_original_publishing_thread')==target['execution_thread_id']
+         and entry.get('baseline_is_current_CAS')is False,'one original EN2 business/physical/currentPUB binding; dated source is not fresh execution CAS')
+    tuples[entry['cli_namespace']].update(business_scope=scope,physical_scope=execution_scope,full_fields=41,protect_fields=37,MS_fields=11,rollback_allowed=False)
+    SUPABASE_HOST = _issuer_source_host(root)
+    backup=packet['current_Functions_backup'];closed=external(root,backup['closed_source_manifest'],binding);expected={p['repo_path']:p for p in backup['runtime_files']}
+    need(backup['project_ref']==SUPABASE_HOST.split('.')[0] and backup['function']=='content-publish' and backup.get('actual_platform_compiled_ESZIP_or_restore_proven')is False,'exact existing protected function/project; source archive is not compiled restore')
+    need(len(expected)==len(backup['runtime_files'])==backup['complete_runtime_modules'] and set(expected)=={'supabase/functions/'+p['path']for p in closed['files']},'complete real runtime source closure')
+    for f in closed['files']:
+        pin=expected['supabase/functions/'+f['path']];need(pin['sha256']==f['sha256'] and pin['size']==f['bytes'],'closed source manifest and returned source agree');web._external_bytes(pin,binding)
+    for key,source in [('raw_source_archive',expected),('EN2_candidate_source_archive',{p:{'sha256':s,'size':len(web.git(ctx,'show',meta['commit']+':'+p))}for p,s in paths.items()})]:
+        web._external_bytes(backup[key],binding)
+        with tarfile.open(backup[key]['path'])as tar:
+            members=tar.getmembers();files={m.name:m for m in members if m.isfile()}
+            need(all(not Path(m.name).is_absolute() and '..'not in Path(m.name).parts and (m.isdir()or m.isfile())for m in members)and len(files)==len([m for m in members if m.isfile()])and set(files)==set(source),'safe exact source archive, no missing/extra/alias entries')
+            for path,pin in source.items():raw=tar.extractfile(files[path]).read();need(len(raw)==pin['size']and hashlib.sha256(raw).hexdigest()==pin['sha256'],'all archived source bytes match')
+    web._external_bytes(backup['build_dependency_archive'],binding)
+    with tarfile.open(backup['build_dependency_archive']['path'])as tar:
+        members=tar.getmembers();files=[m for m in members if m.isfile()]
+        need(len(files)==len(backup['build_dependency_paths'])and {m.name for m in files}==set(backup['build_dependency_paths'])and len({m.name for m in files})==len(files)and all(not Path(m.name).is_absolute()and '..'not in Path(m.name).parts and (m.isfile()or m.isdir())for m in members),'complete safe build dependency archive')
+        for m in files:need(tar.extractfile(m).read()==web.git(ctx,'show',backup['build_dependency_source_main']+':'+m.name),'build archive original main bytes')
+    raw=web._external_bytes(backup['raw_source_multipart'],binding);fresh=web._external_bytes(backup['fresh_raw_multipart'],binding)
+    observation=external(root,backup['actual_current_version_and_source_read'],binding);at=w._parse_observed_at(observation.get('observed_at_UTC'));meta_live=observation.get('metadata',{})
+    need(at and turn['startedAt']<=at.timestamp()<=turn['completedAt'] and observation.get('task_id')==snapshot['task_id']
+         and observation.get('action_id')==item['original_WEB_action']and observation.get('project_ref')==backup['project_ref']and observation.get('function')==backup['function']
+         and meta_live.get('status')=='ACTIVE'and meta_live.get('version')==backup['version']and meta_live.get('ezbr_sha256')==backup['EZBR']
+         and observation.get('source_response')==backup['fresh_raw_multipart']and fresh==raw,'actual current same-version source response; never compiled EZBR/source digest substitution')
+    urls=['https://api.supabase.com/v1/projects/'+backup['project_ref']+'/functions/content-publish'+suffix for suffix in ('','/body')]
+    need(len(observation.get('http',[]))==2 and all(row.get('status')==200 and row.get('method')=='GET'and row.get('url')==url for row,url in zip(observation['http'],urls)), 'actual metadata/body readonly source receipt')
+    native_refs=packet['fresh_download_native'];native_calls={x['id']:x for x in turn['items']}
+    ids=[native_refs[k]for k in ('metadata_call','download_call_failed_after_write','same_response_receipt_recovery_call')]
+    need(len(set(ids))==3 and all(i in native_calls for i in ids)
+         and all(native_calls[i].get('type')=='mcpToolCall'and native_calls[i].get('server')=='cua_repl'and native_calls[i].get('tool')=='js' for i in ids)
+         and [native_calls[i].get('status')for i in ids]==['completed','failed','completed']
+         and [turn['items'].index(native_calls[i])for i in ids]==sorted(turn['items'].index(native_calls[i])for i in ids)
+         and str(Path(backup['actual_current_version_and_source_read']['path']).parent)in json.dumps(native_calls[ids[1]].get('arguments',{}),ensure_ascii=False)
+         and Path(backup['actual_current_version_and_source_read']['path']).name in json.dumps(native_calls[ids[2]].get('arguments',{}),ensure_ascii=False),
+         'original successful metadata, honest failed receipt export and later same-response receipt recovery calls')
+    current_main=external(root,backup['current_main_read'],binding)
+    need(current_main.get('exit')==0 and current_main.get('stdout','').split()==[backup['build_dependency_source_main'],'refs/heads/main'], 'actual original build source main reference')
+    recovery=external(root,packet['recovery_runbook'],binding)
+    need(recovery['task_id']==snapshot['task_id'] and recovery['original_delivery']==packet['original_delivery']and recovery['source_commit']==meta['commit']
+         and recovery['source_base']==meta['base']and recovery['source_tree']==meta['tree']and set(recovery['source_paths'])==set(paths)
+         and recovery['unknown_effect_replay_allowed']is False and recovery['CMS_inverse_allowed']is False
+         and recovery['actual_current_Functions']['same_complete_source_archive']==backup['raw_source_archive'],'own source-bound normal recovery; no restore claim or CMS inverse')
+    need(not frozen.get('new_code_deployment_authority'),'this original source codec does not create code deployment authority')
+    repair=w.read_json(w.snapshot_path(root,item['maintenance_task_id']))
+    need(item['maintenance_goal_contract']==repair['goal_contract'] and repair['goal_delivery']['primary_owner']=='system-development'
+         and repair['current_state']not in w.TERMINAL_STATES,'active original SYS maintenance authority for append-only custody')
+    components=[{'head':meta['commit'],'base':meta['base'],'parent':meta['parent'],'tree':meta['tree'],'worktree':str(wt),'paths':paths,'forward':pair['forward'],'inverse':pair['inverse']}]
+    return {'root':str(root),'task':snapshot['task_id'],'scope':scope,'owner':owner,'role':role,'binding':binding,'contract':snapshot['goal_contract'],
+            'authorization':item['authorization'],'decision':item['owner_input'],'worktree':str(wt),'site':binding['cwd'],'branch':meta['branch'],'commit':meta['commit'],'base':meta['base'],'tree':meta['tree'],'paths':paths,'source_components':components,
+            'original_source_worktree_missing':source_worktree_missing,
+            'backup':item['owner_input'],'rollback':item['owner_input'],'repository':repo,'repository_id':account['id'],'actor_id':actor['id'],
+            'original_production_channel':True,'local_source_stage_only':True,'protected_body_source_custody':True,'prefix':snapshot['task_id']+'-original-EN2-source',
             'edge_scope':'company.example:edge:'+backup['project_ref']+':content-publish','pages_scope':'company.example:pages:production','project_ref':backup['project_ref'],
             'registered_protected_body_targets':physical,'original_PUB_tuples':tuples,'current_source_backup':backup,'normal_recovery_runbook':packet['recovery_runbook'],
             'production_authority_dependency':'Original CMS contract explicitly grants no code deployment/site_publish; original WEB must bind its own exact authorized per-stage source before external consumption. This registration is source custody only.'}
@@ -667,19 +911,22 @@ def original_body_context(root, snapshot, item):
 
 def original_body_records(root, task):
     import goal_delivery_runtime as g
-    rows=[(e,e.get('details',{}).get(ORIGINAL_BODY_EVENT))for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)if e.get('details',{}).get(ORIGINAL_BODY_EVENT,{}).get('target_task_id')==task]
+    rows=[(e,e.get('details',{}).get(ORIGINAL_BODY_EVENT))for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={('details',ORIGINAL_BODY_EVENT,'target_task_id'):task})if e.get('details',{}).get(ORIGINAL_BODY_EVENT,{}).get('target_task_id')==task]
     need(len(rows)<=1,'one immutable original body source catalog effect')
     if not rows:return []
     e,entry=rows[0];item=a.document(root,entry['source']);snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)))
     need(e['task_id']==item['maintenance_task_id'] and entry=={'target_task_id':task,'source':entry['source']}and e.get('details',{}).get('external_permission_issued')is False,'actual original technical source catalog only')
-    return [{**original_body_context(root,snapshot,item),'registration':entry['source'],'event_id':e['event_id']}]
+    context=original_en2_context if item.get('schema')=='original-protected-EN2-fields-WEB-source/v1'else original_body_context
+    return [{**context(root,snapshot,item),'registration':entry['source'],'event_id':e['event_id']}]
 
 
 def record_original_body(root, task, path):
     import goal_delivery_runtime as g
     pin=w.file_digest(root,path);item=a.document(root,pin)
     with w.workflow_lock(root):
-        snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)));original_body_context(root,snapshot,item)
+        snapshot=g.restore_goal(root,w.read_json(w.snapshot_path(root,task)))
+        context=original_en2_context if item.get('schema')=='original-protected-EN2-fields-WEB-source/v1'else original_body_context
+        context(root,snapshot,item)
         old=original_body_records(root,task)
         if old:
             need(old[0]['registration']==pin,'existing immutable body source differs; preserve original effect')

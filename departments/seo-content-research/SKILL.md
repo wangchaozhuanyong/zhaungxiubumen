@@ -17,7 +17,7 @@ description: FLASH CAST 全站自然搜索关键词、需求研究、主题规�
 
 ## 职责和归属
 
-- GEO专业主责：新审计目标盘点AI搜索/答案缺口；已有完整方案按变化继续原矩阵和可执行研究/候选；每天复核、诊断、修复建议和拓展，未实际完成不能切到纯维护。本部门保留GEO专业成果生产主责；已有CMS字段保存交publishing，代码实现/Git/PR/CI/同SHA部署交指定开发；本地/地图事实由部门3提供，SEO/GEO与内容线结果由本部门自检、读回效果并直报HQ；协作成果归回原主负责人继续已授权工作。AI观察必须有平台、模式、日期、语言、可核验地区及引用来源；无实测写NOT_MEASURED，不把问法库、规划或内容上线等同于AI推荐/引流。
+- GEO专业主责：新审计目标盘点AI搜索/答案缺口；已有完整方案按变化继续原矩阵和可执行研究/候选；每天复核、诊断、修复建议和拓展，未实际完成不能切到纯维护。本部门保留GEO专业成果生产主责；已有CMS字段保存交publishing，代码实现/Git/PR/CI/同SHA部署交指定开发；本地/地图事实由部门3提供，SEO/GEO与内容线结果由本部门自检、读回效果，收口按共同正文；协作成果归回原主负责人继续已授权工作。AI观察必须有平台、模式、日期、语言、可核验地区及引用来源；无实测写NOT_MEASURED，不把问法库、规划或内容上线等同于AI推荐/引流。
 - 全站自然搜索需求、关键词研究、主题集群、同义去重、唯一页面归属、EN/ZH内容草稿、FAQ与指南、内链建议及编辑更新包。
 - 自然词尽量覆盖相关实际需求，不设固定数量上限；优先级决定实施顺序，不用投放CPC/预算/否定词规则删除相关信息问题。区分实际观察查询、研究支持候选和编辑未验证候选，记录来源/日期。缺数据标DATA_MISSING，候选不称已有流量。
 - 复用当前目标引用的已验关键词与内容资料，按真实来源去重，不为每个词或城市组合生成薄页。一个主意图一个owner，多词可同页。
@@ -28,8 +28,10 @@ description: FLASH CAST 全站自然搜索关键词、需求研究、主题规�
 
 允许内部研究与草稿，不新增外部费用，不登录或修改广告，不联系客户，不执行CMS/代码发布、不改账号权限。收费、工期、资格、案例和评价必须有真实依据；AI概念不可称完工案例。地图与本地实体资料交 local-seo-maps；广告词由 paid-growth-data 精筛。
 
-产物位于 drafts/seo/<task_id>/seo-content-research/、reports/、logs/department-outbox/。每个交付注明结论、证据、具体动作、唯一owner、P0/P1/P2、风险、下一步和事实依赖，使用 task-contract V2 并运行 validate_outbox。专业负责人自检与实际效果读回 PASS不等于网站发布。协作沿原目标已授权的固定部门，主负责人收回结果；成果由未参与制作的专业自检与效果读回。
+产物位于 drafts/seo/<task_id>/seo-content-research/、reports/、logs/department-outbox/。每个交付注明结论、证据、具体动作、唯一owner、P0/P1/P2、风险、下一步和事实依赖，使用 task-contract V2 并运行 validate_outbox。专业负责人自检与实际效果读回 PASS不等于网站发布。协作沿原目标已授权的固定部门，主负责人收回结果；成果由原专业负责人独立自检并读回真实效果，需要其他专业输入时沿原任务协作，不增加第二人技术审核门槛。
+
+传统技术与站内SEO诊断另可加载 `<CODEX_HOME>/skills/seo-audit/SKILL.md`；与 ai-seo、装修SEO/GEO方法的分工、马来西亚市场范围和上游适用校正统一见[本项目方法说明](../../playbooks/geo-ai-search-method.md#传统-seo-审计补充seo-audit)。复用原task和在途成果，不因技能新增重复审计或扩展权限。
 
 运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department seo-content-research --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。
 
-当前流程只按[共同正文](../../playbooks/department-system-current.md)；专业部门独立交付并直报HQ，A1仅待命、A2/A3退役历史，不作本部门前置审批。原技术质量、平台本人和准确业务授权边界保留。
+当前流程只按[共同正文](../../playbooks/department-system-current.md)；专业部门独立制作、自检和执行原准确授权，协作结果回本任务原owner，普通成果收口及协调由总助理优先、HQ补位。A2/A3与旧QA只读历史，不设置逐步技术审批。原质量、平台本人和准确业务授权边界保留。

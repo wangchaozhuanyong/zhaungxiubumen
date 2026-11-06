@@ -185,6 +185,8 @@ def _modern_inspect(root: Path, registry: dict, live: dict, now: dt.datetime, co
         role["unfinished_control_results"] = [r for r in queue["results"] + queue["followthrough_results"]
                                               if r.get("task_id") in {g["task_id"] for g in role["current_checkpoint_tasks"]}]
     reasons = []
+    if coordinator_role == "operations" and state["ready_internal_actions"]:
+        reasons.append("owned_goal_requires_current_next_action")
     if coordinator_role != "operations":
         reasons.extend(str(e) for e in live_errors + state["validation_errors"])
         if any(not r["identity_verified"] for r in roles):
@@ -206,7 +208,8 @@ def _modern_inspect(root: Path, registry: dict, live: dict, now: dt.datetime, co
                      for t in targets}
     active = all(len(rows) == 1 and (rows[0].get("type") if isinstance(rows[0], dict) else rows[0]) == "active"
                  for rows in target_status.values())
-    next_mode = ("DELEGATED_ASSISTANTS_OWN_CONTINUATION" if coordinator_role == "operations" else
+    next_mode = ("COLLECT_OR_RECONCILE" if coordinator_role == "operations" and reasons else
+                 "DELEGATED_ASSISTANTS_OWN_CONTINUATION" if coordinator_role == "operations" else
                  "NATIVE_EVENT_WAIT" if targets and active and not state["ready_internal_actions"]
                  and not state["validation_errors"] and not queue["total_actionable_count"] and not live_errors
                  and not queue["collaboration_pending_count"]

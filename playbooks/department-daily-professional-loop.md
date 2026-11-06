@@ -1,3 +1,3 @@
-# 专业日常接续
+# 专业日常工作入口
 
-共同行为按[现行正文](department-system-current.md)，接口按[运行参考](department-system-runtime-reference.md)。专业主负责人恢复原目标、自检、完成已授权实际效果并直接回报HQ；不派助理、不用队列接受代替实际启动/实收/下一动作。现有事件和18:00兜底保持，无新增轮询。历史试点和失败证据只读保留。
+共同流程、责任与原检查频率只按[现行规则](department-system-current.md)，接口按[运行参考](department-system-runtime-reference.md)。本路径仅保留原引用，不另设试点流程、助理审批、排程或轮询。历史试点和失败证据只读保留。

@@ -7,7 +7,7 @@ and verifies the complete result. This is NOT server CAS.
 Uncontrolled concurrent remote editors remain outside that local serialization.
 """
 from pathlib import Path
-import argparse,contextlib,datetime as dt,fcntl,hashlib,json,re,shutil,subprocess
+import argparse,contextlib,datetime as dt,fcntl,hashlib,json,os,re,shlex,shutil,subprocess,sys
 import workflow_control as w
 import department_autonomy as a
 import professional_web_execution as web
@@ -71,17 +71,40 @@ def lifecycle_summary(expired):
    'state':'HISTORICAL_EXPIRED_UNUSABLE'}for b in expired]
 
 def context(root,task,approval=None,effect=False):
- sources=web.records(root,task);need(len(sources)==1,'one real registered original external WEB source');ctx=sources[0]
- if approval is None:return ctx,None,None
+ if approval is None:
+  sources=web.records(root,task);need(len(sources)==1,'one real registered original external WEB source')
+  return sources[0],None,None
  row=w.effective_approvals(root).get(approval)
+ # Discovery for approved ads deliberately carries a stage, not the complete
+ # original-business execution context. Resolve it solely from this actual
+ # issuer row's pinned preflight/request; caller data cannot select a source.
+ need(isinstance(row,dict),'real normal own issuer ledger source required')
+ envelope=a.document(root,row.get('source_preflight'));req=a.document(root,envelope.get('request'))
+ if 'hq_singlefield_code_stage_source' in req.get('state',{}):
+  ctx=web.issuer_source_context(root,task,row)
+  need(ctx.get('hq_single_field_code_stage') is True,'actual registered HQ single-field issuer source required')
+ elif 'material_reviewed_rebase_source' in req.get('state',{}):
+  ctx=web.issuer_source_context(root,task,row)
+ else:
+  sources=web.records(root,task);need(len(sources)==1,'one real registered original external WEB source');ctx=sources[0]
+ if ctx.get('approved_ads_source_discovery_only'):
+  need(req.get('task_id')==task and isinstance(req.get('state'),dict), 'actual issuer original task and request state required')
+  ctx=web.execution_context(root,task,req['state'])
+  need(ctx.get('approved_ads_web_bridge') is True and ctx.get('original_task')==task, 'actual original business execution bridge')
+  web._static_intent_context(root,req,ctx)
+  web.candidate(ctx,req['state'])
  standing=ctx.get('standing_CMS_channel') is True
  original=ctx.get('original_production_channel') is True
- basis=('verified_frozen_original_production_delivery_v1' if original else 'verified_professional_standing_CMS_WEB_source_v1' if standing else 'verified_original_goal_external_WEB_source_v1')
+ reviewed=original and ctx.get('current_owner_reviewed_release') is True
+ basis=('verified_current_owner_reviewed_release_v1' if reviewed else
+        'verified_frozen_original_production_delivery_v1' if original else
+        'verified_professional_standing_CMS_WEB_source_v1' if standing else 'verified_original_goal_external_WEB_source_v1')
  source_key='original_professional_source' if original else 'standing_CMS_authority' if standing else 'delegated_HQ_decision'
  need(row and row.get('task_id')==task and row.get('approval_basis')==basis
   and row.get('original_human_authorization_pin')==ctx['authorization']
   and row.get(source_key)==ctx['decision'] and row.get('execution_department')==ctx['role']
-  and (not original or (row.get('granted_by')==ctx['owner'] and row.get('original_production_authority')==ctx['contract'] and not row.get('delegated_HQ_decision')))
+  and (not original or (row.get('granted_by')==('operations' if reviewed else ctx['owner'])
+    and row.get('original_production_authority')==ctx['contract'] and not row.get('delegated_HQ_decision')))
   and (not standing or (row.get('granted_by')==row.get('authority_department')==ctx['authority_department']
     and row.get('standing_authorization_id')==ctx['standing_authorization_id']
     and not row.get('delegated_HQ_decision'))),
@@ -90,8 +113,7 @@ def context(root,task,approval=None,effect=False):
  need(row['approval_id']==b['approvalId']==approval and row.get('action_id')==b['actionId']
   and row.get('scope')==b['scope']==ctx['edge_scope']and b['repository']==ctx['repository']
   and b['taskId']==task,'exact original issuer/task/action/repository/scope')
- envelope=a.document(root,row.get('source_preflight'));req=a.document(root,envelope.get('request'))
- need(req.get('department')==ctx['role']and req.get('operation')=='edge_deploy'
+ need(envelope.get('task_id')==task and req.get('task_id')==task and req.get('department')==ctx['role']and req.get('operation')=='edge_deploy'
   and req.get('action_id')==b['actionId']and req.get('scope')==b['scope']
   and req.get('state',{}).get('main_sha')==b['expectedSha']
   and str(req['state'].get('r3_run',{}).get('id'))==str(b['runId'])
@@ -100,14 +122,18 @@ def context(root,task,approval=None,effect=False):
  if effect:
   need(row['status']=='active','actual local reference consumed/revoked; no reissue')
   item,actual,source,_=web.preflight(root,task,b['actionId'],'site_publish',b['scope'],ctx['role'])
-  need(source==row['source_preflight']and actual==req,'latest own normal preflight and actual WEB source')
+  if source!=row['source_preflight']:
+   web.reference_fresh_preflight(root,row,source,actual,ctx,'transport')
+   req=actual
+  else:need(actual==req,'latest own normal preflight and actual WEB source')
   observed=w._parse_observed_at(req.get('observed_at'));need(observed and 0<=(timestamp()-observed).total_seconds()<=300,'fresh actual WEB facts before transport')
   need(Path.cwd().resolve()==Path(ctx['worktree']).resolve(),'platform mutation only from original WEB worktree; SYS does not execute this')
  return ctx,row,req
 
 class GitHubError(RuntimeError):pass
+class PreAPIGuardRejected(w.WorkflowError):pass
 class GitHub:
- def __init__(self,ctx,before_write=None):self.ctx=ctx;self.before_write=before_write;self.cli=shutil.which('gh');need(self.cli,'original existing GitHub CLI required; do not install/authenticate a substitute')
+ def __init__(self,ctx,before_write=None):self.ctx=ctx;self.before_write=before_write;self.boundary=None;self.cli=shutil.which('gh');need(self.cli,'original existing GitHub CLI required; do not install/authenticate a substitute')
  def call(self,method,path,value=None):
   repo=self.ctx['repository'];base='repos/'+repo
   allowed=method=='GET'and(path=='user'or path==base or path==base+'/git/ref/heads/main'
@@ -119,7 +145,11 @@ class GitHub:
   if method!='GET':
    need(isinstance(value,dict)and set(value)=={'name','value'}and value['name']==VARIABLE,'only the bounded existing variable payload')
    need(self.before_write is not None,'normal actual own issuer context required; no raw adapter mutation')
-   self.before_write()
+   need(self.boundary is not None,'durable provider call boundary required')
+   try:self.before_write()
+   except (w.WorkflowError,OSError,ValueError,KeyError) as e:
+    self.boundary('PRE_API_GUARD_REJECTED');raise PreAPIGuardRejected('actual guard rejected before provider invocation') from e
+   self.boundary('PROVIDER_CALL_STARTED')
   argv=[self.cli,'api','--hostname','github.com','--method',method,path,'-H','Accept: application/vnd.github+json','-H','X-GitHub-Api-Version: 2022-11-28']
   if value is not None:argv+=['--input','-']
   try:p=subprocess.run(argv,input=json.dumps(value)if value is not None else None,capture_output=True,text=True,timeout=25,cwd=self.ctx['worktree'])
@@ -187,7 +217,86 @@ def serialized(root,ctx):
   try:yield
   finally:fcntl.flock(f,fcntl.LOCK_UN)
 
-def transfer(api,ctx,binding,directory):
+def _file_hash(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+def _durable_boundary(directory,state,binding,attempt_path):
+ directory=Path(directory);path=directory/'boundary.jsonl';intent=directory/'intent.json'
+ row={'schema':'original-R3-carrier-call-boundary/v1','state':state,'approval_id':binding['approvalId'],
+      'binding_sha256':digest(binding),'attempt_sha256':_file_hash(attempt_path),
+      'intent_sha256':_file_hash(intent),'at':timestamp().isoformat()}
+ w.append_jsonl_locked(path,row)
+ fd=os.open(directory,os.O_RDONLY|os.O_DIRECTORY)
+ try:os.fsync(fd)
+ finally:os.close(fd)
+
+def known_pre_api_failure(directory,binding,*,after_success=False):
+ """Only the original durable call-boundary record permits one same-key retry."""
+ directory=Path(directory);attempt=directory/'attempt.json';intent=directory/'intent.json';boundary=directory/'boundary.jsonl';readback=directory/'readback.jsonl';retry=directory/'retry_attempt.json'
+ if not all(p.is_file() and not p.is_symlink() for p in (attempt,intent,boundary,readback)):return False
+ try:
+  intent_doc=w.read_json(intent);attempt_doc=w.read_json(attempt);events=w.read_jsonl(boundary);results=w.read_jsonl(readback)
+  if not (intent_doc.get('binding')==binding and attempt_doc.get('state')=='mutation_intent_durable' and attempt_doc.get('attempts')==1):return False
+  if not events or not results:return False
+  first=events[0];initial=results[0]
+  if not (first.get('schema')=='original-R3-carrier-call-boundary/v1' and first.get('state')=='PRE_API_GUARD_REJECTED'
+    and first.get('approval_id')==binding['approvalId'] and first.get('binding_sha256')==digest(binding)
+    and first.get('attempt_sha256')==_file_hash(attempt) and first.get('intent_sha256')==_file_hash(intent)
+    and initial.get('state')=='KNOWN_PRE_API_GUARD_REJECTED_NO_PROVIDER_CALL' and initial.get('new_write') is False
+    and initial.get('approval_id')==binding['approvalId']):return False
+  if not after_success:return len(events)==1 and len(results)==1 and not retry.exists()
+  if not retry.is_file() or retry.is_symlink() or len(events)!=2 or len(results)!=2:return False
+  retry_doc=w.read_json(retry);second=events[1];final=results[1]
+  return (retry_doc.get('state')=='same_original_reference_retry_intent_durable' and retry_doc.get('original_attempt_sha256')==_file_hash(attempt)
+    and second.get('schema')=='original-R3-carrier-call-boundary/v1' and second.get('state')=='PROVIDER_CALL_STARTED'
+    and second.get('approval_id')==binding['approvalId'] and second.get('binding_sha256')==digest(binding)
+    and second.get('attempt_sha256')==_file_hash(retry) and second.get('intent_sha256')==_file_hash(intent)
+    and final.get('state')=='TRANSPORTED_AND_READ_BACK' and final.get('new_write') is True and final.get('approval_id')==binding['approvalId'])
+ except (OSError,ValueError,KeyError,TypeError):return False
+
+def authenticated_pre_api_failure(root,ctx,state,directory,binding,*,after_success=False):
+ """Marker plus exact original WEB native completed install, never a caller waiver."""
+ if not known_pre_api_failure(directory,binding,after_success=after_success):return False
+ try:
+  import goal_delivery_runtime as g
+  import r3_known_zero_recovery as recovery
+  proof=state.get('r3_pre_api_failure_proof')
+  if not isinstance(proof,dict) or set(proof)!={'native','command_id'}:return False
+  page=g._native_document(root,proof['native'])
+  rows=[(turn,item) for turn in page.get('turns',[]) for item in turn.get('items',[]) if item.get('id')==proof['command_id']]
+  if len(rows)!=1:return False
+  turn,command=rows[0];raw=web.native(root,ctx,proof['native'],proof['command_id']);value=json.loads(raw)
+  argv=shlex.split(command.get('command',''))
+  if len(argv)==3 and argv[0] in ('/bin/zsh','/bin/bash') and argv[1] in ('-lc','-c'):argv=shlex.split(argv[2])
+  allowed={'PYTHONDONTWRITEBYTECODE':'1','PYTHONPATH':str(root)+':'+str(Path(root)/'tools')}
+  while argv and '=' in argv[0]:
+   key,item=argv.pop(0).split('=',1)
+   if allowed.get(key)!=item:return False
+  if not argv or Path(argv.pop(0)).resolve()!=Path(sys.executable).resolve():return False
+  if argv and argv[0]=='-B':argv.pop(0)
+  expected=[str(Path(root)/'tools/r3_platform_binding_transport.py'),'install','--task-id',ctx['task'],'--approval-id',binding['approvalId']]
+  if argv!=expected or value.get('state')!='KNOWN_PRE_API_GUARD_REJECTED_NO_PROVIDER_CALL' or value.get('new_write') is not False or value.get('approval_id')!=binding['approvalId']:return False
+  attempt=w.read_json(Path(directory)/'attempt.json');at=w._parse_observed_at(attempt.get('at'))
+  if not at:return False
+  genuine=recovery.official_web_turn(root,ctx['binding'],turn['id'],_registration_event_time=attempt['at'])
+  calls=[x for x in genuine.get('items',[]) if x.get('id')==proof['command_id']]
+  if len(calls)!=1:return False
+  actual=calls[0]
+  if not all(command.get(k)==actual.get(k) for k in ('id','type','status','exitCode','cwd','command')) or w._completion_execution_output(command).decode()!=actual.get('aggregatedOutput'):return False
+  start=actual.get('startedAtMs');end=actual.get('completedAtMs')
+  return type(start) is int and type(end) is int and start<=at.timestamp()*1000<=end
+ except (w.WorkflowError,OSError,ValueError,KeyError,TypeError,AttributeError):return False
+
+def require_active_stage(root,ctx,task):
+ if ctx.get('approved_ads_web_bridge'):
+  stage=w.read_json(w.snapshot_path(root,ctx['execution_stage_id']))
+  stale_only=(stage and stage.get('current_state')=='blocked' and stage.get('plan_status')=='blocked_health_stale'
+    and stage.get('blockers')==['dispatch_plan:blocked_health_stale'] and stage.get('missing_receipts')==[]
+    and {x.get('department') for x in stage.get('departments',[])}=={ctx['owner'],'publishing'})
+  need(stage and stage.get('current_state') not in w.TERMINAL_STATES
+    and (stage.get('current_state')!='blocked' or stale_only), 'original execution stage active; only unrelated stale owner/PUB routing may remain blocked')
+ else:need(w.read_json(w.snapshot_path(root,task)).get('current_state')not in w.TERMINAL_STATES,'original task is terminal; no platform mutation')
+
+def transfer(api,ctx,binding,directory,*,root=None,state=None):
  """External I/O adapter can be simulated; all planner validators stay real."""
  directory=Path(directory);attempt=directory/'attempt.json';before=levels(api,ctx);level,after,duplicate=proposal(before,binding)
  if duplicate:
@@ -204,7 +313,8 @@ def transfer(api,ctx,binding,directory):
     and all(b not in before[level]['entries']for b in original.get('retired_expired_bindings',[])),
     'own echo exists but protected original entries or explicit retirement differ; unknown concurrent effect, no replay')
   return {'state':'EXACT_BINDING_ALREADY_PRESENT','new_write':False,'approval_id':binding['approvalId'],'effective_level':level}
- if attempt.exists():return {'state':'UNKNOWN_PRIOR_WRITE_EFFECT_NO_RETRY','new_write':False,'approval_id':binding['approvalId'],'next':'read original variable/run/source; never reissue from missing echo'}
+ retry=attempt.exists()
+ if retry and not (root is not None and isinstance(state,dict) and authenticated_pre_api_failure(root,ctx,state,directory,binding)):return {'state':'UNKNOWN_PRIOR_WRITE_EFFECT_NO_RETRY','new_write':False,'approval_id':binding['approvalId'],'next':'read original variable/run/source; never reissue from missing echo'}
  again=levels(api,ctx);need(again==before,'fresh native variable bytes/timestamps changed; no write')
  plan_at=timestamp();fresh_level,fresh_after,fresh_duplicate=proposal(again,binding,plan_at)
  need((fresh_level,fresh_after,fresh_duplicate)==(level,after,False),'binding lifecycle changed before write; fresh original read required')
@@ -215,7 +325,12 @@ def transfer(api,ctx,binding,directory):
  if (directory/'intent.json').exists():
   old=w.read_json(directory/'intent.json');need(all(old[k]==intent[k]for k in ('binding','before','target_level','after_sha256')),'unattempted original intent drifted; preserve it')
  else:w.atomic_write_json(directory/'intent.json',intent)
- w.atomic_write_json(attempt,{'state':'mutation_intent_durable','at':timestamp().isoformat(),'attempts':1})
+ if retry:
+  attempt_path=directory/'retry_attempt.json';need(not attempt_path.exists(),'same-key retry already attempted')
+  w.atomic_write_json(attempt_path,{'state':'same_original_reference_retry_intent_durable','at':timestamp().isoformat(),'original_attempt_sha256':_file_hash(attempt)})
+ else:
+  w.atomic_write_json(attempt,{'state':'mutation_intent_durable','at':timestamp().isoformat(),'attempts':1});attempt_path=attempt
+ api.boundary=lambda state:_durable_boundary(directory,state,binding,attempt_path)
  row=before[level];path=row['path']+'/'+VARIABLE if row['exists']else row['path'];method='PATCH'if row['exists']else'POST'
  try:
   api.call(method,path,{'name':VARIABLE,'value':json.dumps(after,ensure_ascii=False,separators=(',',':'))})
@@ -224,10 +339,13 @@ def transfer(api,ctx,binding,directory):
   other='repository'if level=='environment'else'environment';need(actual[other]==before[other],'other variable level changed; preserve unknown concurrent effect')
   proposal(actual,binding)
   result={'state':'TRANSPORTED_AND_READ_BACK','approval_id':binding['approvalId'],'new_write':True,'effective_level':level,'preserved_other_entries':len(after)-1,'retired_expired_binding_count':len(retired),'retired_expired_bindings':lifecycle_summary(retired),'original_retired_rows_and_raw_value_hash_retained_in_intent':True,'server_CAS_available':False,'external_edit_race_not_atomic':True,'environment_review_performed':False}
+ except PreAPIGuardRejected:
+  result={'state':'KNOWN_PRE_API_GUARD_REJECTED_NO_PROVIDER_CALL','approval_id':binding['approvalId'],'new_write':False,'next':'fresh same-key preflight and exact unchanged source before a single normal retry'}
  except (GitHubError,w.WorkflowError,OSError)as e:
   result={'state':'UNKNOWN_WRITE_EFFECT_NO_RETRY','approval_id':binding['approvalId'],'new_write':'UNKNOWN','error_class':type(e).__name__,'safe_error':str(e)if isinstance(e,GitHubError)else'original guard/readback or local evidence error; inspect original state','next':'status original key first; never resend or reset attempt'}
  w.append_jsonl_locked(directory/'readback.jsonl',{**result,'at':timestamp().isoformat()});return result
 
+@w.request_validation_context()
 def inspect(root,task,run_id):
  ctx,_,_=context(root,task);api=GitHub(ctx);facts=platform_facts(api,ctx,run_id);before=levels(api,ctx)
  active=before['environment']if before['environment']['exists']else before['repository']
@@ -239,22 +357,24 @@ def inspect(root,task,run_id):
    'normal_install_retirement_plan_count':len(expired),'retirement_performed':False,'variable_exists':active['exists'],
    'write_permission_not_probed':True,'approval_issued':False,'next':'only original WEB refreshes actual same-run facts/normal preflight and issues its own short reference; normal install preserves live entries and records exact unrelated expired-row retirement in its original intent. No raw variable edit, new run, extension or SYS platform mutation.','server_CAS_available':False}
 
+@w.request_validation_context()
 def install(root,task,approval):
  ctx,row,req=context(root,task,approval,effect=True);binding=row['platform_binding']
  def before_write():
   current=w.effective_approvals(root).get(approval);need(current==row and current.get('status')=='active','normal own reference changed/consumed/revoked; no transport')
   validate_binding(binding,own=True);at=w._parse_observed_at(req['observed_at']);need(at and 0<=(timestamp()-at).total_seconds()<=300,'fresh facts expired before actual transport')
-  need(w.read_json(w.snapshot_path(root,task)).get('current_state')not in w.TERMINAL_STATES,'original task is terminal; no platform mutation')
+  require_active_stage(root,ctx,task)
   need(Path.cwd().resolve()==Path(ctx['worktree']).resolve(),'same original WEB worktree at actual transport');web.working_source(ctx,req['state']['candidate_commit'])
  api=GitHub(ctx,before_write)
  with serialized(root,ctx):
   facts=platform_facts(api,ctx,binding['runId'],req);directory=Path(root)/'backups'/task/'R3-platform-binding-transport'/approval
-  result=transfer(api,ctx,binding,directory)
+  result=transfer(api,ctx,binding,directory,root=root,state=req['state'])
  return {**result,'facts':facts,'binding_newly_issued':False,'local_permission_consumed':False,'platform_review_or_deploy_performed':False}
 
+@w.request_validation_context()
 def status(root,task,approval):
  ctx,row,req=context(root,task,approval,effect=False);api=GitHub(ctx);b=row['platform_binding'];facts=platform_facts(api,ctx,b['runId'],req,pending=False);actual=levels(api,ctx);level='environment'if actual['environment']['exists']else'repository';matches=[x for x in actual[level]['entries']if x.get('approvalId')==approval];need(not matches or matches==[b],'exact original remote reference differs/ambiguous')
- return {'state':'EXACT_REMOTE_BINDING_PRESENT'if matches else'NO_EXACT_BINDING_OBSERVED_NOT_A_WRITE_PROOF','effective_level':level,'facts':facts,'binding_currently_unexpired':w._parse_observed_at(b['expiresAt'])>timestamp(),'read_only':True,'unknown_effect_retry_allowed':False,'local_approval_status':row['status']}
+ return {'state':'EXACT_REMOTE_BINDING_PRESENT'if matches else'NO_EXACT_BINDING_OBSERVED_NOT_A_WRITE_PROOF','effective_level':level,'facts':facts,'binding_currently_unexpired':w._parse_observed_at(b['expiresAt'])>timestamp(),'read_only':True,'unknown_effect_retry_allowed':False,'local_approval_status':row['status'], 'own_binding_counts':{level:sum(1 for entry in value['entries'] if entry.get('approvalId')==approval or str(entry.get('runId'))==str(b['runId'])) for level,value in actual.items()}}
 
 def describe(root,task):
  ctx,_,_=context(root,task)

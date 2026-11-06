@@ -75,6 +75,55 @@ def historical_receipt_validation(root, receipt):
         yield
 
 
+@contextmanager
+def historical_queue_receipt_metadata(root, snapshot, record):
+    """Reconstruct only a journal-proven sidebar for a frozen queue read.
+
+    The actual queue/native/receipt validator must still run in full inside
+    this read-only context. No caller can use this view to dispatch or write.
+    """
+    if _VALIDATION.get() is not None or record.get('source_kind') != 'official_native_queue':
+        yield
+        return
+    goal = snapshot.get('goal_delivery', {})
+    actions = [a for a in goal.get('approved_actions', [])
+               if a.get('action_id') == record.get('action_id')]
+    if len(actions) != 1:
+        yield
+        return
+    action = actions[0]
+    keys = ('task_id', 'action_id', 'scope', 'payload_sha256', 'target_thread_id')
+    if (action.get('task_id') != snapshot.get('task_id')
+            or any(record.get(k) != action.get(k) for k in keys)
+            or action.get('action_class') != 'thread_message'
+            or action.get('delivery_mode') != 'official_native_queue'):
+        yield
+        return
+    role = action.get('target_department')
+    registry = w.department_registry(root)
+    if role not in registry:
+        yield
+        return
+    current = registry[role].get('chat_binding', {})
+    fixed = {'target_thread_id': 'task_id', 'target_thread_title': 'title',
+             'target_project_id': 'project_id', 'target_cwd': 'cwd'}
+    old_section = action.get('target_sidebar_section_id')
+    if (not isinstance(old_section, str) or not old_section
+            or any(action.get(k) != current.get(v) for k, v in fixed.items())
+            or old_section == current.get('sidebar_section_id')):
+        yield
+        return
+    original = copy.deepcopy(current)
+    original['sidebar_section_id'] = old_section
+    if not _current_metadata_identity(root, role, current, original):
+        yield
+        return
+    historical = copy.deepcopy(registry)
+    historical[role]['chat_binding'] = original
+    with _historical_read_context(root, historical):
+        yield
+
+
 def historical_assignment_validator(function):
     """Only exact frozen assignment validation; the scope ends before recording."""
     @wraps(function)
@@ -116,32 +165,94 @@ _CURRENT_SIDEBAR_RECOVERY = {"path": "backups/fc-20261021-owner-delegated-nonpay
     "sha256": "ba9f5242f6c79c7eacd718d2eec4f8d2eca10c97b2e15718f2a11a46c3019352", "size": 7547}
 
 
+# Exact adopted successor journals; these are read-side source pins, never aliases.
+_SIDEBAR_METADATA_SUCCESSORS = ({'path': 'backups/fc-20261024-original-flow-recovery-execution-stage-v1/SYS-current-sidebar-materials-reconciliation-20261029-v2/metadata-journal.json', 'sha256': '99e3b77b6b1e39ebd93bef593b55b80301c5c00cc3b6a0f9de52ba322b7a1a5f', 'size': 4333}, {'path': 'backups/fc-20261024-original-flow-recovery-execution-stage-v1/SYS-current-sidebar-reconciliation-20261029-v1/metadata-journal.json', 'sha256': 'a18a7d5435436ae97e0833e8d50eb1e8daff1d5401fff82b0c53d7a47e634764', 'size': 3827}, {'path': 'backups/fc-20261024-original-flow-recovery-execution-stage-v1/SYS-visual-sidebar-metadata-dependency-v19-1/metadata-journal.json', 'sha256': '87d8f807087a1b37e6ebe1ab7a8610899ac1b6032fca06d8de15b6f43f5df7cd', 'size': 3072},)
+
+
+def _sidebar_metadata_edge(root, pin, role):
+    """Reuse only a fingerprinted immutable historical edge within this request."""
+    context = w._VALIDATION_CONTEXT.get()
+    if context is None:
+        return _sidebar_metadata_edge_uncached(root, pin, role)
+    # Re-read and authenticate every immutable input before any reuse. The
+    # request context checks file versions and clears its proofs on a change.
+    journal = _pin(root, pin)
+    backup = journal.get('backup')
+    inventory = journal.get('inventory')
+    if not isinstance(backup, dict) or not isinstance(inventory, dict):
+        return _sidebar_metadata_edge_uncached(root, pin, role)
+    for item in (backup, inventory):
+        if w.file_digest(root, item.get('path', '')) != item:
+            raise w.WorkflowError('rotation evidence pin changed')
+    mode = ('historical' if _VALIDATION.get() is not None else 'current',
+            metadata_only_validation(root))
+    key = ('immutable_sidebar_edge_v1', str(Path(root).resolve()), role, mode,
+           json.dumps(pin, sort_keys=True), json.dumps(backup, sort_keys=True),
+           json.dumps(inventory, sort_keys=True))
+    # This map contains only results derived from the three exact, pinned
+    # immutable documents above. Unrelated dependency reads do not invalidate
+    # it; each lookup re-authenticates all three pins before reuse.
+    cache = getattr(context, '_sidebar_edge_inputs', None)
+    if cache is None:
+        cache = context._sidebar_edge_inputs = {}
+    if key not in cache:
+        cache[key] = copy.deepcopy(_sidebar_metadata_edge_uncached(root, pin, role))
+    return copy.deepcopy(cache[key])
+
+
+def _sidebar_metadata_edge_uncached(root, pin, role):
+    """Rebuild only the applied sidebar diff from its immutable before bytes."""
+    journal = _pin(root,pin)
+    if (journal.get('schema') != 'exact-current-sidebar-metadata-CAS/v1'
+            or journal.get('state') != 'applied' or journal.get('executor') != 'system-development'
+            or journal.get('only_sidebar_metadata_changed') is not True
+            or journal.get('fixed_identity_and_health_preserved') is not True):
+        raise w.WorkflowError('actual applied sidebar-only journal required')
+    before = _pin(root,journal['backup']); inventory = _pin(root,journal['inventory'])
+    if (journal['before'].get('path') != REGISTRY or journal['after'].get('path') != REGISTRY
+            or any(journal['backup'].get(k) != journal['before'].get(k) for k in ('sha256','size'))):
+        raise w.WorkflowError('exact metadata before/backup relation required')
+    after=copy.deepcopy(before); seen=set(); selected=[]
+    for change in journal.get('changes',[]):
+        item=after['departments'][change['index']];binding=item['chat_binding']
+        if (change['role'] in seen or item['id'] != change['role'] or binding.get('sidebar_section_id') != change['before']
+                or any(binding.get(k) != v for k,v in change['fixed_identity'].items())
+                or not {'task_id','title','project_id','cwd'} <= set(change['fixed_identity'])
+                or not change.get('after') or change['after'] == change['before']):
+            raise w.WorkflowError('only exact unique original-role sidebar changes are valid')
+        seen.add(change['role']); binding['sidebar_section_id']=change['after']
+        if change['role']==role:selected.append(change)
+    encoded=(json.dumps(after,ensure_ascii=False,indent=2)+'\n').encode()
+    if len(encoded)!=journal['after']['size'] or hashlib.sha256(encoded).hexdigest()!=journal['after']['sha256']:
+        raise w.WorkflowError('reconstructed after must equal actual whole-registry CAS; no other metadata or health changes')
+    if not selected:return None
+    if len(selected)!=1:raise w.WorkflowError('one exact sidebar change per role required')
+    change=selected[0];old=_binding(before,role);current=_binding(after,role)
+    rows=[x for x in inventory.get('threads',[])+inventory.get('pinnedThreads',[])if x.get('id')==_id(old)]
+    memberships=[x['sectionId'] for x in inventory.get('sections',[])
+                 if 'codex:thread:'+str(old.get('host_id'))+':'+str(_id(old)) in x.get('itemKeys',[])]
+    if (len(rows)!=1 or memberships!=[change['after']] or any(rows[0].get(k)!=old.get(v) for k,v in
+            {'id':'task_id','title':'title','projectId':'project_id','cwd':'cwd','hostId':'host_id'}.items())):
+        raise w.WorkflowError('actual same fixed native identity and unique sidebar membership required')
+    return {'before':change['before'],'after':change['after'],
+            'fixed_identity':{k:_identity(old)[k]for k in ('task_id','title','project_id','cwd','host_id')},'journal':pin}
+
+
 def _current_metadata_identity(root, role, current, original):
-    if _identity(current) == _identity(original):
-        return True
-    keys = ('task_id','title','project_id','cwd','host_id')
-    if any(_identity(current).get(k) != _identity(original).get(k) for k in keys):
-        return False
+    if _identity(current) == _identity(original):return True
+    keys=('task_id','title','project_id','cwd','host_id')
+    if any(_identity(current).get(k)!=_identity(original).get(k)for k in keys):return False
     try:
-        journal = _pin(root, _CURRENT_SIDEBAR_RECOVERY)
-        backup = _pin(root, journal['backup'])
-        inventory = _pin(root, journal['inventory'])
-        changes = [x for x in journal.get('changes', []) if x.get('role') == role]
-        if (journal.get('schema') != 'exact-current-sidebar-metadata-CAS/v1'
-                or journal.get('state') != 'applied' or journal.get('only_sidebar_metadata_changed') is not True
-                or len(changes) != 1 or _identity(_binding(backup,role)) != _identity(original)):
-            return False
-        change = changes[0]
-        rows = [x for x in inventory.get('threads',[])+inventory.get('pinnedThreads',[]) if x.get('id') == _id(current)]
-        memberships = [x['sectionId'] for x in inventory.get('sections',[]) if 'codex:thread:local:'+str(_id(current)) in x.get('itemKeys',[])]
-        return (len(rows) == 1 and memberships == [change['after']]
-                and change['before'] == original.get('sidebar_section_id')
-                and current.get('sidebar_section_id') == change['after']
-                and all(current.get(k) == v for k,v in change['fixed_identity'].items())
-                and all(rows[0].get(k) == current.get(v) for k,v in
-                        {'id':'task_id','title':'title','cwd':'cwd','projectId':'project_id'}.items()))
-    except (w.WorkflowError,KeyError,TypeError,ValueError,OSError):
-        return False
+        edges=[_sidebar_metadata_edge(root,pin,role) for pin in (_CURRENT_SIDEBAR_RECOVERY,*_SIDEBAR_METADATA_SUCCESSORS)]
+        edges=[x for x in edges if x is not None and x['fixed_identity']=={k:_identity(current)[k]for k in keys}]
+        reached={original.get('sidebar_section_id')}
+        while True:
+            expanded=reached|{e['after']for e in edges if e['before']in reached}|{e['before']for e in edges if e['after']in reached}
+            if expanded==reached:break
+            reached=expanded
+        return current.get('sidebar_section_id')in reached
+    except (w.WorkflowError,KeyError,TypeError,ValueError,OSError,IndexError):return False
+
 
 
 def _read_retired_rotation_binding(root, document, role):
@@ -159,6 +270,50 @@ def _read_retired_rotation_binding(root, document, role):
 
 
 def _records(root):
+    """Reuse only the same pinned historical rotation inputs in one request."""
+    context = w._VALIDATION_CONTEXT.get()
+    if context is None:
+        yield from _records_uncached(root)
+        return
+    root = Path(root).resolve()
+    document = w.read_json(root / REGISTRY)
+    try:
+        # Snapshot every actual input used by _records and validate_record.
+        # Changed/missing inputs invalidate or fall back to the original reader;
+        # no current window health, policy, permission or delivery is cached.
+        deps = [w.file_digest(root, REGISTRY)]
+        from department_autonomy import OWNER
+        deps.append(w.file_digest(root, OWNER['path']))
+        if deps[-1] != OWNER:
+            raise w.WorkflowError('rotation original owner evidence changed')
+        for pin in document.get('window_rotation_records', []):
+            row = _pin(root, pin); deps.append(pin)
+            for name in ('manifest','handoff','inventory','new_native','old_native','history'):
+                item = row[name]
+                if w.file_digest(root,item['path']) != item:
+                    raise w.WorkflowError('rotation evidence pin changed')
+                deps.append(item)
+        for pin in (_CURRENT_SIDEBAR_RECOVERY,*_SIDEBAR_METADATA_SUCCESSORS):
+            journal = _pin(root,pin); deps.append(pin)
+            for name in ('backup','inventory'):
+                item = journal[name]
+                if w.file_digest(root,item['path']) != item:
+                    raise w.WorkflowError('rotation evidence pin changed')
+                deps.append(item)
+        mode = ('historical' if _VALIDATION.get() is not None else 'current', metadata_only_validation(root))
+        key = (str(root), mode, w.sha256_value(deps))
+    except (OSError, KeyError, TypeError, ValueError, w.WorkflowError):
+        yield from _records_uncached(root)
+        return
+    cache = getattr(context, '_rotation_records_inputs', None)
+    if cache is None:
+        cache = context._rotation_records_inputs = {}
+    if key not in cache:
+        cache[key] = copy.deepcopy(list(_records_uncached(root)))
+    yield from copy.deepcopy(cache[key])
+
+
+def _records_uncached(root):
     document = w.read_json(Path(root) / REGISTRY)
     seen = set()
     for pin in document.get('window_rotation_records', []):
@@ -195,7 +350,7 @@ def _metadata_assignment_projection(root, subject, registry):
     # original inventory and all fixed identity fields through the old reader.
     applied=copy.deepcopy(old);applied['sidebar_section_id']=changes[0].get('after')
     if (not _current_metadata_identity(root,role,applied,old)
-            or _identity(current) not in (_identity(old),_identity(applied))):return False
+            or not _current_metadata_identity(root,role,current,old)):return False
     request=_pin(root,subject.get('original_prepare_request'))
     source_sidebar=request.get('target_sidebar_section_id')
     if (request.get('task_id')!=subject.get('task_id') or request.get('target_department')!=role
@@ -780,6 +935,32 @@ def _write_once(root, relative, value):
 
 
 def validate_record(root, row, pin):
+    """Reuse only exact immutable rotation-record provenance in this request."""
+    context = w._VALIDATION_CONTEXT.get()
+    if context is None or not isinstance(row, dict) or not isinstance(pin, dict):
+        return _validate_record_uncached(root, row, pin)
+    # Semantic validation below reads these exact pinned documents. Authenticate
+    # every one before reuse; current registry and live target checks remain in
+    # their original callers and are never cached here.
+    names = ('manifest', 'handoff', 'inventory', 'new_native', 'old_native', 'history')
+    pins = [row.get(name) for name in names]
+    if not all(isinstance(value, dict) for value in pins):
+        return _validate_record_uncached(root, row, pin)
+    for value in [pin, *pins]:
+        if w.file_digest(root, value.get('path', '')) != value:
+            raise w.WorkflowError('rotation evidence pin changed')
+    mode = ('historical' if _VALIDATION.get() is not None else 'current', metadata_only_validation(root))
+    key = (str(Path(root).resolve()), row.get('role'), mode, w.sha256_value(row),
+           json.dumps(pin, sort_keys=True), *(json.dumps(value, sort_keys=True) for value in pins))
+    cache = getattr(context, '_rotation_record_inputs', None)
+    if cache is None:
+        cache = context._rotation_record_inputs = set()
+    if key not in cache:
+        _validate_record_uncached(root, row, pin)
+        cache.add(key)
+
+
+def _validate_record_uncached(root, row, pin):
     """Authenticate semantic fields again at apply/read time, not just a file hash."""
     role = row.get('role')
     if (row.get('schema') != SCHEMA or row.get('production_permission_inherited') is not False

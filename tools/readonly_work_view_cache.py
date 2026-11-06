@@ -13,6 +13,7 @@ CACHE_REL = 'logs/handoffs/2026-10-22-department-flow-congestion-optimization-v1
 SCHEMA = 'historical-inventory-cache/v2'
 _SESSION = ContextVar('flashcast_inventory_session', default=None)
 _TRACE = ContextVar('flashcast_inventory_dependency_trace', default=None)
+_TRACK_OPEN_PARENTS = ContextVar('flashcast_inventory_track_open_parents', default=True)
 _NAMESPACES = {'historical-assignment-view', 'historical-intake-route', 'dispatcher-source-error'}
 
 
@@ -47,9 +48,12 @@ def _audit(event, args):
             root, directory, paths, versions = trace
             if path.is_relative_to(root) and not path.is_relative_to(directory):
                 paths.add(str(path))
-                paths.add(str(path.parent))
                 if str(path) not in versions:versions[str(path)] = _stat(path)
-                if str(path.parent) not in versions:versions[str(path.parent)] = _stat(path.parent)
+                # Historical evidence checks pin the file itself, including its
+                # absence. A sibling file is only relevant to a directory scan.
+                if event != 'open' or _TRACK_OPEN_PARENTS.get():
+                    paths.add(str(path.parent))
+                    if str(path.parent) not in versions:versions[str(path.parent)] = _stat(path.parent)
                 if event == 'sqlite3.connect':
                     paths.add(str(path) + '-wal')
                     if str(path) + '-wal' not in versions:

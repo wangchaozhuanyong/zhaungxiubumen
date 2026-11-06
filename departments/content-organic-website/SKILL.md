@@ -17,6 +17,8 @@ description: 真实双语内容、技术SEO/GEO和转化增长完整批次；专
 
 缺GSC/GA4/销售只暂停依赖效果结论，IP/用户/会话/GSC点击分别保留，合法自然IP口径缺失DATA_MISSING。专业内容/真实案例缺口列保管人及准确解除条件，其他有证据工作继续。自检content-qa/seo-index-audit不是最终独立验收，backup/change-log/dry-run不是实际发布。
 
+传统技术与站内SEO诊断另可加载 `<CODEX_HOME>/skills/seo-audit/SKILL.md`；与 ai-seo、装修SEO/GEO方法的分工、马来西亚市场范围和上游适用校正统一见[本项目方法说明](../../playbooks/geo-ai-search-method.md#传统-seo-审计补充seo-audit)。复用原task和在途成果，不因技能新增重复审计或扩展权限。
+
 运行与读取时机按[共同规则](../../playbooks/department-system-current.md#规则使用与读取时机)。首次使用`department-learning-effective --department content-organic-website --phase startup`；同任务续办用`--phase resume`恢复未完处，已读未变资料复用。仅在对应动作/异常发生时查运行参考；历史经验按需读取。
 
-当前流程只按[共同正文](../../playbooks/department-system-current.md)；专业部门独立交付并直报HQ，A1仅待命、A2/A3退役历史，不作本部门前置审批。原技术质量、平台本人和准确业务授权边界保留。
+当前流程只按[共同正文](../../playbooks/department-system-current.md)；专业部门独立制作、自检和执行原准确授权，协作结果回本任务原owner，普通成果收口及协调由总助理优先、HQ补位。A2/A3与旧QA只读历史，不设置逐步技术审批。原质量、平台本人和准确业务授权边界保留。

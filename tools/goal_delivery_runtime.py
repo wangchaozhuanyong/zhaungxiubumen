@@ -268,6 +268,18 @@ def authorization_precheck(root, task_id, request):
         value['original_daily_received_source'] = route['daily_received_source']
         return value
     if not snapshot or not enabled(root, snapshot):
+        if snapshot and snapshot.get('current_state') in w.TERMINAL_STATES and request.get('action_class') == 'cms_write':
+            from professional_cms_legacy_stage import pending_execution_action
+            stage = pending_execution_action(root,task_id,request)
+            if stage is not None:
+                if changes:
+                    return outcome('authorization_change_required',changes,confirmation=True)
+                return {**outcome('original_execution_gates_pending', ['current_stage_metadata_only',
+                    'original_key_effect_unknown', 'actual_execution_source_and_issuer_target_not_admitted']),
+                    'next_owner':stage['department'],
+                    'next_action':'original PUB establishes own key effects, fresh row and admitted target before any policy or Save',
+                    'current_stage_execution_source':stage,'actual_action_allowed':False,
+                    'external_permission_issued':False,'replaces_policy_check':False}
         return outcome("original_source_binding_required", ["recover_real_original_authority_without_new_dispatch"])
     snapshot = restore_goal(root, snapshot)
     goal = snapshot["goal_delivery"]
@@ -309,6 +321,50 @@ def authorization_precheck(root, task_id, request):
     registry = w.department_registry(root)
     sender = request["sender_department"]
     producers = goal.get("producer_departments", [])
+    from hq_web_health_probe import registered as hq_web_probe, IDENTITY as hq_probe_identity, ACTION as hq_probe_action_id
+    if request.get('action_id') == hq_probe_action_id and not all(k in request for k in hq_probe_identity):
+        raise w.WorkflowError('complete exact HQ external health probe required')
+    probe = hq_web_probe(root, snapshot, request)
+    if probe is not None:
+        if changes: return outcome('authorization_change_required', changes, confirmation=True)
+        return {**outcome('within_original_authorization', ['actual_HQ_readonly_external_health_probe']),
+                'source_registration': probe['registration'], 'actual_actor': 'operations', 'external_permission_issued': False}
+    from hq_en2_readonly_source import registered as hq_en2_readonly, IDENTITY as hq_en2_identity, ACTION as hq_en2_action_id
+    if request.get('action_id') == hq_en2_action_id and not all(k in request for k in hq_en2_identity):
+        raise w.WorkflowError('complete exact HQ EN2 readonly request required')
+    hq_en2 = hq_en2_readonly(root, snapshot, request)
+    if hq_en2 is not None:
+        if changes: return outcome('authorization_change_required', changes, confirmation=True)
+        return {**outcome('within_original_authorization', ['actual_HQ_EN2_readonly_transport']),
+                'source_registration': hq_en2['registration'], 'actual_actor': 'operations',
+                'external_permission_issued': False}
+    from professional_cms_single_field_admission import registered_bridge as exact_PUB_workorder
+    pub_workorder = exact_PUB_workorder(root, snapshot, request)
+    if pub_workorder is not None:
+        if changes:
+            return outcome('authorization_change_required', changes, confirmation=True)
+        return {**outcome('within_original_authorization', ['actual_owner_delegated_original_PUB_conditional_object']),
+                'source_registration': pub_workorder['registration'], 'actual_actor': 'operations',
+                'external_permission_issued': False}
+    from hq_singlefield_test_successor import registered as reviewed_test_successor
+    successor = reviewed_test_successor(root, snapshot, request)
+    if successor is not None:
+        if changes:
+            return outcome('authorization_change_required', changes, confirmation=True)
+        return {**outcome('within_original_authorization', ['actual_reviewed_original_singlefield_test_successor']),
+                'source_registration': successor['registration'], 'actual_actor': 'operations',
+                'code_stage_requested': True, 'external_permission_issued': False}
+    from hq_bounded_web_admission import registered as bounded_HQ_WEB
+    bounded = bounded_HQ_WEB(root, snapshot, request)
+    if bounded is not None:
+        if changes:
+            return outcome('authorization_change_required', changes, confirmation=True)
+        return {**outcome('within_original_authorization', ['actual_new_owner_delegated_exact_HQ_code_stage_continuation' if bounded.get('code_stage_requested')
+                                                            else 'actual_new_owner_delegated_exact_HQ_local_WEB_continuation']),
+                'source_registration': bounded['registration'], 'actual_actor': 'operations',
+                'local_code_work_authorized': bounded.get('local_code_work_authorized', False),
+                'code_stage_requested': bounded.get('code_stage_requested', False),
+                'external_permission_issued': False}
     from brand_v4_issuer_executor import action_context as brand_action_context
     brand_executor = (brand_action_context(root, snapshot, request.get('action_id'), request.get('action_class'),
                       request.get('scope'), sender) if request.get('action_class') in w.EXTERNAL_ACTION_CLASSES else None)
@@ -753,6 +809,24 @@ def assigned_actor(root, snapshot, role, scope=None):
 
 def approved_action(root, snapshot, requested):
     """A scoped goal does not authorize an arbitrary next message payload."""
+    from hq_web_health_probe import approved_action as hq_probe_action
+    probe = hq_probe_action(root, snapshot, requested)
+    if probe is not None: return probe
+    from hq_en2_readonly_source import approved_action as hq_en2_action
+    en2 = hq_en2_action(root, snapshot, requested)
+    if en2 is not None: return en2
+    from professional_cms_single_field_admission import approved_action as original_PUB_action
+    pub = original_PUB_action(root, snapshot, requested)
+    if pub is not None:
+        return pub
+    from hq_singlefield_test_successor import approved_action as reviewed_successor_action
+    successor = reviewed_successor_action(root, snapshot, requested)
+    if successor is not None:
+        return successor
+    from hq_bounded_web_admission import approved_action as bounded_HQ_WEB_action
+    bounded = bounded_HQ_WEB_action(root, snapshot, requested)
+    if bounded is not None:
+        return bounded
     goal = snapshot["goal_delivery"]
     rows = [x for x in goal.get("approved_actions", []) if isinstance(x, dict)
             and all(x.get(k) == requested.get(k) for k in requested)]
@@ -812,6 +886,24 @@ def owner_result_collaboration_binding(root, snapshot, requested):
     The same source is read for preparation, queue and actual callbacks. A
     caller marker or a role appearing in another action creates no binding.
     """
+    from hq_web_health_probe import binding as hq_probe_binding
+    probe = hq_probe_binding(root, snapshot, requested)
+    if probe is not None: return probe
+    from hq_en2_readonly_source import binding as hq_en2_binding
+    en2 = hq_en2_binding(root, snapshot, requested)
+    if en2 is not None: return en2
+    from professional_cms_single_field_admission import binding as original_PUB_binding
+    pub = original_PUB_binding(root, snapshot, requested)
+    if pub is not None:
+        return pub
+    from hq_singlefield_test_successor import binding as reviewed_successor_binding
+    successor = reviewed_successor_binding(root, snapshot, requested)
+    if successor is not None:
+        return successor
+    from hq_bounded_web_admission import binding as bounded_HQ_WEB_binding
+    bounded = bounded_HQ_WEB_binding(root, snapshot, requested)
+    if bounded is not None:
+        return bounded
     keys=('task_id','sender_department','action_id','action_class','scope','source_project_id',
           'target_project_id','target_department','target_thread_id','target_thread_title',
           'target_cwd','target_sidebar_section_id','payload_sha256')
@@ -835,8 +927,13 @@ def owner_result_collaboration_binding(root, snapshot, requested):
     return source,{**target,'thread_id':target.get('thread_id',target.get('task_id'))}
 
 
-def collaboration_route(root, snapshot, requested):
-    owner_binding=owner_result_collaboration_binding(root,snapshot,requested)
+def collaboration_route(root, snapshot, requested, *, _queue_proof=None, _queue_request=None, _refreshed_live_pin=None):
+    if _queue_proof is not None:
+        from goal_source_recovery import _verify_queue_source_proof
+        proof = _verify_queue_source_proof(_queue_proof, root, snapshot, requested, _queue_request)
+    else:
+        proof = None
+    owner_binding=proof.binding if proof else owner_result_collaboration_binding(root,snapshot,requested)
     binding = owner_binding[1]if owner_binding else _collaboration_binding(root, snapshot, requested.get("target_department"))
     if not isinstance(binding, dict):
         return None
@@ -867,12 +964,13 @@ def collaboration_route(root, snapshot, requested):
                 reasons.append("goal_collaboration_already_dispatched_read_before_retry")
         if w.file_digest(root, goal["authorization_pin"]["path"]) != goal["authorization_pin"]:
             reasons.append("goal_collaboration_original_human_provenance_changed")
-        action = approved_action(root, snapshot, {k:v for k,v in requested.items() if k != "delivery_mode"})
+        action = proof.action if proof else approved_action(root, snapshot, {k:v for k,v in requested.items() if k != "delivery_mode"})
         if action is None:
             reasons.append("goal_collaboration_frozen_approved_message_required")
         else:
             _readonly_coordination_action(root, snapshot, action, "policy")
-            pin = goal.get('current_route_observations',{}).get(action['action_id']) or action.get("live_identity")
+            pin = (_refreshed_live_pin or goal.get('current_route_observations',{}).get(action['action_id'])
+                   or action.get("live_identity"))
             if not isinstance(pin, dict) or w.file_digest(root, pin.get("path", "")) != pin:
                 raise w.WorkflowError("exact live proof required")
             live = w.read_json(w.safe_path(root, pin["path"]))
@@ -883,18 +981,29 @@ def collaboration_route(root, snapshot, requested):
             target_state = (actual_target_turn_status(root, live, targets[0],
                             {**binding, 'task_id': binding['thread_id']})
                             if len(targets) == 1 else 'unknown_target')
-            now = dt.datetime.now(dt.timezone.utc)
             queue_mode = requested.get('delivery_mode') == 'official_native_queue'
+            queue_notloaded = bool(action.get('professional_execution_source'))
+            if queue_mode and action.get('professional_owner_message_source'):
+                from department_autonomy import _registered_owner_result_message
+                owner_message = _registered_owner_result_message(root, snapshot, action)
+                queue_notloaded = queue_notloaded or bool(owner_message
+                    and owner_message.get('purpose') == 'original_professional_collaboration_transport_only'
+                    and owner_message.get('external_permission_issued') is False)
+            if queue_mode and (action.get('HQ_original_PUB_singlefield_source') or action.get('HQ_original_PUB_singlefield_continuation_source')):
+                # Preserve the actual notLoaded label only for this normally
+                # registered exact HQ-to-PUB workorder; this never means idle.
+                from professional_cms_single_field_admission import registered_bridge
+                queue_notloaded = True if proof else registered_bridge(root, snapshot, action) is not None
             if queue_mode:
                 if snapshot.get('current_state') in w.TERMINAL_STATES:
                     raise w.WorkflowError('terminal original collaboration cannot queue')
-                intents = [e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS)
+                intents = [e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={'task_id':snapshot['task_id']})
                            if e.get('task_id') == snapshot['task_id'] and e.get('details', {}).get(
                                'collaboration_queue_intent', {}).get('action_id') == action['action_id']]
                 if intents:
                     raise w.WorkflowError('original queue intent exists; read its effect before retry')
                 from goal_source_recovery import collaboration_queue_binding
-                collaboration_queue_binding(root, snapshot, action)
+                if proof is None: collaboration_queue_binding(root, snapshot, action)
                 from department_event_dispatcher import native_queue_capability
                 native_queue_capability(root)
                 if live.get('delivery_mode') != 'official_native_queue':
@@ -908,11 +1017,12 @@ def collaboration_route(root, snapshot, requested):
                 if (target_page.get('thread', {}).get('kind') != 'codex' or
                         target_page.get('thread', {}).get('hostId') != binding.get('host_id')):
                     raise w.WorkflowError('original native external kind/host required')
+            now = dt.datetime.now(dt.timezone.utc)
             if (observed is None or not 0 <= (now - observed).total_seconds() <= 300
                     or len(targets) != 1 or len(sources) != 1
                     or any(targets[0].get(k) != v for k, v in {"projectId": binding["project_id"],
                            "title": binding["title"], "cwd": binding["cwd"]}.items())
-                    or target_state not in ({'idle', 'active', *({'notLoaded'} if action.get('professional_execution_source') else set())} if queue_mode else {'idle'})
+                    or target_state not in ({'idle', 'active', *({'notLoaded'} if queue_notloaded else set())} if queue_mode else {'idle'})
                     or any(sources[0].get(k) != v for k, v in {"projectId": source.get("project_id"),
                            "title": source.get("title"), "cwd": source.get("cwd")}.items())
                     or live.get("target_sidebar_section_id") != requested.get("target_sidebar_section_id")
@@ -1310,6 +1420,9 @@ def pending(root, role):
 
 
 def record_preflight(root, task_id, input_path):
+    if w.read_json(w.safe_path(root,input_path)).get('schema')=='en2-original-WEB-protected-preview-preflight/v1':
+        from en2_preview_normal import record_preflight as preview_record
+        return preview_record(root,task_id,input_path)
     if w.read_json(w.safe_path(root, input_path)).get("schema") == "builtin-wardrobe-current-publisher-preflight/v1":
         from builtin_wardrobe_current_binding import record_preflight as current_W_preflight
         return current_W_preflight(root, task_id, input_path)
@@ -1466,6 +1579,35 @@ def _condo_faq_v7_post_candidate_preflight(root, task_id, input_path, action):
 def record_approved_action(root, task_id, input_path):
     """Freeze a precise routine decision, or owner action in an original declared collaboration scope."""
     action = w.read_json(w.safe_path(root, input_path))
+    from hq_web_health_probe import SCHEMA as HQ_WEB_PROBE_SCHEMA, record as record_HQ_WEB_PROBE
+    if action.get('schema') == HQ_WEB_PROBE_SCHEMA:
+        return record_HQ_WEB_PROBE(root, task_id, input_path)
+    from hq_en2_readonly_source import SCHEMA as HQ_EN2_READONLY_SCHEMA, record as record_HQ_EN2_READONLY
+    if action.get('schema') == HQ_EN2_READONLY_SCHEMA:
+        return record_HQ_EN2_READONLY(root, task_id, input_path)
+    from professional_cms_singlefield_continuation import SOURCE_SCHEMAS as PUB_continuation_schemas, record as record_PUB_continuation
+    if action.get('schema') in PUB_continuation_schemas:
+        return record_PUB_continuation(root, task_id, input_path)
+    from professional_cms_single_field_admission import BRIDGE_SCHEMA, PREVIEW_SCHEMA, record_bridge, record_preview
+    if action.get('schema') == BRIDGE_SCHEMA:
+        return record_bridge(root, task_id, input_path)
+    if action.get('schema') == PREVIEW_SCHEMA:
+        return record_preview(root, task_id, input_path)
+    from hq_singlefield_test_successor import SCHEMA as reviewed_successor_schema, record as record_reviewed_successor
+    if action.get('schema') == reviewed_successor_schema:
+        return record_reviewed_successor(root, task_id, input_path)
+    from hq_bounded_web_admission import SCHEMA as bounded_HQ_WEB_schema, CODE_SCHEMA as bounded_HQ_WEB_code_schema, record as bounded_HQ_WEB_record
+    if action.get('schema') in {bounded_HQ_WEB_schema, bounded_HQ_WEB_code_schema}:
+        return bounded_HQ_WEB_record(root, task_id, input_path)
+    if action.get('schema') == 'normal-decision-owner-native-readback/v1':
+        from receipt_obligation_consumer import record_owner_handoff_source
+        return record_owner_handoff_source(root, task_id, input_path)
+    if action.get('schema') in {'approved-ads-WEB-production-source/v1', 'approved-ads-WEB-test-ci-successor/v1', 'owner-reviewed-brand-WEB-source/v1'}:
+        from professional_web_execution import record_source
+        return record_source(root, task_id, input_path)
+    if action.get("schema") == "direct-owner-frontend-completion-responsibility/v1":
+        from frontend_completion_responsibility import record
+        return record(root, task_id, input_path)
     if action.get("schema") == "original-received-code-only-source/v1":
         from original_production_delivery import record_code
         return record_code(root, task_id, input_path)
@@ -1475,12 +1617,24 @@ def record_approved_action(root, task_id, input_path):
     if action.get("schema") == "builtin-wardrobe-current-publisher-binding/v1":
         from builtin_wardrobe_current_binding import record as current_W_registration
         return current_W_registration(root, task_id, input_path)
-    if action.get("schema") in {"professional-ads-object-source-registration/v1", "professional-ads-plan-object-source-registration/v2", "professional-ads-plan-supplement-source-registration/v3"}:
+    if action.get("schema") in {"professional-ads-object-source-registration/v1", "professional-ads-plan-object-source-registration/v2", "professional-ads-plan-supplement-source-registration/v3", "professional-ads-image-only-source-registration/v4"}:
         from professional_ads_execution import record
         return record(root, task_id, input_path)[0]
-    if action.get("schema") in {"original-protected-material-body-WEB-source/v1", "professional-external-WEB-production-source/v1", "professional-external-WEB-owner-followon-source/v2", "professional-standing-CMS-WEB-channel-source/v1", "builtin-wardrobe-original-WEB-source-registration/v1", "original-received-CMS-channel-production-source/v1"}:
+    if action.get("schema") in {"direct-owner-frontend-WEB-source/v1", "current-owner-reviewed-WEB-release-source/v1", "original-protected-EN2-fields-WEB-source/v1", "original-protected-material-body-WEB-source/v1", "professional-external-WEB-production-source/v1", "professional-external-WEB-owner-followon-source/v2", "professional-standing-CMS-WEB-channel-source/v1", "builtin-wardrobe-original-WEB-source-registration/v1", "original-received-CMS-channel-production-source/v1"}:
         from professional_web_execution import record_source
         return record_source(root, task_id, input_path)
+    if action.get("schema") == "professional-cms-active-stage-web-target-source/v1":
+        from professional_cms_active_web_target import record_from_parent
+        return record_from_parent(root, task_id, input_path)
+    if action.get("schema") == "professional-cms-active-parent-source-stage/v1":
+        from professional_cms_active_stage import record_from_parent
+        return record_from_parent(root, task_id, input_path)
+    if action.get("schema") == "immutable-external-source-custody/v1":
+        from professional_cms_source_custody import record_from_parent
+        return record_from_parent(root, task_id, input_path)
+    if action.get("schema") == "professional-standing-single-field-pending-source/v1":
+        from professional_cms_single_field_pending import record
+        return record(root, task_id, input_path)
     if action.get("schema") == "professional-cms-issuer-contract/v1":
         from professional_cms_issuer import record_contract
         return record_contract(root, task_id, input_path)
@@ -1490,12 +1644,13 @@ def record_approved_action(root, task_id, input_path):
     if action.get("schema") == "professional-standing-CMS-integration-source/v1":
         from professional_cms_integration import record
         return record(root, task_id, input_path)
-    if action.get("schema") in {"professional-cms-execution-source-registration/v1", "original-received-CMS-content-increment-source/v1"}:
+    if action.get("schema") in {"professional-cms-execution-source-registration/v1", "original-received-CMS-content-increment-source/v1", "original-received-CMS-answer-span-source/v1", "original-PUB-singlefield-production-admission/v1"}:
         from professional_cms_execution import record
         return record(root, task_id, input_path)
-    if action.get("schema") == "professional-owner-result-message-source/v1":
+    if action.get("schema") in {"professional-owner-result-message-source/v1", "professional-received-source-peer-readonly-message/v1"}:
         from department_autonomy import record_owner_result_message
-        return record_owner_result_message(root, task_id, input_path)
+        with w.request_validation_context():
+            return record_owner_result_message(root, task_id, input_path)
     if action.get("schema") == "current-autonomous-readonly-coordination-action/v1":
         from department_autonomy import record_readonly_coordination
         return record_readonly_coordination(root, task_id, input_path)
@@ -1924,7 +2079,13 @@ def record_collaboration(root, task_id, input_path):
     """An audit of actual native transport; no fake registered department ACK."""
     pin = w.file_digest(root, input_path)
     record = w.read_json(w.safe_path(root, input_path))
-    with w.workflow_lock(root):
+    # Only official queue receipt verification shares request-local INPUTS.
+    # Rebind the pre-lock discriminator/pin; no authority/native/effect memo.
+    official_queue = record.get('source_kind') == 'official_native_queue'
+    with w.workflow_lock(root), (w.request_validation_context() if official_queue else nullcontext()):
+        if official_queue and (w.file_digest(root, input_path) != pin
+                or w.read_json(w.safe_path(root, input_path)) != record):
+            raise w.WorkflowError("original official queue receipt input changed before validation")
         snapshot = restore_goal(root, w.read_json(w.snapshot_path(root, task_id)))
         if not enabled(root, snapshot) or record.get("task_id") != task_id:
             raise w.WorkflowError("exact parent complete goal required")
@@ -1968,17 +2129,16 @@ def record_collaboration(root, task_id, input_path):
                 or any(decisions[0].get(k) != action[0].get(k) for k in ("task_id", "action_id", "scope", "payload_sha256", "target_thread_id"))):
             raise w.WorkflowError("actual exact permitted collaboration policy receipt required")
         _validate_collaboration_native(root, action[0], record)
+        action_id = record["action_id"]
+        states = _collaboration_wait_states(root, snapshot, only_action_id=action_id)
+        state = next((item for item in states if item.get("action_id") == action_id), {})
         if record["status"] == "result_received":
-            prior_state = next((x for x in _collaboration_wait_states(root, snapshot)
-                                if x.get("action_id") == record["action_id"]), {})
-            if (prior_state.get("proof_state") != "PROVEN"
-                    or prior_state.get("policy_decision_id") != record["policy_decision_id"]):
+            if (state.get("proof_state") != "PROVEN"
+                    or state.get("policy_decision_id") != record["policy_decision_id"]):
                 raise w.WorkflowError("original proven actual collaboration send required before returned result")
         prior = goal.get("collaboration_records", [])
         if pin in prior:
             return {"result": "duplicate_ignored", "parent_closed": False}
-        state = next((x for x in _collaboration_wait_states(root, snapshot)
-                      if x.get("action_id") == record["action_id"]), {})
         if state and (record["status"] == "sent" or state.get("status") != "sent"):
             raise w.WorkflowError("original proven collaboration action cannot be replayed or replaced")
         snapshot["goal_delivery"] = {**goal, "collaboration_records": prior + [pin]}
@@ -2260,7 +2420,9 @@ def _collaboration_wait_states(root, snapshot, *, only_action_id=None):
                 continue
             if record.get('source_kind') == 'official_native_queue':
                 from goal_source_recovery import collaboration_queue_source
-                current = collaboration_queue_source(root, snapshot, record)
+                from department_rotation import historical_queue_receipt_metadata
+                with historical_queue_receipt_metadata(root, snapshot, record):
+                    current = collaboration_queue_source(root, snapshot, record)
                 state = states.get(record['action_id'])
                 rank = {'queue_accepted':0, 'message_received':1, 'result_received':2}
                 if ((not state and current['status'] != 'queue_accepted') or
@@ -2918,9 +3080,19 @@ def main():
     evidence = sub.add_parser("completion-evidence-record")
     evidence.add_argument("--task-id", required=True); evidence.add_argument("--input", required=True)
     evidence.add_argument("--role", required=True); evidence.add_argument("--requirement-id", required=True)
+    for name in ('publication-ready-record', 'publication-progress-record'):
+        publication = sub.add_parser(name); publication.add_argument('--task-id', required=True); publication.add_argument('--input', required=True)
+    publication = sub.add_parser('publication-status'); publication.add_argument('--task-id', required=True)
+    sub.add_parser('publication-due')
     args = parser.parse_args(); root = Path(args.project_root).resolve()
     try:
-        if args.command == "init": result = initialize_goal(root, args.task_id, args.input)
+        if args.command in {'publication-ready-record', 'publication-progress-record', 'publication-status', 'publication-due'}:
+            import publication_deadline_runtime as publication
+            if args.command == 'publication-ready-record': result = publication.record_ready(root, args.task_id, args.input)
+            elif args.command == 'publication-progress-record': result = publication.record_progress(root, args.task_id, args.input)
+            elif args.command == 'publication-status': result = publication.task_status(root, args.task_id)
+            else: result = {'due_work': publication.due_work(root), 'next_deadline': publication.next_deadline(root)}
+        elif args.command == "init": result = initialize_goal(root, args.task_id, args.input)
         elif args.command == "transfer": result = transfer(root, args.input)
         elif args.command == "transfer-recover": result = recover_transfer(root, args.input)
         elif args.command == "pending": result = pending(root, args.role)
@@ -2956,4 +3128,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # The documented file entry point adds tools/, but not its parent.
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     raise SystemExit(main())

@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as dt
 import difflib
 import functools
+from contextvars import ContextVar
 import hashlib
 import json
 import re
@@ -16,6 +17,109 @@ import subprocess
 from pathlib import Path
 
 import workflow_control as w
+
+_HISTORICAL_SOURCE_EVENT = ContextVar("bounded_cms_historical_source_event", default=None)
+_MATERIAL_TAIL_REPLAY = ContextVar("bounded_material_tail_replay", default=None)
+
+# Per-request historical proof DAG only. Never stores current authorization,
+# policy, permits, new effects or a persistent cache. Nested validation must
+# still prove the strict earlier-prefix relation before using an entry.
+_HISTORICAL_PROOF_TRACE = ContextVar('bounded_history_proof_trace', default=None)
+_REPLAYABLE_GIT_COMMAND = ContextVar('bounded_history_replayable_git_command', default=None)
+
+def _history_audit(event, args):
+    tracker = _HISTORICAL_PROOF_TRACE.get()
+    if tracker is None:
+        return
+    if event == 'subprocess.Popen':
+        expected = _REPLAYABLE_GIT_COMMAND.get()
+        if (expected is not None and args[0] == 'git' and args[3] is None
+                and (tuple(args[1]), args[2]) == expected):
+            return
+        tracker['nonlocal_effect'] = True
+    elif event.startswith('socket.connect'):
+        tracker['nonlocal_effect'] = True
+
+def _replayable_git(command, cwd=None):
+    """Run a Git input reader whose caller registers the exact replay."""
+    token = _REPLAYABLE_GIT_COMMAND.set((tuple(command), cwd))
+    try:
+        return subprocess.run(command, cwd=cwd, capture_output=True, timeout=20)
+    finally:
+        _REPLAYABLE_GIT_COMMAND.reset(token)
+
+def _untracked_historical_input():
+    tracker = _HISTORICAL_PROOF_TRACE.get()
+    if tracker is not None:
+        tracker['nonlocal_effect'] = True
+
+import sys as _history_sys
+_history_sys.addaudithook(_history_audit)
+
+def _historical_proofs_recheck(context):
+    """Reject changed/created dependencies before any current action commit."""
+    import readonly_work_view_cache as trace
+    checked = {}
+    for entry in getattr(context, '_bounded_historical_events', {}).values():
+        for name, version in entry.items():
+            if name not in checked:
+                checked[name] = trace._stat(Path(name))
+            require(checked[name] == version,
+                    'historical proof dependency changed before current action commit: ' + name)
+
+def _historical_event_proof(root, formal, event, compute, *, proof_kind='original_web_successor'):
+    import department_rotation as rotation
+    import readonly_work_view_cache as trace
+    context=w._VALIDATION_CONTEXT.get()
+    if context is None:
+        return compute()
+    root=Path(root).resolve()
+    registry=rotation.validation_registry(root)
+    key=(str(root),formal.get('task_id'),event.get('event_id'),proof_kind,
+         w.sha256_value(formal),w.sha256_value(event),
+         w.sha256_value(registry) if registry is not None else None,
+         rotation.metadata_only_validation(root))
+    memo=getattr(context,'_bounded_historical_events',None)
+    if memo is None:
+        memo=context._bounded_historical_events={}
+    entry=memo.get(key)
+    if entry is not None:
+        for name,version in entry.items():
+            if trace._stat(Path(name))!=version:
+                entry=None;break
+        if entry is not None:
+            trace._propagate(entry)
+            context._bounded_history_hits=getattr(context,'_bounded_history_hits',0)+1
+            return True
+    # Track all actual opened files, directories and SQL/WAL paths in both
+    # project and original website home; transient reconstructed Git scratch
+    # is not a source. Untracked child processes/network prevent reuse.
+    # Loaded project code and fixed current registries are dependencies too.
+    paths=trace._mandatory(root,());versions={name:trace._stat(Path(name)) for name in paths}
+    scratch=root/'logs/professional-CMS-channel-source-checks'
+    tracker={'nonlocal_effect':False};parent_tracker=_HISTORICAL_PROOF_TRACE.get()
+    t1=trace._TRACE.set((root.parent.parent,scratch,paths,versions))
+    t2=_HISTORICAL_PROOF_TRACE.set(tracker)
+    parents=trace._TRACK_OPEN_PARENTS.set(False)
+    try:
+        result=compute()
+    finally:
+        trace._TRACK_OPEN_PARENTS.reset(parents)
+        _HISTORICAL_PROOF_TRACE.reset(t2);trace._TRACE.reset(t1)
+        if parent_tracker is not None and tracker['nonlocal_effect']:
+            parent_tracker['nonlocal_effect']=True
+        trace._propagate(paths)
+    if result is True and not tracker['nonlocal_effect'] and all(trace._stat(Path(k))==v for k,v in versions.items()):
+        try:
+            for name in paths:
+                path=Path(name)
+                if path.is_file() and not path.is_symlink():
+                    context.bytes(path)
+            if all(trace._stat(Path(k))==v for k,v in versions.items()):
+                memo[key]=dict(versions)
+        except (OSError,ValueError):
+            pass
+    return result
 
 TASK = "fc-20261010-paid-three-page-exact-publication-followthrough-v1"
 SCOPE = "project:flashcast:paid-three-page-original-publication-followthrough:v1"
@@ -196,7 +300,7 @@ def _saved_parent(root, row, value, authority, original_machine_source):
     # Freeze the original safe issuer response, not a rewritten status object.
     if status.get("schema") in {"A2-original-issuer-kitchen-permit-readonly-status/v1",
                                  "A2-original-issuer-builtin-permit-readonly-status/v1"}:
-        require(status.get("read_only") is True and status.get("endpoint") == "https://rbsnyexjifounogswrjp.supabase.co/functions/v1/content-publish",
+        require(status.get("read_only") is True and status.get("endpoint") == "https://exampleproject000000.supabase.co/functions/v1/content-publish",
                 "original protected issuer readback required")
         status = status["actual_safe_response"]
     if status.get("schema") == "A2-original-issuer-renovation-permit-readonly-status/v1":
@@ -361,7 +465,7 @@ def _apply_saved_notices(root, rows):
     require(notice.get("schema") == "A2_new_native_publish_actual_effect_safe_allowlist_readonly_delta_v1"
             and notice.get("read_only_GET") is True and notice.get("run_id") == 38073003426
             and notice.get("workflow_sha") == "c4adb0bf4cd97eb6e3c76e619380783ec24372bb"
-            and notice.get("source_api") == "repos/wangchaozhuanyong/zhuangxiuwangzhan/actions/artifacts/11677491592/zip"
+            and notice.get("source_api") == "repos/example-owner/example-website/actions/artifacts/11677491592/zip"
             and notice.get("GitHub_metadata_digest") == "sha256:" + notice.get("archive_sha256", ""),
             "actual exact later Saved effect notice required; missing notice cannot revive old pending state")
     metadata = doc(root, notice["source_artifact_metadata_pin"])
@@ -3297,9 +3401,9 @@ def validate_machine(root, item, accepted):
         "github_actor_id": original["existing_actor_id"], "repository": original["repository"],
         "workflow_id": original["workflow_id"], "workflow_path": original["workflow_path"],
         "repository_id": 1248188229,
-        "workflow_ref": "wangchaozhuanyong/zhuangxiuwangzhan/.github/workflows/content-publish-approved.yml@refs/heads/main"}
+        "workflow_ref": "example-owner/example-website/.github/workflows/content-publish-approved.yml@refs/heads/main"}
     require(all(machine.get(k) == v for k, v in expected.items())
-            and machine["repository"] == "wangchaozhuanyong/zhuangxiuwangzhan"
+            and machine["repository"] == "example-owner/example-website"
             and machine["workflow_path"] == ".github/workflows/content-publish-approved.yml"
             and type(machine.get("github_actor_id")) is int and machine["github_actor_id"] > 0
             and type(machine.get("run_id")) is int and machine["run_id"] > 0
@@ -3576,7 +3680,7 @@ def preflight(root, snapshot, action, action_class, scope, department):
         source = doc(root, source_pin)
         require(all(source.get(k) == v for k, v in expected.items())
                 and source.get("status") == "DEPLOYED_RESTORE_IMPLEMENTATION_VERIFIED"
-                and source.get("repository") == "wangchaozhuanyong/zhuangxiuwangzhan"
+                and source.get("repository") == "example-owner/example-website"
                 and re.fullmatch(r"[0-9a-f]{40}", str(source.get("production_sha", "")))
                 and source.get("saved_CAS_required") is True and source.get("protected_route") == "content-publish"
                 and source.get("successful_rollback_preview_performed") is False,
@@ -3950,10 +4054,10 @@ MATERIAL_EXPECTED_SOURCE = {
     "size": 3932,
 }
 MATERIAL_ROWS = (
-    ("sintered-stone-grey", "00db44f6-c26a-4140-b12d-601d9fbaedf7",
+    ("sintered-stone-grey", "00000000-0000-4000-8000-000000000101",
      "save-sintered-stone-grey-bilingual-body-v1",
      "publishing-sintered-stone-grey-exact-bilingual-body-v1-20261014"),
-    ("solid-surface-warm-white", "1bce8dd6-26b5-443b-990b-7e7d6bc9147a",
+    ("solid-surface-warm-white", "00000000-0000-4000-8000-000000000102",
      "save-solid-surface-warm-white-bilingual-body-v1",
      "publishing-solid-surface-warm-white-exact-bilingual-body-v1-20261014"),
 )
@@ -4107,7 +4211,72 @@ def validate_two_material_formal_goal(formal, rows):
             "publisher must freeze two exact Save tuples and real publishing authority")
 
 
+def historical_material_owner_source_active():
+    marker = _HISTORICAL_SOURCE_EVENT.get()
+    return marker is not None and marker[1] == MATERIAL_PUBLICATION_TASK
+
+
+def _authenticate_historical_metadata(root, formal, event, validator):
+    """Constrain and reuse source reads only in the real earlier event prefix."""
+    marker = (str(Path(root).resolve()), event.get('task_id'), event.get('event_id'))
+    require(all(marker) and marker[1] == formal.get('task_id'), 'actual historical source event identity required')
+    prior = _HISTORICAL_SOURCE_EVENT.get()
+    if prior is not None:
+        require(prior[:2] == marker[:2], 'cross-task historical source cycle rejected')
+        chain = w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS, where={'task_id': marker[1]})
+        before = [i for i, e in enumerate(chain) if e.get('event_id') == prior[2]]
+        current = [i for i, e in enumerate(chain) if e.get('event_id') == marker[2]]
+        require(len(before) == len(current) == 1 and current[0] < before[0],
+                'historical source dependencies must move strictly backward')
+    token = _HISTORICAL_SOURCE_EVENT.set(marker)
+    try:
+        return _historical_event_proof(root,formal,event,
+            lambda: validator(root,formal,event), proof_kind=validator.__name__)
+    finally:
+        _HISTORICAL_SOURCE_EVENT.reset(token)
+
+
 def _authenticated_owner_source_metadata(root, formal, event):
+    return _authenticate_historical_metadata(root, formal, event, _authenticated_owner_source_metadata_event)
+
+
+def _authenticated_owner_source_metadata_event(root, formal, event):
+    """Read a frozen metadata action using only its proven historical sidebar."""
+    import copy
+    import department_autonomy as a
+    import department_rotation as rotation
+    import goal_delivery_runtime as g
+    detail=event.get('details',{});keys=set(detail)
+    if event.get('task_id')!=formal.get('task_id') or event.get('state')!=formal.get('current_state') or detail.get('external_permission_issued') is not False:
+        return _authenticated_owner_source_metadata_inner(root,formal,event)
+    snapshot=g.restore_goal(root,formal);actions=snapshot['goal_delivery'].get('approved_actions',[])
+    source_keys={'goal_delivery','professional_owner_message_source','approved_message_prepared','actual_message_sent','external_permission_issued'}
+    if keys==source_keys:
+        action_id=a.document(root,detail['approved_message_prepared']).get('action_id')
+        matches=[x for x in actions if x.get('professional_owner_message_source') and x.get('action_id')==action_id]
+    elif keys=={'goal_delivery','actual_route_observation','external_permission_issued'}:
+        matches=[x for x in actions if x.get('professional_owner_message_source') and detail['goal_delivery'].get('current_route_observations',{}).get(x.get('action_id'))==detail['actual_route_observation']]
+    elif keys=={'collaboration_queue_intent','external_permission_issued'}:
+        matches=[x for x in actions if x.get('professional_owner_message_source') and x.get('action_id')==detail['collaboration_queue_intent'].get('action_id')]
+    elif keys=={'goal_delivery','collaboration_receipt','actual_transport_status','external_permission_issued'}:
+        record=a.document(root,detail['collaboration_receipt'])
+        matches=[x for x in actions if x.get('action_id')==record.get('action_id') and (x.get('professional_owner_message_source') or a._chief_readonly_source(x))]
+    else:
+        return _authenticated_owner_source_metadata_inner(root,formal,event)
+    if len(matches)!=1:return _authenticated_owner_source_metadata_inner(root,formal,event)
+    action=matches[0];role=action.get('target_department');registry=w.department_registry(root)
+    if role not in registry:return _authenticated_owner_source_metadata_inner(root,formal,event)
+    current=registry[role]['chat_binding'];old=copy.deepcopy(current);old['sidebar_section_id']=action.get('target_sidebar_section_id')
+    if old['sidebar_section_id']==current.get('sidebar_section_id'):return _authenticated_owner_source_metadata_inner(root,formal,event)
+    require(all(action.get(k)==current.get(v) for k,v in {'target_thread_id':'task_id','target_thread_title':'title',
+            'target_project_id':'project_id','target_cwd':'cwd'}.items())
+            and rotation._current_metadata_identity(root,role,current,old), 'actual same-identity historical sidebar journal required')
+    registry=copy.deepcopy(registry);registry[role]['chat_binding']=old
+    with rotation._historical_read_context(root,registry):
+        return _authenticated_owner_source_metadata_inner(root,formal,event)
+
+
+def _authenticated_owner_source_metadata_inner(root, formal, event):
     """Authenticate normal owner source transport, never a new execution action."""
     import department_autonomy as a
     import goal_delivery_runtime as g
@@ -4158,19 +4327,107 @@ def _authenticated_owner_source_metadata(root, formal, event):
     return True
 
 
+def _authenticated_original_web_successor_metadata(root, formal, event):
+    """Authenticate a committed typed original WEB source, never a permission."""
+    import department_autonomy as a
+    import professional_web_execution as web
+    import material_causal_successor as successor
+    from professional_web_increment import ORD_EVENT
+    detail=event.get('details', {})
+    if set(detail)!={ORD_EVENT}:return False
+    source=detail[ORD_EVENT]
+    item=a.document(root,source)
+    if item.get('schema')!=successor.SCHEMA:return False
+    require(event.get('task_id')==formal.get('task_id')==item.get('task_id')
+            and event.get('state')==formal.get('current_state') and event.get('event_id'),
+            'one actual same-task same-state original WEB successor event required')
+    committed=w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,
+        where={'task_id':event['task_id'],'event_id':event['event_id']})
+    require(len(committed)==1 and committed[0]==event,
+            'one exact committed immutable WEB source event required')
+    prior=_HISTORICAL_SOURCE_EVENT.get()
+    marker=(str(Path(root).resolve()),event['task_id'],event['event_id'])
+    if prior is not None:
+        require(prior[:2]==marker[:2], 'cross-task historical source cycle rejected')
+        chain=w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={'task_id':marker[1]})
+        before=[i for i,e in enumerate(chain) if e.get('event_id')==prior[2]]
+        current=[i for i,e in enumerate(chain) if e.get('event_id')==marker[2]]
+        require(len(before)==len(current)==1 and current[0]<before[0],
+                'historical source dependencies must move strictly backward')
+    token=_HISTORICAL_SOURCE_EVENT.set(marker)
+    try:
+        def verify():
+            records=web.records(root,marker[1])
+            require(len(records)==1,'one authenticated original WEB source required')
+            result=successor.validate(root,records[0],item)
+            require(result.get('task')==marker[1] and result.get('reviewed_peer_successor')==item
+                    and result.get('ordinary_increment') is True,
+                    'actual typed original WEB causal successor only')
+            return True
+        return _historical_event_proof(root, formal, event, verify)
+    finally:
+        _HISTORICAL_SOURCE_EVENT.reset(token)
+
+
 def _authenticated_formal_metadata_tail(root, formal, task_id, task_events):
     """Read an authenticated same-state ordinary message tail, never edit snapshot."""
-    import chief_assistant_coordination as chief
     count = formal.get("event_count")
     require(type(count) is int and 0 < count <= len(task_events)
             and task_events[count-1].get("state") == formal.get("current_state")
             and (count == len(task_events) or formal.get("current_state") not in w.TERMINAL_STATES),
             "exact original committed snapshot prefix required")
-    for event in task_events[count:]:
+    if task_id != MATERIAL_PUBLICATION_TASK or w._VALIDATION_CONTEXT.get() is None:
+        return _authenticate_metadata_events(root, formal, task_id, task_events[count:])
+
+    root = Path(root).resolve()
+    active = _MATERIAL_TAIL_REPLAY.get()
+    marker = _HISTORICAL_SOURCE_EVENT.get()
+    if (active is not None and active['root'] == root and active['formal'] == formal
+            and marker == (str(root), task_id, active['event_id'])
+            and len(task_events) == active['verified']
+            and task_events == active['events'][:active['verified']]):
+        # A validator for the current event may depend on the exact earlier
+        # prefix. The outer pass has already authenticated each of those events.
+        # The same request still tracks the original read set for commit.
+        return
+
+    replay = {'root': root, 'formal': formal, 'events': task_events,
+              'verified': count, 'event_id': None}
+    token = _MATERIAL_TAIL_REPLAY.set(replay)
+    try:
+        def ordered_events():
+            for event in task_events[count:]:
+                replay['event_id'] = event['event_id']
+                yield event
+                replay['verified'] += 1
+
+        _authenticate_metadata_events(root, formal, task_id, ordered_events())
+    finally:
+        _MATERIAL_TAIL_REPLAY.reset(token)
+
+
+def _authenticate_metadata_events(root, formal, task_id, events):
+    import chief_assistant_coordination as chief
+    from professional_web_execution import RECOVERY_EVENT
+    for event in events:
+        if _authenticated_original_web_successor_metadata(root, formal, event):
+            continue
+        if (task_id == MATERIAL_PUBLICATION_TASK
+                and set(event.get('details', {})) == {'professional_WEB_preflight'}
+                and _authenticate_historical_metadata(root, formal, event, _authenticated_material_WEB_preflight)):
+            continue
+        if (task_id == MATERIAL_PUBLICATION_TASK
+                and set(event.get('details', {})) == {RECOVERY_EVENT}
+                and _authenticate_historical_metadata(root, formal, event, _authenticated_material_push_recovery)):
+            continue
         from department_autonomy import authenticated_chief_readonly_metadata
         if _authenticated_owner_source_metadata(root, formal, event):
             continue
-        if authenticated_chief_readonly_metadata(root, formal, event):
+        if task_id == MATERIAL_PUBLICATION_TASK:
+            chief_verified = _authenticate_historical_metadata(root, formal, event, authenticated_chief_readonly_metadata)
+        else:
+            chief_verified = authenticated_chief_readonly_metadata(root, formal, event)
+        if chief_verified:
             continue
         detail = event.get("details", {})
         intent = detail.get("routine_decision_reply_intent", {})
@@ -4181,10 +4438,25 @@ def _authenticated_formal_metadata_tail(root, formal, task_id, task_events):
         request = chief.doc(root, intent.get("request"))
         require(request.get("task_id") == task_id and request.get("action_id") == intent.get("action_id")
                 and request.get("payload") == intent.get("payload"), "exact original ordinary request and immutable payload")
-        effects = chief.reply_effect(root, task_id, request["action_id"])
+        # Existing accepted intents are historical evidence. Reconstruct only
+        # their journal-proven sidebar during the read, never for a new send.
+        import copy
+        import department_rotation as rotation
+        registry=w.department_registry(root);role=request.get('target_department')
+        current=registry.get(role,{}).get('chat_binding',{});old=copy.deepcopy(current)
+        old['sidebar_section_id']=request.get('target_sidebar_section_id')
+        if role in registry and old['sidebar_section_id']!=current.get('sidebar_section_id'):
+            require(all(request.get(k)==current.get(v) for k,v in {'target_thread_id':'task_id','target_thread_title':'title',
+                    'target_project_id':'project_id','target_cwd':'cwd'}.items())
+                    and rotation._current_metadata_identity(root,role,current,old), 'actual same-identity historical reply sidebar journal required')
+            registry=copy.deepcopy(registry);registry[role]['chat_binding']=old
+            with rotation._historical_read_context(root,registry):
+                effects=chief.reply_effect(root,task_id,request['action_id'])
+        else:
+            effects=chief.reply_effect(root,task_id,request['action_id'])
         require(effects.get("state") == "official_queue_accepted_not_received" and effects.get("intent") == intent,
                 "actual original accepted ordinary queue source, never an unknown or invented effect")
-        policies = [p for p in w.read_jsonl(Path(root)/w.POLICY_DECISIONS) if p.get("decision_id") == intent.get("policy_decision_id")]
+        policies = w.read_jsonl(Path(root)/w.POLICY_DECISIONS,where={"decision_id":intent.get("policy_decision_id")})
         require(len(policies) == 1, "one actual original ordinary policy required")
         policy = policies[0]
         require(all(policy.get(k) == request.get(k) for k in ("task_id", "scope", "action_id", "action_class", "target_department", "target_thread_id", "payload_sha256"))
@@ -4198,6 +4470,73 @@ def _authenticated_formal_metadata_tail(root, formal, task_id, task_events):
                 "ordinary source policy cannot carry Save/execution authority")
 
 
+def _authenticated_material_WEB_preflight(root, formal, event):
+    """Authenticate an old WEB preflight registration without reviving its TTL."""
+    import department_autonomy as a
+    import professional_web_execution as web
+
+    row = event['details']['professional_WEB_preflight']
+    envelope = a.document(root, row['input'])
+    req = a.document(root, row['request'])
+    op = req['operation']
+    ctx = web.static_intent(root, req)
+    observed = w._parse_observed_at(req.get('observed_at'))
+    registered = w._parse_observed_at(event.get('created_at'))
+    require(set(row) == {'action_id', 'request', 'input'}
+            and envelope == {'schema': 'professional-external-WEB-fresh-preflight/v1',
+                             'task_id': MATERIAL_PUBLICATION_TASK, 'request': row['request']}
+            and event['task_id'] == req['task_id'] == formal['task_id'] == MATERIAL_PUBLICATION_TASK
+            and event['state'] == formal['current_state'] and ctx.get('current_owner_reviewed_release')
+            and op in web.OPS and req['scope'] == web.scopes(ctx, op)
+            and req['action_id'] == row['action_id'] == web.action_id(ctx, op, web.head_value(req),
+                                                                      req['state'].get('main_sha'))
+            and req['action_class'] == web.OPS[op]
+            and req['sender_department'] == req['department'] == ctx['role']
+            and observed and registered and observed <= registered,
+            'exact original same-state WEB preflight metadata, never a current permission')
+    kinds = ('facts', 'self_check', 'backup', 'rollback')
+    digest = w.sha256_value({key: value for key, value in req.items() if key not in kinds})
+    for kind in kinds:
+        value = a.document(root, req[kind])
+        require(all(value.get(k) == req[k] for k in ('task_id', 'department', 'action_id', 'action_class', 'scope'))
+                and value.get('intent_sha256') == digest, 'exact historical WEB preflight evidence pin')
+        if kind in {'facts', 'self_check'}:
+            output = web.native(root, ctx, value['actual_native'], value['command_id'])
+            if kind == 'facts':
+                require(value.get('state') == req['state'] == json.loads(output).get('state'),
+                        'actual original WEB command facts')
+            else:
+                require(value.get('status') == 'PASS' and digest.encode() in output
+                        and ctx['decision']['sha256'].encode() in output, 'actual original WEB self-check bytes')
+        elif kind == 'backup':
+            pin = value['source_backup']
+            if Path(pin['path']).is_absolute():
+                from professional_cms_issuer import external
+                external(root, pin, ctx['binding'])
+            else:
+                a.document(root, pin)
+        else:
+            require(value.get('production_recovery') == ctx['rollback']
+                    and value.get('unknown_effect_replay_allowed') is False, 'original WEB recovery only')
+    return True
+
+
+def _authenticated_material_push_recovery(root, formal, event):
+    from professional_web_execution import RECOVERY_EVENT, recovery_source
+    from material_push_expiry import SCHEMA
+    import department_autonomy as a
+
+    row = event['details'][RECOVERY_EVENT]
+    require(a.document(root, row['source']).get('schema') == SCHEMA
+            and event['task_id'] == formal['task_id'] == MATERIAL_PUBLICATION_TASK
+            and event['state'] == formal['current_state'], 'same-state exact original material recovery only')
+    proof = recovery_source(root, row['source'])
+    require(row == {'source': proof['source'], 'autonomous_action_key': proof['key'],
+                    'original_policy': proof['original_policy']['decision_id']},
+            'exact material pre-transport expiry recovery metadata')
+    return True
+
+
 @strict
 def authenticated_formal_goal_source(root, formal, contract, task_id):
     """Confirm the existing goal initializer's human source and committed history."""
@@ -4209,13 +4548,19 @@ def authenticated_formal_goal_source(root, formal, contract, task_id):
             and goal.get("required_execution_actions") == validated["required_execution_actions"]
             and goal.get("authorized_scope") == validated["authorized_scope"],
             "original goal must match its validated human source and exact contract")
-    task_events = [event for event in w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS)
-                   if event.get("task_id") == task_id]
+    task_events = w.read_jsonl(Path(root) / w.WORKFLOW_EVENTS, where={"task_id": task_id})
     require(task_events and task_events[0].get("state") == "planned"
             and formal.get("current_state") == task_events[-1].get("state")
             and not w.validate_workflow_events(root, task_id),
             "real committed original workflow history required")
-    _authenticated_formal_metadata_tail(root, formal, task_id, task_events)
+    marker = _HISTORICAL_SOURCE_EVENT.get()
+    history_for_metadata = task_events
+    if marker is not None and marker[:2] == (str(Path(root).resolve()), task_id):
+        indexes = [i for i, e in enumerate(task_events) if e.get('event_id') == marker[2]]
+        require(len(indexes) == 1 and indexes[0] >= formal.get('event_count', 0),
+                'one real subsequent owner source event for historical prefix')
+        history_for_metadata = task_events[:indexes[0]]
+    _authenticated_formal_metadata_tail(root, formal, task_id, history_for_metadata)
     frozen_goals = [event.get("details", {}).get("goal_delivery") for event in task_events
                     if isinstance(event.get("details", {}).get("goal_delivery"), dict)]
     require(frozen_goals, "original event-frozen goal required")
@@ -4302,6 +4647,94 @@ def _material_site_doc(value):
     return json.loads(raw)
 
 
+MATERIAL_CURRENT_PROOF = 'two-original-material-protected-source/v2'
+_MATERIAL_CURRENT_CATALOG = (
+    'drafts/publishing/fc-20261014-two-original-materials-exact-body-publication-v1/'
+    'frozen-current-two-material-body-candidates.json'
+)
+
+
+def material_current_row(source, target, candidate):
+    """Bind the deployed carrier's full row without replacing the historical candidate."""
+    from material_causal_successor import _MATERIAL_REGISTRY_REPAIR
+
+    require(source.get('schema') == MATERIAL_CURRENT_PROOF
+            and source.get('source_candidate_head') == _MATERIAL_REGISTRY_REPAIR,
+            'exact current two-material carrier only')
+    catalog = json.loads(_git_source(_MATERIAL_REGISTRY_REPAIR, _MATERIAL_CURRENT_CATALOG))
+    entries = [entry for entry in catalog['entries']
+               if entry.get('cli_namespace') == 'two-original-material-body-' + target['slug']]
+    require(catalog['task_id'] == target['task_id'] == MATERIAL_PUBLICATION_TASK
+            and catalog['registration_grants_write_authority'] is False and len(entries) == 1,
+            'exact original material carrier row registration required')
+    entry = entries[0]
+    row, desired, physical = (entry[key] for key in ('before', 'desired', 'runtime_target'))
+    retained = sorted(set(row) - {*MATERIAL_FIELDS, 'updated_at', 'version'})
+    require(len(row) == 59 and len(retained) == 55 and sum(key.endswith('_ms') for key in retained) == 13
+            and row['id'] == target['record_id'] and row['slug'] == target['slug']
+            and desired == {key: candidate[key] for key in MATERIAL_FIELDS}
+            and physical['changedFields'] == list(MATERIAL_FIELDS)
+            and physical['expectedUpdatedAt'] == row['updated_at']
+            and physical['baselineProjectionFields'] == sorted(row)
+            and physical['baselineFieldsSha256'] == digest(row)
+            and physical['desiredFieldsSha256'] == digest(desired) == target['payload_sha256']
+            and physical['retainedProjectionFields'] == retained
+            and physical['retainedFieldsSha256'] == digest({key: row[key] for key in retained})
+            and physical['rollbackFieldsSha256'] == digest({key: row[key] for key in MATERIAL_FIELDS})
+            and physical['rollbackAllowed'] is False and entry['inverse_authorized'] is False,
+            'current full59 CAS, 55 retained fields and the unchanged original two-body payload required')
+    identity = {'taskId': 'task_id', 'actionId': 'action_id', 'candidateVersion': 'candidate_version',
+                'scope': 'scope', 'id': 'record_id', 'slug': 'slug', 'table': 'table'}
+    require(all(physical[name] == target[key] for name, key in identity.items()),
+            'current carrier cannot change the original publish tuple')
+    return row
+
+
+def _current_material_deployment(root, deployed, sha, run, head):
+    """Verify the actual original WEB deploy policy and its final native R3 readback."""
+    import department_autonomy as a
+    import professional_web_execution as web
+
+    rows = w.read_jsonl(Path(root) / w.POLICY_DECISIONS,
+                        where={'decision_id': deployed['edge_policy_decision_id']})
+    require(len(rows) == 1 and rows[0]['status'] == 'allow'
+            and rows[0]['department'] == 'designated-development'
+            and rows[0]['task_id'] == MATERIAL_PUBLICATION_TASK
+            and rows[0].get('approval_status') == 'consumed_for_original_exact_autonomous_action'
+            and rows[0].get('actual_action_allowed') is True,
+            'one actual original WEB Edge execution policy required')
+    request = a.document(root, rows[0]['exact_request'])
+    state = request['state']
+    require(request['operation'] == 'edge_deploy' and request['task_id'] == MATERIAL_PUBLICATION_TASK
+            and request['action_id'] == rows[0]['action_id']
+            and state['candidate_commit'] == head and state['main_sha'] == sha
+            and state['function'] == 'content-publish' and state['r3_run']['id'] == run['id']
+            and state['actor']['id'] == run['actor']['id'] and run['run_attempt'] == 1,
+            'deployed run must match its original exact Edge execution request')
+    ctx = web.execution_context(root, MATERIAL_PUBLICATION_TASK, state)
+    require(web.candidate(ctx, state) == (head, ctx['base']) and ctx.get('material_registry_test_successor')
+            and rows[0].get('original_professional_source') == ctx['decision']
+            and rows[0]['scope'] == request['scope'] == ctx['edge_scope']
+            and web.git(ctx, 'merge-base', head, sha).decode().strip() == head
+            and not web.git(ctx, 'diff', '--name-only', head, sha, '--', *ctx['paths']).strip(),
+            'actual deployed main must include the complete unchanged reviewed material successor')
+    from goal_delivery_runtime import _native_document
+    import shlex
+    page = _native_document(root, deployed['actual_web_native'])
+    commands = [item for turn in page['turns'] for item in turn['items']
+                if item.get('id') == deployed['actual_run_readback_command_id']]
+    require(len(commands) == 1, 'one original live GitHub run readback command required')
+    argv = shlex.split(commands[0]['command'])
+    if len(argv) == 3 and argv[:2] in (['/bin/zsh', '-lc'], ['/bin/bash', '-lc']):
+        argv = shlex.split(argv[2])
+    endpoint = f"repos/{ctx['repository']}/actions/runs/{run['id']}"
+    require(argv in (['gh', 'api', endpoint], ['gh', 'api', '--method', 'GET', endpoint],
+                     ['gh', 'api', '--hostname', 'github.com', '--method', 'GET', endpoint]),
+            'only the original exact read-only GitHub run query can supply the live result')
+    native = json.loads(web.native(root, ctx, deployed['actual_web_native'], deployed['actual_run_readback_command_id']))
+    require(native == run, 'exact successful R3 run JSON must come from the original WEB command')
+
+
 @strict
 def two_original_material_readiness(root, target, accepted):
     """Read the publisher's committed selfcheck and real website release proof.
@@ -4336,13 +4769,14 @@ def two_original_material_readiness(root, target, accepted):
     required = {"task_id": target["task_id"], "action_id": target["action_id"],
                 "candidate_version": target["candidate_version"],
                 "scope": target["scope"], "record_id": target["record_id"]}
-    require(source.get("schema") == "two-original-material-protected-source/v1"
+    current_proof = source.get('schema') == MATERIAL_CURRENT_PROOF
+    require((current_proof or source.get("schema") == "two-original-material-protected-source/v1")
             and all(source.get(key) == value for key, value in required.items())
             and source.get("status") == "DEPLOYED_SOURCE_VERIFIED"
             and source.get("source_candidate_version") ==
                 "two-original-materials-protected-body-channel-v2-20261014"
-            and source.get("source_candidate_head") ==
-                "b5f54dea9d6277b51daab2e0c0e23fe65bdac46a",
+            and (current_proof or source.get("source_candidate_head") ==
+                "b5f54dea9d6277b51daab2e0c0e23fe65bdac46a"),
             "exact original website source and publisher tuple required")
     deployed = _material_site_doc(source.get("website_deployment"))
     sha = deployed.get("production_website_sha")
@@ -4367,18 +4801,26 @@ def two_original_material_readiness(root, target, accepted):
             and release_run.get("name") == "Release managed content-publish R3"
             and release_run.get("path") == ".github/workflows/supabase-content-publish-r3.yml"
             and release_run.get("repository", {}).get("full_name") ==
-                "wangchaozhuanyong/zhuangxiuwangzhan"
+                "example-owner/example-website"
             and release_run["repository"].get("id") == 1248188229
             and release_run.get("head_repository", {}).get("full_name") ==
-                "wangchaozhuanyong/zhuangxiuwangzhan",
+                "example-owner/example-website",
             "actual protected R3 repository/main/workflow run must own the deployed source")
+    if current_proof:
+        _current_material_deployment(root, deployed, sha, release_run, source['source_candidate_head'])
     release_artifacts = (WEBSITE / "reports" /
         "two-original-materials-protected-body-channel-20261014-v2" /
         f"production-r3-run-{release_run['id']}-artifacts").resolve()
     require(Path(str(deployed.get("actual_readback", {}).get("manifest", {}).get("path", "")))
             .resolve().is_relative_to(release_artifacts),
             "Edge source manifest must belong to the exact R3 readback artifact")
-    expected = doc(root, MATERIAL_EXPECTED_SOURCE)
+    if current_proof:
+        expected_path = Path(deployed['expected_manifest']['path']).resolve()
+        require(expected_path.name == 'edge-source-expected.json'
+                and expected_path.is_relative_to(release_artifacts / 'before'),
+                'expected closure must come from the same original R3 before artifact')
+    expected = (_material_site_doc(deployed['expected_manifest']) if current_proof
+                else doc(root, MATERIAL_EXPECTED_SOURCE))
     files = expected.get("files", [])
     types = expected.get("typeOnlyFileRecovery", [])
     paths = [item.get("path") for item in files]
@@ -4386,7 +4828,8 @@ def two_original_material_readiness(root, target, accepted):
     require(expected.get("schema") == "content-publish-runtime-source/v1"
             and expected.get("entrypoint") == "content-publish/index.ts"
             and "content-publish/index.ts" in paths
-            and isinstance(files, list) and len(files) == len(set(paths)) == 21
+            and isinstance(files, list) and len(files) == len(set(paths))
+            and (current_proof or len(files) == 21)
             and isinstance(types, list) and len(types) == len(set(type_paths))
             and set(expected.get("typeOnlyFiles", [])) == set(type_paths)
             and not set(paths) & set(type_paths),
@@ -4453,20 +4896,21 @@ def two_original_material_readiness(root, target, accepted):
                 and hashlib.sha256(raw).hexdigest() == item.get("sha256")
                 and _git_source(sha, "supabase/functions/" + path) == raw,
                 "deployed Edge source differs from the release commit")
-    website = doc(root, MATERIAL_WEBSITE_RETURN)
-    require(len(website.get("source_file_pins", [])) == 11,
-            "all eleven reviewed website source files required")
-    for item in website["source_file_pins"]:
-        path = item.get("path", "")
-        marker = "/reports/two-original-materials-protected-body-channel-20261014-v2/after/"
-        require(isinstance(path, str) and path.startswith(str(WEBSITE) + marker),
-                "only original reviewed website source files may be checked")
-        relative = path.split(marker, 1)[1]
-        original = _git_source(source["source_candidate_head"], relative)
-        require(len(original) == item.get("bytes")
-                and hashlib.sha256(original).hexdigest() == item.get("sha256")
-                and _git_source(sha, relative) == original,
-                "released code must retain every reviewed material channel file")
+    if not current_proof:
+        website = doc(root, MATERIAL_WEBSITE_RETURN)
+        require(len(website.get("source_file_pins", [])) == 11,
+                "all eleven reviewed website source files required")
+        for item in website["source_file_pins"]:
+            path = item.get("path", "")
+            marker = "/reports/two-original-materials-protected-body-channel-20261014-v2/after/"
+            require(isinstance(path, str) and path.startswith(str(WEBSITE) + marker),
+                    "only original reviewed website source files may be checked")
+            relative = path.split(marker, 1)[1]
+            original = _git_source(source["source_candidate_head"], relative)
+            require(len(original) == item.get("bytes")
+                    and hashlib.sha256(original).hexdigest() == item.get("sha256")
+                    and _git_source(sha, relative) == original,
+                    "released code must retain every reviewed material channel file")
     machine_pin = check.get("actual_machine")
     require(isinstance(machine_pin, dict) and machine_pin in check.get("evidence", []),
             "publisher selfcheck must pin the actual protected preview machine")
@@ -4487,12 +4931,15 @@ def two_original_material_readiness(root, target, accepted):
     candidate = doc(root, {"path": target["candidate"][0],
                            "sha256": target["candidate"][1],
                            "size": w.file_digest(root, target["candidate"][0])["size"]})
-    require(isinstance(current, dict) and len(current) == 46
+    if current_proof:
+        before = material_current_row(source, target, candidate)
+    projected_candidate = {**before, **{key: candidate[key] for key in MATERIAL_FIELDS}} if current_proof else candidate
+    require(isinstance(current, dict) and len(current) == (59 if current_proof else 46)
             and type(current.get("version")) is int and current == before
-            and current.get("version") == target["observed_version"]
-            and current.get("updated_at") == target["expected_updated_at"]
+            and (current_proof or (current.get("version") == target["observed_version"]
+                                  and current.get("updated_at") == target["expected_updated_at"]))
             and re.fullmatch(r".*\.\d{6}\+00:00", str(current.get("updated_at", "")))
-            and {key for key in current if current[key] != candidate[key]} == set(MATERIAL_FIELDS)
+            and {key for key in current if current[key] != projected_candidate[key]} == set(MATERIAL_FIELDS)
             and backup.get("table") == "materials" and backup.get("key") == target["slug"]
             and payload.get("task_id") == target["task_id"]
             and payload.get("candidate_version") == target["candidate_version"]
@@ -4524,7 +4971,7 @@ def two_original_material_readiness(root, target, accepted):
             and probe["identity"].get("runAttempt") == run.get("run_attempt")
             and probe["identity"].get("repositoryId") == 1248188229
             and probe["identity"].get("workflowRef") ==
-                "wangchaozhuanyong/zhuangxiuwangzhan/.github/workflows/content-publish-approved.yml@refs/heads/main"
+                "example-owner/example-website/.github/workflows/content-publish-approved.yml@refs/heads/main"
             and probe["identity"].get("workflowSha") == run["head_sha"] == sha,
             "actual protected preview must bind exact full row, CAS, actor and deployed code")
     checked = w._parse_observed_at(receipt.get("checked_at"))

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 SITE_REPOSITORY = "<WEBSITE_PROJECT_ROOT>"
-GITHUB_REPOSITORY = "wangchaozhuanyong/zhuangxiuwangzhan"
+GITHUB_REPOSITORY = "example-owner/example-website"
 
 
 def evaluate_context(request: dict[str, Any], binding: dict[str, Any],

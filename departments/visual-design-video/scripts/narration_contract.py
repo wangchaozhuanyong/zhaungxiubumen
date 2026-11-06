@@ -94,6 +94,26 @@ def _audio_duration(path: Path) -> float:
     return duration
 
 
+def _current_pace_policy() -> dict | None:
+    from narration_audio import active_profile
+    policy = active_profile().get("production_preferences", {}).get("pace_policy")
+    if policy is None:
+        return None
+    evidence = policy["owner_feedback_evidence"]
+    if _file_pin(_resolve_project_file(evidence["path"])) != evidence:
+        raise ValueError("owner_speed_feedback_evidence_changed")
+    return policy
+
+
+def _duration_floor(contract: dict) -> float:
+    policy = _current_pace_policy()
+    authorization = contract.get("narration", {}).get("duration_priority_authorization_sha256")
+    if (policy and policy.get("allow_shorter_than_45_seconds") is True
+            and authorization == policy["owner_feedback_evidence"]["sha256"]):
+        return 0.0
+    return 45.0
+
+
 def build_tempo_calibration_report(voice_audio: str | Path, spoken_copy: str | Path) -> dict:
     """Measure final Chinese speech pace against the owner's selected A audition."""
     from narration_audio import active_profile
@@ -125,7 +145,29 @@ def build_tempo_calibration_report(voice_audio: str | Path, spoken_copy: str | P
     reference_rate = reference_units / measured_reference_duration
     candidate_rate = candidate_units / candidate_duration
     ratio = candidate_rate / reference_rate
-    in_range = PACE_RATIO_MIN <= ratio <= PACE_RATIO_MAX
+    minimum, maximum = PACE_RATIO_MIN, PACE_RATIO_MAX
+    baseline = None
+    policy = _current_pace_policy()
+    if policy:
+        original = policy["original_v1_audio"]
+        record = policy["original_v1_record"]
+        for item in (original, record):
+            if _file_pin(_resolve_project_file(item["path"])) != item:
+                raise ValueError("original_v1_speed_provenance_changed")
+        original_text = json.loads(_resolve_project_file(record["path"]).read_text())["reference_text"]
+        if _spoken_units(original_text) != _spoken_units(reference_text):
+            raise ValueError("original_and_selected_audition_text_differ")
+        original_duration = _audio_duration(_resolve_project_file(original["path"]))
+        required_rate = reference_units / original_duration * float(policy["required_factor_vs_original_v1"])
+        minimum = max(float(policy["minimum_ratio_vs_selected_audition"]), required_rate / reference_rate)
+        maximum = float(policy["maximum_ratio_vs_selected_audition"])
+        if not 0 < minimum <= maximum:
+            raise ValueError("owner_speed_policy_range_invalid")
+        baseline = {"policy_version": policy["policy_version"], "owner_feedback_evidence": policy["owner_feedback_evidence"],
+                    "original_v1_audio": original, "original_v1_record": record,
+                    "original_duration_seconds": original_duration, "required_factor_vs_original_v1": policy["required_factor_vs_original_v1"],
+                    "required_units_per_second": required_rate}
+    in_range = minimum <= ratio <= maximum
     return {
         "policy_version": TEMPO_POLICY,
         "status": "PASS_PACE_MATCHED_TO_OWNER_AUDITION" if in_range else "HOLD_PACE_OUTSIDE_OWNER_AUDITION_RANGE",
@@ -145,7 +187,8 @@ def build_tempo_calibration_report(voice_audio: str | Path, spoken_copy: str | P
             "speakable_units_per_second": round(candidate_rate, 6),
         },
         "pace_ratio_vs_owner_selected_audition": round(ratio, 6),
-        "accepted_ratio_range": [PACE_RATIO_MIN, PACE_RATIO_MAX],
+        "accepted_ratio_range": [minimum, maximum],
+        **({"current_owner_speed_baseline": baseline} if baseline else {}),
         "duration_45_to_60_seconds_is_not_a_pace_check": True,
         "re_align_after_any_audio_change": True,
     }
@@ -404,7 +447,7 @@ def validate_narration(contract: dict, storyboard: dict | None = None, final: bo
     if not audition:
         try:
             duration = float(contract.get("duration_seconds", 0))
-            if not 45 <= duration <= 60:
+            if not (duration > 0 and _duration_floor(contract) <= duration <= 60):
                 errors.append("narration_duration_must_be_45_to_60_seconds")
         except (TypeError, ValueError):
             errors.append("narration_duration_invalid")
@@ -482,7 +525,7 @@ def validate_narration_evidence(contract: dict, base: Path, storyboard: dict | N
                 capture_output=True, text=True, check=True)
             return float(json.loads(probe.stdout)["format"]["duration"])
         voice_duration = duration(paths["voice_audio_path"])
-        if not 45 <= voice_duration <= 60 or abs(voice_duration - float(contract["duration_seconds"])) > .3:
+        if not (voice_duration > 0 and _duration_floor(contract) <= voice_duration <= 60) or abs(voice_duration - float(contract["duration_seconds"])) > .3:
             errors.append("narration_actual_voice_duration_outside_contract")
         if final_media is None or not final_media.is_file():
             errors.append("narration_final_video_file_required_for_experience_review")
@@ -491,7 +534,7 @@ def validate_narration_evidence(contract: dict, base: Path, storyboard: dict | N
         else:
             final_video_sha = sha(final_media)
             final_video_duration = duration(final_media)
-            if not 45 <= final_video_duration <= 60:
+            if not (final_video_duration > 0 and _duration_floor(contract) <= final_video_duration <= 60):
                 errors.append("narration_actual_video_duration_outside_contract")
         alignment = json.loads(paths["alignment_path"].read_text())
         timing = json.loads(paths["timing_path"].read_text())

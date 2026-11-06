@@ -5148,9 +5148,12 @@ def original_source_continuation(root, snapshot, receipts, dispatch, plan):
         return {**data, 'kind':'prepared_original_result_observation',
                 'ordinary_receipt_ids':[dispatch['receipt_id']], 'execution_authority_added':False}
     w = _workflow()
+    receipt_id = dispatch.get('receipt_id')
+    if not isinstance(receipt_id, str) or not receipt_id.strip():
+        return None
     events = [e for e in w.read_jsonl(root / w.WORKFLOW_EVENTS)
               if e.get('task_id') == snapshot['task_id'] and e.get('details', {}).get(
-                  'post_qa_source_continuation', {}).get('dispatch_receipt_id') == dispatch.get('receipt_id')]
+                  'post_qa_source_continuation', {}).get('dispatch_receipt_id') == receipt_id]
     if not events:
         return None
     if len(events) != 1:

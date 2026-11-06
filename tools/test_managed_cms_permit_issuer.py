@@ -11,6 +11,25 @@ from unittest.mock import patch
 from tools import managed_cms_permit_issuer as issuer
 
 
+class MaterialPreviewIdentityTests(unittest.TestCase):
+    def test_material_preview_requires_the_actual_workflow_for_its_target_name(self):
+        target = {'candidate_shape': 'two_original_material_body_registration_only_v1',
+                  'slug': 'sintered-stone-grey'}
+        name = 'two-original-material-body-' + target['slug']
+        workflow = {'name': 'Approved website content publish',
+                    'path': '.github/workflows/content-publish-approved.yml', 'id': 9, 'state': 'active'}
+        run = {'id': 12, 'name': name + ' | dry-run', 'path': workflow['path'], 'workflow_id': workflow['id'],
+               'repository': {'id': 1248188229, 'full_name': issuer.REPOSITORY}, 'status': 'completed',
+               'run_attempt': 1, 'event': 'workflow_dispatch', 'conclusion': 'success', 'head_branch': 'main',
+               'head_sha': 'a' * 40}
+        with patch.object(issuer, '_artifact_target', return_value=target):
+            issuer.validate_artifact_run_identity(12, name, run, workflow)
+            with self.assertRaises(issuer.PermitEvidenceError):
+                issuer.validate_artifact_run_identity(12, name, run, {**workflow, 'id': 10})
+            with self.assertRaises(issuer.PermitEvidenceError):
+                issuer.validate_artifact_run_identity(12, name, {**run, 'name': name + ' | publish'}, workflow)
+
+
 class ManagedCmsPermitIssuerTests(unittest.TestCase):
     def setUp(self):
         self.target = issuer.TARGETS["builtin-whole-house-custom-v1"]
@@ -385,7 +404,7 @@ class ManagedCmsPermitIssuerTests(unittest.TestCase):
 
     def test_wrong_project_endpoint_rejected_before_network(self):
         with self.assertRaisesRegex(issuer.PermitEvidenceError, "Wrong Supabase project"):
-            issuer.endpoint_request({}, "test-only", "https://example.com/rbsnyexjifounogswrjp.supabase.co")
+            issuer.endpoint_request({}, "test-only", "https://example.com/exampleproject000000.supabase.co")
 
     def test_protected_issuer_secret_prefers_injected_value(self):
         with patch.dict(os.environ, {"MANAGED_CMS_PERMIT_ISSUER_SECRET": "x" * 48}):
