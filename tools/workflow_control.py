@@ -2953,7 +2953,7 @@ def exact_health_probe(root, snapshot, *, sender, target, scope, payload_sha256)
             or scope not in snapshot["goal_delivery"].get("authorized_scope", [])
             or snapshot["goal_delivery"].get("producer_departments") != [target]
             or snapshot["goal_delivery"].get("required_execution_actions")
-            or sender not in {"operations", snapshot["goal_delivery"].get("responsible_assistant")}):
+            or not sender or sender not in {"operations", snapshot["goal_delivery"].get("responsible_assistant")}):
         return False
     try:
         contract=validate_goal(root, read_json(safe_path(root, snapshot["goal_contract"]["path"])))

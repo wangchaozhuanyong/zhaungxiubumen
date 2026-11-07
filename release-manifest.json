@@ -2228,9 +2228,9 @@
     },
     {
       "path": "tools/workflow_control.py",
-      "source_sha256": "da7db9c80e211f8663df84aa0f1b40eb4600fd09a54f063bbb8db132dca09e6f",
-      "release_sha256": "f08849d5ab5315b5a59d8a02aabd8614f0f334fa16cfc2e918d4943ecbf7f3ab",
-      "bytes": 624541
+      "source_sha256": "df16a52238e1075907a00f0b6f400b907913c7870617e52f58f08ed5ff134eb9",
+      "release_sha256": "5df460146ef89baba1cc838eba58f0d3cc148e91cce8cd7ac4203b4e823e5c24",
+      "bytes": 624555
     }
   ],
   "retired_roles": [],
@@ -2244,5 +2244,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "8c16812f35ec102dc7283dd98b1280bebb59405a83c525a54eb4d3276619396e"
+  "fingerprint": "9347fe6da45d5706f76d11815ce222142d27b5084836e4ba02f199335a2a2bed"
 }
