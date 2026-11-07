@@ -1598,9 +1598,9 @@
     },
     {
       "path": "tools/receipt_obligation_consumer.py",
-      "source_sha256": "0ad6d2177a7b6b63a6c8558e1e254366fca925696c9db72739e3a01ad1fc9da7",
-      "release_sha256": "2507352e7bc63d897ee23dc66bb229cb98a677e5e4d8df21bd920aefdcdbbebd",
-      "bytes": 199741
+      "source_sha256": "bedd7ef017b8f27a753ee3403e47accf1aa0d4bb6ddea09e1cf704fe54b6bf7d",
+      "release_sha256": "3550b6b70646a202798c46ed7cd74e8f18f53ca4a50ec4ace0a25f6bad6d2053",
+      "bytes": 200069
     },
     {
       "path": "tools/result_coordination.py",
@@ -2120,9 +2120,9 @@
     },
     {
       "path": "tools/test_root_serial_ready_discovery.py",
-      "source_sha256": "8a11ad4f8b53b7bb13f0411e12c0d3bff7c9f95ccc4ab95240da4d667d83530f",
-      "release_sha256": "8a11ad4f8b53b7bb13f0411e12c0d3bff7c9f95ccc4ab95240da4d667d83530f",
-      "bytes": 8757
+      "source_sha256": "74c7c9d5024218dfa00a87f4fe88282de84ef01e3c4c01d369376ca8e090bfbf",
+      "release_sha256": "74c7c9d5024218dfa00a87f4fe88282de84ef01e3c4c01d369376ca8e090bfbf",
+      "bytes": 11132
     },
     {
       "path": "tools/test_rotation_completion.py",
@@ -2238,5 +2238,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "c38d6b37061d382d806301068308ea7b0331b955254193d4195e5bd8e822bed5"
+  "fingerprint": "593dd2068ad2514ebceb1395b07d783d13d8f2e147c34274169eb19b7d3a2868"
 }

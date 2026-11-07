@@ -131,6 +131,43 @@ class RootSerialReadyDiscoveryTest(unittest.TestCase):
         self.committed_legacy_batch()
         self.assertEqual(self.batch()['kind'], 'normal_producer_batch')
 
+    def test_admitted_primary_delivery_alias_keeps_original_outbox_bytes(self):
+        self.committed_legacy_batch()
+        box = workflow.read_json(self.root / 'outbox.json')
+        box['primary_delivery'] = box.pop('primary_deliverable')
+        self.outbox = self.write('outbox.json', box)
+        self.identity['result_sha256'] = self.outbox['sha256']
+        self.queue.update(self.identity, outbox=self.outbox)
+        self.proof.update(result_identity=self.identity, outbox=self.outbox)
+        before = (self.root / 'outbox.json').read_bytes()
+        self.assertEqual(self.batch()['kind'], 'normal_producer_batch')
+        self.assertEqual((self.root / 'outbox.json').read_bytes(), before)
+
+    def test_conflicting_primary_delivery_alias_cannot_release_serial_capacity(self):
+        self.committed_legacy_batch()
+        box = workflow.read_json(self.root / 'outbox.json')
+        box['primary_delivery'] = self.write('different.json', {'other':True})
+        self.outbox = self.write('outbox.json', box)
+        self.identity['result_sha256'] = self.outbox['sha256']
+        self.queue.update(self.identity, outbox=self.outbox)
+        self.proof.update(result_identity=self.identity, outbox=self.outbox)
+        with self.assertRaises(workflow.WorkflowError): self.batch()
+
+    def test_observer_preserves_admitted_multiline_ready_for_exact_queue_source_hash(self):
+        self.committed_legacy_batch()
+        self.ready['text'] = 'FLASHCAST_DELIVERY_READY\n\ntask_id: original-goal-v1\nsha256: ' + self.outbox['sha256']
+        self.queue['source_reply_sha256'] = hashlib.sha256(self.ready['text'].encode()).hexdigest()
+        self.final['text'] += '\nActual result SHA: ' + self.outbox['sha256']
+        history = Mock()
+        history.call.side_effect = [{'thread':self.thread},{'data':[self.turn]}]
+        store = SimpleNamespace(rows=lambda:[{'identity_json':json.dumps(self.identity)}])
+        with patch.object(consumer,'ROOT_SERIAL_PATH',self.record_path), \
+             patch.object(consumer,'_root_slot_read',return_value=None), \
+             patch.object(results,'_validate_queued',return_value=self.queue):
+            outcome = consumer.observe_root_serial(self.root,SimpleNamespace(history=history),store=store)
+        self.assertTrue(outcome['root_release_recorded'],outcome)
+        self.assertFalse(outcome['business_goal_closed'])
+
     def test_legacy_reply_needs_exact_committed_message_hash_turn_and_phase(self):
         for change in ({'source_message_id': 'other'}, {'source_reply_sha256': '0' * 64},
                        {'source_turn_id': 'previous'}, {'event': 'prepared'},

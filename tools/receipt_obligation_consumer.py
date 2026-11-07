@@ -667,7 +667,10 @@ def _root_same_turn_queued_report(root, proof, record, final, identity, pin, box
                 or hashlib.sha256(messages[0]['text'].encode()).hexdigest()
                     != queued.get('source_reply_sha256')):
             return False
-        evidence = box.get('primary_deliverable')
+        if ('primary_deliverable' in box and 'primary_delivery' in box
+                and box['primary_deliverable'] != box['primary_delivery']):
+            return False
+        evidence = box.get('primary_deliverable', box.get('primary_delivery'))
         return (isinstance(evidence, dict) and set(evidence) == {'path', 'sha256', 'size'}
                 and isinstance(evidence.get('path'), str) and bool(evidence['path'])
                 and evidence['path'] in final['text']
@@ -1150,8 +1153,11 @@ def observe_root_serial(root, transport, *, store=None, completion_event=None, p
                 return {**result,'state':'root_serial_release_already_fresh','source':before}
         current = {**record,'current_active_original_window':window,'current_active_turn':turn_id,
                    'current_scope':request['scope'] if request else record.get('current_scope'),'current_state':'completed'}
+        # Keep actual commentary bytes, including admitted multiline READY.
+        # The committed queue source message id/hash, not marker typography,
+        # authenticates a producer batch in _root_same_turn_queued_report.
         proof = {'source':'official_app_server_readonly_history','service_origin':SERVICE_ORIGIN,
-                 'thread':thread,'turns':[{k:v for k,v in turn.items() if k != 'items'} | {'items':[m for m in turn.get('items',[]) if m == final or (m.get('type') == 'agentMessage' and m.get('phase') == 'commentary' and any(line.startswith('FLASHCAST_DELIVERY_READY ') for line in str(m.get('text','')).splitlines()))]}]}
+                 'thread':thread,'turns':[{k:v for k,v in turn.items() if k != 'items'} | {'items':[m for m in turn.get('items',[]) if m == final or (m.get('type') == 'agentMessage' and m.get('phase') == 'commentary')]}]}
         candidates = []
         if record.get('current_release_native_proof'):
             try:
