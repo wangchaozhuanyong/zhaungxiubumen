@@ -4,6 +4,7 @@ from pathlib import Path
 import select
 import tempfile
 import subprocess
+import sys
 import unittest
 from unittest import mock
 
@@ -115,6 +116,35 @@ class DispatcherTests(unittest.TestCase):
         transport.busy = False
         worker.pump(valid_events={self.event}, only_events={self.event})
         self.assertEqual(len(transport.calls), 1)
+
+    def test_script_entry_preserves_official_transport_type_for_receipt_consumer(self):
+        script = r'''
+import argparse,runpy,sys
+from pathlib import Path
+class BootstrapStopped(Exception):pass
+types=[]
+def stop(*args,**kwargs):
+    types.append(sys.modules['__main__'].OfficialQueueTransport)
+    raise BootstrapStopped
+argparse.ArgumentParser.parse_args=stop
+try:runpy.run_path(sys.argv[1],run_name='__main__')
+except BootstrapStopped:pass
+import department_event_dispatcher as d
+import receipt_obligation_consumer as c
+class ContextReached(Exception):pass
+def context(*args,**kwargs):raise ContextReached
+c.project=lambda *args,**kwargs:{'task_id':'original-goal','action_id':'original-action',
+    'state':'ordinary_handler_action_required','actionable':True,'next_owner':'original-owner'}
+c.shared_serial_guard=lambda *args,**kwargs:{'new_activation_allowed':True}
+c.context=context
+d.binding=lambda *args,**kwargs:{'task_id':'original-window'}
+try:c.consume(Path(sys.argv[2]),{}, {'record_id':'actual-receipt'},types[0].__new__(types[0]))
+except ContextReached:pass
+else:raise AssertionError('normal context was never reached')
+'''
+        result=subprocess.run([sys.executable,'-B','-c',script,str(Path(d.__file__)),str(self.root)],
+                              capture_output=True,text=True,timeout=20)
+        self.assertEqual(result.returncode,0,result.stderr)
 
     def test_transport_absent_retains_pending(self):
         d.Dispatcher(self.store).pump()

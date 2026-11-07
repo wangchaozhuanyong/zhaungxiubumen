@@ -3201,4 +3201,7 @@ def main():
 
 
 if __name__ == '__main__':
+    # Consumers import this module by name. Keep the script's official
+    # transport class identical instead of loading a second nominal type.
+    sys.modules.setdefault('department_event_dispatcher', sys.modules[__name__])
     raise SystemExit(main())

@@ -439,6 +439,31 @@ def _sdk_supplement_matches(root, role, fixed, canonical, supplied):
     return True
 
 
+def _same_handler_receipt_sdk(root, request, ctx, fixed, canonical):
+    """Reuse the real SDK identity already committed for this handler's intake.
+
+    Only an event back to that same current fixed handler qualifies. Canonical
+    current turn/health checks stay fresh; no host/kind fields are synthesized
+    and a rebind, contradictory identity or another recipient cannot inherit it.
+    """
+    actor=ctx.get('handling_actor')
+    if (request.get('sender_department') != actor or request.get('target_department') != actor
+            or ctx.get('handling_owner') != fixed.get('task_id')):
+        return None
+    from goal_delivery_runtime import _native_document
+    pin=ctx.get('intake',{}).get('actual_receiver_native')
+    page=_native_document(root,pin);actual=page.get('thread',{});current=canonical.get('thread',{})
+    mapping={'id':'task_id','title':'title','cwd':'cwd','hostId':'host_id'}
+    if (actual.get('kind') != 'codex' or not all(actual.get(k)==fixed.get(v)for k,v in mapping.items())
+            or not all(current.get(k)==actual.get(k)for k in ('id','title','cwd'))
+            or current.get('hostId') not in (None,actual.get('hostId'))
+            or current.get('kind') not in (None,'codex')
+            or any(t.get('projectId') not in (None,fixed.get('project_id'))for t in (actual,current))):
+        return None
+    return {'received_record_id':ctx['intake']['record_id'],'actual_receiver_native':pin,
+            'same_current_handler_only':True,'external_permission_issued':False}
+
+
 def event_route(root, snapshot, request):
     """Narrow normal-policy route for a deterministic transport-only event."""
     marker = request.get(MARKER)
@@ -473,6 +498,7 @@ def event_route(root, snapshot, request):
     observed = w._parse_observed_at(request.get('live_observed_at'))
     require(observed and 0 <= (dt.datetime.now(dt.timezone.utc)-observed).total_seconds() <= 300,
             'fresh actual observation required')
+    receipt_identity=None
     for field,role in (('actual_sender_state',request['sender_department']),('actual_target_state',request['target_department'])):
         fixed = registry[role]['chat_binding']; page = g._collaboration_native(root,request[field])
         require(registry[role].get('new_dispatch_enabled') is True and w._chat_binding_healthy(fixed,verification_ttl_hours=26)
@@ -486,7 +512,9 @@ def event_route(root, snapshot, request):
             require(isinstance(sources,dict) and set(sources)=={request['sender_department'],request['target_department']}, 'exact sender/target SDK sources required')
             _sdk_supplement_matches(root,role,fixed,page,sources[role])
         else:
-            require(page['thread'].get('hostId') == fixed['host_id'] and page['thread'].get('kind') == 'codex', 'DATA_MISSING original SDK host/kind; canonical-only identity denied')
+            if page['thread'].get('hostId') != fixed['host_id'] or page['thread'].get('kind') != 'codex':
+                receipt_identity=_same_handler_receipt_sdk(root,request,ctx,fixed,page)
+                require(receipt_identity is not None,'DATA_MISSING original SDK host/kind; canonical-only identity denied')
     source = registry[request['sender_department']]['chat_binding']; target = registry[request['target_department']]['chat_binding']
     require(request['source_project_id'] == source['project_id']
             and all(request.get(k) == target[v] for k,v in {'target_project_id':'project_id','target_thread_id':'task_id',
@@ -502,6 +530,7 @@ def event_route(root, snapshot, request):
             'handling_actor':ctx['handling_actor'],'handling_owner':ctx['handling_owner'],
             'external_permission_issued':False,'business_producer_added':False,'system_event_only':True,
             'service_origin':SERVICE_ORIGIN,'owner_delegation':OWNER_DELEGATION,
+            **({'receipt_bound_identity_evidence':receipt_identity}if receipt_identity is not None else {}),
             'root_serial_source':shared['source']}
 
 
@@ -581,7 +610,35 @@ def _root_safe_dependency(root, wait, box, final):
     stated = box.get('safe_dependency')
     structured = isinstance(stated,dict) and all(stated.get(k) == wait[k] for k in ('owner','action','dependency_input'))
     native = all(wait[k] in final['text'] for k in ('owner','action','dependency_input'))
-    require(structured or native,'safe dependency is not stated by the exact normal batch/native final')
+    declared = _root_blocked_next_action(root, box)
+    require(structured or native or declared == wait,
+            'safe dependency is not stated by the exact normal batch/native final')
+
+
+def _root_blocked_next_action(root, box):
+    """Project one normal blocked report's explicit handler and immutable input.
+
+    This releases a finite producer boundary, never its business obligation or
+    a production permission. Ambiguous next owners and UNKNOWN stay blocked.
+    """
+    if str(box.get('status','')).lower() not in {'blocked','waiting','partial_blocked'}:
+        return None
+    actions = box.get('next_actions', [])
+    if not isinstance(actions,list) or len(actions) != 1 or not isinstance(actions[0],dict):
+        return None
+    item = actions[0]
+    if (not isinstance(item.get('owner'),str) or item['owner'] not in w.department_registry(root)
+            or not isinstance(item.get('action'),str) or not item['action'].strip()):
+        return None
+    if ('primary_deliverable' in box and 'primary_delivery' in box
+            and box['primary_deliverable'] != box['primary_delivery']):
+        return None
+    evidence = box.get('primary_deliverable',box.get('primary_delivery'))
+    if (not isinstance(evidence,dict) or set(evidence) != {'path','sha256','size'}
+            or not isinstance(evidence.get('path'),str) or not evidence['path']
+            or evidence not in box.get('evidence',[]) or w.file_digest(root,evidence['path']) != evidence):
+        return None
+    return {'owner':item['owner'],'action':item['action'],'dependency_input':evidence['path']}
 
 
 def _root_commentary_ready(turn):
@@ -649,7 +706,10 @@ def _root_same_turn_queued_report(root, proof, record, final, identity, pin, box
         _, turn, actual_final = _root_serial_native(
             proof, record['current_active_original_window'],
             record['current_active_turn'], dt.datetime.now(dt.timezone.utc))
-        if (actual_final != final or str(box.get('status', '')).lower() != 'completed'
+        finite = (str(box.get('status','')).lower() == 'completed'
+                  or record.get('current_state') == 'safe_dependency'
+                  and _root_blocked_next_action(root,box) is not None)
+        if (actual_final != final or not finite
                 or box.get('batch_complete') is False
                 or queued.get('event') != 'notification_queued'
                 or not queued.get('record_id')
@@ -1187,9 +1247,15 @@ def observe_root_serial(root, transport, *, store=None, completion_event=None, p
                 candidates.append({**proof,'routine_receipt':request[MARKER]['notification'],
                     'routine_current_state':'safe_dependency' if consumed['state'] == 'named_future_dependency_wait' else 'completed'})
         if store is not None:
+            commentary = [m.get('text','') for m in turn.get('items',[])
+                          if m.get('type') == 'agentMessage' and m.get('phase') == 'commentary']
             for row in store.rows():
                 value = json.loads(row['identity_json'])
-                if value.get('result_sha256') in final['text']:candidates.append({'result_identity':value})
+                digest = value.get('result_sha256')
+                if isinstance(digest,str) and digest and (digest in final['text'] or any(digest in text for text in commentary)):
+                    # Discovery only. The normal committed source message id,
+                    # hash, original turn and final artifact still authenticate.
+                    candidates.append({'result_identity':value})
         # READY can precede durable result queueing, but it is not receipt. Read
         # only the exact producer-declared outbox path in this actual final.
         if 'FLASHCAST_DELIVERY_READY ' in final['text']:
@@ -1201,6 +1267,9 @@ def observe_root_serial(root, transport, *, store=None, completion_event=None, p
                 candidate_current = dict(current)
                 if isinstance(item.get('result_identity'),dict) and not item.get('outbox'):
                     item['outbox'] = rc._validate_queued(root,rc.exact_identity(item['result_identity']))['outbox']
+                if item.get('outbox') and not item.get('safe_dependency'):
+                    dependency = _root_blocked_next_action(root,doc(root,item['outbox']))
+                    if dependency is not None:item['safe_dependency'] = dependency
                 routine_state = item.pop('routine_current_state',None)
                 if item.get('safe_dependency') or routine_state == 'safe_dependency':
                     candidate_current['current_state'] = 'safe_dependency'
@@ -1475,6 +1544,7 @@ def _pump_candidate_rows(root, store, transport, *, only_events, allow_new):
     import result_coordination as rc
     rows = store.rows()
     readbacks = _pump_readback_keys(root,store,rows)
+    store.receipt_scan_event_keys = set(only_events or ())
     if only_events is not None:
         rows = [r for r in rows if r['event_key'] in only_events or r['event_key'] in readbacks]
     guard = shared_serial_guard(root,transport=transport)
@@ -1499,8 +1569,13 @@ def _pump_candidate_rows(root, store, transport, *, only_events, allow_new):
         record,_ = _root_serial_read(root)
         preferred = rc.exact_identity(record.get('current_next_obligation_identity',{}))
         preferred_key = d.key(preferred)
+        sources = [w.result_handoff_path(Path(root),preferred['task_id']),
+                   w.snapshot_path(Path(root),preferred['task_id']),Path(__file__)]
+        store.receipt_scan_preferred_trigger = w.sha256_value([preferred_key,
+            [(str(path),path.stat().st_mtime_ns,path.stat().st_size)for path in sources]])
     except (w.WorkflowError,ValueError,KeyError,TypeError,OSError):
         preferred_key = None
+        store.receipt_scan_preferred_trigger = None
     store.receipt_scan_preferred_key = preferred_key
     selected.sort(key=lambda r:(r['event_key'] not in readbacks,r['event_key'] != preferred_key))
     return selected,readbacks
@@ -1548,13 +1623,28 @@ def _scan_plan(store, rows, readbacks, *, continuation):
         if key not in known:
             old['known'].append(key); known.add(key); pending.append(key)
     preferred = getattr(store,'receipt_scan_preferred_key',None)
+    preferred_trigger = getattr(store,'receipt_scan_preferred_trigger',None)
+    owner = store.checkpoint_value('current-receipt-followthrough-inflight')
+    exact_events = getattr(store,'receipt_scan_event_keys',set())
     if not continuation:
-        # A real event always revisits original UNKNOWN/inflight effects, even
-        # when that key was already examined earlier in this bounded sweep.
+        # Revisit the actually owned in-flight key and this current obligation.
+        # Historical intents remain in the fair sweep; repeating every old
+        # readback on each file event can starve a newly received decision.
         for key in keys:
-            if (key in readbacks or key == preferred) and key not in pending: pending.insert(0,key)
-    priority = [key for key in keys if key in readbacks and key in pending]
+            if (key == owner or key in exact_events or key == preferred and preferred_trigger is None) and key not in pending:
+                pending.insert(0,key)
+    if preferred in keys and isinstance(preferred_trigger,str) and preferred_trigger:
+        # A source change that happened while capacity was blocked must remain
+        # eligible after that boundary, even on an internal continuation. A
+        # repeated unchanged failure must not monopolize the historical sweep.
+        checkpoint = 'receipt-current-obligation-source-trigger-v1'
+        if store.checkpoint_value(checkpoint) != preferred_trigger:
+            if preferred not in pending:pending.insert(0,preferred)
+            store.db.execute('INSERT OR REPLACE INTO checkpoints VALUES(?,?)',(checkpoint,preferred_trigger))
+    priority = [key for key in keys if key == owner and key in pending]
+    priority.extend(key for key in keys if key in exact_events and key in pending and key not in priority)
     if preferred in pending and preferred in keys and preferred not in priority: priority.append(preferred)
+    priority.extend(key for key in keys if key in readbacks and key in pending and key not in priority)
     old['pending'] = priority + [key for key in pending if key not in set(priority)]
     _scan_checkpoint(store,old)
     by_key = {r['event_key']:r for r in rows}
@@ -2609,6 +2699,12 @@ def _observe_notification_serial(root, transport):
                 'current_release_native_proof':pin,'current_release_observed_at_UTC':stamp.isoformat(),
                 'current_release_observer':{'service_origin':SERVICE_ORIGIN,'kind':NOTIFICATION_KIND,
                     'source_root':slot['root_source'],'previous_root_source':before,'normal_intent_request':slot['request'],'business_goal_closed':False,'external_permission_issued':False}}
+            if not refresh:
+                # An actual finite intake gives its own remaining obligation
+                # the existing fair cursor's priority. Keep all older rows;
+                # this is a scheduling hint, not a decision or send permission.
+                updated['current_next_obligation_identity'] = slot['identity']
+                updated['current_next_obligation_received_record_id'] = batch['received_record_id']
             if assigned==slot['target_thread_id']:
                 updated['current_assigned_next_consumed']={'thread_id':assigned,'completed_turn':turn['id'],
                     'request':slot['request'],'release_proof':pin,'root_source':slot['root_source']}
