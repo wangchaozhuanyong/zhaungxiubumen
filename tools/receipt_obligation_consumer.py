@@ -906,6 +906,10 @@ def _root_existing_decision_followthrough(root, proof, record, final, ctx, routi
     slot=_root_slot_read(root)
     if slot is None:
         observer=record.get('current_release_observer',{});pin=observer.get('normal_intent_request')
+        if pin is None:
+            matches=_intents(root,ctx['identity']['task_id'],record.get('current_action_id'))
+            require(len(matches)==1,'one original event intent after checkpoint release')
+            pin=matches[0]['request']
         original=doc(root,pin)
         require(isinstance(original.get('task_id'),str) and isinstance(original.get('action_id'),str),
                 'preserved normal request identity required')
@@ -1341,7 +1345,8 @@ def observe_root_serial(root, transport, *, store=None, completion_event=None, p
                 'current_active_was_new_recovery':False,'current_recovery_receipt_state':receipt_state,
                 'current_release_native_proof':pin,'current_release_observed_at_UTC':stamp.isoformat(),
                 'current_release_observer':{'service_origin':SERVICE_ORIGIN,'source_root':before,
-                    'normal_intent_request':slot['request'] if slot else None,'business_goal_closed':False,'external_permission_issued':False}}
+                    'normal_intent_request':slot['request'] if slot else record.get('current_release_observer',{}).get('normal_intent_request'),
+                    'business_goal_closed':False,'external_permission_issued':False}}
             if slot and record.get('assigned_next_original_window') == window:
                 updated['current_assigned_next_consumed'] = {'thread_id':window,'completed_turn':turn_id,
                     'request':slot['request'],'release_proof':pin,'root_source':slot['root_source']}

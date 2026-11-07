@@ -39,7 +39,7 @@ class RootSerialReadyDiscoveryTest(unittest.TestCase):
         items=[{'type':'userMessage','content':[{'type':'text','text':body}]},
                {'type':'agentMessage','phase':'commentary','text':'Taking original event'},final]
         proof={'routine_receipt':notice,'turns':[{'id':self.turn_id,'startedAt':1,'items':items}]}
-        ctx={'intake':{'record_id':'actual-intake'}}
+        ctx={'intake':{'record_id':'actual-intake'},'identity':{'task_id':request['task_id']}}
         routine={'coordination_obligation_completed':True,'native_owner_handoff':{'coordination_obligation_completed':True},
                  'original_decision_record_id':'earlier-actual-decision'}
         with patch.object(consumer,'_root_slot_read',return_value=slot),patch.object(consumer,'_intents',return_value=[{'request':pin}]):
@@ -58,6 +58,9 @@ class RootSerialReadyDiscoveryTest(unittest.TestCase):
         with patch.object(consumer,'_root_slot_read',return_value=None),patch.object(consumer,'_intents',return_value=[{'request':pin,'directory':'queued'}]):
             value=consumer._root_existing_decision_followthrough(self.root,proof,record,final,ctx,routine)
             self.assertEqual(value['kind'],'original_event_existing_decision_owner_handoff')
+            record['current_release_observer'].pop('normal_intent_request')
+            value=consumer._root_existing_decision_followthrough(self.root,proof,record,final,ctx,routine)
+            self.assertEqual(value['original_action_id'],'original-event')
 
     def test_direct_send_intent_is_audit_only_with_all_original_pins_and_policy(self):
         payload=self.write('payload.json',{'actual':'body'})
