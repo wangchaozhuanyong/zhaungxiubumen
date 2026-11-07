@@ -2651,6 +2651,33 @@ def notification_plan(root, role=None):
             'native_wakeup_guaranteed': False, 'queue_is_delivery': False, 'no_new_polling_or_automation': True}
 
 
+def _unstarted_official_preparation_reason(root, identity, exact, current, role, owner, request_id, payload):
+    """Recover only a prepared lease before the existing journal-first queue boundary."""
+    from department_event_dispatcher import STATE,key
+    w=_w();event=key(identity);directory=Path(root)/STATE/'prepared'/event
+    if (request_id!='native-queue:'+event or owner!='official-event-dispatcher:'+role
+            or current.get('schema_version')!='2.0' or current.get('state')!='prepared'
+            or current.get('delivery_mode')!='official_native_queue' or current.get('delivery_identity')!=exact
+            or current.get('delivery_owner')!=role or current.get('coordinator_owner')!=owner
+            or current.get('payload')!=payload or current.get('attempts')!=[]
+            or current.get('call_started_at') or current.get('native_queue_transport')
+            or current.get('delivered') or current.get('native_transport')):
+        return ''
+    claim=current.get('delivery_claim',{})
+    if claim.get('role')!=role or claim.get('owner')!=owner:return ''
+    if any((directory/name).exists()for name in ('native-queue-intent.json','native-queue-result.json')):return ''
+    try:
+        if w.file_digest(root,str((directory/'message.txt').relative_to(root)))!=payload:return ''
+        request=w.read_json(directory/'actual-prepare-request.json');normal=w.read_json(directory/'actual-prepare-result.json')
+        if (request.get('result_notification')!=identity or request.get('notification_request_id')!=request_id
+                or request.get('payload')!=payload or request.get('delivery_mode')!='official_native_queue'
+                or normal.get('status')!='ready_to_queue' or normal.get('payload')!=payload
+                or normal.get('notification',{}).get('delivery_identity')!=exact
+                or normal.get('policy_decision',{}).get('status')!='allow'):return ''
+    except (w.WorkflowError,OSError,KeyError,TypeError,ValueError):return ''
+    return 'exact original official preparation '+event+'; no call attempt, queue reservation or journal exists; reclaim delivery lease only, recheck fresh identity and normal policy before any send'
+
+
 def notification_claim(root, identity, role, owner, request_id, live_identity, payload, *, recovery_reason='', ttl_seconds=900,
                        delivery_mode='ordinary'):
     """Only the actual sender prepares delivery; the receiver keeps its review claim."""
@@ -2718,6 +2745,8 @@ def notification_claim(root, identity, role, owner, request_id, live_identity, p
             _fail('legacy prepared send effect requires original native readback; no lease migration retry')
         if current.get('payload') and current['payload'] != payload:
             _fail('prepared notification exact message cannot be replaced')
+        if native_queue and not recovery_reason:
+            recovery_reason=_unstarted_official_preparation_reason(root,identity,exact,current,role,owner,request_id,payload)
         from goal_source_recovery import actual_target_turn_status
         status = 'native_queue' if native_queue else actual_target_turn_status(root,live,target[0],binding)
         if not native_queue and status != 'idle':

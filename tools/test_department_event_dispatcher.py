@@ -105,15 +105,45 @@ class DispatcherTests(unittest.TestCase):
         self.assertEqual(len(transport.calls), 1)
         self.assertEqual(self.store.rows()[0]['state'], 'native_queue_accepted')
 
+    def test_expired_preparation_recovery_cannot_replay_any_started_queue_or_changed_source(self):
+        import result_coordination as rc
+        import workflow_control as w
+        directory=self.root/d.STATE/'prepared'/self.event;directory.mkdir(parents=True)
+        path=directory/'message.txt';path.write_text('original bytes')
+        payload=w.file_digest(self.root,str(path.relative_to(self.root)))
+        exact={**RESULT,'target_thread_id':'original','target_department':'assistant','purpose':'original'}
+        owner='official-event-dispatcher:producer';request_id='native-queue:'+self.event
+        current={'schema_version':'2.0','state':'prepared','delivery_mode':'official_native_queue',
+                 'delivery_identity':exact,'delivery_owner':'producer','coordinator_owner':owner,
+                 'payload':payload,'attempts':[],'delivery_claim':{'role':'producer','owner':owner}}
+        (directory/'actual-prepare-request.json').write_text(json.dumps({'result_notification':RESULT,
+            'notification_request_id':request_id,'payload':payload,'delivery_mode':'official_native_queue'}))
+        (directory/'actual-prepare-result.json').write_text(json.dumps({'status':'ready_to_queue','payload':payload,
+            'notification':{'delivery_identity':exact},'policy_decision':{'status':'allow'}}))
+        check=lambda value:rc._unstarted_official_preparation_reason(self.root,RESULT,exact,value,'producer',owner,request_id,payload)
+        self.assertIn('reclaim delivery lease only',check(current))
+        for name,value in (('attempts',[{'state':'unknown'}]),('call_started_at','actual-start'),
+                           ('native_queue_transport',{'state':'uncertain'}),('state','sending'),
+                           ('coordinator_owner','another-owner')):
+            self.assertEqual(check({**current,name:value}),'')
+        (directory/'native-queue-intent.json').write_text('{}')
+        self.assertEqual(check(current),'')
+        (directory/'native-queue-intent.json').unlink()
+        path.write_text('changed bytes')
+        self.assertEqual(check(current),'')
+
     def test_receipt_boundary_continuation_retries_only_capacity_waiting_notification(self):
         from receipt_obligation_consumer import SCAN_CONTINUE
         capacity='fresh original serial boundary or activation budget changed before enqueue; no effect started'
-        for allowed,detail,expected in ((True,capacity,1),(False,capacity,0),(True,'exact policy refused',0)):
+        expired='expired delivery lease requires explicit native-effect recovery reason'
+        for allowed,detail,expected in ((True,capacity,1),(False,capacity,0),(True,'exact policy refused',0),
+                                        (True,expired,1),(False,expired,0)):
             with self.subTest(allowed=allowed,detail=detail):
                 self.store.set(self.event,'waiting_policy_or_source',detail)
                 transport=QueueTransport();worker=d.Dispatcher(self.store,transport)
                 def current(*args,**kwargs):worker.root_serial_guard={'new_activation_allowed':allowed}
                 with mock.patch.object(worker,'_consume_current',side_effect=current), \
+                        mock.patch.object(d,'_recoverable_preparation_hint',return_value=detail==expired), \
                         mock.patch.object(worker,'_reconcile_readonly_row',return_value=False), \
                         mock.patch.object(worker,'_current_source',return_value=True), \
                         mock.patch.object(worker,'_notification_guard',return_value=True), \

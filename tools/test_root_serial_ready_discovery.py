@@ -13,6 +13,26 @@ import workflow_control as workflow
 
 
 class RootSerialReadyDiscoveryTest(unittest.TestCase):
+    def test_released_owner_batch_keeps_original_completion_separate_from_new_finite_head(self):
+        at=dt.datetime.now(dt.timezone.utc)
+        record={'current_state':'completed','current_active_was_new_recovery':False,
+                'current_active_original_window':self.window,'current_active_turn':self.turn_id,
+                'current_release_native_proof':self.write('prior.json',{'thread':self.thread,'turns':[self.turn]}),
+                'current_release_observed_at_UTC':at.isoformat()}
+        new={'id':'later-status-turn','status':'completed','startedAt':3,'completedAt':4,
+             'items':[{'type':'agentMessage','id':'later-final','phase':'final_answer','text':'Later status only'}]}
+        with patch.object(consumer,'_root_serial_batch',return_value={'kind':'original_event_existing_decision_owner_handoff'}):
+            proof=consumer._released_owner_head_proof(self.root,record,self.thread,[new],at)
+            self.assertEqual(proof['turns'][0]['id'],self.turn_id)
+            self.assertEqual(proof['fresh_current_head']['turns'][0]['id'],'later-status-turn')
+            with self.assertRaises(workflow.WorkflowError):
+                consumer._released_owner_head_proof(self.root,record,self.thread,[{**new,'status':'inProgress'}],at)
+            with self.assertRaises(workflow.WorkflowError):
+                consumer._released_owner_head_proof(self.root,record,self.thread,[{**new,'error':{'message':'failed'}}],at)
+        with patch.object(consumer,'_root_serial_batch',return_value={'kind':'unverified_maintenance'}):
+            with self.assertRaises(workflow.WorkflowError):
+                consumer._released_owner_head_proof(self.root,record,self.thread,[new],at)
+
     def test_owner_handoff_refresh_cannot_change_identity_or_native_work(self):
         old={'task_id':'original','decision_record_id':'actual','completed_owner_native':{'sha':'same'},
              'original_input_effect_readback':{'sha':'old-observation'}}

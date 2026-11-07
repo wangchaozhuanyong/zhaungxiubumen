@@ -1042,6 +1042,20 @@ def notification_paths(root, store, only_events=None):
     return sorted(set(selected))
 
 
+def _recoverable_preparation_hint(root,row):
+    """A scheduling hint only; the normal fresh preparation still owns admission."""
+    if (row.get('state')!='waiting_policy_or_source'
+            or row.get('detail')!='expired delivery lease requires explicit native-effect recovery reason'):return False
+    try:
+        import result_coordination as rc
+        import workflow_control as w
+        value=identity(json.loads(row['identity_json']));notice=w.read_json(rc._notification_path(root,value))
+        return bool(rc._unstarted_official_preparation_reason(root,value,notice['delivery_identity'],notice,
+            value['sender_department'],'official-event-dispatcher:'+value['sender_department'],
+            'native-queue:'+key(value),notice['payload']))
+    except (w.WorkflowError,ValueError,KeyError,TypeError,OSError):return False
+
+
 def input_slice(store, stage, entries, **options):
     try:return InputSlice(store,stage,entries,**options)
     except (DispatchError,ValueError,OSError,KeyError,TypeError,sqlite3.Error) as error:
@@ -1298,8 +1312,11 @@ class Dispatcher:
         from receipt_obligation_consumer import SCAN_CONTINUE
         capacity_released = (only_events is not None and SCAN_CONTINUE in only_events
             and not self.activation_attempted and self.root_serial_guard.get('new_activation_allowed') is True)
-        selected = [row for row in self.store.rows()
+        rows=self.store.rows()
+        recoverable={row['event_key']for row in rows if _recoverable_preparation_hint(self.store.root,row)}
+        selected = [row for row in rows
                     if only_events is None or source_continuation or row['event_key'] in only_events
+                    or capacity_released and row['event_key'] in recoverable
                     or capacity_released and row['state']=='waiting_policy_or_source'
                     and row.get('detail')=='fresh original serial boundary or activation budget changed before enqueue; no effect started']
         historical = {row['event_key'] for row in selected
@@ -1307,6 +1324,7 @@ class Dispatcher:
         work = {row['event_key'] for row in selected} - historical
         entries=[(row['event_key'],hashlib.sha256(row['identity_json'].encode()).hexdigest()) for row in selected if row['event_key'] in work]
         priority=[row['event_key'] for row in selected if row['state'] in {'sending','uncertain'}]
+        priority += [row['event_key']for row in selected if row['event_key'] in recoverable]
         priority += [row['event_key'] for row in selected if valid_events is not None and row['event_key'] in valid_events]
         cursor=input_slice(self.store,'pending',entries,priority=priority,
             continuation=source_continuation or history_continuation,

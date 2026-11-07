@@ -1016,9 +1016,9 @@
     },
     {
       "path": "tools/department_event_dispatcher.py",
-      "source_sha256": "22a3bd36a2ee31bf60017355e70abc704d2065ec037048bc01bfe0d8febf0223",
-      "release_sha256": "22a3bd36a2ee31bf60017355e70abc704d2065ec037048bc01bfe0d8febf0223",
-      "bytes": 202242
+      "source_sha256": "dc1f33ff8cbe7c059641dc4c103dd783c2e833342ad38427b0d3a607d8db0950",
+      "release_sha256": "dc1f33ff8cbe7c059641dc4c103dd783c2e833342ad38427b0d3a607d8db0950",
+      "bytes": 203386
     },
     {
       "path": "tools/department_flow_reconcile.py",
@@ -1598,15 +1598,15 @@
     },
     {
       "path": "tools/receipt_obligation_consumer.py",
-      "source_sha256": "ffd3e7d93a7f92dea98375656844cc4a182c288ec2a9810fdf83e759e0367586",
-      "release_sha256": "1cad7cd49e60a914d3cb99685d38c73ff830fd047b66a01c0032a9d2925b0b6f",
-      "bytes": 211970
+      "source_sha256": "b674a1e02abdfabfebe4463cb8e03f76f1c8d63fdd8fa9e1e5e76a8c6ed3c5e0",
+      "release_sha256": "8105a65e31b7536787007328a6252b3852c20056d8d009364bfcaecb0382d9e5",
+      "bytes": 214696
     },
     {
       "path": "tools/result_coordination.py",
-      "source_sha256": "d6038a5f4a20cd140ccdc05d3495c7626411a5e2c80a6c2451dc5e17b5c49ab0",
-      "release_sha256": "200c140fb365ca74024371d9c630ab5b442290edb116522e1772ea9050b42f78",
-      "bytes": 211060
+      "source_sha256": "9ecd53695246df9e709d5c1ff4d5923efbe885087f872643b6b20b7f88a40c24",
+      "release_sha256": "73b50fe7118af7568a3ca47d6d116a4c18925dbfda2750044a2dfbf10e48f52c",
+      "bytes": 213425
     },
     {
       "path": "tools/result_handoff_key.py",
@@ -1748,9 +1748,9 @@
     },
     {
       "path": "tools/test_department_event_dispatcher.py",
-      "source_sha256": "220365d3ea517d73caa3bd4934457da7ef5315f20a8c7e136d0186af8f1ddd89",
-      "release_sha256": "220365d3ea517d73caa3bd4934457da7ef5315f20a8c7e136d0186af8f1ddd89",
-      "bytes": 28193
+      "source_sha256": "abad2c1727a847e69c64960bcc583f9b8b726bb6b7441af24769b7c4d555591b",
+      "release_sha256": "abad2c1727a847e69c64960bcc583f9b8b726bb6b7441af24769b7c4d555591b",
+      "bytes": 30576
     },
     {
       "path": "tools/test_department_flow_reconcile.py",
@@ -2120,9 +2120,9 @@
     },
     {
       "path": "tools/test_root_serial_ready_discovery.py",
-      "source_sha256": "76c8b79399409bde17d0f130b177d78ea67c8cba723a81cdbcc8bce56df29dca",
-      "release_sha256": "76c8b79399409bde17d0f130b177d78ea67c8cba723a81cdbcc8bce56df29dca",
-      "bytes": 28586
+      "source_sha256": "2fd5313ce609b529cd2d2ed859195510d55b99e5b5ae2df0a3b0347ddf71ec07",
+      "release_sha256": "2fd5313ce609b529cd2d2ed859195510d55b99e5b5ae2df0a3b0347ddf71ec07",
+      "bytes": 30301
     },
     {
       "path": "tools/test_rotation_completion.py",
@@ -2238,5 +2238,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "e5febbc5cb6dbe6d1cbbbf2f5b28045869e118c5a3f4ef9235e6205722ccdc4d"
+  "fingerprint": "9f532765ae3c76d773cf413ce7390ceaf779891ab1a67ce60e1b43e8e4c9ddb4"
 }

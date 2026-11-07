@@ -1117,7 +1117,9 @@ def shared_serial_guard(root, *, target_thread_id=None, transport=None, original
         thread,turn,final = _root_serial_native(proof,record['current_active_original_window'],record['current_active_turn'],stamp)
         result['batch_evidence'] = _root_serial_batch(root,proof,record,final)
         head_id = turn['id']
-        if result['batch_evidence'].get('kind') == NOTIFICATION_KIND:
+        if result['batch_evidence'].get('kind') == NOTIFICATION_KIND or (
+                result['batch_evidence'].get('kind') == 'original_event_existing_decision_owner_handoff'
+                and proof.get('fresh_current_head') is not None):
             head_id = _notification_refresh_head(proof, thread['id'], turn, stamp)['id']
         history = getattr(transport,'history',None)
         if history is not None and callable(getattr(history,'call',None)):
@@ -1198,6 +1200,21 @@ def reserve_root_serial(root, request, intent, *, transport=None, already_locked
         return slot
 
 
+def _released_owner_head_proof(root, record, thread, turns, stamp):
+    """Keep the proven original batch separate from a newer finite handler head."""
+    require(record.get('current_state')=='completed' and record.get('current_active_was_new_recovery') is False,
+            'original coordination batch must already be released')
+    prior=doc(root,record.get('current_release_native_proof'))
+    old_stamp=w._parse_observed_at(record.get('current_release_observed_at_UTC'))
+    _,original,final=_root_serial_native(prior,record['current_active_original_window'],record['current_active_turn'],old_stamp)
+    batch=_root_serial_batch(root,prior,record,final)
+    require(batch.get('kind')=='original_event_existing_decision_owner_handoff',
+            'only a proven original owner handoff may retain a later finite head')
+    proof={**prior,'fresh_current_head':{'thread':thread,'turns':turns}}
+    _notification_refresh_head(proof,record['current_active_original_window'],original,stamp)
+    return proof
+
+
 def observe_root_serial(root, transport, *, store=None, completion_event=None, protected_original_slot_source=None, protected_head_native_sources=None):
     """Existing completion/watch observer: exact finite batch -> coordination CAS.
 
@@ -1251,6 +1268,23 @@ def observe_root_serial(root, transport, *, store=None, completion_event=None, p
         native_thread = history.call('thread/read',{'threadId':window,'includeTurns':False})['thread']
         native_turns = history.call('thread/turns/list',{'threadId':window,'limit':1,'sortDirection':'desc','itemsView':'full'})['data']
         stamp = dt.datetime.now(dt.timezone.utc)
+        if (slot is None and record.get('current_state')=='completed' and len(native_turns)==1
+                and native_turns[0].get('id')!=turn_id):
+            existing=shared_serial_guard(root,transport=transport)
+            if existing.get('new_activation_allowed'):
+                return {**result,'state':'root_serial_release_already_fresh','source':before}
+            proof=_released_owner_head_proof(root,record,native_thread,native_turns,stamp)
+            with w.workflow_lock(root):
+                require(_root_serial_read(root)[1]==before and _root_slot_read(root) is None,
+                        'original root or checkpoint changed during finite-head observation')
+                directory=w.safe_path(root,'logs/department-event-dispatcher/root-serial-release');directory.mkdir(parents=True,exist_ok=True)
+                path=directory/(hashlib.sha256(json.dumps(proof,ensure_ascii=False,sort_keys=True).encode()).hexdigest()+'.json')
+                if not path.exists():w.atomic_write_json(path,proof)
+                updated={**record,'current_release_native_proof':w.file_digest(root,str(path.relative_to(root))),
+                         'current_release_observed_at_UTC':stamp.isoformat()}
+                w.atomic_write_json(w.safe_path(root,ROOT_SERIAL_PATH),updated)
+            return {**result,'state':'original_owner_handoff_current_head_refreshed','root_release_recorded':True,
+                    'original_turn_preserved':turn_id,'fresh_head_turn':native_turns[0]['id'],'business_goal_closed':False}
         thread,turn,final = _root_serial_native({'thread':native_thread,'turns':native_turns},window,turn_id,stamp)
         if slot:
             queue_start = w._parse_observed_at(w.read_json(w.safe_path(root,slot['directory'])/'native-queue-intent.json').get('started_at'))
