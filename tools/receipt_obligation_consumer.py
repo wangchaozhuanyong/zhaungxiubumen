@@ -119,6 +119,12 @@ def _causal(root, value, ctx, depth=0, visited=None):
     if set(value) == {'path','sha256','size'} and depth < 2:
         path = value.get('path','')
         if path.endswith('.json') and value.get('size',2**21) <= 2**20 and path not in visited:
+            try:
+                w.safe_path(root, path)
+            except w.WorkflowError:
+                # An external report link is not local causal evidence. Never
+                # read across project boundaries or suppress valid siblings.
+                return False
             visited.add(path)
             return _causal(root,doc(root,value),ctx,depth+1,visited)
         return False

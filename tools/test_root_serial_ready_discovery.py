@@ -13,6 +13,26 @@ import workflow_control as workflow
 
 
 class RootSerialReadyDiscoveryTest(unittest.TestCase):
+    def test_external_report_pin_is_not_read_and_does_not_hide_original_causal_sibling(self):
+        original = self.write('causal-original.json', {'original': True})
+        external = {'path': str(self.root.parent / 'other-project' / 'report.json'),
+                    'sha256': 'a' * 64, 'size': 100}
+        ctx = {'intake': {'outbox': original, 'record_id': 'original-receipt'},
+               'identity': {'task_id': 'original-task', 'result_sha256': 'b' * 64},
+               'original_owner': 'original-owner'}
+        with patch.object(consumer, 'doc', side_effect=AssertionError('external pin must not be read')):
+            self.assertFalse(consumer._causal(self.root, external, ctx))
+            self.assertTrue(consumer._causal(self.root, [external, original], ctx))
+
+    def test_local_causal_pin_still_requires_exact_hash(self):
+        local = self.write('local-causal.json', {'original': True})
+        wrong = {**local, 'sha256': 'a' * 64}
+        ctx = {'intake': {'outbox': {}, 'record_id': 'original-receipt'},
+               'identity': {'task_id': 'original-task', 'result_sha256': 'b' * 64},
+               'original_owner': 'original-owner'}
+        with self.assertRaises(workflow.WorkflowError):
+            consumer._causal(self.root, wrong, ctx)
+
     def test_owned_event_observation_uses_its_actual_action_instead_of_earlier_intake_action(self):
         request=self.write('owned-request.json',{'task_id':'original-goal-v1','action_id':'actual-owned-action','scope':self.scope})
         directory=self.root/'owned';directory.mkdir()
