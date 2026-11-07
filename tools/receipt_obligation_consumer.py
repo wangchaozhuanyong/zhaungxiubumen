@@ -1984,9 +1984,20 @@ def doc_bytes_for_owner_handoff(root,pin):
 
 
 def _owner_handoff_entries(root,task,decision_id,action_id):
-    return [e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={'task_id':task})
+    rows=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={'task_id':task})
             if e.get('details',{}).get(OWNER_HANDOFF_EVENT,{}).get('decision_record_id') == decision_id
             and e['details'][OWNER_HANDOFF_EVENT].get('reply_action_id') == action_id]
+    for previous,current in zip(rows,rows[1:]):
+        old=previous['details'][OWNER_HANDOFF_EVENT]['source'];new=current['details'][OWNER_HANDOFF_EVENT]
+        require(new.get('readback_refresh_of')==old and _same_owner_handoff_except_readback(doc(root,old),doc(root,new['source'])),
+                'only the same original handoff may refresh its native-effect observation')
+    return rows[-1:]
+
+
+def _same_owner_handoff_except_readback(old,new):
+    key='original_input_effect_readback'
+    return (set(old)==set(new) and key in old and {k:v for k,v in old.items()if k!=key}==
+            {k:v for k,v in new.items()if k!=key})
 
 
 def registered_owner_handoff(root,ctx,decision,intent):
@@ -2008,14 +2019,19 @@ def record_owner_handoff_source(root,task_id,input_path):
     with w.workflow_lock(root),w.request_validation_context() as validation:
         result=validate_owner_handoff_source(root,item)
         old=_owner_handoff_entries(root,task_id,item['decision_record_id'],item['reply_action_id'])
+        previous=None
         if old:
-            require(len(old) == 1 and old[0]['details'][OWNER_HANDOFF_EVENT]['source'] == pin,
-                    'immutable original handoff proof already bound; never replace or renew')
-            return {'result':'duplicate_ignored','source':pin,'coordination_obligation_only':True,
-                    'business_goal_closed':False,'external_permission_issued':False}
+            previous=old[0]['details'][OWNER_HANDOFF_EVENT]['source']
+            if previous==pin:
+                return {'result':'duplicate_ignored','source':pin,'coordination_obligation_only':True,
+                        'business_goal_closed':False,'external_permission_issued':False}
+            require(_same_owner_handoff_except_readback(doc(root,previous),item)
+                    and not Path(item['original_input_effect_readback']['path']).name.startswith('latest-'),
+                    'same original source plus a frozen freshly validated effect only; no new handoff or permission')
         snapshot=w.read_json(w.snapshot_path(root,task_id));require(snapshot,'original task required')
         validation.recheck()
         event=w.append_workflow_event(root,task_id,snapshot['current_state'],{OWNER_HANDOFF_EVENT:{'source':pin,
+              **({'readback_refresh_of':previous}if previous is not None else {}),
               'decision_record_id':item['decision_record_id'],'reply_action_id':item['reply_action_id']},
               'coordination_obligation_only':True,'business_goal_closed':False,'external_permission_issued':False})
     return {'result':'recorded','source':pin,'event_id':event['event_id'],'coordination_obligation_only':True,

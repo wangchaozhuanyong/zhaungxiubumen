@@ -13,6 +13,14 @@ import workflow_control as workflow
 
 
 class RootSerialReadyDiscoveryTest(unittest.TestCase):
+    def test_owner_handoff_refresh_cannot_change_identity_or_native_work(self):
+        old={'task_id':'original','decision_record_id':'actual','completed_owner_native':{'sha':'same'},
+             'original_input_effect_readback':{'sha':'old-observation'}}
+        new={**old,'original_input_effect_readback':{'sha':'frozen-observation'}}
+        self.assertTrue(consumer._same_owner_handoff_except_readback(old,new))
+        self.assertFalse(consumer._same_owner_handoff_except_readback(old,{**new,'decision_record_id':'another'}))
+        self.assertFalse(consumer._same_owner_handoff_except_readback(old,{**new,'completed_owner_native':{'sha':'fabricated'}}))
+
     def test_existing_decision_event_releases_only_after_exact_input_ack_and_verified_handoff(self):
         payload=self.write('event-payload.json',{'event':'original'})
         body=(self.root/payload['path']).read_text()
