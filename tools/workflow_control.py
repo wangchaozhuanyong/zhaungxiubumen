@@ -2617,6 +2617,11 @@ def record_approval(
     revoke: bool = False, source_evidence: str = "",
 ) -> tuple[dict[str, Any], list[Path]]:
     """For the exact condo action, preserve one read baseline through commit."""
+    if task_id == 'fc-20261014-two-original-materials-exact-body-publication-v1' and action_class == 'cms_write' and not revoke:
+        from material_original_owner_approval import record as original_material_approval
+        return original_material_approval(root, task_id=task_id, action_id=action_id, action_class=action_class,
+            scope=scope, approval_id=approval_id, source_thread_id=source_thread_id,
+            source_message_ref=source_message_ref, revoke=revoke, source_evidence=source_evidence)
     from professional_web_execution import applies as original_WEB, record_approval as original_WEB_approval
     if original_WEB(root, task_id, action_class) and action_class == "site_publish":
         return original_WEB_approval(root, task_id=task_id, action_id=action_id, action_class=action_class,
@@ -4222,16 +4227,22 @@ def policy_check(
     autonomous_requested=dict(task_id=task_id,department=department,action_id=action_id,action_class=action_class,scope=scope,approval_id=approval_id,skill=skill,consume_approval=consume_approval,source_project_id=source_project_id,target_project_id=target_project_id,target_department=target_department,payload_sha256=payload_sha256)
     autonomous_decision=autonomous_policy(root,autonomous_requested)
     if autonomous_decision is not None:return autonomous_decision
+    current_material_PUB_admission = None
     if action_class in EXTERNAL_ACTION_CLASSES:
         from department_rotation import external_write_blocked
         if external_write_blocked(root, department):
             from brand_v4_issuer_executor import TASK as brand_stage_task, preflight as brand_fresh_preflight
             exact_snapshot = read_json(snapshot_path(root,task_id))
-            if task_id != brand_stage_task or department != 'designated-development' or action_class != 'site_publish':
+            if (task_id == 'fc-20261014-two-original-materials-exact-body-publication-v1'
+                    and department == 'publishing' and action_class == 'cms_write'):
+                from material_current_pub_admission import admit
+                current_material_PUB_admission = admit(root, autonomous_requested)
+            elif task_id != brand_stage_task or department != 'designated-development' or action_class != 'site_publish':
                 raise WorkflowError('rotated window requires fresh exact production admission; old permits cannot transfer')
-            from goal_delivery_runtime import execution_preflight as exact_goal_preflight
-            fresh = exact_goal_preflight(root,exact_snapshot,action_id,action_class,scope,department)
-            brand_fresh_preflight(root,exact_snapshot,fresh,require_all=True)
+            else:
+                from goal_delivery_runtime import execution_preflight as exact_goal_preflight
+                fresh = exact_goal_preflight(root,exact_snapshot,action_id,action_class,scope,department)
+                brand_fresh_preflight(root,exact_snapshot,fresh,require_all=True)
     policy = load_policy(root)
     departments = department_registry(root)
     department_item = departments.get(department)
@@ -4716,6 +4727,9 @@ def policy_check(
                 allow = False
                 reasons.append(f"qa_release_route_mismatch:expected_{qa_release_route}")
         approval = effective_approvals(root).get(approval_id, {}) if approval_id else {}
+        if current_material_PUB_admission is not None and str(approval_id).startswith('apr-material-'):
+            from material_original_owner_approval import active as original_material_active
+            approval = original_material_active(root, autonomous_requested, approval_id)
         expected = {
             "task_id": task_id,
             "action_id": action_id,
@@ -4922,6 +4936,8 @@ def policy_check(
             and "exact_result_notification:current_prepared_claim_and_target" in required_receipts
             and not routing_reasons):
         result["external_permission_issued"] = False
+    if current_material_PUB_admission is not None:
+        result['current_material_PUB_admission'] = current_material_PUB_admission
     if delivery_mode:
         result["delivery_mode"] = delivery_mode
     if cms_goal_context is not None and cms_goal_context.get("acceptance_model") == "condo_faq_v7_candidate_scope_only_v1":

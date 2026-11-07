@@ -1218,9 +1218,10 @@ class Dispatcher:
 
     def _notification_budget_blocked(self):
         # An authenticated already-active queue is not a new-window activation.
-        return self.activation_attempted and getattr(self,'notification_serial_guard',{}).get('requires_reservation') is not False
+        occupied = self.activation_attempted or getattr(self,'publication_serial_pending',None) is not None
+        return occupied and getattr(self,'notification_serial_guard',{}).get('requires_reservation') is not False
 
-    def _consume_current(self, only_events=None, *, notification_only=False):
+    def _consume_current(self, only_events=None, *, notification_only=False, guard_only=False):
         import workflow_control as w
         if notification_only:
             self.receipt_obligation_outcomes=[];self.publication_deadline_outcomes=[]
@@ -1255,6 +1256,15 @@ class Dispatcher:
         elif publication is not None:
             publication_pending = {'state':'publication_serial_interface_not_adopted',
                 'owner':'system-development','new_activation_allowed':False}
+        self.publication_serial_pending = publication_pending
+        self.activation_attempted = self.activation_attempted or bool(self.store.checkpoint_value('current-receipt-followthrough-inflight'))
+        if guard_only:
+            # Fresh safety observations precede queue effects. Historical receipt
+            # work may be slow; it must not hold a newly committed result behind
+            # unrelated old rows. The effect consumers run after this queue pass
+            # with the same (never reset) one-new-window activation budget.
+            self.receipt_obligation_outcomes=[];self.publication_deadline_outcomes=[]
+            return
         from receipt_obligation_consumer import SCAN_CONTINUE
         history_continuation=only_events is not None and (HISTORY_CONTINUE in only_events or INPUT_CONTINUE in only_events)
         receipt_events={SCAN_CONTINUE} if history_continuation else only_events
@@ -1284,7 +1294,7 @@ class Dispatcher:
         self.activation_attempted=False
         source_continuation=only_events is not None and INPUT_CONTINUE in only_events
         history_continuation=only_events is not None and HISTORY_CONTINUE in only_events
-        self._consume_current(only_events,notification_only=notification_only)
+        self._consume_current(only_events,notification_only=notification_only,guard_only=True)
         selected = [row for row in self.store.rows()
                     if only_events is None or source_continuation or row['event_key'] in only_events]
         historical = {row['event_key'] for row in selected
@@ -1389,6 +1399,7 @@ class Dispatcher:
         if cursor:cursor.progress()
         from receipt_obligation_consumer import SCAN_CONTINUE
         if not notification_only:
+            self._consume_current(only_events)
             self._bounded_history(None,only_events,continuation=(source_continuation or history_continuation or
                 only_events is not None and SCAN_CONTINUE in only_events))
 

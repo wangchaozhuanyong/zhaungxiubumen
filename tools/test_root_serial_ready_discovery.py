@@ -1,4 +1,5 @@
 import datetime as dt
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -101,6 +102,59 @@ class RootSerialReadyDiscoveryTest(unittest.TestCase):
         outcome, queued = self.observe()
         self.assertFalse(outcome['root_release_recorded'])
         queued.assert_not_called()
+
+    def committed_legacy_batch(self):
+        self.final['text'] = 'Readback complete. Evidence: evidence.json'
+        evidence = workflow.file_digest(self.root, 'evidence.json')
+        self.outbox = self.write('outbox.json', {
+            'task_id': self.identity['task_id'], 'department': 'system-development',
+            'scope': self.scope, 'status': 'completed',
+            'primary_deliverable': evidence, 'evidence': [evidence],
+        })
+        self.identity['result_sha256'] = self.outbox['sha256']
+        self.ready['text'] = 'FLASHCAST_DELIVERY_READY task_id=original-goal-v1 result_sha256=' + self.outbox['sha256']
+        self.queue.update(self.identity, outbox=self.outbox, event='notification_queued',
+                          record_id='actual-queue-record', result_source_phase='delivery_ready',
+                          source_message_id=self.ready['id'],
+                          source_reply_sha256=hashlib.sha256(self.ready['text'].encode()).hexdigest())
+        self.proof = {'thread': self.thread, 'turns': [self.turn],
+                      'result_identity': self.identity, 'outbox': self.outbox}
+        self.record = {'current_active_original_window': self.window,
+                       'current_active_turn': self.turn_id,
+                       'current_scope': self.scope, 'current_state': 'completed'}
+
+    def batch(self):
+        with patch.object(results, '_validate_queued', return_value=self.queue):
+            return consumer._root_serial_batch(self.root, self.proof, self.record, self.final)
+
+    def test_committed_same_turn_legacy_reply_and_final_artifact_bind_finite_batch(self):
+        self.committed_legacy_batch()
+        self.assertEqual(self.batch()['kind'], 'normal_producer_batch')
+
+    def test_legacy_reply_needs_exact_committed_message_hash_turn_and_phase(self):
+        for change in ({'source_message_id': 'other'}, {'source_reply_sha256': '0' * 64},
+                       {'source_turn_id': 'previous'}, {'event': 'prepared'},
+                       {'result_source_phase': 'final'}, {'record_id': ''}):
+            with self.subTest(change=change):
+                self.committed_legacy_batch()
+                self.queue.update(change)
+                with self.assertRaises(workflow.WorkflowError): self.batch()
+
+    def test_legacy_queue_does_not_release_partial_or_maintenance_or_changed_artifact(self):
+        for mode in ('partial', 'maintenance', 'changed', 'incomplete'):
+            with self.subTest(mode=mode):
+                self.committed_legacy_batch()
+                if mode == 'maintenance': self.final['text'] = 'Maintenance complete.'
+                elif mode == 'changed': self.write('evidence.json', {'changed': True})
+                else:
+                    box = workflow.read_json(self.root / 'outbox.json')
+                    if mode == 'partial': box['status'] = 'partial'
+                    else: box['batch_complete'] = False
+                    self.outbox = self.write('outbox.json', box)
+                    self.identity['result_sha256'] = self.outbox['sha256']
+                    self.queue.update(self.identity, outbox=self.outbox)
+                    self.proof.update(result_identity=self.identity, outbox=self.outbox)
+                with self.assertRaises(workflow.WorkflowError): self.batch()
 
 
 if __name__ == '__main__':

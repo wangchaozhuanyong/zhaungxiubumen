@@ -149,9 +149,49 @@ def require(condition, message):
         raise w.WorkflowError("bounded T3 CMS: " + message)
 
 
+def _material_runtime_path(path, current_proof):
+    return isinstance(path, str) and (
+        re.fullmatch(r"(?:_shared|content-publish)/[a-zA-Z0-9_-]+\.ts", path) is not None
+        or current_proof and path in {'_shared/content-links.mjs', '_shared/material-terminology.mjs'})
+
+
+def _material_source_production_sha(source, deployed):
+    if 'production_sha' in source:
+        return source['production_sha']
+    # Current WEB v2 pins its deployment document instead of duplicating this
+    # field. Read that exact bound value; never edit its original source bytes.
+    # Readiness still independently verifies the real policy, run/native JSON,
+    # commit ancestry and complete deployed/Git source closure below.
+    if (source.get('schema') == MATERIAL_CURRENT_PROOF
+            and source.get('source_issuer') == 'designated-development'
+            and source.get('registration_grants_CMS_write_authority') is False
+            and deployed.get('schema') == 'original-materials-actual-WEB-deployment/v2'
+            and source.get('task_id') == deployed.get('task_id') == MATERIAL_PUBLICATION_TASK):
+        return deployed.get('production_website_sha')
+    return None
+
+
 def digest(value):
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,
         separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _material_preview_backup_identity(backup, target, current_proof):
+    if backup.get('table') != 'materials':
+        return False
+    field = backup.get('keyField', 'slug')
+    if current_proof and field == 'id':
+        return (backup.get('key') == target['record_id']
+                and backup.get('record', {}).get('id') == target['record_id'])
+    return field == 'slug' and backup.get('key') == target['slug']
+
+
+def _material_preview_run_identity(run, target, current_proof):
+    if not current_proof:
+        return run.get('name') == 'Approved website content publish'
+    return (run.get('name') in {'Approved website content publish',
+                               'two-original-material-body-' + target['slug'] + ' | dry-run'}
+            and run.get('status') == 'completed' and run.get('run_attempt') == 1)
 
 
 def strict(reader):
@@ -4410,6 +4450,19 @@ def _authenticate_metadata_events(root, formal, task_id, events):
     import chief_assistant_coordination as chief
     from professional_web_execution import RECOVERY_EVENT
     for event in events:
+        if task_id == MATERIAL_PUBLICATION_TASK:
+            from material_preflight_metadata import metadata as material_selfcheck_metadata
+            if material_selfcheck_metadata(root, formal, event):
+                continue
+        if (task_id == MATERIAL_PUBLICATION_TASK and (
+                'original_materials_HQ_platform_failure_continuation' in event.get('details', {})
+                or ('actual_route_observation' in event.get('details', {})
+                    and event['details'].get('goal_delivery', {}).get('current_route_observations', {}).get(
+                        'HQ-WEB-materials-original-stale-cancel-current-main-20261107-v1')
+                    == event['details']['actual_route_observation']))):
+            from material_hq_fallback import metadata
+            if _authenticate_historical_metadata(root, formal, event, metadata):
+                continue
         if _authenticated_original_web_successor_metadata(root, formal, event):
             continue
         if (task_id == MATERIAL_PUBLICATION_TASK
@@ -4578,6 +4631,7 @@ def authenticated_formal_goal_source(root, formal, contract, task_id):
             "snapshot and contract must match the original event-frozen goal and authority")
 
 
+@w.request_validation_context()
 @strict
 def two_original_material_targets(root):
     rows = two_original_material_source_contract(root)
@@ -4784,7 +4838,7 @@ def two_original_material_readiness(root, target, accepted):
             and deployed.get("source_candidate_version") == source["source_candidate_version"]
             and deployed.get("source_candidate_head") == source["source_candidate_head"]
             and re.fullmatch(r"[0-9a-f]{40}", str(sha))
-            and sha == source.get("production_sha")
+            and sha == _material_source_production_sha(source, deployed)
             and deployed.get("actual_function", {}).get("name") == "content-publish"
             and deployed["actual_function"].get("status") == "ACTIVE"
             and type(deployed["actual_function"].get("after_version")) is int
@@ -4836,8 +4890,7 @@ def two_original_material_readiness(root, target, accepted):
             "reviewed exact source-expected dependency closure required")
     for item in files + types:
         path = item.get("path")
-        require(isinstance(path, str)
-                and re.fullmatch(r"(?:_shared|content-publish)/[a-zA-Z0-9_-]+\.ts", path)
+        require(_material_runtime_path(path, current_proof)
                 and type(item.get("bytes")) is int and item["bytes"] > 0,
                 "reviewed source closure contains an unexpected path or size")
         original = _git_source(source["source_candidate_head"], "supabase/functions/" + path)
@@ -4940,7 +4993,7 @@ def two_original_material_readiness(root, target, accepted):
                                   and current.get("updated_at") == target["expected_updated_at"]))
             and re.fullmatch(r".*\.\d{6}\+00:00", str(current.get("updated_at", "")))
             and {key for key in current if current[key] != projected_candidate[key]} == set(MATERIAL_FIELDS)
-            and backup.get("table") == "materials" and backup.get("key") == target["slug"]
+            and _material_preview_backup_identity(backup, target, current_proof)
             and payload.get("task_id") == target["task_id"]
             and payload.get("candidate_version") == target["candidate_version"]
             and payload.get("operation") == "publish"
@@ -4958,7 +5011,7 @@ def two_original_material_readiness(root, target, accepted):
             and receipt.get("row_unchanged_after_dry_run") is True
             and run.get("event") == "workflow_dispatch"
             and run.get("head_branch") == "main"
-            and run.get("name") == "Approved website content publish"
+            and _material_preview_run_identity(run, target, current_proof)
             and run.get("path") == ".github/workflows/content-publish-approved.yml"
             and run.get("conclusion") == "success"
             and type(run.get("id")) is int and run["id"] > 0

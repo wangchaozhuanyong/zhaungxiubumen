@@ -2124,6 +2124,12 @@ def _main(validation) -> None:
         if target.get('candidate_shape') == 'professional_en2_forward_selfcheck_v1':
             from en2_forward_issuer import reserve as en2_reserve
             en2_reserve(ROOT,target,policy,args.operation,payload_sha256,operations,request,validation,datetime.now(timezone.utc))
+        if target.get('candidate_shape') == 'two_original_material_body_registration_only_v1':
+            actual_issue_time = datetime.now(timezone.utc)
+            require(actual_issue_time - timedelta(minutes=30) <= timestamp(receipt['checked_at']) <= actual_issue_time,
+                    'Material protected preview expired before actual issue; reconcile original keys and obtain a normal zero-write successor')
+            request['expiresAt'] = (actual_issue_time + timedelta(minutes=10)).isoformat().replace('+00:00', 'Z')
+            validation.recheck()
         issued = endpoint_request(request, secret, base_url)
         require(issued.get("status") == "issued" and issued.get("permitId") == request["permitId"],
                 "Permit issue receipt mismatch; inspect status before retry")

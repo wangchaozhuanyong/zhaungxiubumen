@@ -937,6 +937,9 @@ def _registered_execution_source_message(root,snapshot,request):
 
 def message_route(root,snapshot,request):
  if not isinstance(request,dict)or request.get('action_class')!='thread_message':return None
+ from material_hq_fallback import route as original_material_hq_route
+ material_hq = original_material_hq_route(root,snapshot,request)
+ if material_hq is not None:return material_hq
  from hq_pub_health_probe import route as original_pub_health_route
  pub_health=original_pub_health_route(root,snapshot,request)
  if pub_health is not None:return pub_health
@@ -1534,6 +1537,29 @@ def migrated_local_completion(root, snapshot):
   and not goal.get('required_execution_actions')and goal.get('completion_requirements')
   and all(r.get('requirement_type')=='accepted_delivery'and r.get('subject',{}).get('producer_department')==goal.get('primary_owner')
    for r in goal['completion_requirements']))
+
+
+def migrated_production_completion(root, snapshot):
+ """Preserve old release criteria while the original professional records facts.
+
+ Current owner-authorized autonomous mode retires the old assistant QA route.
+ It does not retire the original actions, scoped policies or native effects.
+ """
+ goal=snapshot.get('goal_delivery',{})
+ if (autonomous_goal(goal)or not effective_mode(root,snapshot)
+  or not professional(root,goal.get('primary_owner'))
+  or goal.get('completion_kind')!='production_release'
+  or not goal.get('required_execution_actions')or not goal.get('completion_requirements')
+  or not snapshot.get('goal_contract')):return False
+ frozen=document(root,snapshot['goal_contract'])
+ fields=('objective','completion_criteria','primary_owner','producer_departments','authorized_scope',
+         'human_authorization','required_execution_actions','completion_kind','completion_requirements')
+ require(all(goal.get(k)==frozen.get(k)for k in fields),
+  'migrated production completion cannot rewrite the original criteria, owner, authority or actions')
+ import goal_delivery_runtime as g
+ g.completion_contract_state(goal)
+ return all(row.get('requirement_type')=='execution_postcheck'
+  and row.get('producer_department')==goal['primary_owner']for row in requirement_rows(goal))
 
 def professional_local_public_continuation(root,snapshot,pin,base,row,box,anchors):
  """An authenticated public follow-on does not replace its completed local source.
@@ -2290,6 +2316,9 @@ def register_preflight(root,task,input_path):
  return {'result':'recorded','input':pin,'assistant_approval_required':False,'external_permission_issued':False}
 
 def policy(root,requested):
+ from material_preview_execution import policy as original_material_preview_policy
+ material_preview=original_material_preview_policy(root,requested)
+ if material_preview is not None:return material_preview
  from professional_cms_single_field_admission import preview_policy as original_PUB_preview_policy
  preview=original_PUB_preview_policy(root,requested)
  if preview is not None:return preview
@@ -3019,8 +3048,9 @@ def historical_registry_view(registry):
 def legacy_status(root,snapshot):
  import goal_delivery_runtime as g
  snapshot=g.restore_goal(root,snapshot)
- if migrated_local_completion(root,snapshot):
-  proof=professional_local_completion_view(root,snapshot)
+ local=migrated_local_completion(root,snapshot)
+ if local or migrated_production_completion(root,snapshot):
+  proof=professional_local_completion_view(root,snapshot)if local else completion(root,snapshot)
   return {'task_id':snapshot['task_id'],'state':'completed_scope'if proof['state']=='PROVEN'else'executing',
    'primary_owner':snapshot['goal_delivery']['primary_owner'],'native_workflow_state':snapshot['current_state'],
    'completion_obligations':proof,'responsible_assistant':None,'historical_responsible_assistant':snapshot['goal_delivery'].get('responsible_assistant'),

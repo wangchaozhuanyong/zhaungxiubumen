@@ -637,6 +637,46 @@ def _root_same_turn_ready_report(root, proof, record, final, identity, pin, box)
         return False
 
 
+def _root_same_turn_queued_report(root, proof, record, final, identity, pin, box, queued):
+    """A committed original notification binds its exact native delivery reply.
+
+    Older normal producer replies use the admitted key/value READY format.
+    Read the already validated queue source, rather than inventing JSON READY
+    or requiring the final to repeat its SHA. This proves a finite batch only.
+    """
+    import hashlib
+    try:
+        _, turn, actual_final = _root_serial_native(
+            proof, record['current_active_original_window'],
+            record['current_active_turn'], dt.datetime.now(dt.timezone.utc))
+        if (actual_final != final or str(box.get('status', '')).lower() != 'completed'
+                or box.get('batch_complete') is False
+                or queued.get('event') != 'notification_queued'
+                or not queued.get('record_id')
+                or queued.get('result_source_phase') != 'delivery_ready'
+                or queued.get('outbox') != pin
+                or any(queued.get(key) != value for key, value in identity.items())
+                or queued.get('source_thread_id') != record['current_active_original_window']
+                or queued.get('source_turn_id') != turn['id']):
+            return False
+        messages = [item for item in turn.get('items', [])
+                    if item.get('type') == 'agentMessage' and item.get('phase') == 'commentary'
+                    and item.get('id') == queued.get('source_message_id')
+                    and isinstance(item.get('text'), str)]
+        if (len(messages) != 1
+                or hashlib.sha256(messages[0]['text'].encode()).hexdigest()
+                    != queued.get('source_reply_sha256')):
+            return False
+        evidence = box.get('primary_deliverable')
+        return (isinstance(evidence, dict) and set(evidence) == {'path', 'sha256', 'size'}
+                and isinstance(evidence.get('path'), str) and bool(evidence['path'])
+                and evidence['path'] in final['text']
+                and evidence in box.get('evidence', [])
+                and w.file_digest(root, evidence['path']) == evidence)
+    except (w.WorkflowError, ValueError, OSError, KeyError, TypeError, AttributeError):
+        return False
+
+
 def _hq_intake_batch(root, proof, record, final):
     """Read back an admitted HQ intake; it never prepares or grants an action."""
     import chief_assistant_coordination as chief
@@ -813,7 +853,8 @@ def _root_serial_batch(root, proof, record, final):
         identity = rc.exact_identity(proof['result_identity']); queued = rc._validate_queued(root,identity)
         pin = queued.get('outbox') or proof.get('outbox'); box = doc(root,pin)
         status = str(box.get('status','')).lower()
-        same_turn_ready = _root_same_turn_ready_report(root,proof,record,final,identity,pin,box)
+        same_turn_ready = (_root_same_turn_ready_report(root,proof,record,final,identity,pin,box)
+                           or _root_same_turn_queued_report(root,proof,record,final,identity,pin,box,queued))
         require(status not in {'','active','pending','in_progress','unknown','uncertain'}
                 and (status not in {'blocked','waiting','partial_blocked'} or record['current_state'] == 'safe_dependency'),
                 'contradictory root finite batch or missing safe dependency')

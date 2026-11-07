@@ -200,6 +200,9 @@ def record(root, task_id, input_path):
 
 
 def registered(root, snap, requested):
+    if isinstance(requested, dict) and requested.get('action_id') == 'HQ-WEB-materials-original-stale-cancel-current-main-20261107-v1':
+        from material_hq_fallback import registered as material_fallback
+        return material_fallback(root, snap, requested)
     # The independently registered reviewed test successor is the same
     # normal HQ-to-original-WEB source family, not arbitrary owner metadata.
     if isinstance(requested,dict) and ('hq_singlefield_test_successor_source' in requested

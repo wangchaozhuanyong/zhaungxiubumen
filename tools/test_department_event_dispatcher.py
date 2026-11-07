@@ -152,6 +152,55 @@ class DispatcherTests(unittest.TestCase):
         self.assertEqual(self.store.rows()[0]['turn_id'], 'actual-turn-1')
         self.assertFalse(self.transport.calls)
 
+    def test_new_result_is_queued_before_slow_receipt_history_with_one_activation_budget(self):
+        transport = QueueTransport()
+        worker = d.Dispatcher(self.store, transport)
+        publication = mock.Mock()
+        publication.serial_pending.return_value = None
+        publication.consume_due.return_value = []
+        order = []
+        enqueue = transport.enqueue
+        def send(prepared):
+            order.append('queue')
+            return enqueue(prepared)
+        def receipts(*args, **kwargs):
+            order.append('receipts')
+            self.assertFalse(kwargs['allow_new'])
+            return []
+        transport.enqueue = send
+        with mock.patch('receipt_obligation_consumer.observe_root_serial', return_value={}), \
+             mock.patch('receipt_obligation_consumer.shared_serial_guard', return_value={'new_activation_allowed':True}), \
+             mock.patch('direct_handoff_readback.observe', return_value={}), \
+             mock.patch.object(d,'publication_deadline_runtime',return_value=publication), \
+             mock.patch('receipt_obligation_consumer.pump',side_effect=receipts), \
+             mock.patch('receipt_obligation_consumer.notification_queue_admission',return_value={'queue_allowed':True,'requires_reservation':True}), \
+             mock.patch('receipt_obligation_consumer.reserve_notification_serial',return_value={'queue_allowed':True,'requires_reservation':True}), \
+             mock.patch.object(worker,'_bounded_history'):
+            worker.pump(valid_events={self.event})
+        self.assertEqual(order,['queue','receipts'])
+        publication.consume_due.assert_called_with(self.root,None)
+
+    def test_existing_publication_or_receipt_unknown_retains_new_window_protection(self):
+        for pending, receipt_inflight in [({'state':'original_save_unknown'},None),(None,'original-receipt-event')]:
+            with self.subTest(publication=pending,receipt=receipt_inflight):
+                worker = d.Dispatcher(self.store,QueueTransport())
+                worker.activation_attempted=False
+                publication=mock.Mock()
+                publication.serial_pending.return_value=pending
+                with mock.patch('receipt_obligation_consumer.observe_root_serial',return_value={}), \
+                     mock.patch('receipt_obligation_consumer.shared_serial_guard',return_value={'new_activation_allowed':True}), \
+                     mock.patch('direct_handoff_readback.observe',return_value={}), \
+                     mock.patch.object(d,'publication_deadline_runtime',return_value=publication), \
+                     mock.patch.object(self.store,'checkpoint_value',return_value=receipt_inflight), \
+                     mock.patch('receipt_obligation_consumer.pump') as receipts:
+                    worker._consume_current(guard_only=True)
+                receipts.assert_not_called()
+                publication.consume_due.assert_not_called()
+                worker.notification_serial_guard={'requires_reservation':True}
+                self.assertTrue(worker._notification_budget_blocked())
+                worker.notification_serial_guard={'requires_reservation':False}
+                self.assertFalse(worker._notification_budget_blocked())
+
     def test_crash_after_intent_no_blind_retry(self):
         self.store.set(self.event, 'sending')
         d.Dispatcher(self.store, self.transport).pump()

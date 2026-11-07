@@ -13,6 +13,8 @@ ACTION = TASK + '-original-body-c29b09e4cdc4-r3-dispatch-30781b6b9efa-v1'
 OLD_POLICY = 'pol-628e22ad5526671b93ba'
 HANDOFF_ACTION = 'PUB-materials-PR312-original-R3-live-launch-20261107-v1'
 HANDOFF_SUCCESSOR = 'PUB-materials-PR312-original-R3-receipts-reconciled-20261107-v1'
+HANDOFF_ACTIONS = (HANDOFF_ACTION, HANDOFF_SUCCESSOR,
+                  'PUB-materials-PR312-stale-run-current-main-disposition-20261107-v1')
 DIRECTORY = ('logs/handoffs/2026-10-29-two-materials-current-owner-WEB-continuation-v1/designated-development/'
              'actual-PR312-c29b-20261106.5N3xWqMf/r3-dispatch.YKPdoygJ')
 REPORT = {'path': DIRECTORY + '/WEB-ACTUAL-PR312-MERGE-PAGES-R3-PRETRANSPORT-ZERO-RESULT.json',
@@ -50,7 +52,7 @@ def reconcile_handoff_receipts(root, name, previous, actual):
                     or pin in old_receipts or detail['goal_delivery'] != {**prior_goal, 'collaboration_records': [*old_receipts, pin]}):
                 return False
             receipt = a.document(root, pin)
-            if (receipt['task_id'] != TASK or receipt['action_id'] not in (HANDOFF_ACTION, HANDOFF_SUCCESSOR)
+            if (receipt['task_id'] != TASK or receipt['action_id'] not in HANDOFF_ACTIONS
                     or (handoff_action is not None and receipt['action_id'] != handoff_action)
                     or receipt['status'] != status or receipt['source_kind'] != 'official_native_queue'):
                 return False
@@ -112,12 +114,14 @@ def run(root, task, path):
 
     preflight = a.document(root, w.file_digest(root, path))
     request = a.document(root, preflight['request'])
-    web.need(task == request['task_id'] == TASK and request['action_id'] == ACTION
-             and request['operation'] == 'r3_dispatch', 'only the original bounded PR 312 R3 recovery')
+    web.need(task == request['task_id'] == TASK and request['operation'] == 'r3_dispatch',
+             'only the original bounded PR 312 material R3 dispatch')
     launch = {}
 
     def verify(ctx, req, pin, argv):
         web.need(req == request and pin == w.file_digest(root, path)
+                 and ctx.get('material_registry_test_successor') is True
+                 and req['action_id'] == web.action_id(ctx, 'r3_dispatch', ctx['commit'], req['state']['main_sha'])
                  and Path.cwd().resolve() == Path(ctx['worktree']).resolve(),
                  'current exact normal preflight and original WEB worktree required')
         exe = shutil.which(argv[0])
@@ -140,10 +144,15 @@ def run(root, task, path):
         web.need(all(actor.get(k) == req['state']['actor'][k] for k in ('id', 'login'))
                  and repository['id'] == ctx['repository_id'] and repository['full_name'] == ctx['repository']
                  and read(repo + '/git/ref/heads/main')['object']['sha'] == main
-                 and pull['number'] == 312 and pull['merged'] is True and pull['merge_commit_sha'] == main
+                 and pull['number'] == 312 and pull['merged'] is True
                  and pull['head']['sha'] == ctx['commit'] and pull['base']['ref'] == 'main' and public_version == main
                  and exact_runs['total_count'] == 0 and exact_runs['workflow_runs'] == [] and not active,
                  'actual original actor, merged PR, public/main version, zero same-head run and no active competing R3 required')
+        web.git(ctx, 'merge-base', '--is-ancestor', pull['merge_commit_sha'], main)
+        web.need(not web.git(ctx, 'diff', '--name-only', pull['merge_commit_sha'], main, '--',
+                            *ctx['paths'], 'supabase/functions', web.R3,
+                            'scripts/supabase-content-publish-release.mjs', 'package-lock.json').strip(),
+                 'current main must preserve the approved material and protected deployment source')
         web.working_source(ctx, ctx['commit'])
         inputs = {'mode': 'deploy', 'edge_function': 'content-publish', 'expected_sha': main,
                   'approval_id': desired['approval_id'], 'task_id': TASK, 'action_id': desired['release_action_id'],
@@ -158,7 +167,7 @@ def run(root, task, path):
                                    'payload_sha256': preflight['request']['sha256']}, _material_launch_check=verify)
     if decision['status'] != 'allow':
         return decision
-    outcome = {'decision_id': decision['decision_id'], 'action_id': ACTION, 'result': 'transport_effect_unknown'}
+    outcome = {'decision_id': decision['decision_id'], 'action_id': request['action_id'], 'result': 'transport_effect_unknown'}
     try:
         process = subprocess.run(launch['argv'], input=json.dumps(launch['inputs']), text=True,
                                  cwd=launch['ctx']['worktree'], capture_output=True, timeout=45)

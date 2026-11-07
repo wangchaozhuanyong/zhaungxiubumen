@@ -1448,6 +1448,10 @@ def record_preflight(root, task_id, input_path):
         matches = [x for x in prior if all(x.get(k) == item.get(k) for k in ("action_id", "action_class", "scope", "department"))]
         if matches:
             if matches != [item]:
+                if (task_id == 'fc-20261014-two-original-materials-exact-body-publication-v1'
+                        and len(matches) == 1 and item.get('replaces_preflight')):
+                    from material_preview_refresh import record_preflight_refresh
+                    return record_preflight_refresh(root, snapshot, matches[0], item, input_path)
                 raise w.WorkflowError("exact preflight frozen; new action identity required")
             return {"result": "duplicate_ignored", "external_permission_issued": False}
         candidate = {**snapshot, "goal_delivery": {**goal, "execution_preflights": prior + [item]}}
@@ -1579,6 +1583,9 @@ def _condo_faq_v7_post_candidate_preflight(root, task_id, input_path, action):
 def record_approved_action(root, task_id, input_path):
     """Freeze a precise routine decision, or owner action in an original declared collaboration scope."""
     action = w.read_json(w.safe_path(root, input_path))
+    if action.get('schema') == 'original-materials-HQ-owner-platform-failure-message/v1':
+        from material_hq_fallback import record
+        return record(root, task_id, input_path)
     from hq_web_health_probe import SCHEMA as HQ_WEB_PROBE_SCHEMA, record as record_HQ_WEB_PROBE
     if action.get('schema') == HQ_WEB_PROBE_SCHEMA:
         return record_HQ_WEB_PROBE(root, task_id, input_path)
@@ -1854,8 +1861,10 @@ def completion_obligations(root, snapshot, receipts=None, accepted=None):
     """Project frozen standards through actual readers; never write or grant authority."""
     snapshot = restore_goal(root, snapshot)
     task_id = snapshot["task_id"]
-    from department_autonomy import autonomous_goal,completion as autonomous_completion
-    if autonomous_goal(snapshot.get('goal_delivery')):return autonomous_completion(root,snapshot)
+    from department_autonomy import (autonomous_goal,completion as autonomous_completion,
+                                     migrated_production_completion)
+    if autonomous_goal(snapshot.get('goal_delivery')) or migrated_production_completion(root,snapshot):
+        return autonomous_completion(root,snapshot)
     from department_autonomy import migrated_local_completion,professional_local_completion_view
     if migrated_local_completion(root,snapshot):return professional_local_completion_view(root,snapshot)
     from direct_system_repair import completion_view
@@ -1994,10 +2003,10 @@ def completion_proof_selector(requirement):
 
 def record_completion_evidence(root, task_id, input_path, role, requirement_id):
     """Append a verified new actual proof; the frozen standard remains unchanged."""
-    from department_autonomy import (autonomous_goal,record_completion,migrated_local_completion,
+    from department_autonomy import (autonomous_goal,record_completion,migrated_production_completion,migrated_local_completion,
                                      record_professional_local_completion)
     current = restore_goal(root, w.read_json(w.snapshot_path(root,task_id)))
-    if autonomous_goal(current.get('goal_delivery')):
+    if autonomous_goal(current.get('goal_delivery')) or migrated_production_completion(root,current):
         return record_completion(root,task_id,input_path,role,requirement_id)
     if migrated_local_completion(root,current):
         return record_professional_local_completion(root,task_id,input_path,role,requirement_id)

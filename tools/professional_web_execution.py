@@ -1465,7 +1465,12 @@ def policy(root,requested,*,_material_launch_check=None):
     need(requested.get('source_project_id')==a.PROJECT and requested.get('payload_sha256')==item['request']['sha256']and not requested.get('target_department')and not requested.get('approval_id'),'exact request hash and original action, no borrowed approval/role')
     state=req['state'];op=req['operation'];observed=w._parse_observed_at(req.get('observed_at'))
     from material_r3_dispatch import ACTION as material_r3_action, recovery_policy as material_r3_recovery
-    material_r3 = op == 'r3_dispatch' and req['action_id'] == material_r3_action and ctx.get('material_registry_test_successor')
+    material_r3 = op == 'r3_dispatch' and ctx.get('material_registry_test_successor')
+    material_edge_facts = None
+    if op == 'edge_deploy' and ctx.get('material_registry_test_successor'):
+        from material_edge_live import pending as current_material_pending
+        material_edge_facts = current_material_pending(root, ctx, req)
+        observed = w._parse_observed_at(material_edge_facts['observed_at'])
     if ctx.get('approved_ads_web_bridge'):
         stage=w.read_json(w.snapshot_path(root,ctx['execution_stage_id']))
         stale_only=(stage and stage.get('current_state')=='blocked' and stage.get('plan_status')=='blocked_health_stale'
@@ -1512,10 +1517,15 @@ def policy(root,requested,*,_material_launch_check=None):
         if not recovery:
             issued = w.read_jsonl(Path(root) / w.POLICY_DECISIONS, where={'autonomous_action_key': key, 'status': 'allow'})
             if material_r3:
-                recovery_fields = material_r3_recovery(root, ctx, req, key, issued)
+                if req['action_id'] == material_r3_action:
+                    recovery_fields = material_r3_recovery(root, ctx, req, key, issued)
+                else:
+                    need(not issued, 'single current-main material dispatch already issued; read its effect')
             else:
                 need(not issued, 'single original actual action already issued; read unknown effect')
         value={**requested,'status':'preflight_ready_not_a_permit','actual_action_allowed':False,'approval_basis':a.MODE,'original_authority':ctx['authorization'],'delegated_HQ_decision':ctx['decision'],'exact_request':item['request'],'source_preflight':pin,'autonomous_action_key':key,'checked_at':w.utc_timestamp(),'external_execution_department':ctx['role'],'assistant_approval_required':False,'platform_permission_issued':False,**recovery_fields,**transport}
+        if material_edge_facts is not None:
+            value['material_edge_live_pending'] = material_edge_facts
         if ctx.get('standing_CMS_channel'):
             value.pop('delegated_HQ_decision');value.update(standing_CMS_authority=ctx['decision'],authority_department=ctx['authority_department'],standing_authorization_id=ctx['standing_authorization_id'])
         if ctx.get('original_production_channel'):
@@ -1594,7 +1604,12 @@ def record_approval(root,**kwargs):
     human_message=(human['message_id'] if ctx.get('hq_single_field_code_stage') else human['message']['id'])
     need(kwargs.get('source_thread_id')==human_thread and kwargs.get('source_message_ref')==human_message,
          'real original human grant and verified HQ decision, not a new owner signature')
-    now=dt.datetime.now(dt.timezone.utc);at=w._parse_observed_at(req.get('observed_at'))
+    material_edge_facts = None
+    if ctx.get('material_registry_test_successor'):
+        from material_edge_live import pending as current_material_pending
+        material_edge_facts = current_material_pending(root, ctx, req)
+    now=dt.datetime.now(dt.timezone.utc);at=w._parse_observed_at(
+        material_edge_facts['observed_at'] if material_edge_facts is not None else req.get('observed_at'))
     need(at and 0<=(now-at).total_seconds()<=300,'fresh actual pending run')
     apr=reference(ctx,state['candidate_commit'],state['main_sha']);need(kwargs.get('approval_id','')in {'',apr},'source-derived reference only')
     with w.workflow_lock(root):
@@ -1607,6 +1622,8 @@ def record_approval(root,**kwargs):
         # This writer accepts only edge_deploy. Push recovery metadata belongs
         # to the separately validated git_push policy, never this R3 reference.
         value={'schema_version':'1.0','approval_id':apr,'task_id':ctx['task'],'action_id':req['action_id'],'action_class':'site_publish','scope':ctx['edge_scope'],'status':'active','single_use':True,'granted_by':'operations','granted_at':w.utc_timestamp(),'source_thread_id':human_thread,'source_message_ref':human_message,'approval_basis':'verified_original_goal_external_WEB_source_v1','original_human_authorization_pin':ctx['authorization'],'delegated_HQ_decision':ctx['decision'],'source_preflight':pin,'execution_department':ctx['role'],'platform_binding':binding,'platform_permission_issued':False}
+        if material_edge_facts is not None:
+            value['material_edge_live_pending'] = material_edge_facts
         if ctx.get('standing_CMS_channel'):
             value.pop('delegated_HQ_decision');value.update(approval_basis='verified_professional_standing_CMS_WEB_source_v1',granted_by=ctx['authority_department'],standing_CMS_authority=ctx['decision'],authority_department=ctx['authority_department'],standing_authorization_id=ctx['standing_authorization_id'])
         if ctx.get('original_production_channel'):

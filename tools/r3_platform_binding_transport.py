@@ -126,7 +126,12 @@ def context(root,task,approval=None,effect=False):
    web.reference_fresh_preflight(root,row,source,actual,ctx,'transport')
    req=actual
   else:need(actual==req,'latest own normal preflight and actual WEB source')
-  observed=w._parse_observed_at(req.get('observed_at'));need(observed and 0<=(timestamp()-observed).total_seconds()<=300,'fresh actual WEB facts before transport')
+  if ctx.get('material_registry_test_successor'):
+   from material_edge_live import pending as current_material_pending
+   live=current_material_pending(root,ctx,req)
+   observed=w._parse_observed_at(live['observed_at'])
+  else:observed=w._parse_observed_at(req.get('observed_at'))
+  need(observed and 0<=(timestamp()-observed).total_seconds()<=300,'fresh actual WEB facts before transport')
   need(Path.cwd().resolve()==Path(ctx['worktree']).resolve(),'platform mutation only from original WEB worktree; SYS does not execute this')
  return ctx,row,req
 
@@ -362,7 +367,12 @@ def install(root,task,approval):
  ctx,row,req=context(root,task,approval,effect=True);binding=row['platform_binding']
  def before_write():
   current=w.effective_approvals(root).get(approval);need(current==row and current.get('status')=='active','normal own reference changed/consumed/revoked; no transport')
-  validate_binding(binding,own=True);at=w._parse_observed_at(req['observed_at']);need(at and 0<=(timestamp()-at).total_seconds()<=300,'fresh facts expired before actual transport')
+  validate_binding(binding,own=True)
+  if ctx.get('material_registry_test_successor'):
+   from material_edge_live import pending as current_material_pending
+   live=current_material_pending(root,ctx,req);at=w._parse_observed_at(live['observed_at'])
+  else:at=w._parse_observed_at(req['observed_at'])
+  need(at and 0<=(timestamp()-at).total_seconds()<=300,'fresh facts expired before actual transport')
   require_active_stage(root,ctx,task)
   need(Path.cwd().resolve()==Path(ctx['worktree']).resolve(),'same original WEB worktree at actual transport');web.working_source(ctx,req['state']['candidate_commit'])
  api=GitHub(ctx,before_write)

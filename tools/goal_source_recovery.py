@@ -1935,6 +1935,15 @@ _MATERIAL_FRESH_QUEUE_ACTIONS = frozenset({
 _MATERIAL_IDENTITY_FIELDS = {'actual_sender_state', 'actual_target_state', 'actual_live_inventory', 'live_observed_at'}
 
 
+def _material_identity_action(request):
+    from material_hq_fallback import ACTION, TASK
+    return request.get('task_id') == TASK and (
+        request.get('action_id') in _MATERIAL_FRESH_QUEUE_ACTIONS
+        and request.get('delivery_mode') == 'official_native_queue'
+        or request.get('action_id') == ACTION and request.get('sender_department') == 'operations'
+        and request.get('delivery_mode') == 'mcp_direct_send')
+
+
 def _material_refreshed_request(root, request, path):
     from material_r3_dispatch import TASK
     import datetime as dt
@@ -1943,7 +1952,7 @@ def _material_refreshed_request(root, request, path):
     fresh = _strict_queue_document(root, pin)
     if ({k: v for k, v in fresh.items() if k not in _MATERIAL_IDENTITY_FIELDS}
             != {k: v for k, v in request.items() if k not in _MATERIAL_IDENTITY_FIELDS}
-            or request.get('task_id') != TASK or request.get('action_id') not in _MATERIAL_FRESH_QUEUE_ACTIONS):
+            or not _material_identity_action(request)):
         raise w.WorkflowError('only the exact original R3 material queue may refresh its identity observations')
     observed = w._parse_observed_at(fresh.get('live_observed_at'))
     prior = w._parse_observed_at(request.get('live_observed_at'))
@@ -1960,8 +1969,7 @@ def _material_identity_at_prepare(root, request, fifo):
     from material_r3_dispatch import TASK
 
     channel = w.safe_path(root, fifo)
-    if (request.get('task_id') != TASK or request.get('action_id') not in _MATERIAL_FRESH_QUEUE_ACTIONS
-            or request.get('delivery_mode') != 'official_native_queue'
+    if (not _material_identity_action(request)
             or channel.is_symlink() or not channel.is_fifo()):
         raise w.WorkflowError('exact material owner action and bounded local FIFO required')
     fd = os.open(channel, os.O_RDWR | os.O_NONBLOCK)
