@@ -1880,6 +1880,56 @@ def _owner_decision_read_matches(root, items, ack_index, final_index, command, s
 
 
 
+def _owner_registered_source_matches(root, items, ack_index, final_index, command, source, ctx, start, end):
+    """Prove a same-turn decision digest plus its actual normal registered continuation."""
+    import shlex
+    import department_autonomy as autonomy
+    import result_coordination as rc
+    import goal_delivery_runtime as g
+    def argv(item):
+        args=shlex.split(item.get('command',''))
+        if len(args)==3 and args[0] in {'/bin/zsh','/bin/bash'} and args[1] in {'-lc','-c'}:
+            args=shlex.split(args[2])
+        return args
+    def success(item):
+        return (item.get('type')=='commandExecution' and item.get('status')=='completed'
+                and item.get('exitCode')==0 and Path(item.get('cwd','')).resolve()==Path(root).resolve())
+    try:
+        args=argv(command)
+        if not (success(command) and len(args)==7 and Path(args[0]).name in {'python3','python3.11'}
+                and args[1:4]==['tools/goal_delivery_runtime.py','approved-action-record','--task-id']
+                and args[4]==ctx['identity']['task_id'] and args[5]=='--input'):
+            return False
+        source_pin=w.file_digest(root,args[6]); action=w.read_json(w.safe_path(root,args[6]))
+        decision_source=action.get('chief_coordination_source',{})
+        if not (decision_source.get('decision')==source
+                and decision_source.get('result_identity')==ctx['identity']
+                and decision_source.get('received_record_id')==ctx['intake']['record_id']
+                and action.get('task_id')==ctx['identity']['task_id'] and action.get('scope')==ctx['scope']
+                and action.get('sender_department')==ctx['original_owner']):return False
+        output=json.loads(w._completion_execution_output(command))
+        if not (output.get('result')=='recorded' and output.get('task_id')==ctx['identity']['task_id']
+                and output.get('action_id')==action.get('action_id') and output.get('input')==source_pin
+                and output.get('actual_message_sent') is False and output.get('external_permission_issued') is False):return False
+        digest=(source['sha256']+'  '+source['path']+'\n').encode()
+        if not any(success(x) and argv(x)==['shasum','-a','256',source['path']]
+                   and w._completion_execution_output(x)==digest
+                   for x in items[ack_index+1:final_index] if x.get('type')=='commandExecution'):return False
+        events=[e for e in w.read_jsonl(Path(root)/w.WORKFLOW_EVENTS,where={'task_id':ctx['identity']['task_id']})
+                if e.get('details',{}).get('approved_message_prepared')==source_pin
+                and e['details'].get('action_id')==action.get('action_id')]
+        if len(events)!=1:return False
+        at=w._parse_observed_at(events[0].get('created_at'))
+        if not at or not start<=at.timestamp()<=end:return False
+        snap=g.restore_goal(root,w.read_json(w.snapshot_path(root,ctx['identity']['task_id'])))
+        route=autonomy.validate_readonly_coordination(root,snap,action)
+        return (route.get('external_permission_issued') is False
+                and route.get('sender_department')==ctx['original_owner']
+                and rc.exact_identity(decision_source['result_identity'])==ctx['identity'])
+    except (ValueError,KeyError,TypeError,OSError,w.WorkflowError):
+        return False
+
+
 def validate_owner_handoff_source(root, item):
     """Revalidate actual SQL/native decision, normal transport and owner work.
 
@@ -2024,7 +2074,8 @@ def validate_owner_handoff_source(root, item):
             'source work must follow ACK and precede same-turn completed final')
     for value in (incoming,ack,command,final):_review_native_containers(value)
     source=decision['decision_source'];source_bytes=doc_bytes_for_owner_handoff(root,source)
-    require(_owner_decision_read_matches(root,items,ack_index,final_index,command,source,source_bytes),
+    require(_owner_decision_read_matches(root,items,ack_index,final_index,command,source,source_bytes)
+            or _owner_registered_source_matches(root,items,ack_index,final_index,command,source,ctx,start,end),
             'actual complete original same-turn cat/digest evidence required; no arbitrary script')
     return {'state':'normal_owner_decision_handoff_verified','identity':identity,'received_record_id':intake['record_id'],
             'decision_record_id':decision['record_id'],'reply_action_id':intent['action_id'],

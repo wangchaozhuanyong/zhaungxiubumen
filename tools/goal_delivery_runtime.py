@@ -329,6 +329,15 @@ def authorization_precheck(root, task_id, request):
         if changes: return outcome('authorization_change_required', changes, confirmation=True)
         return {**outcome('within_original_authorization', ['actual_HQ_readonly_external_health_probe']),
                 'source_registration': probe['registration'], 'actual_actor': 'operations', 'external_permission_issued': False}
+    from professional_local_web_candidate import registered as local_web_candidate, IDENTITY as local_identity, ACTION as local_action_id
+    if request.get('action_id') == local_action_id and not all(k in request for k in local_identity):
+        raise w.WorkflowError('complete exact professional local WEB request required')
+    local = local_web_candidate(root, snapshot, request)
+    if local is not None:
+        if changes: return outcome('authorization_change_required', changes, confirmation=True)
+        return {**outcome('within_original_authorization', ['actual_original_professional_local_candidate']),
+                'source_registration': local['registration'], 'local_code_work_authorized': True,
+                'production_READY': False, 'external_permission_issued': False}
     from hq_en2_readonly_source import registered as hq_en2_readonly, IDENTITY as hq_en2_identity, ACTION as hq_en2_action_id
     if request.get('action_id') == hq_en2_action_id and not all(k in request for k in hq_en2_identity):
         raise w.WorkflowError('complete exact HQ EN2 readonly request required')
@@ -812,6 +821,9 @@ def approved_action(root, snapshot, requested):
     from hq_web_health_probe import approved_action as hq_probe_action
     probe = hq_probe_action(root, snapshot, requested)
     if probe is not None: return probe
+    from professional_local_web_candidate import approved_action as local_web_action
+    local = local_web_action(root, snapshot, requested)
+    if local is not None: return local
     from hq_en2_readonly_source import approved_action as hq_en2_action
     en2 = hq_en2_action(root, snapshot, requested)
     if en2 is not None: return en2
@@ -889,6 +901,9 @@ def owner_result_collaboration_binding(root, snapshot, requested):
     from hq_web_health_probe import binding as hq_probe_binding
     probe = hq_probe_binding(root, snapshot, requested)
     if probe is not None: return probe
+    from professional_local_web_candidate import binding as local_web_binding
+    local = local_web_binding(root, snapshot, requested)
+    if local is not None: return local
     from hq_en2_readonly_source import binding as hq_en2_binding
     en2 = hq_en2_binding(root, snapshot, requested)
     if en2 is not None: return en2
@@ -989,6 +1004,16 @@ def collaboration_route(root, snapshot, requested, *, _queue_proof=None, _queue_
                 queue_notloaded = queue_notloaded or bool(owner_message
                     and owner_message.get('purpose') == 'original_professional_collaboration_transport_only'
                     and owner_message.get('external_permission_issued') is False)
+            if queue_mode and action.get('professional_local_web_candidate_source'):
+                # Only the fully authenticated original local-candidate source may
+                # queue to notLoaded. This does not assert idle, receipt or health.
+                from professional_local_web_candidate import registered as registered_local_candidate
+                local_candidate = registered_local_candidate(root, snapshot, action)
+                if not (local_candidate and local_candidate.get('local_code_work_authorized') is True
+                        and local_candidate.get('production_READY') is False
+                        and local_candidate.get('external_permission_issued') is False):
+                    raise w.WorkflowError('exact registered local WEB candidate source required')
+                queue_notloaded = True
             if queue_mode and (action.get('HQ_original_PUB_singlefield_source') or action.get('HQ_original_PUB_singlefield_continuation_source')):
                 # Preserve the actual notLoaded label only for this normally
                 # registered exact HQ-to-PUB workorder; this never means idle.
@@ -1589,6 +1614,9 @@ def record_approved_action(root, task_id, input_path):
     from hq_web_health_probe import SCHEMA as HQ_WEB_PROBE_SCHEMA, record as record_HQ_WEB_PROBE
     if action.get('schema') == HQ_WEB_PROBE_SCHEMA:
         return record_HQ_WEB_PROBE(root, task_id, input_path)
+    from professional_local_web_candidate import SCHEMA as LOCAL_WEB_SCHEMA, record as record_LOCAL_WEB
+    if action.get('schema') == LOCAL_WEB_SCHEMA:
+        return record_LOCAL_WEB(root, task_id, input_path)
     from hq_en2_readonly_source import SCHEMA as HQ_EN2_READONLY_SCHEMA, record as record_HQ_EN2_READONLY
     if action.get('schema') == HQ_EN2_READONLY_SCHEMA:
         return record_HQ_EN2_READONLY(root, task_id, input_path)

@@ -986,6 +986,9 @@ def message_route(root,snapshot,request):
  # the declared collaboration, exact approved payload, original authority and
  # fresh native identity; the internal autonomous lane grants none of these.
  if request.get('target_department')not in w.department_registry(root):
+  from professional_local_web_candidate import message_route as local_web_route
+  local=local_web_route(root,snapshot,request)
+  if local is not None:return local
   from hq_en2_readonly_source import message_route as hq_en2_route
   from hq_web_health_probe import message_route as hq_probe_route
   return hq_probe_route(root,snapshot,request)or hq_en2_route(root,snapshot,request)or _registered_owner_result_message(root,snapshot,request)or _registered_professional_readonly_route(root,snapshot,request)
@@ -1230,6 +1233,10 @@ def message_policy(root,request):
    ids.add(identifier);previous=row
   if (route.get('purpose')in {'original_professional_collaboration_transport_only','committed_receipt_system_continuation_event','publication_deadline_ordinary_coordination'} or ordinary_facts is not None) and request.get('delivery_mode')=='official_native_queue':
    _owner_message_transport_not_started(root,snapshot,request)
+  if route.get('purpose')=='professional_local_web_candidate_transport':
+   _owner_message_transport_not_started(root,snapshot,request)
+   require(request.get('delivery_mode')=='official_native_queue' and g.collaboration_route(root,snapshot,request)==[],
+    'fresh original professional and fixed WEB route required for local preparation')
   if route.get('purpose')=='hq_external_health_probe_transport':
    _owner_message_transport_not_started(root,snapshot,request)
    require(probe is not None and request.get('delivery_mode')=='mcp_direct_send'
