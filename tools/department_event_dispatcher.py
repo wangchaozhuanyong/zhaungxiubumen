@@ -1295,8 +1295,13 @@ class Dispatcher:
         source_continuation=only_events is not None and INPUT_CONTINUE in only_events
         history_continuation=only_events is not None and HISTORY_CONTINUE in only_events
         self._consume_current(only_events,notification_only=notification_only,guard_only=True)
+        from receipt_obligation_consumer import SCAN_CONTINUE
+        capacity_released = (only_events is not None and SCAN_CONTINUE in only_events
+            and not self.activation_attempted and self.root_serial_guard.get('new_activation_allowed') is True)
         selected = [row for row in self.store.rows()
-                    if only_events is None or source_continuation or row['event_key'] in only_events]
+                    if only_events is None or source_continuation or row['event_key'] in only_events
+                    or capacity_released and row['state']=='waiting_policy_or_source'
+                    and row.get('detail')=='fresh original serial boundary or activation budget changed before enqueue; no effect started']
         historical = {row['event_key'] for row in selected
                       if row['state'] in {'native_queue_accepted','resolved_by_original_intake','wake_acknowledged'}}
         work = {row['event_key'] for row in selected} - historical

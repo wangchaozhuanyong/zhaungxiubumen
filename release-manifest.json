@@ -1016,9 +1016,9 @@
     },
     {
       "path": "tools/department_event_dispatcher.py",
-      "source_sha256": "b801b1507d85e2d4c2fa21280adcf33c66174d8f84c22e087093a32ff308a38f",
-      "release_sha256": "b801b1507d85e2d4c2fa21280adcf33c66174d8f84c22e087093a32ff308a38f",
-      "bytes": 201757
+      "source_sha256": "22a3bd36a2ee31bf60017355e70abc704d2065ec037048bc01bfe0d8febf0223",
+      "release_sha256": "22a3bd36a2ee31bf60017355e70abc704d2065ec037048bc01bfe0d8febf0223",
+      "bytes": 202242
     },
     {
       "path": "tools/department_flow_reconcile.py",
@@ -1748,9 +1748,9 @@
     },
     {
       "path": "tools/test_department_event_dispatcher.py",
-      "source_sha256": "6e2817cb5cbc12b95d4609ad9455377b7e06cf782144197647d6d5d6877f3b53",
-      "release_sha256": "6e2817cb5cbc12b95d4609ad9455377b7e06cf782144197647d6d5d6877f3b53",
-      "bytes": 26867
+      "source_sha256": "220365d3ea517d73caa3bd4934457da7ef5315f20a8c7e136d0186af8f1ddd89",
+      "release_sha256": "220365d3ea517d73caa3bd4934457da7ef5315f20a8c7e136d0186af8f1ddd89",
+      "bytes": 28193
     },
     {
       "path": "tools/test_department_flow_reconcile.py",
@@ -2238,5 +2238,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "02700369ed0f2a46031c996e159e8e9ebe701d9dafac5a2bb61c6c008ab789f2"
+  "fingerprint": "e5febbc5cb6dbe6d1cbbbf2f5b28045869e118c5a3f4ef9235e6205722ccdc4d"
 }

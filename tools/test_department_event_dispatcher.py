@@ -105,6 +105,22 @@ class DispatcherTests(unittest.TestCase):
         self.assertEqual(len(transport.calls), 1)
         self.assertEqual(self.store.rows()[0]['state'], 'native_queue_accepted')
 
+    def test_receipt_boundary_continuation_retries_only_capacity_waiting_notification(self):
+        from receipt_obligation_consumer import SCAN_CONTINUE
+        capacity='fresh original serial boundary or activation budget changed before enqueue; no effect started'
+        for allowed,detail,expected in ((True,capacity,1),(False,capacity,0),(True,'exact policy refused',0)):
+            with self.subTest(allowed=allowed,detail=detail):
+                self.store.set(self.event,'waiting_policy_or_source',detail)
+                transport=QueueTransport();worker=d.Dispatcher(self.store,transport)
+                def current(*args,**kwargs):worker.root_serial_guard={'new_activation_allowed':allowed}
+                with mock.patch.object(worker,'_consume_current',side_effect=current), \
+                        mock.patch.object(worker,'_reconcile_readonly_row',return_value=False), \
+                        mock.patch.object(worker,'_current_source',return_value=True), \
+                        mock.patch.object(worker,'_notification_guard',return_value=True), \
+                        mock.patch.object(worker,'_notification_budget_blocked',return_value=False):
+                    worker.pump(only_events={SCAN_CONTINUE},notification_only=True)
+                self.assertEqual(len(transport.calls),expected)
+
     def test_busy_then_completion_event_continues(self):
         transport = QueueTransport()
         transport.busy = True
