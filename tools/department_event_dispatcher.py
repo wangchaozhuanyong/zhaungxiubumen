@@ -1314,8 +1314,16 @@ class Dispatcher:
             and not self.activation_attempted and self.root_serial_guard.get('new_activation_allowed') is True)
         rows=self.store.rows()
         recoverable={row['event_key']for row in rows if _recoverable_preparation_hint(self.store.root,row)}
+        successor=None
+        if not self.activation_attempted and self.root_serial_guard.get('new_activation_allowed') is True:
+            try:successor=key(identity(self.root_serial_guard.get('batch_evidence',{})['causal_successor_identity']))
+            except (ValueError,KeyError,TypeError):pass
+        successor_keys={row['event_key']for row in rows if row['event_key']==successor and
+            (row['state'] in {'pending','waiting_transport','sending','uncertain'} or row['event_key'] in recoverable
+             or row.get('detail')=='fresh original serial boundary or activation budget changed before enqueue; no effect started')}
         selected = [row for row in rows
                     if only_events is None or source_continuation or row['event_key'] in only_events
+                    or row['event_key'] in successor_keys
                     or capacity_released and row['event_key'] in recoverable
                     or capacity_released and row['state']=='waiting_policy_or_source'
                     and row.get('detail')=='fresh original serial boundary or activation budget changed before enqueue; no effect started']
@@ -1324,6 +1332,7 @@ class Dispatcher:
         work = {row['event_key'] for row in selected} - historical
         entries=[(row['event_key'],hashlib.sha256(row['identity_json'].encode()).hexdigest()) for row in selected if row['event_key'] in work]
         priority=[row['event_key'] for row in selected if row['state'] in {'sending','uncertain'}]
+        priority += [row['event_key']for row in selected if row['event_key'] in successor_keys]
         priority += [row['event_key']for row in selected if row['event_key'] in recoverable]
         priority += [row['event_key'] for row in selected if valid_events is not None and row['event_key'] in valid_events]
         cursor=input_slice(self.store,'pending',entries,priority=priority,

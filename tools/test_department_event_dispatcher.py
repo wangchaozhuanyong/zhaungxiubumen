@@ -151,6 +151,21 @@ class DispatcherTests(unittest.TestCase):
                     worker.pump(only_events={SCAN_CONTINUE},notification_only=True)
                 self.assertEqual(len(transport.calls),expected)
 
+    def test_verified_causal_successor_does_not_wait_for_unrelated_historical_receipt_sweep(self):
+        from receipt_obligation_consumer import SCAN_CONTINUE
+        transport=QueueTransport();worker=d.Dispatcher(self.store,transport)
+        def current(*args,**kwargs):
+            worker.root_serial_guard={'new_activation_allowed':True,'batch_evidence':{'causal_successor_identity':RESULT}}
+        with mock.patch.object(worker,'_consume_current',side_effect=current), \
+                mock.patch.object(worker,'_reconcile_readonly_row',return_value=False), \
+                mock.patch.object(worker,'_current_source',return_value=True), \
+                mock.patch.object(worker,'_notification_guard',return_value=True), \
+                mock.patch.object(worker,'_notification_budget_blocked',return_value=False):
+            worker.pump(only_events={SCAN_CONTINUE},notification_only=True)
+            self.assertEqual(len(transport.calls),1)
+            worker.pump(only_events={SCAN_CONTINUE},notification_only=True)
+            self.assertEqual(len(transport.calls),1)
+
     def test_busy_then_completion_event_continues(self):
         transport = QueueTransport()
         transport.busy = True
