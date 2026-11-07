@@ -1010,9 +1010,9 @@
     },
     {
       "path": "tools/department_autonomy.py",
-      "source_sha256": "25b22fcdde5e543e493ab927b9ba7a63ad1450b96e0cf91657a1ad2168ef57f2",
-      "release_sha256": "d819c8947dc610409cd6f45ecf1b1a58c053df7f2c2b3056b51ed5e42fc5b0c6",
-      "bytes": 268881
+      "source_sha256": "e57206cc1f4230152be53af198fb98289531515dcd13cf3611435d82a11c7fe6",
+      "release_sha256": "ea3b004a82048259318174ba89539498dd62f26c6337ece882a6529ba69aa0ff",
+      "bytes": 271551
     },
     {
       "path": "tools/department_event_dispatcher.py",
@@ -2095,6 +2095,12 @@
       "bytes": 13590
     },
     {
+      "path": "tools/test_registered_identity_health_bootstrap.py",
+      "source_sha256": "532c2c5a3f1483f30e3c349694fe3f187a23be5a4ea87614ae7fcc5461f9822f",
+      "release_sha256": "532c2c5a3f1483f30e3c349694fe3f187a23be5a4ea87614ae7fcc5461f9822f",
+      "bytes": 3598
+    },
+    {
       "path": "tools/test_result_coordination.py",
       "source_sha256": "de93c7e54339c75ab234e94a1b2466f5a0447d1f5b29decd66ad90abe0aa701a",
       "release_sha256": "de93c7e54339c75ab234e94a1b2466f5a0447d1f5b29decd66ad90abe0aa701a",
@@ -2222,9 +2228,9 @@
     },
     {
       "path": "tools/workflow_control.py",
-      "source_sha256": "c1baf343975e02fa5debd3905f9ce076dc8540514d9571783f726f106f52b5b2",
-      "release_sha256": "53cae9c10580f8594216ef91839a4c0d21b6438c5e9802aeb514ff680e25f46b",
-      "bytes": 624370
+      "source_sha256": "da7db9c80e211f8663df84aa0f1b40eb4600fd09a54f063bbb8db132dca09e6f",
+      "release_sha256": "f08849d5ab5315b5a59d8a02aabd8614f0f334fa16cfc2e918d4943ecbf7f3ab",
+      "bytes": 624541
     }
   ],
   "retired_roles": [],
@@ -2238,5 +2244,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "cf44aca0dfb2825e62a25cde67ac77e33e7aa2092c99fb0b4b13a575909f3d81"
+  "fingerprint": "8c16812f35ec102dc7283dd98b1280bebb59405a83c525a54eb4d3276619396e"
 }

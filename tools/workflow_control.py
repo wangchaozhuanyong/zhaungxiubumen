@@ -2953,7 +2953,7 @@ def exact_health_probe(root, snapshot, *, sender, target, scope, payload_sha256)
             or scope not in snapshot["goal_delivery"].get("authorized_scope", [])
             or snapshot["goal_delivery"].get("producer_departments") != [target]
             or snapshot["goal_delivery"].get("required_execution_actions")
-            or sender not in {"operations", snapshot["goal_delivery"]["responsible_assistant"]}):
+            or sender not in {"operations", snapshot["goal_delivery"].get("responsible_assistant")}):
         return False
     try:
         contract=validate_goal(root, read_json(safe_path(root, snapshot["goal_contract"]["path"])))
@@ -3000,7 +3000,9 @@ def exact_health_probe(root, snapshot, *, sender, target, scope, payload_sha256)
         fixed=row["chat_binding"]
         targets=[item for item in live.get("threads",[]) if item.get("id")==fixed["task_id"]]
         groups=[item for item in live.get("sections",[]) if item.get("sectionId")==fixed["sidebar_section_id"]]
-        return (len(targets)==1 and len(groups)==1 and targets[0].get("status")=="idle"
+        # An unloaded original chat may receive only this exact identity-only
+        # probe. This does not establish health or admit business work.
+        return (len(targets)==1 and len(groups)==1 and targets[0].get("status") in {"idle", "notLoaded"}
                 and all(targets[0].get(k)==fixed[v] for k,v in (("projectId","project_id"),("title","title"),("cwd","cwd")))
                 and "codex:thread:local:"+fixed["task_id"] in groups[0].get("itemKeys",[]))
     except (WorkflowError, OSError, ValueError, TypeError, KeyError):

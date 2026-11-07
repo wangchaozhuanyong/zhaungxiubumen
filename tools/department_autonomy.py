@@ -935,8 +935,34 @@ def _registered_execution_source_message(root,snapshot,request):
  return validate_message(root,snapshot,action)
 
 
+def _registered_identity_health_route(root,snapshot,request):
+ """Only the existing frozen identity-only probe may bootstrap stale health."""
+ target=request.get('target_department');registry=w.department_registry(root)
+ if (request.get('action_class')!='thread_message' or request.get('sender_department')!='operations'
+     or target not in registry or request.get('scope')!='department_health_probe:'+str(target)):
+  return None
+ if not w.exact_health_probe(root,snapshot,sender='operations',target=target,
+                            scope=request['scope'],payload_sha256=request.get('payload_sha256')):
+  return None
+ goal=participant(root,snapshot,'operations');source=registry['operations']['chat_binding'];dest=registry[target]['chat_binding']
+ require(request.get('assignment_record_required')is False and not any(request.get(k)for k in
+  ('authorization_changes','internal_repairs','approval_id','consume_approval','execution_request','professional_execution_source'))
+  and source['project_id']==dest['project_id']==request.get('source_project_id')==request.get('target_project_id')==PROJECT
+  and Path(source['cwd']).resolve()==Path(root).resolve()==Path(dest['cwd']).resolve()
+  and w._chat_binding_healthy(source,verification_ttl_hours=26)
+  and all(request.get(k)==dest[v]for k,v in {'target_thread_id':'task_id','target_thread_title':'title',
+   'target_cwd':'cwd','target_sidebar_section_id':'sidebar_section_id'}.items())
+  and w.file_digest(root,request['payload']['path'])==request['payload']
+  and request['payload']['sha256']==request['payload_sha256'], 'exact registered identity-only probe, never business or production')
+ return {**authority(root),'purpose':'registered_identity_health_bootstrap','source':snapshot['goal_contract'],
+  'report':request['payload'],'scope':request['scope'],'sender_department':'operations','target_department':target,
+  'external_permission_issued':False,'business_producer_added':False}
+
+
 def message_route(root,snapshot,request):
  if not isinstance(request,dict)or request.get('action_class')!='thread_message':return None
+ identity_health=_registered_identity_health_route(root,snapshot,request)
+ if identity_health is not None:return identity_health
  from material_hq_fallback import route as original_material_hq_route
  material_hq = original_material_hq_route(root,snapshot,request)
  if material_hq is not None:return material_hq
@@ -1163,8 +1189,10 @@ def message_policy(root,request):
  from hq_web_health_probe import registered as registered_hq_health_probe
  from hq_pub_health_probe import ACTION as PUB_HEALTH_ACTION, PURPOSE as PUB_HEALTH_PURPOSE
  probe=registered_hq_health_probe(root,snapshot,request)
+ identity_health=_registered_identity_health_route(root,snapshot,request)
  for key,role in (('actual_sender_state',request.get('sender_department')),('actual_target_state',request.get('target_department'))):
   if request.get(key):
+   if identity_health is not None and key=='actual_target_state':continue
    if request.get('action_id')==PUB_HEALTH_ACTION and key=='actual_target_state' and role=='publishing':continue
    if role in w.department_registry(root):refresh_department_health(root,role,request[key],only_if_stale=True)
    elif not (probe is not None and key=='actual_target_state' and role=='designated-development'):
@@ -1224,12 +1252,16 @@ def message_policy(root,request):
     from hq_web_health_probe import renewal_source
     source=renewal_source(root,snapshot,request,previous,probe['registration'])
    else:
-    source=route if route.get('purpose')in {'committed_receipt_system_continuation_event','publication_deadline_ordinary_coordination'} else ordinary_facts if ordinary_facts is not None else _fresh_owner_message_policy_source(root,snapshot,request,route)
+    source=route if route.get('purpose')in {'committed_receipt_system_continuation_event','publication_deadline_ordinary_coordination','registered_identity_health_bootstrap'} else ordinary_facts if ordinary_facts is not None else _fresh_owner_message_policy_source(root,snapshot,request,route)
    # Re-read original effect under the same workflow lock immediately before append.
    _owner_message_transport_not_started(root,snapshot,request)
   if route.get('purpose')=='original_professional_collaboration_transport_only'and request.get('delivery_mode')=='official_native_queue':
    _owner_message_commit_freshness(root,request)
   if source is not None and route.get('purpose')=='hq_external_health_probe_transport':
+   _owner_message_commit_freshness(root,request)
+  if route.get('purpose')=='registered_identity_health_bootstrap':
+   _owner_message_transport_not_started(root,snapshot,request)
+   require(_registered_identity_health_route(root,snapshot,request)is not None,'fresh exact identity probe before policy')
    _owner_message_commit_freshness(root,request)
   checked_at=w.utc_timestamp()
   value={k:request[k]for k in fields};value.update(department=request['sender_department'],status='allow',approval_basis=MODE,
@@ -1240,6 +1272,7 @@ def message_policy(root,request):
   if route.get('purpose')=='publication_deadline_ordinary_coordination':
    value['publication_deadline_source']={k:route[k]for k in ('purpose','source','report','owner_delegation','event_key')};value['service_origin']='existing_owned_department_event_dispatcher'
   if external_health is not None:value['actual_external_collaboration_health']=external_health
+  if route.get('purpose')=='registered_identity_health_bootstrap':value['routing_health_probe_mode']=True
   if route.get('purpose')==PUB_HEALTH_PURPOSE:
    value.update(delivery_mode='mcp_direct_send',pub_health_owner_native=route['source'])
   if previous:value.update(supersedes_message_policy={'decision_id':previous['decision_id'],'sha256':w.sha256_value(previous)},
