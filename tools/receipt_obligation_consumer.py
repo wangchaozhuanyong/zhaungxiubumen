@@ -1295,7 +1295,9 @@ def observe_root_serial(root, transport, *, store=None, completion_event=None, p
             if existing.get('new_activation_allowed'):
                 return {**result,'state':'root_serial_release_already_fresh','source':before}
         current = {**record,'current_active_original_window':window,'current_active_turn':turn_id,
-                   'current_scope':request['scope'] if request else record.get('current_scope'),'current_state':'completed'}
+                   'current_scope':request['scope'] if request else record.get('current_scope'),
+                   'current_action_id':request['action_id'] if request else record.get('current_action_id'),
+                   'current_state':'completed'}
         # Keep actual commentary bytes, including admitted multiline READY.
         # The committed queue source message id/hash, not marker typography,
         # authenticates a producer batch in _root_same_turn_queued_report.
@@ -1375,7 +1377,8 @@ def observe_root_serial(root, transport, *, store=None, completion_event=None, p
             receipt_state = ('safe_dependency_with_fresh_native_proof' if current['current_state'] == 'safe_dependency'
                              else 'completed_original_window_with_fresh_native_proof')
             updated = {**record,'current_active_original_window':window,'current_original_thread':window,
-                'current_active_turn':turn_id,'current_scope':current['current_scope'],'current_state':current['current_state'],
+                'current_active_turn':turn_id,'current_scope':current['current_scope'],
+                'current_action_id':current['current_action_id'],'current_state':current['current_state'],
                 'current_active_was_new_recovery':False,'current_recovery_receipt_state':receipt_state,
                 'current_release_native_proof':pin,'current_release_observed_at_UTC':stamp.isoformat(),
                 'current_release_observer':{'service_origin':SERVICE_ORIGIN,'source_root':before,
@@ -1803,6 +1806,9 @@ def pump(root, store, transport, *, only_events=None, allow_new=True):
                 # consume makes the one real projection and invokes the slot
                 # callback only after its fresh shared-root guard allows a send.
                 result = consume(root,record,intake,transport,allow_new=can_start,before_new_send=reserve_slot)
+                if result.get('state')=='routine_reply_awaiting_actual_followthrough':
+                    metadata=record_observed_owner_handoff(root,record,intake,transport,result)
+                    if metadata is not None:result['actual_owner_handoff_metadata']=metadata
                 remember_deadline(result)
                 outcomes.append({**value,'event_key':row['event_key'],**result})
                 sent = sent or result.get('message_sent') is True
@@ -1835,6 +1841,14 @@ OWNER_HANDOFF_SCHEMA = 'normal-decision-owner-native-readback/v1'
 OWNER_HANDOFF_EVENT = 'normal_decision_owner_native_handoff_readback'
 
 
+def _owner_native_output(item):
+    if 'output'in item:return w._completion_execution_output(item)
+    require(isinstance(item.get('aggregatedOutput'),str)
+            and not any(item.get(k)is True for k in ('truncated','outputTruncated','commandTruncated')),
+            'complete original canonical command output required')
+    return item['aggregatedOutput'].encode()
+
+
 def _owner_decision_read_matches(root, items, ack_index, final_index, command, source, source_bytes):
     """Accept exact native cat plus a separate same-turn digest, or the original combined command."""
     import shlex
@@ -1847,14 +1861,116 @@ def _owner_decision_read_matches(root, items, ack_index, final_index, command, s
         return (item.get('type')=='commandExecution' and item.get('status')=='completed'
                 and item.get('exitCode')==0 and Path(item.get('cwd','')).resolve()==Path(root).resolve())
     if not successful(command):return False
-    output=w._completion_execution_output(command)
+    actual=_owner_native_output(command)
     digest=(source['sha256']+'  '+source['path']+'\n').encode()
     if argv(command)==['shasum','-a','256',source['path'],'&&','cat',source['path']]:
-        return output==digest+source_bytes
-    if argv(command)!=['cat',source['path']] or output!=source_bytes:return False
+        return actual==digest+source_bytes
+    if argv(command)!=['cat',source['path']] or actual!=source_bytes:return False
     return any(successful(item) and argv(item)==['shasum','-a','256',source['path']]
-               and w._completion_execution_output(item)==digest
+               and _owner_native_output(item)==digest
                for item in items[ack_index+1:final_index] if item.get('type')=='commandExecution')
+
+
+def _owner_handoff_native_identity(root, raw, identity, fixed, owner_role=None):
+    """Keep genuine SDK identity and current canonical history as separate sources."""
+    import result_coordination as rc
+    import goal_delivery_runtime as g
+    page=raw.get('native',{})
+    if raw.get('source')=='first_party_read_thread':
+        require(set(raw)=={'source','observed_at_UTC','native'},'exact original SDK wrapper')
+        return page.get('thread',{})
+    require(set(raw)=={'source','observed_at_UTC','native','owner_ready_result'}
+            and raw.get('source')=='official_app_server_readonly_owner_handoff_projection',
+            'original supported native owner-handoff source required')
+    queued=rc._validate_queued(root,rc.exact_identity(raw['owner_ready_result']))
+    ready=g._native_document(root,queued.get('actual_native_completion'));sdk=ready.get('thread',{})
+    require(queued.get('task_id')==identity['task_id'] and queued.get('sender_department')==(owner_role or identity['sender_department'])
+            and queued.get('source_thread_id')==fixed['task_id'] and len(page.get('turns',[]))==1
+            and queued.get('source_turn_id')==page['turns'][0].get('id')
+            and any(t.get('id')==queued['source_turn_id']for t in ready.get('turns',[])),
+            'same normally admitted owner result and genuine SDK source turn')
+    sdk_turn=next(t for t in ready['turns']if t.get('id')==queued['source_turn_id'])
+    for item in page['turns'][0].get('items',[]):
+        if item.get('type')=='agentMessage' and item.get('phase')=='final_answer':continue
+        original=[m for m in sdk_turn.get('items',[])if m.get('id')==item.get('id')]
+        require(len(original)==1 and original[0].get('type')==item.get('type'),
+                'selected original input/ACK/read IDs must exist in the genuine SDK ready source')
+        actual=original[0]
+        if item.get('type')=='commandExecution':
+            require(all(item.get(k)==actual.get(k)for k in ('command','cwd','status','exitCode'))
+                    and _owner_native_output(item)==_owner_native_output(actual),
+                    'canonical read command and output must exactly match the genuine SDK source')
+        elif item.get('type')=='agentMessage':
+            require(item.get('text')==actual.get('text') and item.get('phase')==actual.get('phase'),'exact actual SDK ACK bytes')
+        elif item.get('type')=='userMessage':
+            require(item.get('content')==actual.get('content'),'exact actual SDK original input bytes')
+    canonical=page.get('thread',{})
+    require(canonical.get('id')==sdk.get('id')==fixed['task_id'] and canonical.get('cwd')==sdk.get('cwd')==fixed['cwd']
+            and canonical.get('name',canonical.get('title'))==sdk.get('title')==fixed['title']
+            and canonical.get('hostId') in {None,sdk.get('hostId')}
+            and canonical.get('kind') in {None,sdk.get('kind')}
+            and canonical.get('projectId') in {None,fixed['project_id']},
+            'current canonical history cannot replace or contradict original SDK identity')
+    return sdk
+
+
+def record_observed_owner_handoff(root,record,intake,transport,view):
+    """Metadata only: exact completed reply + normal owner result, never a new send."""
+    import hashlib
+    from department_event_dispatcher import OfficialQueueTransport
+    import result_coordination as rc
+    if not isinstance(transport,OfficialQueueTransport) or not getattr(transport,'history',None):return None
+    routine=view.get('routine_semantics',{});intent=routine.get('routine_reply_intent')
+    if not isinstance(intent,dict):return None
+    if _owner_handoff_entries(root,record['identity']['task_id'],routine['original_decision_record_id'],intent['action_id']):return None
+    ctx=context(root,record,intake);request=doc(root,intent['request']);fixed=w.department_registry(root)[ctx['original_owner']]['chat_binding']
+    directory=w.safe_path(root,intent['directory']);effect_path=directory/'latest-original-effect-readback.json'
+    if not effect_path.exists():return None
+    effect=w.read_json(effect_path);matches=effect.get('matching_native_effects',[])
+    if len(matches)!=1 or matches[0].get('turn_status')!='completed':return None
+    raw_thread=transport.history.call('thread/read',{'threadId':fixed['task_id'],'includeTurns':False})['thread']
+    turns=transport.history.call('thread/turns/list',{'threadId':fixed['task_id'],'limit':30,'sortDirection':'desc','itemsView':'full'})['data']
+    selected=[t for t in turns if t.get('id')==matches[0]['turn_id']]
+    if len(selected)!=1:return None
+    turn=selected[0];items=turn.get('items',[]);payload=doc_bytes_for_owner_handoff(root,request['payload']).decode()
+    incoming=[(i,m)for i,m in enumerate(items)if m.get('type')=='userMessage' and _exact_notification_text_content(m.get('content'),payload)]
+    finals=[(i,m)for i,m in enumerate(items)if m.get('type')=='agentMessage'and m.get('phase')=='final_answer']
+    if len(incoming)!=1 or len(finals)!=1:return None
+    first,last=incoming[0][0],finals[0][0]
+    acks=[(i,m)for i,m in enumerate(items)if first<i<last and m.get('type')=='agentMessage'and m.get('phase')=='commentary'and m.get('text','').strip()]
+    if not acks:return None
+    decisions=[r for r in w._result_handoff_rows(root,ctx['identity']['task_id'])if r.get('record_id')==routine['original_decision_record_id']]
+    require(len(decisions)==1,'one real original decision for observed owner return')
+    decision=decisions[0];source=decision['decision_source'];source_bytes=doc_bytes_for_owner_handoff(root,source)
+    reads=[m for m in items[acks[0][0]+1:last]if m.get('type')=='commandExecution'
+           and _owner_decision_read_matches(root,items,acks[0][0],last,m,source,source_bytes)]
+    if not reads:return None
+    queued=[r for r in w._result_handoff_rows(root,ctx['identity']['task_id'])if r.get('event')=='notification_queued'
+            and r.get('sender_department')==ctx['original_owner'] and r.get('source_thread_id')==fixed['task_id']
+            and r.get('source_turn_id')==turn['id'] and r.get('actual_native_completion')
+            and source in doc(root,r['outbox']).get('evidence',[])]
+    if len(queued)!=1:return None
+    native={'source':'official_app_server_readonly_owner_handoff_projection','observed_at_UTC':dt.datetime.now(dt.timezone.utc).isoformat(),
+        'owner_ready_result':rc.exact_identity(queued[0]),'native':{'schemaVersion':1,'thread':raw_thread,'turns':[
+            {k:v for k,v in turn.items()if k!='items'}|{'items':[m for m in items if m in [incoming[0][1],acks[0][1],reads[0],finals[0][1]]
+                or m.get('type')=='commandExecution' and m.get('command','').find('shasum')>=0
+                and source['path'] in m.get('command','')]}]}}
+    # Selected genuine IDs/bytes suffice; the original-key observer separately
+    # proves unique input across bounded history. Do not copy unrelated outputs.
+    output=directory/'owner-native-handoff';output.mkdir(parents=True,exist_ok=True)
+    def freeze(name,value):
+        data=(json.dumps(value,ensure_ascii=False,sort_keys=True,indent=2)+'\n').encode();path=output/(name+'-'+hashlib.sha256(data).hexdigest()+'.json')
+        if not path.exists():path.write_bytes(data)
+        return w.file_digest(root,str(path.relative_to(root)))
+    native_pin=freeze('actual-native',native);effect_pin=freeze('original-effect',effect)
+    item={'schema':OWNER_HANDOFF_SCHEMA,'task_id':ctx['identity']['task_id'],'identity':ctx['identity'],
+        'notification':request['routine_decision_reply']['notification'] if 'notification'in request.get('routine_decision_reply',{}) else w.file_digest(root,str(rc._notification_path(root,ctx['identity']).relative_to(root))),
+        'received_record_id':intake['record_id'],'decision_record_id':decision['record_id'],'reply_action_id':intent['action_id'],
+        'original_reply_request':intent['request'],'completed_owner_native':native_pin,'original_input_effect_readback':effect_pin,
+        'owner_turn_id':turn['id'],'input_message_id':incoming[0][1]['id'],'ACK_message_id':acks[0][1]['id'],
+        'decision_source_command_id':reads[0]['id'],'final_message_id':finals[0][1]['id']}
+    pin=freeze('source',item)
+    return record_owner_handoff_source(root,item['task_id'],pin['path'])
 
 
 def validate_owner_handoff_source(root, item):
@@ -1935,11 +2051,10 @@ def validate_owner_handoff_source(root, item):
             and checked and sent and finished and checked <= sent <= finished <= now,
             'durable exact original queue request/key/policy/chronology required')
     raw=doc(root,item['completed_owner_native'])
-    require(set(raw) == {'source','observed_at_UTC','native'} and raw.get('source') == 'first_party_read_thread',
-            'actual complete first-party owner source wrapper required')
     page=raw.get('native',{});_review_native_containers(raw);_review_native_containers(page)
     observed=w._parse_observed_at(raw.get('observed_at_UTC'))
-    fixed=w.department_registry(root)[ctx['original_owner']]['chat_binding'];thread=page.get('thread',{})
+    fixed=w.department_registry(root)[ctx['original_owner']]['chat_binding']
+    thread=_owner_handoff_native_identity(root,raw,identity,fixed,ctx['original_owner'])
     require(page.get('schemaVersion') == 1 and all(thread.get(k) == fixed[v] for k,v in
             {'id':'task_id','title':'title','cwd':'cwd','hostId':'host_id'}.items())
             and thread.get('kind') == 'codex' and all(thread.get(k,fixed['project_id']) == fixed['project_id']

@@ -13,6 +13,86 @@ import workflow_control as workflow
 
 
 class RootSerialReadyDiscoveryTest(unittest.TestCase):
+    def test_owned_event_observation_uses_its_actual_action_instead_of_earlier_intake_action(self):
+        request=self.write('owned-request.json',{'task_id':'original-goal-v1','action_id':'actual-owned-action','scope':self.scope})
+        directory=self.root/'owned';directory.mkdir()
+        (directory/'native-queue-intent.json').write_text('{"started_at":"1970-01-01T00:00:00+00:00"}')
+        slot={'request':request,'root_source':workflow.file_digest(self.root,self.record_path),
+              'target_thread_id':self.window,'directory':'owned'}
+        history=Mock();history.call.side_effect=[{'thread':self.thread},{'data':[self.turn]}]
+        seen=[]
+        def inspect(root,proof,record,final):
+            seen.append(record['current_action_id']);raise workflow.WorkflowError('stop before any release effect')
+        with patch.object(consumer,'ROOT_SERIAL_PATH',self.record_path),patch.object(consumer,'_root_slot_read',return_value=slot), \
+                patch.object(consumer,'_observe_original',return_value={'turn_id':self.turn_id}), \
+                patch.object(results,'_validate_queued',return_value=self.queue),patch.object(consumer,'_root_serial_batch',side_effect=inspect):
+            outcome=consumer.observe_root_serial(self.root,SimpleNamespace(history=history))
+        self.assertEqual(seen,['actual-owned-action'])
+        self.assertFalse(outcome['root_release_recorded'])
+
+    def test_canonical_owner_projection_requires_same_normal_ready_sdk_identity(self):
+        fixed={'task_id':self.window,'cwd':str(self.root),'title':'Original owner','host_id':'local','project_id':'original-project'}
+        sdk={'id':self.window,'cwd':str(self.root),'title':fixed['title'],'hostId':'local','kind':'codex'}
+        pin=self.write('ready-sdk.json',{'content':[{'type':'text','text':json.dumps({'thread':sdk,'turns':[self.turn]})}]})
+        queued={**self.identity,'source_thread_id':self.window,'source_turn_id':self.turn_id,'actual_native_completion':pin}
+        raw={'source':'official_app_server_readonly_owner_handoff_projection','observed_at_UTC':dt.datetime.now(dt.timezone.utc).isoformat(),
+             'owner_ready_result':self.identity,'native':{'schemaVersion':1,'thread':{'id':self.window,'cwd':str(self.root),'name':fixed['title']},'turns':[self.turn]}}
+        with patch.object(results,'_validate_queued',return_value=queued):
+            self.assertEqual(consumer._owner_handoff_native_identity(self.root,raw,self.identity,fixed),sdk)
+            collaborator={**self.identity,'sender_department':'another-producer'}
+            self.assertEqual(consumer._owner_handoff_native_identity(self.root,raw,collaborator,fixed,'system-development'),sdk)
+            original_text=raw['native']['turns'][0]['items'][0]['text']
+            raw['native']['turns'][0]['items'][0]['text']='fabricated acknowledgement'
+            with self.assertRaises(workflow.WorkflowError):consumer._owner_handoff_native_identity(self.root,raw,self.identity,fixed)
+            raw['native']['turns'][0]['items'][0]['text']=original_text
+            raw['native']['thread']['hostId']='different-host'
+            with self.assertRaises(workflow.WorkflowError):consumer._owner_handoff_native_identity(self.root,raw,self.identity,fixed)
+            raw['native']['thread'].pop('hostId');queued['source_turn_id']='another-turn'
+            with self.assertRaises(workflow.WorkflowError):consumer._owner_handoff_native_identity(self.root,raw,self.identity,fixed)
+
+    def test_owned_return_metadata_is_derived_from_completed_original_input_without_copying_unrelated_outputs(self):
+        from department_event_dispatcher import OfficialQueueTransport
+        source=self.write('decision.json',{'real':'original decision'});body=(self.root/'decision.json').read_text()
+        message=self.write('reply-message.json',{'original':'reply'});text=(self.root/message['path']).read_text()
+        notice=self.write('notice.json',{'identity':self.identity})
+        request=self.write('reply-request.json',{'task_id':self.identity['task_id'],'payload':message,'routine_decision_reply':{'notification':notice}})
+        directory=self.root/'reply';directory.mkdir()
+        effect={'matching_native_effects':[{'turn_id':self.turn_id,'turn_status':'completed'}]}
+        (directory/'latest-original-effect-readback.json').write_text(json.dumps(effect))
+        def command(identifier,text,output):return {'id':identifier,'type':'commandExecution','status':'completed','exitCode':0,
+            'cwd':str(self.root),'command':text,'aggregatedOutput':output}
+        incoming={'id':'input','type':'userMessage','content':[{'type':'text','text':text}]}
+        ack={'id':'ack','type':'agentMessage','phase':'commentary','text':'Read actual source'}
+        cat=command('cat','cat decision.json',body);digest=command('hash','shasum -a 256 decision.json',source['sha256']+'  decision.json\n')
+        final={'id':'finished','type':'agentMessage','phase':'final_answer','text':'Original owner work returned'}
+        turn={**self.turn,'items':[incoming,ack,cat,digest,command('unrelated','echo unrelated','do not copy this output'),final]}
+        fixed={'task_id':self.window,'cwd':str(self.root),'title':'owner','host_id':'local','project_id':'p'}
+        ctx={'identity':self.identity,'original_owner':'system-development'}
+        decision={'record_id':'actual-decision','decision_source':source}
+        outbox=self.write('owner-return.json',{'evidence':[source]})
+        queued={**self.identity,'event':'notification_queued','source_thread_id':self.window,'source_turn_id':self.turn_id,
+                'actual_native_completion':{'actual':'SDK source'},'outbox':outbox}
+        intent={'request':request,'directory':'reply','action_id':'actual-reply'}
+        view={'routine_semantics':{'routine_reply_intent':intent,'original_decision_record_id':'actual-decision'}}
+        transport=OfficialQueueTransport.__new__(OfficialQueueTransport);transport.history=Mock()
+        transport.history.call.side_effect=[{'thread':{'id':self.window,'name':'owner','cwd':str(self.root)}},{'data':[turn]}]
+        captured=[]
+        def register(root,task,path):
+            item=workflow.read_json(root/path);native=consumer.doc(root,item['completed_owner_native']);captured.append(native)
+            self.assertEqual(item['input_message_id'],'input');self.assertEqual(item['decision_source_command_id'],'cat')
+            self.assertNotIn('do not copy this output',json.dumps(native))
+            return {'result':'recorded','message_sent':False}
+        with patch.object(consumer,'context',return_value=ctx),patch.object(consumer,'_owner_handoff_entries',return_value=[]), \
+                patch.object(workflow,'department_registry',return_value={'system-development':{'chat_binding':fixed}}), \
+                patch.object(workflow,'_result_handoff_rows',return_value=[decision,queued]), \
+                patch.object(consumer,'record_owner_handoff_source',side_effect=register):
+            value=consumer.record_observed_owner_handoff(self.root,{'identity':self.identity},{'record_id':'actual-intake'},transport,view)
+            self.assertFalse(value['message_sent']);self.assertEqual(len(captured),1)
+            effect['matching_native_effects'][0]['turn_status']='inProgress'
+            (directory/'latest-original-effect-readback.json').write_text(json.dumps(effect))
+            self.assertIsNone(consumer.record_observed_owner_handoff(self.root,{'identity':self.identity},{'record_id':'actual-intake'},transport,view))
+            self.assertEqual(transport.history.call.call_count,2)
+
     def test_released_owner_batch_keeps_original_completion_separate_from_new_finite_head(self):
         at=dt.datetime.now(dt.timezone.utc)
         record={'current_state':'completed','current_active_was_new_recovery':False,
