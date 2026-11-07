@@ -1012,6 +1012,29 @@ def workflow_global_chain_errors(root: Path) -> list[str]:
     return list(cached["workflow_global_chain_errors"])
 
 
+def _exact_direct_dispatch_audit(root, event):
+    """Authenticate a durable coordination intent without advancing task state."""
+    try:
+        details=event.get('details',{});pin=details['direct_send_intent']
+        if event.get('state')!='dispatch_intent' or file_digest(root,pin['path'])!=pin:return False
+        intent=read_json(safe_path(root,pin['path']))
+        request_pin=intent['request'];prep_pin=intent['preparation']
+        if file_digest(root,request_pin['path'])!=request_pin or file_digest(root,prep_pin['path'])!=prep_pin:return False
+        request=read_json(safe_path(root,request_pin['path']));prepared=read_json(safe_path(root,prep_pin['path']))
+        policy=prepared['policy_decision']
+        rows=[p for p in read_jsonl(Path(root)/POLICY_DECISIONS)if p.get('decision_id')==intent['policy_decision_id']]
+        return (rows==[policy] and prepared.get('status')=='ready_to_send' and policy.get('status')=='allow'
+                and policy.get('external_permission_issued') is False and request.get('action_class')=='thread_message'
+                and request.get('delivery_mode')=='mcp_direct_send' and prepared.get('payload')==request.get('payload')
+                and file_digest(root,request['payload']['path'])==request['payload']
+                and all(request.get(k)==policy.get(k)for k in ('task_id','action_id','scope','target_thread_id','payload_sha256'))
+                and all(details.get(k)==request.get(k)for k in ('action_id','target_thread_id','target_department'))
+                and event['task_id']==request['task_id']==intent['task_id']
+                and details.get('policy_decision_id')==policy['decision_id']
+                and details.get('actor')==policy.get('department')==request.get('sender_department'))
+    except (WorkflowError,KeyError,TypeError,ValueError,OSError):return False
+
+
 def validate_workflow_events(root: Path, task_id: str) -> list[str]:
     # Only global chain computation over the exact same immutable input is
     # reusable in this request. Task-specific state, identity, authorization,
@@ -1395,6 +1418,8 @@ def validate_workflow_events(root: Path, task_id: str) -> list[str]:
             continue
         if state in EXCEPTION_STATES:
             continue
+        if state == 'dispatch_intent' and _exact_direct_dispatch_audit(root,event):
+            continue  # A verified coordination audit is not a task-state transition.
         if state not in rank:
             invalid.append(f"event_order:unknown_state:{state}")
             continue

@@ -1598,9 +1598,9 @@
     },
     {
       "path": "tools/receipt_obligation_consumer.py",
-      "source_sha256": "a73d54e580ec9a15642a902c2fc19d5bd2f997eb6eaa110288765b6642372ee8",
-      "release_sha256": "4b5bf47625c48cd030064afa4e52e33c7dddc68562505da3ffefe95cd7ffc65c",
-      "bytes": 206307
+      "source_sha256": "d026b0d28c192b2c98b302753902cc05477df22829d2d0e1d108050b3bf88605",
+      "release_sha256": "b067bd610c618747a0850f633f8d0b0ade9db023742c809dcb40cc841ce64c64",
+      "bytes": 206986
     },
     {
       "path": "tools/result_coordination.py",
@@ -2120,9 +2120,9 @@
     },
     {
       "path": "tools/test_root_serial_ready_discovery.py",
-      "source_sha256": "018e00224ee309ba0379944332f719a53f9d6aabad48b851314238cbce3c9fd5",
-      "release_sha256": "018e00224ee309ba0379944332f719a53f9d6aabad48b851314238cbce3c9fd5",
-      "bytes": 21312
+      "source_sha256": "6ca8a13aef6054c31afaefffb383f55ad9c6c693a1b9c0f01aa438ecd4416a9c",
+      "release_sha256": "6ca8a13aef6054c31afaefffb383f55ad9c6c693a1b9c0f01aa438ecd4416a9c",
+      "bytes": 24398
     },
     {
       "path": "tools/test_rotation_completion.py",
@@ -2222,9 +2222,9 @@
     },
     {
       "path": "tools/workflow_control.py",
-      "source_sha256": "19dc3a4afcd1a25f7fe4a40bf97656eea503eb9dd1079e23268fac812af5507a",
-      "release_sha256": "ad24b01ee2123a45ed576e07db0f1a7ad31fb4b63c65c5cc16af065cdb3dd34a",
-      "bytes": 622346
+      "source_sha256": "c1baf343975e02fa5debd3905f9ce076dc8540514d9571783f726f106f52b5b2",
+      "release_sha256": "53cae9c10580f8594216ef91839a4c0d21b6438c5e9802aeb514ff680e25f46b",
+      "bytes": 624370
     }
   ],
   "retired_roles": [],
@@ -2238,5 +2238,5 @@
   "native_owner_evidence_exported": false,
   "owner_preparation_helper_is_non_executable_example": true,
   "runtime_model_source": "examples/task-contract.example.json#goal_delivery_runtime",
-  "fingerprint": "0c6c888f91f43ef32656b67bc282ba40f08f6c1938f8f7bd21173763cf2aebca"
+  "fingerprint": "437b5a29a8f70473ab510b8dbb52c24a23c5637b5d167da26e4824e018d9f1a7"
 }

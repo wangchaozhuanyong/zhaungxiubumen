@@ -1751,6 +1751,28 @@ OWNER_HANDOFF_SCHEMA = 'normal-decision-owner-native-readback/v1'
 OWNER_HANDOFF_EVENT = 'normal_decision_owner_native_handoff_readback'
 
 
+def _owner_decision_read_matches(root, items, ack_index, final_index, command, source, source_bytes):
+    """Accept exact native cat plus a separate same-turn digest, or the original combined command."""
+    import shlex
+    def argv(item):
+        args=shlex.split(item.get('command',''))
+        if len(args)==3 and args[0] in {'/bin/zsh','/bin/bash'} and args[1] in {'-lc','-c'}:
+            args=shlex.split(args[2])
+        return args
+    def successful(item):
+        return (item.get('type')=='commandExecution' and item.get('status')=='completed'
+                and item.get('exitCode')==0 and Path(item.get('cwd','')).resolve()==Path(root).resolve())
+    if not successful(command):return False
+    output=w._completion_execution_output(command)
+    digest=(source['sha256']+'  '+source['path']+'\n').encode()
+    if argv(command)==['shasum','-a','256',source['path'],'&&','cat',source['path']]:
+        return output==digest+source_bytes
+    if argv(command)!=['cat',source['path']] or output!=source_bytes:return False
+    return any(successful(item) and argv(item)==['shasum','-a','256',source['path']]
+               and w._completion_execution_output(item)==digest
+               for item in items[ack_index+1:final_index] if item.get('type')=='commandExecution')
+
+
 def validate_owner_handoff_source(root, item):
     """Revalidate actual SQL/native decision, normal transport and owner work.
 
@@ -1895,15 +1917,8 @@ def validate_owner_handoff_source(root, item):
             'source work must follow ACK and precede same-turn completed final')
     for value in (incoming,ack,command,final):_review_native_containers(value)
     source=decision['decision_source'];source_bytes=doc_bytes_for_owner_handoff(root,source)
-    argv=shlex.split(command.get('command',''))
-    if len(argv) == 3 and argv[0] in {'/bin/zsh','/bin/bash'} and argv[1] in {'-lc','-c'}:argv=shlex.split(argv[2])
-    require(argv == ['shasum','-a','256',source['path'],'&&','cat',source['path']]
-            and command.get('type') == 'commandExecution' and command.get('status') == 'completed'
-            and command.get('exitCode') == 0 and Path(command.get('cwd','')).resolve() == Path(root).resolve(),
-            'successful exact read-only shasum+cat original decision command required; no arbitrary script')
-    output=w._completion_execution_output(command)
-    require(output == (source['sha256']+'  '+source['path']+'\n').encode()+source_bytes,
-            'actual complete command output must contain exact decision digest and original bytes')
+    require(_owner_decision_read_matches(root,items,ack_index,final_index,command,source,source_bytes),
+            'actual complete original same-turn cat/digest evidence required; no arbitrary script')
     return {'state':'normal_owner_decision_handoff_verified','identity':identity,'received_record_id':intake['record_id'],
             'decision_record_id':decision['record_id'],'reply_action_id':intent['action_id'],
             'normal_reply_request':intent['request'],'policy_decision_id':policy['decision_id'],

@@ -13,6 +13,46 @@ import workflow_control as workflow
 
 
 class RootSerialReadyDiscoveryTest(unittest.TestCase):
+    def test_direct_send_intent_is_audit_only_with_all_original_pins_and_policy(self):
+        payload=self.write('payload.json',{'actual':'body'})
+        request={'task_id':'original-goal-v1','action_id':'same-action','scope':self.scope,
+                 'sender_department':'operations','target_department':'system-development',
+                 'target_thread_id':self.window,'payload':payload,'payload_sha256':payload['sha256'],
+                 'action_class':'thread_message','delivery_mode':'mcp_direct_send'}
+        policy={**request,'decision_id':'normal-policy','department':'operations',
+                'status':'allow','external_permission_issued':False}
+        intent={'task_id':request['task_id'],'policy_decision_id':policy['decision_id'],
+                'request':self.write('request.json',request),
+                'preparation':self.write('prepared.json',{'status':'ready_to_send','policy_decision':policy,'payload':payload})}
+        event={'task_id':request['task_id'],'state':'dispatch_intent','details':{
+            'actor':'operations','action_id':request['action_id'],'target_department':request['target_department'],
+            'target_thread_id':self.window,'policy_decision_id':policy['decision_id'],
+            'direct_send_intent':self.write('intent.json',intent)}}
+        with patch.object(workflow,'read_jsonl',return_value=[policy]):
+            self.assertTrue(workflow._exact_direct_dispatch_audit(self.root,event))
+            event['details']['actor']='another-actor'
+            self.assertFalse(workflow._exact_direct_dispatch_audit(self.root,event))
+            event['details']['actor']='operations'
+            (self.root/'payload.json').write_text('changed')
+            self.assertFalse(workflow._exact_direct_dispatch_audit(self.root,event))
+
+    def test_actual_separate_owner_cat_and_hash_are_both_required_same_turn(self):
+        source={'path':'decision.json','sha256':hashlib.sha256(b'{"real":true}').hexdigest()}
+        def command(text,output):
+            return {'type':'commandExecution','status':'completed','exitCode':0,'cwd':str(self.root),
+                    'command':text,'output':{'text':output,'truncated':False}}
+        cat=command('cat decision.json','{"real":true}')
+        digest=command('shasum -a 256 decision.json',source['sha256']+'  decision.json\n')
+        valid=lambda items,c=cat:consumer._owner_decision_read_matches(self.root,items,0,len(items)-1,c,source,b'{"real":true}')
+        self.assertTrue(valid([{},cat,digest,{}]))
+        self.assertFalse(valid([{},cat,{}]))
+        self.assertFalse(valid([digest,cat,{}]))
+        self.assertFalse(valid([{},cat,{**digest,'output':{'text':'wrong','truncated':False}},{}]))
+        self.assertFalse(valid([{},cat,digest,{}],{**cat,'command':'cat other.json'}))
+        self.assertFalse(valid([{},cat,digest,{}],{**cat,'output':{'text':'changed','truncated':False}}))
+        combined=command('shasum -a 256 decision.json && cat decision.json',digest['output']['text']+cat['output']['text'])
+        self.assertTrue(valid([{},combined,{}],combined))
+
     def setUp(self):
         directory = tempfile.TemporaryDirectory(
             dir=Path(__file__).resolve().parents[1] / '.test-tmp')
