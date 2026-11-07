@@ -13,6 +13,44 @@ import workflow_control as workflow
 
 
 class RootSerialReadyDiscoveryTest(unittest.TestCase):
+    def test_existing_decision_event_releases_only_after_exact_input_ack_and_verified_handoff(self):
+        payload=self.write('event-payload.json',{'event':'original'})
+        body=(self.root/payload['path']).read_text()
+        notice=self.write('notice.json',{'actual':'notice'})
+        request={'task_id':'original-goal-v1','action_id':'original-event','scope':self.scope,
+                 'target_thread_id':self.window,'payload':payload,
+                 consumer.MARKER:{'notification':notice,'received_record_id':'actual-intake'}}
+        pin=self.write('original-event.json',request)
+        directory=self.root/'queued';directory.mkdir()
+        (directory/'native-queue-result.json').write_text(json.dumps({'exit_code':0,'finished_at':'1970-01-01T00:00:00+00:00'}))
+        slot={'request':pin,'action_id':request['action_id'],'scope':self.scope,
+              'target_thread_id':self.window,'directory':'queued'}
+        record={'current_active_original_window':self.window,'current_active_turn':self.turn_id,
+                'current_scope':self.scope,'current_action_id':request['action_id']}
+        final={'type':'agentMessage','phase':'final_answer','text':'original-goal-v1 actual-intake original-event'}
+        items=[{'type':'userMessage','content':[{'type':'text','text':body}]},
+               {'type':'agentMessage','phase':'commentary','text':'Taking original event'},final]
+        proof={'routine_receipt':notice,'turns':[{'id':self.turn_id,'startedAt':1,'items':items}]}
+        ctx={'intake':{'record_id':'actual-intake'}}
+        routine={'coordination_obligation_completed':True,'native_owner_handoff':{'coordination_obligation_completed':True},
+                 'original_decision_record_id':'earlier-actual-decision'}
+        with patch.object(consumer,'_root_slot_read',return_value=slot),patch.object(consumer,'_intents',return_value=[{'request':pin}]):
+            value=consumer._root_existing_decision_followthrough(self.root,proof,record,final,ctx,routine)
+            self.assertFalse(value['business_goal_closed'])
+            self.assertEqual(value['decision_record_id'],'earlier-actual-decision')
+            items[0]['content'][0]['text']='another event'
+            with self.assertRaises(workflow.WorkflowError):
+                consumer._root_existing_decision_followthrough(self.root,proof,record,final,ctx,routine)
+            items[0]['content'][0]['text']=body
+            routine['native_owner_handoff']['coordination_obligation_completed']=False
+            with self.assertRaises(workflow.WorkflowError):
+                consumer._root_existing_decision_followthrough(self.root,proof,record,final,ctx,routine)
+        routine['native_owner_handoff']['coordination_obligation_completed']=True
+        record['current_release_observer']={'service_origin':consumer.SERVICE_ORIGIN,'normal_intent_request':pin}
+        with patch.object(consumer,'_root_slot_read',return_value=None),patch.object(consumer,'_intents',return_value=[{'request':pin,'directory':'queued'}]):
+            value=consumer._root_existing_decision_followthrough(self.root,proof,record,final,ctx,routine)
+            self.assertEqual(value['kind'],'original_event_existing_decision_owner_handoff')
+
     def test_direct_send_intent_is_audit_only_with_all_original_pins_and_policy(self):
         payload=self.write('payload.json',{'actual':'body'})
         request={'task_id':'original-goal-v1','action_id':'same-action','scope':self.scope,

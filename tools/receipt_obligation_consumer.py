@@ -901,6 +901,48 @@ def _observe_hq_intake_serial(root, transport, record, before, slot):
             'root_release_recorded':True,'release_proof':pin,'business_goal_closed':False,'external_permission_issued':False}
 
 
+def _root_existing_decision_followthrough(root, proof, record, final, ctx, routine):
+    """A real event can finish an earlier decision's verified owner handoff."""
+    slot=_root_slot_read(root)
+    if slot is None:
+        observer=record.get('current_release_observer',{});pin=observer.get('normal_intent_request')
+        original=doc(root,pin)
+        require(isinstance(original.get('task_id'),str) and isinstance(original.get('action_id'),str),
+                'preserved normal request identity required')
+        matches=_intents(root,original['task_id'],original['action_id'])
+        require(observer.get('service_origin')==SERVICE_ORIGIN and len(matches)==1
+                and matches[0].get('request')==pin,'same preserved normal event intent after release')
+        slot={'request':pin,'action_id':original['action_id'],'scope':original['scope'],
+              'target_thread_id':original['target_thread_id'],'directory':matches[0]['directory']}
+    require(isinstance(slot,dict) and slot.get('target_thread_id')==record['current_active_original_window']
+            and slot.get('scope')==record['current_scope'] and slot.get('action_id')==record.get('current_action_id'),
+            'exact current original followthrough slot required')
+    request=doc(root,slot['request']);marker=request.get(MARKER,{})
+    intents=_intents(root,request['task_id'],request['action_id'])
+    require(len(intents)==1 and intents[0].get('request')==slot['request']
+            and marker.get('received_record_id')==ctx['intake']['record_id']
+            and marker.get('notification')==proof.get('routine_receipt')
+            and routine.get('coordination_obligation_completed') is True
+            and routine.get('native_owner_handoff',{}).get('coordination_obligation_completed') is True,
+            'actual original receipt and registered native owner handoff required')
+    turn=proof['turns'][0];items=turn.get('items',[])
+    inputs=[(i,m)for i,m in enumerate(items)if m.get('type')=='userMessage'
+            and _exact_notification_text_content(m.get('content'),doc_bytes_for_owner_handoff(root,request['payload']).decode())]
+    finals=[i for i,m in enumerate(items)if m==final]
+    require(turn.get('id')==record['current_active_turn'] and len(inputs)==len(finals)==1
+            and any(m.get('type')=='agentMessage' and m.get('phase')=='commentary' and m.get('text','').strip()
+                    for m in items[inputs[0][0]+1:finals[0]])
+            and all(x in final['text']for x in (request['task_id'],ctx['intake']['record_id'],request['action_id'])),
+            'actual exact event input, ACK and task/receipt/action-bound finite final required')
+    effect=doc(root,w.file_digest(root,str((w.safe_path(root,slot['directory'])/'native-queue-result.json').relative_to(root))))
+    finished=w._parse_observed_at(effect.get('finished_at'))
+    require(finished is not None and effect.get('exit_code')==0 and turn['startedAt']>=finished.timestamp(),
+            'original event must follow its actual known queue result')
+    return {'kind':'original_event_existing_decision_owner_handoff','received_record_id':ctx['intake']['record_id'],
+            'decision_record_id':routine['original_decision_record_id'],'original_action_id':request['action_id'],
+            'coordination_obligation_only':True,'business_goal_closed':False,'external_permission_issued':False}
+
+
 def _root_serial_batch(root, proof, record, final):
     """A maintenance-only final cannot release a different business batch."""
     import result_coordination as rc
@@ -974,6 +1016,9 @@ def _root_serial_batch(root, proof, record, final):
             'DATA_MISSING same root actor/scope and normal decision final')
     import goal_delivery_runtime as g
     native = g._native_document(root,decisions[0]['actual_decision_native'])
+    if (record['current_state']=='completed' and view.get('state')=='routine_followthrough_proven'
+            and routine.get('state')=='routine_native_owner_handoff_proven'):
+        return _root_existing_decision_followthrough(root,proof,record,final,ctx,routine)
     require(any(t.get('id') == turn for t in native.get('turns',[])),'root routine decision belongs to another turn')
     if record['current_state'] == 'completed':
         require(view.get('state') == 'routine_followthrough_proven','root routine batch still lacks actual followthrough')
@@ -1217,7 +1262,7 @@ def observe_root_serial(root, transport, *, store=None, completion_event=None, p
         # The committed queue source message id/hash, not marker typography,
         # authenticates a producer batch in _root_same_turn_queued_report.
         proof = {'source':'official_app_server_readonly_history','service_origin':SERVICE_ORIGIN,
-                 'thread':thread,'turns':[{k:v for k,v in turn.items() if k != 'items'} | {'items':[m for m in turn.get('items',[]) if m == final or (m.get('type') == 'agentMessage' and m.get('phase') == 'commentary')]}]}
+                 'thread':thread,'turns':[{k:v for k,v in turn.items() if k != 'items'} | {'items':[m for m in turn.get('items',[]) if m == final or m.get('type')=='userMessage' or (m.get('type') == 'agentMessage' and m.get('phase') == 'commentary')]}]}
         candidates = []
         if record.get('current_release_native_proof'):
             try:
