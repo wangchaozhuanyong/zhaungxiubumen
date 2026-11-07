@@ -140,12 +140,18 @@ class RootSerialReadyDiscoveryTest(unittest.TestCase):
                {'type':'agentMessage','phase':'commentary','text':'Taking original event'},final]
         proof={'routine_receipt':notice,'turns':[{'id':self.turn_id,'startedAt':1,'items':items}]}
         ctx={'intake':{'record_id':'actual-intake'},'identity':{'task_id':request['task_id']}}
-        routine={'coordination_obligation_completed':True,'native_owner_handoff':{'coordination_obligation_completed':True},
+        routine={'state':'routine_native_owner_handoff_proven','coordination_obligation_completed':True,'native_owner_handoff':{'coordination_obligation_completed':True},
                  'original_decision_record_id':'earlier-actual-decision'}
         with patch.object(consumer,'_root_slot_read',return_value=slot),patch.object(consumer,'_intents',return_value=[{'request':pin}]):
             value=consumer._root_existing_decision_followthrough(self.root,proof,record,final,ctx,routine)
             self.assertFalse(value['business_goal_closed'])
             self.assertEqual(value['decision_record_id'],'earlier-actual-decision')
+            causal={'state':'routine_causal_followthrough_proven','original_decision_record_id':'earlier-actual-decision',
+                    'causal_successor':{'state':'causal_owner_successor_proven','original_receipt_obligation_transferred':True,'business_goal_closed':False}}
+            value=consumer._root_existing_decision_followthrough(self.root,proof,record,final,ctx,causal)
+            self.assertFalse(value['business_goal_closed'])
+            causal['causal_successor']['original_receipt_obligation_transferred']=False
+            with self.assertRaises(workflow.WorkflowError):consumer._root_existing_decision_followthrough(self.root,proof,record,final,ctx,causal)
             items[0]['content'][0]['text']='another event'
             with self.assertRaises(workflow.WorkflowError):
                 consumer._root_existing_decision_followthrough(self.root,proof,record,final,ctx,routine)

@@ -923,11 +923,17 @@ def _root_existing_decision_followthrough(root, proof, record, final, ctx, routi
             'exact current original followthrough slot required')
     request=doc(root,slot['request']);marker=request.get(MARKER,{})
     intents=_intents(root,request['task_id'],request['action_id'])
+    native=(routine.get('state')=='routine_native_owner_handoff_proven'
+        and routine.get('coordination_obligation_completed') is True
+        and routine.get('native_owner_handoff',{}).get('coordination_obligation_completed') is True)
+    causal=(routine.get('state')=='routine_causal_followthrough_proven'
+        and routine.get('causal_successor',{}).get('state')=='causal_owner_successor_proven'
+        and routine['causal_successor'].get('original_receipt_obligation_transferred') is True
+        and routine['causal_successor'].get('business_goal_closed') is False)
     require(len(intents)==1 and intents[0].get('request')==slot['request']
             and marker.get('received_record_id')==ctx['intake']['record_id']
             and marker.get('notification')==proof.get('routine_receipt')
-            and routine.get('coordination_obligation_completed') is True
-            and routine.get('native_owner_handoff',{}).get('coordination_obligation_completed') is True,
+            and (native or causal),
             'actual original receipt and registered native owner handoff required')
     turn=proof['turns'][0];items=turn.get('items',[])
     inputs=[(i,m)for i,m in enumerate(items)if m.get('type')=='userMessage'
@@ -1021,7 +1027,7 @@ def _root_serial_batch(root, proof, record, final):
     import goal_delivery_runtime as g
     native = g._native_document(root,decisions[0]['actual_decision_native'])
     if (record['current_state']=='completed' and view.get('state')=='routine_followthrough_proven'
-            and routine.get('state')=='routine_native_owner_handoff_proven'):
+            and routine.get('state') in {'routine_native_owner_handoff_proven','routine_causal_followthrough_proven'}):
         return _root_existing_decision_followthrough(root,proof,record,final,ctx,routine)
     require(any(t.get('id') == turn for t in native.get('turns',[])),'root routine decision belongs to another turn')
     if record['current_state'] == 'completed':
